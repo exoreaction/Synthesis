@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import io.exoreaction.synthesis.org.DiscoveredOrganization;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -339,6 +341,131 @@ class OrganizationScannerTest {
         assertTrue(keywords.contains("TestOrg"));
         assertTrue(keywords.contains("ClientA"));
         assertTrue(keywords.contains("ProductX"));
+    }
+
+    // --- discoverWithConfidence ---
+
+    @Test
+    void discoverWithConfidence_returnsDiscoveries() throws IOException {
+        createOrgDirectory("CompanyA", true, true, true, true, false);
+        createOrgDirectory("CompanyB", true, false, true, true, false);
+
+        List<DiscoveredOrganization> discoveries = scanner.discoverWithConfidence();
+
+        assertFalse(discoveries.isEmpty());
+        assertTrue(discoveries.size() >= 2);
+    }
+
+    @Test
+    void discoverWithConfidence_sortedByConfidenceDescending() throws IOException {
+        createOrgDirectory("HighConf", true, true, true, true, true);
+        // Create a lower-confidence org (just clients + business = 4)
+        Path lowConf = tempDir.resolve("LowConf");
+        Files.createDirectories(lowConf.resolve("clients"));
+        Files.createDirectories(lowConf.resolve("business"));
+
+        List<DiscoveredOrganization> discoveries = scanner.discoverWithConfidence();
+
+        assertTrue(discoveries.size() >= 2);
+        assertTrue(discoveries.get(0).confidence() >= discoveries.get(1).confidence());
+    }
+
+    @Test
+    void discoverWithConfidence_includesSignals() throws IOException {
+        createOrgDirectory("TestCo", true, false, true, false, false);
+
+        List<DiscoveredOrganization> discoveries = scanner.discoverWithConfidence();
+
+        assertFalse(discoveries.isEmpty());
+        String signals = discoveries.get(0).signals();
+        assertNotNull(signals);
+        assertFalse(signals.isEmpty());
+    }
+
+    @Test
+    void discoverWithConfidence_includesConfidenceScore() throws IOException {
+        createOrgDirectory("TestCo", true, true, true, true, true);
+
+        List<DiscoveredOrganization> discoveries = scanner.discoverWithConfidence();
+
+        assertFalse(discoveries.isEmpty());
+        assertTrue(discoveries.get(0).confidence() > 0);
+    }
+
+    @Test
+    void discoverWithConfidence_normalizedConfidenceInRange() throws IOException {
+        createOrgDirectory("TestCo", true, true, true, true, true);
+
+        List<DiscoveredOrganization> discoveries = scanner.discoverWithConfidence();
+
+        assertFalse(discoveries.isEmpty());
+        int normalized = discoveries.get(0).normalizedConfidence();
+        assertTrue(normalized >= 1 && normalized <= 10);
+    }
+
+    // --- buildSignalsSummary ---
+
+    @Test
+    void buildSignalsSummary_includesReadme() throws IOException {
+        Path orgDir = createOrgDirectory("TestCo", true, false, false, false, false);
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY, orgDir);
+
+        String signals = scanner.buildSignalsSummary(orgDir, org);
+
+        assertTrue(signals.contains("README.md"));
+    }
+
+    @Test
+    void buildSignalsSummary_includesClientCount() throws IOException {
+        Path orgDir = createOrgDirectory("TestCo", false, false, true, false, false);
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY, orgDir);
+        org.addClient(new Client("A", "TestCo", tempDir.resolve("a"),
+                ClientStatus.ACTIVE, "A"));
+        org.addClient(new Client("B", "TestCo", tempDir.resolve("b"),
+                ClientStatus.ACTIVE, "B"));
+
+        String signals = scanner.buildSignalsSummary(orgDir, org);
+
+        assertTrue(signals.contains("2 clients"));
+    }
+
+    @Test
+    void buildSignalsSummary_includesBusinessDir() throws IOException {
+        Path orgDir = createOrgDirectory("TestCo", false, false, false, false, false);
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY, orgDir);
+
+        String signals = scanner.buildSignalsSummary(orgDir, org);
+
+        assertTrue(signals.contains("business/ directory"));
+    }
+
+    // --- countFiles ---
+
+    @Test
+    void countFiles_countsRegularFiles() throws IOException {
+        Path dir = tempDir.resolve("countTest");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("file1.txt"), "a");
+        Files.writeString(dir.resolve("file2.md"), "b");
+        Files.createDirectories(dir.resolve("sub"));
+        Files.writeString(dir.resolve("sub/file3.txt"), "c");
+
+        long count = scanner.countFiles(dir, 2);
+
+        assertEquals(3, count);
+    }
+
+    @Test
+    void countFiles_excludesHiddenFiles() throws IOException {
+        Path dir = tempDir.resolve("hiddenTest");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("visible.txt"), "a");
+        Files.createDirectories(dir.resolve(".hidden"));
+        Files.writeString(dir.resolve(".hidden/secret.txt"), "b");
+
+        long count = scanner.countFiles(dir, 2);
+
+        assertEquals(1, count);
     }
 
     // --- Helper methods ---

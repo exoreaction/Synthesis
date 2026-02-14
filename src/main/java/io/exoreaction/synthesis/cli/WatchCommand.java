@@ -9,6 +9,8 @@ import io.exoreaction.synthesis.core.FileMetadata;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.org.OrganizationRegistry;
+import io.exoreaction.synthesis.skills.SkillGenerator;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
 import picocli.CommandLine.Command;
@@ -66,6 +68,13 @@ public class WatchCommand implements Callable<Integer> {
     )
     private int debounceMs;
 
+    @Option(
+            names = {"--learn"},
+            description = "Regenerate Claude Code skills when organizational data changes",
+            defaultValue = "false"
+    )
+    private boolean learn;
+
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicInteger eventCount = new AtomicInteger(0);
     private final AtomicInteger indexedCount = new AtomicInteger(0);
@@ -105,6 +114,9 @@ public class WatchCommand implements Callable<Integer> {
             System.out.println();
             AnsiOutput.printInfo("Watching workspace: " + config.getWorkspace().getName());
             AnsiOutput.printInfo("Root: " + workspaceRoot);
+            if (learn) {
+                AnsiOutput.printInfo("Learning mode enabled - will regenerate skills on org changes");
+            }
             AnsiOutput.printInfo("Press Ctrl+C to stop.");
             System.out.println();
 
@@ -286,8 +298,75 @@ public class WatchCommand implements Callable<Integer> {
                         " Indexed " + AnsiOutput.bold(String.valueOf(changes.size())) +
                         " change" + (changes.size() != 1 ? "s" : ""));
             }
+
+            // Regenerate skills if learn mode and organizational files changed
+            if (learn) {
+                boolean orgFilesChanged = changes.keySet().stream()
+                        .anyMatch(p -> isOrganizationalFile(p, workspaceRoot));
+                if (orgFilesChanged) {
+                    regenerateSkills(workspaceRoot);
+                }
+            }
         } catch (IOException e) {
             AnsiOutput.printError("Index update failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Checks if a file change is related to organizational data.
+     * Triggers skill regeneration for changes to client/product directories,
+     * pipeline files, README files in org directories, etc.
+     */
+    boolean isOrganizationalFile(Path file, Path root) {
+        String relative = root.relativize(file).toString();
+        String fileName = file.getFileName().toString();
+
+        // Direct org data file
+        if (relative.equals(".synthesis/organizations.json")) return true;
+
+        // README.md in first-level directories (org directories)
+        if (fileName.equals("README.md")) {
+            Path parent = file.getParent();
+            if (parent != null && parent.getParent() != null
+                    && parent.getParent().equals(root)) {
+                return true;
+            }
+        }
+
+        // Pipeline and proof point files
+        if (fileName.equals("PIPELINE-STATUS.md")) return true;
+        if (fileName.equals("PROOF-POINTS.md")) return true;
+        if (fileName.equals("CODEBASE-INDEX.md")) return true;
+
+        // Client directory changes (*/clients/*)
+        if (relative.contains("/clients/")) return true;
+
+        // Product directory changes (*/products/*)
+        if (relative.contains("/products/")) return true;
+
+        return false;
+    }
+
+    /**
+     * Regenerates Claude Code skills from current organizational data.
+     */
+    void regenerateSkills(Path workspaceRoot) {
+        try {
+            OrganizationRegistry registry = new OrganizationRegistry(workspaceRoot);
+            registry.load();
+
+            if (!registry.hasOrganizations()) return;
+
+            SkillGenerator generator = new SkillGenerator(workspaceRoot, registry);
+            SkillGenerator.GenerationResult result = generator.generateAll();
+
+            System.out.println("  " + AnsiOutput.dim(timestamp()) +
+                    " " + AnsiOutput.cyan("LEARN") +
+                    " Regenerated " + result.totalFiles() + " skills");
+        } catch (Exception e) {
+            System.err.println("  " + AnsiOutput.dim(timestamp()) +
+                    " " + AnsiOutput.red("ERR") +
+                    " Skill regeneration failed: " + e.getMessage());
         }
     }
 

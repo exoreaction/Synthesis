@@ -34,6 +34,8 @@ import java.util.concurrent.Callable;
  *   synthesis org scan             Auto-discover organizational structure
  *   synthesis org list             Show companies, clients, products
  *   synthesis org classify         Classify Downloads files by organization
+ *   synthesis learn                Generate Claude Code skills from workspace knowledge
+ *   synthesis learn --install      Install skills to ~/.claude/skills/
  * </pre>
  *
  * @author Thor Henning Hetland / eXOReaction
@@ -59,7 +61,8 @@ import java.util.concurrent.Callable;
                 MaintainCommand.class,
                 ExportCommand.class,
                 StatusCommand.class,
-                OrgCommand.class
+                OrgCommand.class,
+                LearnCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {

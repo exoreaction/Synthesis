@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Stream;
 
 /**
  * Auto-discovers organizational structure from a workspace directory.
@@ -65,6 +66,90 @@ public class OrganizationScanner {
 
         registry.setLastScanTime(Instant.now());
         return registry;
+    }
+
+    /**
+     * Discovers all potential organizations with confidence scores.
+     *
+     * <p>Unlike {@link #scan()}, this method returns ALL potential organizations
+     * including those below the confidence threshold, along with their scores
+     * and detection signals. Used for interactive init where the user can
+     * review and confirm/reject each discovery.
+     *
+     * @return list of discovered organizations with confidence metadata,
+     *         sorted by confidence (highest first)
+     */
+    public List<DiscoveredOrganization> discoverWithConfidence() throws IOException {
+        List<DiscoveredOrganization> results = new ArrayList<>();
+
+        try (DirectoryStream<Path> dirs = Files.newDirectoryStream(workspaceRoot)) {
+            for (Path dir : dirs) {
+                if (!Files.isDirectory(dir)) continue;
+
+                String dirName = dir.getFileName().toString();
+                if (dirName.startsWith(".") || SKIP_DIRECTORIES.contains(dirName)) continue;
+
+                int confidence = computeConfidence(dir);
+                if (confidence >= CONFIDENCE_THRESHOLD) {
+                    Organization org = discoverOrganization(dir);
+                    if (org != null) {
+                        String signals = buildSignalsSummary(dir, org);
+                        results.add(new DiscoveredOrganization(org, confidence, signals));
+                    }
+                }
+            }
+        }
+
+        // Sort by confidence descending, then by name
+        results.sort(Comparator.comparingInt(DiscoveredOrganization::confidence).reversed()
+                .thenComparing(d -> d.organization().getName()));
+
+        return results;
+    }
+
+    /**
+     * Builds a human-readable summary of detection signals for a directory.
+     */
+    String buildSignalsSummary(Path dir, Organization org) {
+        List<String> signals = new ArrayList<>();
+
+        if (Files.exists(dir.resolve("CODEBASE-INDEX.md"))) signals.add("CODEBASE-INDEX.md");
+        if (Files.isDirectory(dir.resolve("clients"))) {
+            int count = org.getClients().size();
+            signals.add(count + " client" + (count != 1 ? "s" : ""));
+        }
+        if (Files.isDirectory(dir.resolve("products"))) {
+            int count = org.getProducts().size();
+            signals.add(count + " product" + (count != 1 ? "s" : ""));
+        }
+        if (Files.isDirectory(dir.resolve("business"))) signals.add("business/ directory");
+        if (Files.isDirectory(dir.resolve("marketing"))) signals.add("marketing/ directory");
+        if (Files.isDirectory(dir.resolve("methodology"))) signals.add("methodology/ directory");
+        if (Files.isDirectory(dir.resolve("media"))) signals.add("media/ directory");
+        if (Files.exists(dir.resolve("README.md"))) signals.add("README.md");
+
+        return String.join(", ", signals);
+    }
+
+    /**
+     * Counts the total number of files in a directory (non-recursive, up to limit).
+     * Used for workspace statistics during init.
+     *
+     * @param dir the directory to count
+     * @param maxDepth maximum depth to scan (0 = top-level only)
+     * @return approximate file count
+     */
+    public long countFiles(Path dir, int maxDepth) {
+        try (Stream<Path> stream = Files.walk(dir, maxDepth)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(p -> !p.toString().contains("/."))
+                    .filter(p -> !p.toString().contains("/node_modules/"))
+                    .filter(p -> !p.toString().contains("/target/"))
+                    .count();
+        } catch (IOException e) {
+            return -1;
+        }
     }
 
     /**
