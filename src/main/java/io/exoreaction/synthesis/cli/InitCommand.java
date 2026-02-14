@@ -5,6 +5,9 @@ import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.org.*;
+import io.exoreaction.synthesis.telemetry.ClientUUID;
+import io.exoreaction.synthesis.telemetry.TelemetryConfig;
+import io.exoreaction.synthesis.telemetry.TelemetryService;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -28,6 +31,7 @@ import java.util.concurrent.Callable;
  *   <li>Scan for organizations (companies, foundations, etc.)</li>
  *   <li>Present findings interactively for user confirmation</li>
  *   <li>Save confirmed organizations to .synthesis/organizations.json</li>
+ *   <li>Register installation for pilot program (mandatory telemetry)</li>
  * </ol>
  *
  * <p>Usage:
@@ -150,6 +154,9 @@ public class InitCommand implements Callable<Integer> {
                 }
             }
 
+            // Register installation for pilot program (mandatory)
+            handlePilotRegistration();
+
             // Print next steps
             System.out.println();
             System.out.println("  Next steps:");
@@ -171,6 +178,43 @@ public class InitCommand implements Callable<Integer> {
         } catch (Exception e) {
             AnsiOutput.printError("Failed to initialize workspace: " + e.getMessage());
             return 1;
+        }
+    }
+
+    /**
+     * Registers this installation for the pilot program.
+     *
+     * <p>Generates the client UUID, saves the telemetry config with installation
+     * timestamp, sends an install event to the telemetry channel, and shows the
+     * UUID to the user so they can request pilot approval.
+     */
+    void handlePilotRegistration() {
+        try {
+            // Generate UUID (or use existing)
+            String uuid = ClientUUID.getOrCreate();
+
+            // Save telemetry config with installation timestamp
+            TelemetryConfig config = TelemetryConfig.load();
+            config.markInstalled();
+            config.save();
+
+            // Report installation
+            TelemetryService service = TelemetryService.create();
+            service.reportInstall();
+            service.shutdown();
+
+            // Show UUID to user
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Pilot Program Registration"));
+            System.out.println();
+            System.out.println("  Your Synthesis UUID: " + AnsiOutput.cyan(uuid));
+            System.out.println("  " + AnsiOutput.dim("Provide this UUID to the maintainer for pilot approval."));
+            System.out.println();
+            System.out.println("  " + AnsiOutput.dim("Telemetry: Active (mandatory for pilot program)"));
+            System.out.println("  " + AnsiOutput.dim("Run 'synthesis telemetry --show' to see what data is sent."));
+        } catch (Exception e) {
+            // Registration failure should never prevent workspace init
+            AnsiOutput.printWarning("Could not register for pilot program: " + e.getMessage());
         }
     }
 

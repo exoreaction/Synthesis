@@ -1,6 +1,9 @@
 package io.exoreaction.synthesis;
 
 import io.exoreaction.synthesis.cli.*;
+import io.exoreaction.synthesis.telemetry.ApprovalService;
+import io.exoreaction.synthesis.telemetry.ClientUUID;
+import io.exoreaction.synthesis.telemetry.TelemetryService;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -36,6 +39,7 @@ import java.util.concurrent.Callable;
  *   synthesis org classify         Classify Downloads files by organization
  *   synthesis learn                Generate Claude Code skills from workspace knowledge
  *   synthesis learn --install      Install skills to ~/.claude/skills/
+ *   synthesis telemetry            View pilot status and telemetry info
  * </pre>
  *
  * @author Thor Henning Hetland / eXOReaction
@@ -62,7 +66,8 @@ import java.util.concurrent.Callable;
                 ExportCommand.class,
                 StatusCommand.class,
                 OrgCommand.class,
-                LearnCommand.class
+                LearnCommand.class,
+                TelemetryCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -91,12 +96,78 @@ public class SynthesisApp implements Callable<Integer> {
     }
 
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new SynthesisApp())
-                .setExecutionExceptionHandler((ex, cmd, parseResult) -> {
-                    System.err.println("Error: " + ex.getMessage());
-                    return 1;
-                })
-                .execute(args);
+        // Initialize telemetry (async, non-blocking, mandatory)
+        TelemetryService telemetry = TelemetryService.create();
+
+        // Check pilot approval status and show nag if not approved
+        checkPilotApproval(telemetry.getClientUuid());
+
+        // Determine the command name for telemetry tracking
+        String commandName = args.length > 0 ? args[0] : "help";
+        long startTime = System.currentTimeMillis();
+
+        int exitCode;
+        try {
+            exitCode = new CommandLine(new SynthesisApp())
+                    .setExecutionExceptionHandler((ex, cmd, parseResult) -> {
+                        System.err.println("Error: " + ex.getMessage());
+                        return 1;
+                    })
+                    .execute(args);
+        } catch (Exception e) {
+            exitCode = 1;
+        }
+
+        // Report command execution (async, non-blocking, mandatory)
+        long durationMs = System.currentTimeMillis() - startTime;
+        telemetry.reportCommand(commandName, exitCode == 0, durationMs);
+
+        // Allow pending telemetry events to be sent (max 2 seconds)
+        telemetry.shutdown();
+
         System.exit(exitCode);
+    }
+
+    /**
+     * Checks pilot approval status and prints appropriate message.
+     *
+     * <p>Behavior:
+     * <ul>
+     *   <li>If approved: show welcome message (once per approval)</li>
+     *   <li>If not approved: show 1-line nag message (non-blocking)</li>
+     *   <li>If approval system not configured: silently skip</li>
+     * </ul>
+     *
+     * <p>Triggers a daily refresh of approval status (first command after 24 hours).
+     * This method never throws or blocks command execution.
+     */
+    private static void checkPilotApproval(String clientUuid) {
+        try {
+            if (clientUuid == null || "unknown".equals(clientUuid)) {
+                return;
+            }
+
+            ApprovalService approval = ApprovalService.create();
+
+            // If approval system is not configured, skip silently
+            if (!approval.shouldRefresh() && approval.getCachedApproval() == null) {
+                return;
+            }
+
+            boolean isApproved = approval.isApproved(clientUuid);
+
+            if (isApproved) {
+                // Show welcome message once after approval
+                if (approval.shouldShowWelcome()) {
+                    System.err.println("  \u2713 Pilot approved -- Thank you for participating!");
+                }
+            } else {
+                // Nag message for unapproved installations (1 line, non-intrusive)
+                System.err.println("  \u26A0\uFE0F  Synthesis pilot approval pending. UUID: "
+                        + clientUuid + ". Contact maintainer for access.");
+            }
+        } catch (Exception e) {
+            // Approval check should never prevent command execution
+        }
     }
 }
