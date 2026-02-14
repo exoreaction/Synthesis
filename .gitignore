@@ -32,3 +32,6 @@ src/main/resources/static/api/connector/connector-json/
 hs_err_pid*
 replay_pid*
 /target/
+
+# Synthesis workspace data (user-specific)
+.synthesis/

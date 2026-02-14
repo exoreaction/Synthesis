@@ -57,4 +57,13 @@ public final class DocumentFields {
 
     /** Structural description of the file. */
     public static final String STRUCTURE = "structure";
+
+    /** Repository identifier for multi-repo workspaces. */
+    public static final String REPOSITORY = "repository";
+
+    /** Organization identifier for multi-org workspaces (e.g., "eXOReaction"). */
+    public static final String ORGANIZATION = "organization";
+
+    /** Client identifier for client-scoped files (e.g., "SpareBank1"). */
+    public static final String CLIENT = "client";
 }

@@ -204,6 +204,116 @@ public class SearchIndex implements Closeable {
     }
 
     /**
+     * Searches the index with organization and client filters.
+     *
+     * @param queryString    the search query
+     * @param fileTypeFilter optional file type filter
+     * @param repoFilter     optional repository filter
+     * @param orgFilter      optional organization filter (e.g., "eXOReaction")
+     * @param clientFilter   optional client filter (e.g., "SpareBank1")
+     * @param maxResults     maximum results to return
+     * @return ranked search results
+     */
+    public List<SearchResult> search(String queryString, String fileTypeFilter,
+                                      String repoFilter, String orgFilter,
+                                      String clientFilter, int maxResults) throws IOException {
+        if (queryString == null || queryString.isBlank()) {
+            return List.of();
+        }
+
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+
+            // Content query
+            Query contentQuery = buildQuery(queryString);
+            booleanQuery.add(contentQuery, BooleanClause.Occur.MUST);
+
+            // File type filter
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, fileTypeFilter.toUpperCase())),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Repository filter
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Organization filter
+            if (orgFilter != null && !orgFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.ORGANIZATION, orgFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Client filter
+            if (clientFilter != null && !clientFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.CLIENT, clientFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        } catch (ParseException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Searches the index with an optional repository filter.
+     */
+    public List<SearchResult> search(String queryString, String fileTypeFilter,
+                                      String repoFilter, int maxResults) throws IOException {
+        if (queryString == null || queryString.isBlank()) {
+            return List.of();
+        }
+
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+
+            // Content query
+            Query contentQuery = buildQuery(queryString);
+            booleanQuery.add(contentQuery, BooleanClause.Occur.MUST);
+
+            // File type filter
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                String filterValue = fileTypeFilter.toUpperCase();
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, filterValue)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Repository filter
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        } catch (ParseException e) {
+            return List.of();
+        }
+    }
+
+    /**
      * Lists all documents in the index, optionally filtered by file type.
      * Used by the export command to enumerate the entire index.
      *
@@ -223,6 +333,83 @@ public class SearchIndex implements Closeable {
             }
 
             TopDocs topDocs = searcher.search(query, maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        }
+    }
+
+    /**
+     * Lists all documents in the index, optionally filtered by file type and repository.
+     *
+     * @param fileTypeFilter optional file type filter (e.g., "CODE"), or null for all
+     * @param repoFilter     optional repository filter, or null for all
+     * @param maxResults     maximum results to return
+     * @return list of all matching documents
+     */
+    public List<SearchResult> listAll(String fileTypeFilter, String repoFilter, int maxResults) throws IOException {
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, fileTypeFilter.toUpperCase())),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            booleanQuery.add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST);
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        }
+    }
+
+    /**
+     * Lists all documents with organization and client filters.
+     */
+    public List<SearchResult> listAll(String fileTypeFilter, String repoFilter,
+                                       String orgFilter, String clientFilter,
+                                       int maxResults) throws IOException {
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+            booleanQuery.add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST);
+
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, fileTypeFilter.toUpperCase())),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (orgFilter != null && !orgFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.ORGANIZATION, orgFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (clientFilter != null && !clientFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.CLIENT, clientFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
 
             List<SearchResult> results = new ArrayList<>();
             for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
@@ -282,7 +469,8 @@ public class SearchIndex implements Closeable {
                 doc.get(DocumentFields.SUMMARY) != null ? doc.get(DocumentFields.SUMMARY) : "",
                 doc.get(DocumentFields.HEADINGS) != null ? doc.get(DocumentFields.HEADINGS) : "",
                 doc.get(DocumentFields.STRUCTURE) != null ? doc.get(DocumentFields.STRUCTURE) : "",
-                sizeBytes
+                sizeBytes,
+                doc.get(DocumentFields.REPOSITORY)
         );
     }
 

@@ -19,9 +19,21 @@ import java.util.concurrent.Callable;
  *   synthesis init [directory]     Initialize a workspace
  *   synthesis scan                 Scan and index files
  *   synthesis search <query>       Search the index
+ *   synthesis ask <question>       AI-powered Q&A about your workspace
+ *   synthesis analyze              Smart project analysis
+ *   synthesis relate <file>        Show file relationships
+ *   synthesis insights             Deep codebase analysis with metrics
+ *   synthesis graph <file>         Generate visual knowledge graph
+ *   synthesis cross-repo-deps      Find cross-repository dependencies
+ *   synthesis watch                Monitor changes in real-time
+ *   synthesis diff <ref>           Git diff integration
+ *   synthesis changed --since <d>  Files changed since date
  *   synthesis maintain             Detect changes and update index
- *   synthesis export               Export index as JSON or Markdown
+ *   synthesis export               Export index as JSON, Markdown, or AI docs
  *   synthesis status               Show workspace health
+ *   synthesis org scan             Auto-discover organizational structure
+ *   synthesis org list             Show companies, clients, products
+ *   synthesis org classify         Classify Downloads files by organization
  * </pre>
  *
  * @author Thor Henning Hetland / eXOReaction
@@ -35,9 +47,19 @@ import java.util.concurrent.Callable;
                 InitCommand.class,
                 ScanCommand.class,
                 SearchCommand.class,
+                AskCommand.class,
+                AnalyzeCommand.class,
+                RelateCommand.class,
+                InsightsCommand.class,
+                GraphCommand.class,
+                CrossRepoDepsCommand.class,
+                WatchCommand.class,
+                DiffCommand.class,
+                ChangedCommand.class,
                 MaintainCommand.class,
                 ExportCommand.class,
-                StatusCommand.class
+                StatusCommand.class,
+                OrgCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {

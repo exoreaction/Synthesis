@@ -53,6 +53,24 @@ public class SearchCommand implements Callable<Integer> {
     private int limit;
 
     @Option(
+            names = {"--repo"},
+            description = "Filter results to a specific repository (multi-repo workspaces)"
+    )
+    private String repo;
+
+    @Option(
+            names = {"--company"},
+            description = "Filter results to a specific organization/company"
+    )
+    private String company;
+
+    @Option(
+            names = {"--client"},
+            description = "Filter results to a specific client"
+    )
+    private String client;
+
+    @Option(
             names = {"-v", "--verbose"},
             description = "Show detailed result information",
             defaultValue = "false"
@@ -74,7 +92,12 @@ public class SearchCommand implements Callable<Integer> {
 
             // Search
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
-                List<SearchResult> results = index.search(query, fileType, limit);
+                List<SearchResult> results;
+                if (company != null || client != null) {
+                    results = index.search(query, fileType, repo, company, client, limit);
+                } else {
+                    results = index.search(query, fileType, repo, limit);
+                }
 
                 if (results.isEmpty()) {
                     System.out.println();

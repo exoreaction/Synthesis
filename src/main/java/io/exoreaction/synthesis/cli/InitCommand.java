@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
@@ -10,19 +11,18 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * Initializes a new Synthesis workspace.
+ * Initializes a new Synthesis workspace with optional multi-repository support.
  *
- * <p>Creates the .synthesis/ directory structure with default configuration,
- * Lucene index directory, and reports directory.
- *
- * <p>Usage: {@code synthesis init [directory] [--name NAME] [--type TYPE]}
- *
- * <p>The directory can be specified either as a positional argument or via
- * the parent command's {@code -d/--directory} option. The positional argument
- * takes precedence when explicitly provided.
+ * <p>Usage:
+ * <pre>
+ *   synthesis init [directory] [--name NAME] [--type TYPE]
+ *   synthesis init --repos ~/project-a,~/project-b --name "My Workspace"
+ *   synthesis init --add ~/project-d   # Add repo to existing workspace
+ * </pre>
  */
 @Command(
         name = "init",
@@ -55,6 +55,19 @@ public class InitCommand implements Callable<Integer> {
     )
     private String type;
 
+    @Option(
+            names = {"--repos"},
+            description = "Comma-separated list of repository paths to index",
+            split = ","
+    )
+    private List<String> repos;
+
+    @Option(
+            names = {"--add"},
+            description = "Add a repository to an existing multi-repo workspace"
+    )
+    private String addRepo;
+
     @Override
     public Integer call() {
         try {
@@ -67,8 +80,35 @@ public class InitCommand implements Callable<Integer> {
             } else {
                 targetDir = parent.getWorkspaceRoot();
             }
+
             WorkspaceManager workspace = new WorkspaceManager(targetDir);
+
+            // Handle --add (add repo to existing workspace)
+            if (addRepo != null) {
+                return handleAddRepo(workspace, targetDir);
+            }
+
+            // Standard init
             SynthesisConfig config = workspace.init(name, type);
+
+            // Handle --repos (multi-repo init)
+            if (repos != null && !repos.isEmpty()) {
+                RepositoryManager repoManager = new RepositoryManager(targetDir);
+                for (String repoPath : repos) {
+                    Path resolved = Path.of(repoPath.trim()).toAbsolutePath().normalize();
+                    boolean added = repoManager.addRepository(resolved, null);
+                    if (added) {
+                        AnsiOutput.printSuccess("Added repository: " + resolved.getFileName()
+                                + " (" + resolved + ")");
+                    } else {
+                        AnsiOutput.printWarning("Already tracked: " + resolved);
+                    }
+                }
+                repoManager.save();
+                System.out.println();
+                AnsiOutput.printInfo("Multi-repo workspace with " + repoManager.getRepositories().size()
+                        + " repositories");
+            }
 
             System.out.println();
             AnsiOutput.printInfo("Workspace: " + config.getWorkspace().getName());
@@ -85,5 +125,36 @@ public class InitCommand implements Callable<Integer> {
             AnsiOutput.printError("Failed to initialize workspace: " + e.getMessage());
             return 1;
         }
+    }
+
+    private int handleAddRepo(WorkspaceManager workspace, Path targetDir) throws Exception {
+        var validation = workspace.validate();
+        if (validation.isPresent()) {
+            AnsiOutput.printError(validation.get());
+            return 1;
+        }
+
+        RepositoryManager repoManager = new RepositoryManager(targetDir);
+        repoManager.load();
+
+        Path repoPath = Path.of(addRepo.trim()).toAbsolutePath().normalize();
+        boolean added = repoManager.addRepository(repoPath, null);
+        if (added) {
+            repoManager.save();
+            AnsiOutput.printSuccess("Added repository: " + repoPath.getFileName()
+                    + " (" + repoPath + ")");
+            AnsiOutput.printInfo("Run " + AnsiOutput.cyan("synthesis scan") + " to index the new repository.");
+        } else {
+            AnsiOutput.printWarning("Repository already tracked: " + repoPath);
+        }
+
+        System.out.println();
+        AnsiOutput.printInfo("Repositories in workspace:");
+        for (RepositoryManager.RepoEntry entry : repoManager.getRepositories()) {
+            System.out.println("    " + AnsiOutput.bold(entry.name()) + " -> " + entry.path());
+        }
+        System.out.println();
+
+        return 0;
     }
 }
