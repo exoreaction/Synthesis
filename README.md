@@ -34,6 +34,17 @@ synthesis -d ~/projects/my-project search "authentication pipeline"
 synthesis -d ~/projects/my-project status
 ```
 
+## Documentation by Role
+
+| Role | Guide | Time |
+|------|-------|------|
+| **Developer** | [Quick Start](docs/guides/QUICK-START.md) / [User Guide](docs/guides/USER-GUIDE.md) | 5-15 min |
+| **Engineering Manager** | [Team Adoption Guide](docs/perspectives/ENGINEERING-MANAGER.md) | 10 min |
+| **Architect** | [Architecture Intelligence](docs/perspectives/ARCHITECT.md) | 12 min |
+| **Executive / VP Eng** | [Executive Brief](docs/perspectives/EXECUTIVE-BRIEF.md) | 5 min |
+
+Not a developer? Start at the [Role Selector](docs/perspectives/README.md) to find the guide written for your perspective.
+
 ## Installation
 
 **Requirements:** Java 17 or later.
