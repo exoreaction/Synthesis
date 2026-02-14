@@ -1,6 +1,8 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -18,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
@@ -35,10 +38,12 @@ import java.util.stream.Collectors;
  *
  * <p>Usage:
  * <pre>
- *   synthesis export                        # Export as Markdown to stdout
- *   synthesis export --format json          # Export as JSON to stdout
- *   synthesis export --output overview.md   # Export to file
- *   synthesis export --type CODE            # Export only code files
+ *   synthesis export                                    # Export as Markdown to stdout
+ *   synthesis export --format json                      # Export as JSON to stdout
+ *   synthesis export --output overview.md               # Export to file
+ *   synthesis export --type CODE                        # Export only code files
+ *   synthesis export --format architecture-doc          # AI-generated architecture doc
+ *   synthesis export --format onboarding-guide          # AI-generated onboarding guide
  * </pre>
  */
 @Command(
@@ -53,7 +58,7 @@ public class ExportCommand implements Callable<Integer> {
 
     @Option(
             names = {"-f", "--format"},
-            description = "Output format: markdown, json (default: markdown)",
+            description = "Output format: markdown, json, architecture-doc, onboarding-guide (default: markdown)",
             defaultValue = "markdown"
     )
     private String format;
@@ -107,8 +112,11 @@ public class ExportCommand implements Callable<Integer> {
             String content = switch (format.toLowerCase()) {
                 case "json" -> exportAsJson(config, results);
                 case "markdown", "md" -> exportAsMarkdown(config, results, workspaceRoot);
+                case "architecture-doc", "architecture" -> exportAsArchitectureDoc(config, results, workspaceRoot);
+                case "onboarding-guide", "onboarding" -> exportAsOnboardingGuide(config, results, workspaceRoot);
                 default -> {
-                    AnsiOutput.printError("Unknown format: " + format + ". Use 'markdown' or 'json'.");
+                    AnsiOutput.printError("Unknown format: " + format +
+                            ". Use 'markdown', 'json', 'architecture-doc', or 'onboarding-guide'.");
                     yield null;
                 }
             };
@@ -216,5 +224,210 @@ public class ExportCommand implements Callable<Integer> {
     private static String truncate(String s, int maxLen) {
         if (s.length() <= maxLen) return s;
         return s.substring(0, maxLen) + "...";
+    }
+
+    /**
+     * Exports as AI-generated architecture documentation.
+     * Falls back to basic markdown if AI is unavailable.
+     */
+    private String exportAsArchitectureDoc(SynthesisConfig config, List<SearchResult> results, Path workspaceRoot) {
+        String fileIndex = buildFileIndex(results);
+
+        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        if (clientOpt.isEmpty()) {
+            AnsiOutput.printWarning("AI not configured. Generating basic architecture overview.");
+            return exportAsBasicArchitecture(config, results, workspaceRoot, fileIndex);
+        }
+
+        AnsiOutput.printInfo("Generating architecture documentation with AI...");
+
+        try {
+            String prompt = PromptTemplates.buildArchitectureDocPrompt(
+                    config.getWorkspace().getName(),
+                    config.getWorkspace().getType(),
+                    workspaceRoot.toString(),
+                    fileIndex
+            );
+            return clientOpt.get().generate(prompt, 4000);
+        } catch (Exception e) {
+            AnsiOutput.printWarning("AI generation failed: " + e.getMessage() + ". Using basic format.");
+            return exportAsBasicArchitecture(config, results, workspaceRoot, fileIndex);
+        }
+    }
+
+    /**
+     * Exports as AI-generated onboarding guide.
+     * Falls back to basic markdown if AI is unavailable.
+     */
+    private String exportAsOnboardingGuide(SynthesisConfig config, List<SearchResult> results, Path workspaceRoot) {
+        String fileIndex = buildFileIndex(results);
+
+        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        if (clientOpt.isEmpty()) {
+            AnsiOutput.printWarning("AI not configured. Generating basic onboarding guide.");
+            return exportAsBasicOnboarding(config, results, workspaceRoot, fileIndex);
+        }
+
+        AnsiOutput.printInfo("Generating onboarding guide with AI...");
+
+        try {
+            String prompt = PromptTemplates.buildOnboardingGuidePrompt(
+                    config.getWorkspace().getName(),
+                    config.getWorkspace().getType(),
+                    workspaceRoot.toString(),
+                    fileIndex
+            );
+            return clientOpt.get().generate(prompt, 4000);
+        } catch (Exception e) {
+            AnsiOutput.printWarning("AI generation failed: " + e.getMessage() + ". Using basic format.");
+            return exportAsBasicOnboarding(config, results, workspaceRoot, fileIndex);
+        }
+    }
+
+    /**
+     * Builds a compact file index string for AI prompts.
+     */
+    String buildFileIndex(List<SearchResult> results) {
+        StringBuilder sb = new StringBuilder();
+        for (SearchResult r : results) {
+            sb.append(r.relativePath());
+            if (r.fileType() != null) sb.append(" [").append(r.fileType()).append("]");
+            if (r.language() != null) sb.append(" (").append(r.language()).append(")");
+            sb.append(" ").append(FileUtils.formatSize(r.sizeBytes()));
+            if (!r.summary().isEmpty()) {
+                sb.append(" - ").append(truncate(r.summary(), 80));
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Basic architecture doc fallback (no AI).
+     */
+    private String exportAsBasicArchitecture(SynthesisConfig config, List<SearchResult> results,
+                                              Path workspaceRoot, String fileIndex) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Architecture: ").append(config.getWorkspace().getName()).append("\n\n");
+        sb.append("**Type:** ").append(config.getWorkspace().getType()).append("\n");
+        sb.append("**Root:** ").append(workspaceRoot).append("\n");
+        sb.append("**Total files:** ").append(results.size()).append("\n\n");
+
+        // Technology stack
+        Map<String, Long> languages = results.stream()
+                .filter(r -> r.language() != null)
+                .collect(Collectors.groupingBy(SearchResult::language, Collectors.counting()));
+        if (!languages.isEmpty()) {
+            sb.append("## Technology Stack\n\n");
+            languages.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .forEach(e -> sb.append("- **").append(e.getKey()).append("**: ")
+                            .append(e.getValue()).append(" files\n"));
+            sb.append("\n");
+        }
+
+        // Directory structure
+        Map<String, Long> directories = results.stream()
+                .collect(Collectors.groupingBy(r -> {
+                    String path = r.relativePath();
+                    int sep = path.indexOf('/');
+                    if (sep < 0) sep = path.indexOf('\\');
+                    return sep > 0 ? path.substring(0, sep) : "(root)";
+                }, Collectors.counting()));
+
+        sb.append("## Directory Structure\n\n");
+        directories.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .forEach(e -> sb.append("- **").append(e.getKey()).append("/**: ")
+                        .append(e.getValue()).append(" files\n"));
+        sb.append("\n");
+
+        // Key files
+        sb.append("## Key Files\n\n");
+        results.stream()
+                .filter(r -> r.fileName().equalsIgnoreCase("README.md") ||
+                        r.fileName().equalsIgnoreCase("pom.xml") ||
+                        r.fileName().equalsIgnoreCase("package.json") ||
+                        r.fileName().equalsIgnoreCase("build.gradle") ||
+                        r.fileName().equalsIgnoreCase("Makefile") ||
+                        r.fileName().equalsIgnoreCase("Dockerfile"))
+                .forEach(r -> {
+                    sb.append("- `").append(r.relativePath()).append("`");
+                    if (!r.summary().isEmpty()) {
+                        sb.append(" - ").append(truncate(r.summary(), 80));
+                    }
+                    sb.append("\n");
+                });
+        sb.append("\n");
+
+        sb.append("---\n");
+        sb.append("*Note: This is a basic architecture overview. Enable AI (set ai.enabled=true " +
+                "and ANTHROPIC_API_KEY) for a detailed narrative document.*\n");
+
+        return sb.toString();
+    }
+
+    /**
+     * Basic onboarding guide fallback (no AI).
+     */
+    private String exportAsBasicOnboarding(SynthesisConfig config, List<SearchResult> results,
+                                            Path workspaceRoot, String fileIndex) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Onboarding Guide: ").append(config.getWorkspace().getName()).append("\n\n");
+        sb.append("Welcome to the ").append(config.getWorkspace().getName()).append(" workspace.\n\n");
+
+        // Getting started
+        sb.append("## Getting Started\n\n");
+        sb.append("1. Explore the project root: `").append(workspaceRoot).append("`\n");
+        sb.append("2. Read key documentation files listed below\n");
+        sb.append("3. Run `synthesis search <topic>` to find relevant files\n\n");
+
+        // README files
+        List<SearchResult> readmes = results.stream()
+                .filter(r -> r.fileName().equalsIgnoreCase("README.md"))
+                .toList();
+        if (!readmes.isEmpty()) {
+            sb.append("## Start Reading Here\n\n");
+            for (SearchResult r : readmes) {
+                sb.append("- `").append(r.relativePath()).append("`");
+                if (!r.summary().isEmpty()) {
+                    sb.append(" - ").append(truncate(r.summary(), 80));
+                }
+                sb.append("\n");
+            }
+            sb.append("\n");
+        }
+
+        // Project layout
+        sb.append("## Project Layout\n\n");
+        sb.append("**Total:** ").append(results.size()).append(" files\n\n");
+
+        Map<String, Long> byType = results.stream()
+                .filter(r -> r.fileType() != null)
+                .collect(Collectors.groupingBy(SearchResult::fileType, Collectors.counting()));
+        byType.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .forEach(e -> sb.append("- ").append(e.getKey()).append(": ")
+                        .append(e.getValue()).append(" files\n"));
+        sb.append("\n");
+
+        // Configuration files
+        List<SearchResult> configs = results.stream()
+                .filter(r -> "CONFIG".equals(r.fileType()) || "YAML".equals(r.fileType()) || "JSON".equals(r.fileType()))
+                .limit(10)
+                .toList();
+        if (!configs.isEmpty()) {
+            sb.append("## Configuration Files\n\n");
+            for (SearchResult r : configs) {
+                sb.append("- `").append(r.relativePath()).append("`\n");
+            }
+            sb.append("\n");
+        }
+
+        sb.append("---\n");
+        sb.append("*Note: This is a basic onboarding guide. Enable AI (set ai.enabled=true " +
+                "and ANTHROPIC_API_KEY) for a detailed narrative guide.*\n");
+
+        return sb.toString();
     }
 }

@@ -15,6 +15,7 @@ import java.nio.file.Path;
  * @param headings     document headings
  * @param structure    structural description
  * @param sizeBytes    file size
+ * @param repository   repository identifier (may be null for single-repo workspaces)
  */
 public record SearchResult(
         Path path,
@@ -26,6 +27,16 @@ public record SearchResult(
         String summary,
         String headings,
         String structure,
-        long sizeBytes
+        long sizeBytes,
+        String repository
 ) {
+    /**
+     * Backward-compatible constructor for existing code that doesn't provide repository.
+     */
+    public SearchResult(Path path, String relativePath, float score, String fileName,
+                        String fileType, String language, String summary, String headings,
+                        String structure, long sizeBytes) {
+        this(path, relativePath, score, fileName, fileType, language,
+             summary, headings, structure, sizeBytes, null);
+    }
 }

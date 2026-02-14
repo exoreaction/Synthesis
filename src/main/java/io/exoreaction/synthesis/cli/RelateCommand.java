@@ -318,13 +318,19 @@ public class RelateCommand implements Callable<Integer> {
         // Direct name match
         String fileName = ref.contains("/") ? ref.substring(ref.lastIndexOf('/') + 1) : ref;
 
-        // For Java imports, convert package to potential file name
-        if (ref.contains(".") && !ref.contains("/")) {
+        // First, try the fileName directly (handles "Config.java", "README.md", etc.)
+        List<String> matches = fileNameIndex.get(fileName);
+        if (matches != null && !matches.isEmpty()) {
+            return matches.get(0);
+        }
+
+        // For Java imports (e.g., "com.example.Config"), convert to file name
+        if (ref.contains(".") && !ref.contains("/") && !hasKnownExtension(ref)) {
             String[] parts = ref.split("\\.");
             fileName = parts[parts.length - 1] + ".java";
         }
 
-        List<String> matches = fileNameIndex.get(fileName);
+        matches = fileNameIndex.get(fileName);
         if (matches != null && !matches.isEmpty()) {
             return matches.get(0);
         }
@@ -338,6 +344,18 @@ public class RelateCommand implements Callable<Integer> {
         }
 
         return null;
+    }
+
+    /**
+     * Checks if a reference string ends with a known file extension.
+     */
+    private static boolean hasKnownExtension(String ref) {
+        String lower = ref.toLowerCase();
+        return lower.endsWith(".java") || lower.endsWith(".py") || lower.endsWith(".js") ||
+                lower.endsWith(".ts") || lower.endsWith(".md") || lower.endsWith(".yaml") ||
+                lower.endsWith(".yml") || lower.endsWith(".json") || lower.endsWith(".xml") ||
+                lower.endsWith(".go") || lower.endsWith(".rs") || lower.endsWith(".kt") ||
+                lower.endsWith(".txt") || lower.endsWith(".sh") || lower.endsWith(".sql");
     }
 
     private void extractMatches(Pattern pattern, String content, int group, Set<String> results) {

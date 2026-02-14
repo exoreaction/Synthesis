@@ -23,6 +23,13 @@ public class FileIndexer {
      * Creates a Lucene Document from file metadata and analysis result.
      */
     public Document createDocument(FileMetadata metadata, AnalysisResult analysis) {
+        return createDocument(metadata, analysis, null);
+    }
+
+    /**
+     * Creates a Lucene Document from file metadata, analysis result, and optional repository name.
+     */
+    public Document createDocument(FileMetadata metadata, AnalysisResult analysis, String repository) {
         Document doc = new Document();
 
         // Identity fields
@@ -68,6 +75,37 @@ public class FileIndexer {
 
         if (!analysis.structure().isEmpty()) {
             doc.add(new StoredField(DocumentFields.STRUCTURE, analysis.structure()));
+        }
+
+        // Repository field for multi-repo workspaces
+        if (repository != null && !repository.isEmpty()) {
+            doc.add(new StringField(DocumentFields.REPOSITORY, repository, Field.Store.YES));
+        }
+
+        return doc;
+    }
+
+    /**
+     * Creates a Lucene Document with full organizational context.
+     *
+     * @param metadata     file metadata
+     * @param analysis     analysis results
+     * @param repository   optional repository name
+     * @param organization optional organization name (e.g., "eXOReaction")
+     * @param client       optional client name (e.g., "SpareBank1")
+     */
+    public Document createDocument(FileMetadata metadata, AnalysisResult analysis,
+                                    String repository, String organization, String client) {
+        Document doc = createDocument(metadata, analysis, repository);
+
+        // Organization field
+        if (organization != null && !organization.isEmpty()) {
+            doc.add(new StringField(DocumentFields.ORGANIZATION, organization, Field.Store.YES));
+        }
+
+        // Client field
+        if (client != null && !client.isEmpty()) {
+            doc.add(new StringField(DocumentFields.CLIENT, client, Field.Store.YES));
         }
 
         return doc;
