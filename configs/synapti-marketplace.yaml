@@ -1,0 +1,94 @@
+# Synthesis Configuration for Synapti Plugin Marketplace
+# Optimized for a multi-plugin workspace with git submodules
+#
+# Setup:
+#   1. Copy this file to your Synapti workspace: .synthesis/config.yaml
+#   2. Run: synthesis scan
+#   3. Search: synthesis search "authentication"
+#
+# Or initialize with:
+#   synthesis init ~/synapti --name "Synapti Marketplace" --type plugin-ecosystem
+
+workspace:
+  name: "Synapti Marketplace"
+  type: "plugin-ecosystem"
+  description: "Plugin marketplace with multiple independent plugins as git submodules"
+
+scan:
+  # Include all relevant source files
+  includePatterns:
+    # Documentation
+    - "**/*.md"
+    - "**/*.txt"
+    # Code
+    - "**/*.java"
+    - "**/*.kt"
+    - "**/*.py"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.jsx"
+    - "**/*.go"
+    - "**/*.rs"
+    - "**/*.rb"
+    - "**/*.sh"
+    # Configuration
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.json"
+    - "**/*.toml"
+    - "**/*.xml"
+    - "**/*.properties"
+    # Build files
+    - "**/pom.xml"
+    - "**/build.gradle"
+    - "**/package.json"
+    - "**/Cargo.toml"
+    - "**/go.mod"
+    # SQL
+    - "**/*.sql"
+    # HTML/CSS
+    - "**/*.html"
+    - "**/*.css"
+    # PDFs (documentation)
+    - "**/*.pdf"
+
+  excludePatterns:
+    # Version control
+    - "**/.git/**"
+    - "**/.gitmodules"
+    # Build artifacts
+    - "**/node_modules/**"
+    - "**/target/**"
+    - "**/build/**"
+    - "**/dist/**"
+    - "**/out/**"
+    - "**/.gradle/**"
+    # IDE
+    - "**/.idea/**"
+    - "**/.vscode/**"
+    # Python
+    - "**/__pycache__/**"
+    - "**/.venv/**"
+    - "**/venv/**"
+    # Synthesis itself
+    - "**/.synthesis/**"
+    # Compiled/binary
+    - "**/*.class"
+    - "**/*.jar"
+    - "**/*.war"
+
+  computeHashes: true
+  maxFileSizeBytes: 10485760  # 10 MB
+
+search:
+  maxResults: 30              # More results for larger workspaces
+  previewLength: 200
+  contentPreviewBytes: 10240
+
+ai:
+  enabled: false              # Enable for README generation
+  model: "claude-sonnet-4-5-20250929"
+  readmeGeneration: true
+  contentSummary: false
+  maxTokens: 1024

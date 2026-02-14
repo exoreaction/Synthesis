@@ -1,0 +1,8 @@
+io/exoreaction/synthesis/index/SearchIndexTest.class
+io/exoreaction/synthesis/index/SearchIndexExtendedTest.class
+io/exoreaction/synthesis/config/ConfigLoaderTest.class
+io/exoreaction/synthesis/core/ScanStateTest.class
+io/exoreaction/synthesis/analyzer/CodeAnalyzerTest.class
+io/exoreaction/synthesis/analyzer/MarkdownAnalyzerTest.class
+io/exoreaction/synthesis/analyzer/YamlAnalyzerTest.class
+io/exoreaction/synthesis/core/DirectoryScannerTest.class

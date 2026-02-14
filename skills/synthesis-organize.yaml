@@ -1,0 +1,33 @@
+name: synthesis-organize
+description: |
+  Initialize and scan a workspace with Synthesis.
+  Creates the search index for fast file discovery.
+
+instructions: |
+  Use this skill to set up Synthesis on a new workspace or rescan an existing one.
+
+  Workflow:
+  1. Initialize: `java -jar synthesis.jar init <directory> --name "<name>"`
+  2. Scan: `java -jar synthesis.jar -d <directory> scan`
+  3. Verify: `java -jar synthesis.jar -d <directory> status`
+
+  For AI-powered README generation during scan:
+  - Set ANTHROPIC_API_KEY environment variable
+  - Edit .synthesis/config.yaml: set ai.enabled to true
+  - Run: `java -jar synthesis.jar -d <directory> scan --with-readme`
+
+  The scan creates a Lucene search index in .synthesis/index/ and
+  saves scan state to .synthesis/scan-state.json for incremental updates.
+
+steps:
+  - name: Initialize workspace
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} init ${WORKSPACE_DIR:-.} --name "${WORKSPACE_NAME:-my-workspace}"
+
+  - name: Scan and index
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} -d ${WORKSPACE_DIR:-.} scan
+
+  - name: Show status
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} -d ${WORKSPACE_DIR:-.} status

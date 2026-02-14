@@ -1,0 +1,100 @@
+[
+  {
+    "name" : "io.exoreaction.synthesis.SynthesisApp",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "workspaceRoot" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.ExportCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "format" },
+      { "name" : "limit" },
+      { "name" : "output" },
+      { "name" : "parent" },
+      { "name" : "typeFilter" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.InitCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "directory" },
+      { "name" : "name" },
+      { "name" : "parent" },
+      { "name" : "type" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.MaintainCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "parent" },
+      { "name" : "reportOnly" },
+      { "name" : "verbose" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.ScanCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "forceReadme" },
+      { "name" : "fullRebuild" },
+      { "name" : "parent" },
+      { "name" : "verbose" },
+      { "name" : "withReadme" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.SearchCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "fileType" },
+      { "name" : "limit" },
+      { "name" : "parent" },
+      { "name" : "query" },
+      { "name" : "verbose" }
+    ]
+  },
+  {
+    "name" : "io.exoreaction.synthesis.cli.StatusCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "parent" }
+    ]
+  },
+  {
+    "name" : "picocli.CommandLine$AutoHelpMixin",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "helpRequested" },
+      { "name" : "versionRequested" }
+    ]
+  }
+]

@@ -1,0 +1,31 @@
+name: synthesis-maintain
+description: |
+  Maintain a Synthesis workspace by detecting and applying incremental changes.
+  Updates the search index without full rescan.
+
+instructions: |
+  Use this skill to keep a Synthesis workspace index up to date.
+
+  The maintain command compares the current filesystem against the last scan state
+  and incrementally updates only changed files (new, modified, deleted).
+
+  Usage:
+  1. Check for changes: `java -jar synthesis.jar -d <directory> maintain --report`
+  2. Apply changes: `java -jar synthesis.jar -d <directory> maintain`
+  3. Verbose output: `java -jar synthesis.jar -d <directory> maintain --verbose`
+
+  Reports are saved to .synthesis/reports/ with timestamps.
+
+  For large workspaces, maintain is much faster than a full scan because
+  it only processes files that have changed since the last scan.
+
+  If no scan state exists, maintain will automatically run a full scan.
+
+steps:
+  - name: Detect and apply changes
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} -d ${WORKSPACE_DIR:-.} maintain --verbose
+
+  - name: Export updated index
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} -d ${WORKSPACE_DIR:-.} export --format markdown --output ${WORKSPACE_DIR:-.}/.synthesis/reports/workspace-overview.md

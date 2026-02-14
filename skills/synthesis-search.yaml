@@ -1,0 +1,33 @@
+name: synthesis-search
+description: |
+  Search a Synthesis-indexed workspace for files and content.
+  Uses the Synthesis CLI tool to query the Lucene search index.
+  Supports full-text search with Lucene query syntax.
+
+instructions: |
+  Use this skill to search for files, code, documentation, or any content
+  in a Synthesis-indexed workspace.
+
+  Prerequisites:
+  - Synthesis JAR available at the configured path
+  - Workspace initialized with `synthesis init`
+  - Workspace scanned with `synthesis scan`
+
+  Usage patterns:
+  1. Simple search: `java -jar synthesis.jar -d <workspace> search "<query>"`
+  2. Type-filtered: `java -jar synthesis.jar -d <workspace> search "<query>" --type CODE`
+  3. Limited results: `java -jar synthesis.jar -d <workspace> search "<query>" --limit 10`
+
+  Query syntax:
+  - Simple terms: "authentication"
+  - Exact phrases: '"NCI Protocol"'
+  - Boolean: "testing AND strategy"
+  - Wildcards: "test*"
+  - Field-specific: "language:Java"
+
+  File types for --type filter: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF, OTHER
+
+steps:
+  - name: Search workspace
+    run: |
+      java -jar ${SYNTHESIS_JAR:-synthesis.jar} -d ${WORKSPACE_DIR:-.} search "$QUERY" ${TYPE:+--type $TYPE} --limit ${LIMIT:-20}
