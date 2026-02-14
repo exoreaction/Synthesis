@@ -76,6 +76,7 @@ public class SynthesisConfig {
         private boolean readmeGeneration = true;
         private boolean contentSummary = false;
         private int maxTokens = 1024;
+        private VisionConfig vision = new VisionConfig();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -91,6 +92,36 @@ public class SynthesisConfig {
 
         public int getMaxTokens() { return maxTokens; }
         public void setMaxTokens(int maxTokens) { this.maxTokens = maxTokens; }
+
+        public VisionConfig getVision() { return vision; }
+        public void setVision(VisionConfig vision) { this.vision = vision; }
+    }
+
+    /**
+     * Vision AI configuration for image analysis.
+     * Vision is enabled by default when AI is enabled (opt-out with --no-vision).
+     */
+    public static class VisionConfig {
+        /** Vision is enabled by default -- use --no-vision to disable. */
+        private boolean enabled = true;
+        /** Estimated cost per image analysis in USD. */
+        private double costPerImageUsd = 0.02;
+        /** Maximum image file size to analyze (default: 20 MB). */
+        private long maxImageSizeBytes = 20 * 1024 * 1024;
+        /** Whether to require confirmation before vision analysis. */
+        private boolean confirmBeforeScan = true;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public double getCostPerImageUsd() { return costPerImageUsd; }
+        public void setCostPerImageUsd(double costPerImageUsd) { this.costPerImageUsd = costPerImageUsd; }
+
+        public long getMaxImageSizeBytes() { return maxImageSizeBytes; }
+        public void setMaxImageSizeBytes(long maxImageSizeBytes) { this.maxImageSizeBytes = maxImageSizeBytes; }
+
+        public boolean isConfirmBeforeScan() { return confirmBeforeScan; }
+        public void setConfirmBeforeScan(boolean confirmBeforeScan) { this.confirmBeforeScan = confirmBeforeScan; }
     }
 
     /**
@@ -103,7 +134,12 @@ public class SynthesisConfig {
                 "**/*.xml", "**/*.toml", "**/*.cfg", "**/*.properties",
                 "**/*.go", "**/*.rs", "**/*.rb", "**/*.kt", "**/*.scala",
                 "**/*.sql", "**/*.html", "**/*.css",
-                "**/*.txt", "**/*.pdf"
+                "**/*.txt", "**/*.pdf",
+                // Media files (analyzed for metadata, searchable via descriptions)
+                "**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.gif", "**/*.bmp",
+                "**/*.svg", "**/*.webp", "**/*.tiff", "**/*.tif",
+                "**/*.mp4", "**/*.avi", "**/*.mov", "**/*.mkv", "**/*.webm",
+                "**/*.mp3", "**/*.wav", "**/*.flac", "**/*.ogg", "**/*.aac"
         );
         private List<String> excludePatterns = List.of(
                 "**/node_modules/**", "**/.git/**", "**/target/**",

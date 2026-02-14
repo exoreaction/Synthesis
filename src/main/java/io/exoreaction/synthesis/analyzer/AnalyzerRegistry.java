@@ -23,7 +23,9 @@ public class AnalyzerRegistry {
                 new MarkdownAnalyzer(),
                 new CodeAnalyzer(),
                 new YamlAnalyzer(),
-                new PdfAnalyzer()
+                new PdfAnalyzer(),
+                new ImageAnalyzer(),
+                new VideoAnalyzer()
         );
     }
 

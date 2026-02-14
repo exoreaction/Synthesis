@@ -146,11 +146,34 @@ public class StatusCommand implements Callable<Integer> {
                 System.out.printf("  %-20s %s%n", "Files tracked:", AnsiOutput.bold(String.valueOf(scanState.getFileCount())));
             }
 
+            // Media type breakdown (if available)
+            Path indexPath2 = workspace.getIndexPath();
+            if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
+                try (SearchIndex index = new SearchIndex(indexPath2)) {
+                    showMediaStats(index);
+                } catch (Exception ignored) {
+                    // Media stats are informational -- don't fail status
+                }
+            }
+
             // AI status
             System.out.println();
             if (config.getAi().isEnabled()) {
                 System.out.printf("  %-20s %s%n", "AI features:", AnsiOutput.success("Enabled"));
                 System.out.printf("  %-20s %s%n", "Model:", config.getAi().getModel());
+                // Vision status
+                if (config.getAi().getVision().isEnabled()) {
+                    System.out.printf("  %-20s %s%n", "Vision analysis:",
+                            AnsiOutput.success("Enabled (default)"));
+                    System.out.println("    Use --no-vision to disable during scan.");
+                } else {
+                    System.out.printf("  %-20s %s%n", "Vision analysis:",
+                            AnsiOutput.dim("Disabled"));
+                }
+                System.out.printf("  %-20s %s%n", "Directed synthesis:",
+                        AnsiOutput.success("Available"));
+                System.out.println("    Use " + AnsiOutput.cyan("synthesis perspectives <question>")
+                        + " for multi-perspective analysis.");
             } else {
                 System.out.printf("  %-20s %s%n", "AI features:", AnsiOutput.dim("Disabled"));
                 System.out.println("  Set ai.enabled=true and ANTHROPIC_API_KEY to enable.");
@@ -183,6 +206,47 @@ public class StatusCommand implements Callable<Integer> {
         } catch (Exception e) {
             AnsiOutput.printError("Status check failed: " + e.getMessage());
             return 1;
+        }
+    }
+
+    /**
+     * Shows media file statistics from the index.
+     */
+    private void showMediaStats(SearchIndex index) throws IOException {
+        // Count media files by type
+        long imageCount = index.listAll("IMAGE", 50000).size();
+        long videoCount = index.listAll("VIDEO", 50000).size();
+        long audioCount = index.listAll("AUDIO", 50000).size();
+        long pdfCount = index.listAll("PDF", 50000).size();
+
+        long mediaTotal = imageCount + videoCount + audioCount;
+
+        if (mediaTotal > 0 || pdfCount > 0) {
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Media & Documents:"));
+            if (imageCount > 0) {
+                System.out.printf("    %-15s %d files%n", "Images:", imageCount);
+            }
+            if (videoCount > 0) {
+                System.out.printf("    %-15s %d files%n", "Videos:", videoCount);
+            }
+            if (audioCount > 0) {
+                System.out.printf("    %-15s %d files%n", "Audio:", audioCount);
+            }
+            if (pdfCount > 0) {
+                // Count presentations vs documents
+                List<SearchResult> pdfs = index.listAll("PDF", 50000);
+                long presentations = pdfs.stream()
+                        .filter(r -> r.summary().contains("presentation"))
+                        .count();
+                long documents = pdfCount - presentations;
+
+                System.out.printf("    %-15s %d files", "PDFs:", pdfCount);
+                if (presentations > 0) {
+                    System.out.printf(" (%d presentations, %d documents)", presentations, documents);
+                }
+                System.out.println();
+            }
         }
     }
 

@@ -64,6 +64,25 @@ public class FileIndexer {
             doc.add(new TextField(DocumentFields.KEYWORDS, keywordsText, Field.Store.YES));
         }
 
+        // Media type from analysis (presentation, document, spreadsheet, etc.)
+        Object mediaType = analysis.metrics().get("mediaType");
+        if (mediaType instanceof String mt && !mt.isEmpty()) {
+            doc.add(new StringField(DocumentFields.MEDIA_TYPE, mt, Field.Store.YES));
+        }
+
+        // Image dimensions
+        Object width = analysis.metrics().get("width");
+        Object height = analysis.metrics().get("height");
+        if (width instanceof Integer w && height instanceof Integer h) {
+            doc.add(new StoredField(DocumentFields.DIMENSIONS, w + "x" + h));
+        }
+
+        // Companion file
+        Object companionFile = analysis.metrics().get("companionFile");
+        if (companionFile instanceof String cf && !cf.isEmpty()) {
+            doc.add(new StoredField(DocumentFields.COMPANION_FILE, cf));
+        }
+
         // Metadata fields (stored for display)
         doc.add(new StoredField(DocumentFields.SIZE, Long.toString(metadata.sizeBytes())));
         doc.add(new LongPoint(DocumentFields.LAST_MODIFIED, metadata.lastModified().toEpochMilli()));

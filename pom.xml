@@ -84,6 +84,13 @@
             <version>${pdfbox.version}</version>
         </dependency>
 
+        <!-- Image Metadata Extraction (EXIF, IPTC, XMP) -->
+        <dependency>
+            <groupId>com.drewnoakes</groupId>
+            <artifactId>metadata-extractor</artifactId>
+            <version>2.19.0</version>
+        </dependency>
+
         <!-- Git Integration -->
         <dependency>
             <groupId>org.eclipse.jgit</groupId>

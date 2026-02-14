@@ -39,6 +39,8 @@ import java.util.concurrent.Callable;
  *   synthesis org classify         Classify Downloads files by organization
  *   synthesis learn                Generate Claude Code skills from workspace knowledge
  *   synthesis learn --install      Install skills to ~/.claude/skills/
+ *   synthesis perspectives <q>     Analyze a question from multiple perspectives
+ *   synthesis extract-slides <pdf> Extract slides from a presentation PDF
  *   synthesis telemetry            View pilot status and telemetry info
  * </pre>
  *
@@ -67,6 +69,8 @@ import java.util.concurrent.Callable;
                 StatusCommand.class,
                 OrgCommand.class,
                 LearnCommand.class,
+                PerspectivesCommand.class,
+                ExtractSlidesCommand.class,
                 TelemetryCommand.class
         }
 )

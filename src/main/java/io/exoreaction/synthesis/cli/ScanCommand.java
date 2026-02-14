@@ -9,6 +9,7 @@ import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -77,6 +78,13 @@ public class ScanCommand implements Callable<Integer> {
     )
     private boolean forceReadme;
 
+    @Option(
+            names = {"--no-vision"},
+            description = "Disable AI vision analysis for images (vision is enabled by default when AI is configured)",
+            defaultValue = "false"
+    )
+    private boolean noVision;
+
     @Override
     public Integer call() {
         try {
@@ -143,7 +151,12 @@ public class ScanCommand implements Callable<Integer> {
                 printSummary(scanResult, indexed, errors, index.documentCount());
             }
 
-            // Phase 3: AI-powered README generation (optional)
+            // Phase 3: AI vision analysis for images (default enabled, --no-vision to disable)
+            if (!noVision && config.getAi().isEnabled() && config.getAi().getVision().isEnabled()) {
+                analyzeImagesWithVision(config, scanResult);
+            }
+
+            // Phase 4: AI-powered README generation (optional)
             if (withReadme) {
                 generateReadmes(config, workspaceRoot, scanResult);
             }
@@ -200,6 +213,93 @@ public class ScanCommand implements Callable<Integer> {
         System.out.println();
         System.out.println("  Run " + AnsiOutput.cyan("synthesis search <query>") + " to search your workspace.");
         System.out.println();
+    }
+
+    /**
+     * Analyzes images using Claude's vision capabilities.
+     * Shows cost estimate and asks for confirmation before proceeding.
+     */
+    private void analyzeImagesWithVision(SynthesisConfig config, ScanResult scanResult) {
+        // Find vision-compatible images
+        List<FileMetadata> images = scanResult.files().stream()
+                .filter(fm -> fm.fileType() == FileUtils.FileType.IMAGE)
+                .filter(fm -> ClaudeClient.isVisionSupported(fm.extension()))
+                .filter(fm -> fm.sizeBytes() <= config.getAi().getVision().getMaxImageSizeBytes())
+                .toList();
+
+        if (images.isEmpty()) {
+            return;
+        }
+
+        // Calculate cost estimate
+        double totalCost = images.stream()
+                .mapToDouble(fm -> ClaudeClient.estimateVisionCost(fm.sizeBytes()))
+                .sum();
+
+        System.out.println();
+        AnsiOutput.printInfo(String.format(
+                "Phase 3: Vision analysis -- Found %d images. Estimated cost: ~$%.2f",
+                images.size(), totalCost));
+
+        // Show confirmation if configured
+        if (config.getAi().getVision().isConfirmBeforeScan()) {
+            System.out.print("  Continue with vision analysis? [Y/n] ");
+            try {
+                // Read from stdin -- for non-interactive contexts, default to yes
+                if (System.console() != null) {
+                    String response = System.console().readLine();
+                    if (response != null && (response.trim().equalsIgnoreCase("n")
+                            || response.trim().equalsIgnoreCase("no"))) {
+                        AnsiOutput.printInfo("Vision analysis skipped.");
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                // Non-interactive mode -- skip
+                AnsiOutput.printInfo("Vision analysis skipped (non-interactive mode).");
+                return;
+            }
+        }
+
+        // Create AI client
+        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        if (clientOpt.isEmpty()) {
+            AnsiOutput.printWarning("AI not configured. Set ANTHROPIC_API_KEY to enable vision.");
+            return;
+        }
+
+        ClaudeClient client = clientOpt.get();
+        int analyzed = 0;
+        int errors = 0;
+
+        ProgressReporter progress = new ProgressReporter("Vision analysis", images.size());
+        for (FileMetadata image : images) {
+            try {
+                String description = client.generateFromImage(
+                        image.path(), PromptTemplates.IMAGE_DESCRIPTION,
+                        config.getAi().getMaxTokens());
+
+                if (!description.isEmpty() && verbose) {
+                    System.out.println("  " + image.relativePath() + ": " +
+                            description.substring(0, Math.min(80, description.length())) + "...");
+                }
+                analyzed++;
+            } catch (Exception e) {
+                errors++;
+                if (verbose) {
+                    System.err.println("  Warning: Vision failed for " + image.relativePath() + ": " + e.getMessage());
+                }
+            }
+            progress.tick();
+        }
+        progress.complete();
+
+        if (analyzed > 0) {
+            AnsiOutput.printSuccess("Vision analysis complete: " + analyzed + " images described.");
+        }
+        if (errors > 0) {
+            AnsiOutput.printWarning(errors + " images could not be analyzed.");
+        }
     }
 
     private void generateReadmes(SynthesisConfig config, Path workspaceRoot, ScanResult scanResult) {

@@ -66,4 +66,21 @@ public final class DocumentFields {
 
     /** Client identifier for client-scoped files (e.g., "SpareBank1"). */
     public static final String CLIENT = "client";
+
+    // --- Media-specific fields ---
+
+    /** Media type for presentation detection: "presentation", "document", "spreadsheet", etc. */
+    public static final String MEDIA_TYPE = "mediaType";
+
+    /** Image dimensions as "WxH" string (e.g., "1920x1080"). */
+    public static final String DIMENSIONS = "dimensions";
+
+    /** Duration of audio/video in seconds (stored as string). */
+    public static final String DURATION = "duration";
+
+    /** AI-generated description of an image or slide. */
+    public static final String AI_DESCRIPTION = "aiDescription";
+
+    /** Companion file path (e.g., transcript for video, metadata sidecar). */
+    public static final String COMPANION_FILE = "companionFile";
 }
