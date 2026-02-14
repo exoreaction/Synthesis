@@ -1,0 +1,45 @@
+display_information:
+  name: Synthesis Pilot Manager
+  description: Manages pilot program licensing and telemetry for Synthesis AI operations partner
+  background_color: "#2c3e50"
+  long_description: |
+    Synthesis Pilot Manager automates the pilot program approval process and collects usage telemetry.
+
+    Features:
+    - Automatic pilot approval via UUID whitelist in designated channel
+    - Installation event notifications
+    - Usage telemetry collection (command tracking)
+    - Privacy-focused: only metadata, no workspace content
+
+    Setup:
+    1. Install this app to your workspace
+    2. Invite the bot to your #synthesis-pilots channel
+    3. Post approved UUIDs in that channel
+    4. Configure bot token and webhook URL in Synthesis
+
+    For more info: https://github.com/exoreaction/synthesis
+
+features:
+  bot_user:
+    display_name: Synthesis Pilot Manager
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      # Read approval channel messages to check UUID whitelist
+      - channels:history
+      - channels:read
+      # Support for private channels (if #synthesis-pilots is private)
+      - groups:history
+      - groups:read
+      # Post telemetry and installation notifications
+      - chat:write
+      - incoming-webhook
+
+settings:
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

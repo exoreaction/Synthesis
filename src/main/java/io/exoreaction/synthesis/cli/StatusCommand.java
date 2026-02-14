@@ -8,6 +8,9 @@ import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.telemetry.ApprovalService;
+import io.exoreaction.synthesis.telemetry.ClientUUID;
+import io.exoreaction.synthesis.telemetry.TelemetryConfig;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
 import picocli.CommandLine.Command;
@@ -151,6 +154,28 @@ public class StatusCommand implements Callable<Integer> {
             } else {
                 System.out.printf("  %-20s %s%n", "AI features:", AnsiOutput.dim("Disabled"));
                 System.out.println("  Set ai.enabled=true and ANTHROPIC_API_KEY to enable.");
+            }
+
+            // Pilot status
+            System.out.println();
+            String uuid = ClientUUID.read();
+            System.out.printf("  %-20s %s%n", "Telemetry:",
+                    AnsiOutput.success("Active (mandatory)"));
+            if (uuid != null) {
+                System.out.printf("  %-20s %s%n", "Client UUID:", AnsiOutput.dim(uuid));
+            }
+
+            // Approval status
+            ApprovalService approvalService = ApprovalService.create();
+            Boolean approvalStatus = approvalService.getCachedApproval();
+            if (approvalStatus != null) {
+                System.out.printf("  %-20s %s%n", "Pilot Status:",
+                        approvalStatus
+                                ? AnsiOutput.success("Approved")
+                                : AnsiOutput.warning("Pending Approval (UUID: " + uuid + ")"));
+            } else {
+                System.out.printf("  %-20s %s%n", "Pilot Status:",
+                        AnsiOutput.dim("Not checked yet"));
             }
 
             System.out.println();
