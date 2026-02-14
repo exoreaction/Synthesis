@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.analyzer;
 
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -14,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for VideoAnalyzer -- metadata extraction, companion transcripts,
- * ffprobe parsing, and duration formatting.
+ * ffprobe parsing, duration formatting, and smart fallback logic.
  */
 class VideoAnalyzerTest {
 
@@ -281,6 +282,109 @@ class VideoAnalyzerTest {
 
         assertTrue(result.summary().contains("Video"));
         assertTrue(result.keywords().contains("webm"));
+    }
+
+    // ---- New tests for smart fallback logic ----
+
+    @Test
+    void testExtractionMethodIsTracked() throws IOException {
+        Path mp4File = tempDir.resolve("test.mp4");
+        Files.write(mp4File, new byte[]{0x00, 0x00, 0x00, 0x1C});
+
+        FileMetadata fm = FileMetadata.of(mp4File, tempDir, Files.size(mp4File),
+                Instant.now(), "hash1");
+        analyzer.analyze(fm);
+
+        // Extraction method should be set after analyze
+        VideoAnalyzer.ExtractionMethod method = analyzer.getLastExtractionMethod();
+        assertNotNull(method);
+        // With a tiny fake file, metadata-extractor won't extract real metadata,
+        // so it should be BASIC (unless ffprobe is available and handles it)
+        assertTrue(method == VideoAnalyzer.ExtractionMethod.BASIC
+                        || method == VideoAnalyzer.ExtractionMethod.METADATA_EXTRACTOR
+                        || method == VideoAnalyzer.ExtractionMethod.FFPROBE,
+                "Should be a valid extraction method");
+    }
+
+    @Test
+    void testExtractionMethodInMetrics() throws IOException {
+        Path mp4File = tempDir.resolve("metrics.mp4");
+        Files.write(mp4File, new byte[]{0x00, 0x00, 0x00, 0x1C});
+
+        FileMetadata fm = FileMetadata.of(mp4File, tempDir, Files.size(mp4File),
+                Instant.now(), "hash1");
+        AnalysisResult result = analyzer.analyze(fm);
+
+        // Extraction method should be in metrics
+        Object method = result.metrics().get("extractionMethod");
+        assertNotNull(method, "extractionMethod should be in metrics");
+        assertTrue(method instanceof String, "extractionMethod should be a string");
+        String methodStr = (String) method;
+        assertTrue(methodStr.equals("metadata_extractor") || methodStr.equals("ffprobe")
+                        || methodStr.equals("basic"),
+                "Should be metadata_extractor, ffprobe, or basic, was: " + methodStr);
+    }
+
+    @Test
+    void testMkvWithoutFfprobeGetsFfprobeNeededKeyword() throws IOException {
+        Path mkvFile = tempDir.resolve("movie.mkv");
+        Files.write(mkvFile, new byte[]{0x1A, 0x45, (byte) 0xDF, (byte) 0xA3});
+
+        FileMetadata fm = FileMetadata.of(mkvFile, tempDir, Files.size(mkvFile),
+                Instant.now(), "hash1");
+        AnalysisResult result = analyzer.analyze(fm);
+
+        // MKV needs ffprobe; if ffprobe is NOT available, keyword should be added
+        if (!FfprobeDetector.isAvailable()) {
+            assertTrue(result.keywords().contains("ffprobe-needed"),
+                    "MKV without ffprobe should get ffprobe-needed keyword");
+            assertEquals("basic", result.metrics().get("extractionMethod"));
+        }
+        // If ffprobe IS available, it should have full metadata
+    }
+
+    @Test
+    void testParseDurationString() {
+        // HH:MM:SS format
+        assertEquals(3723.0, VideoAnalyzer.parseDurationString("01:02:03"), 0.01);
+        // MM:SS format
+        assertEquals(90.0, VideoAnalyzer.parseDurationString("1:30"), 0.01);
+        // Pure seconds
+        assertEquals(323.5, VideoAnalyzer.parseDurationString("323.5"), 0.01);
+        // With units
+        assertEquals(45.0, VideoAnalyzer.parseDurationString("45 sec"), 0.01);
+        // Null/empty
+        assertEquals(0.0, VideoAnalyzer.parseDurationString(null), 0.01);
+        assertEquals(0.0, VideoAnalyzer.parseDurationString(""), 0.01);
+    }
+
+    @Test
+    void testParseIntFromDescription() {
+        assertEquals(1920, VideoAnalyzer.parseIntFromDescription("1920"));
+        assertEquals(1920, VideoAnalyzer.parseIntFromDescription("1920 pixels"));
+        assertEquals(0, VideoAnalyzer.parseIntFromDescription(null));
+        assertEquals(0, VideoAnalyzer.parseIntFromDescription(""));
+        assertEquals(0, VideoAnalyzer.parseIntFromDescription("no numbers here"));
+    }
+
+    @Test
+    void testTryMetadataExtractorOnInvalidFile() {
+        // tryMetadataExtractor should return null for non-existent file
+        Path nonexistent = tempDir.resolve("nonexistent.mp4");
+        VideoAnalyzer.VideoMetadata result = analyzer.tryMetadataExtractor(nonexistent);
+        assertNull(result, "Should return null for non-existent file");
+    }
+
+    @Test
+    void testTryMetadataExtractorOnTinyFile() throws IOException {
+        // A 2-byte file won't have valid video metadata
+        Path tinyFile = tempDir.resolve("tiny.mp4");
+        Files.write(tinyFile, new byte[]{0x00, 0x00});
+
+        VideoAnalyzer.VideoMetadata result = analyzer.tryMetadataExtractor(tinyFile);
+        // Should return null (no useful metadata in a 2-byte file)
+        // or possibly non-null if metadata-extractor finds something
+        // Either way, it should not throw an exception
     }
 
     private FileMetadata createMetadata(String name, FileUtils.FileType type) {

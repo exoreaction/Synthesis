@@ -713,6 +713,26 @@ fi
 # ---------------------------------------------------------------------------
 CLEANUP_ON_FAIL=false
 
+# ---------------------------------------------------------------------------
+# Step 11: Check Optional Dependencies
+# ---------------------------------------------------------------------------
+step "Checking optional dependencies..."
+
+if command_exists ffprobe; then
+    FFPROBE_VER=$(ffprobe -version 2>&1 | head -1 | sed 's/ffprobe version //' | cut -d' ' -f1 | cut -d'-' -f1)
+    info "ffprobe detected (version $FFPROBE_VER) - full video metadata support"
+else
+    detail "ffprobe not found (optional, for video metadata)"
+    detail "  Synthesis works without it for MP4, MOV, AVI (~90% of videos)"
+    detail "  For MKV/WebM support, install ffmpeg:"
+    OS_TYPE=$(detect_os)
+    if [ "$OS_TYPE" = "macos" ]; then
+        detail "    brew install ffmpeg"
+    else
+        detail "    sudo apt install ffmpeg  (or sudo dnf install ffmpeg)"
+    fi
+fi
+
 printf "\n"
 printf "${GREEN}${BOLD}Synthesis installed successfully!${NC}\n"
 printf "\n"

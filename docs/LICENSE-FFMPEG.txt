@@ -1,0 +1,44 @@
+FFmpeg/FFprobe License Notice
+==============================
+
+This software bundles ffprobe binary files from the FFmpeg project.
+
+FFmpeg is free software licensed under the GNU Lesser General Public License
+(LGPL) version 2.1 or later. Some optional components are licensed under the
+GNU General Public License (GPL) version 2 or later.
+
+The bundled ffprobe binaries are built from FFmpeg source code and are
+distributed under the terms of the LGPL v2.1+.
+
+FFmpeg Project
+--------------
+Website: https://ffmpeg.org/
+Source Code: https://git.ffmpeg.org/ffmpeg.git
+License: https://ffmpeg.org/legal.html
+
+The full text of the GNU Lesser General Public License version 2.1 can be
+found at: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+Binary Sources
+--------------
+The bundled binaries are obtained from the following third-party distributors
+of static FFmpeg builds:
+
+- Linux x64:   https://johnvansickle.com/ffmpeg/
+- macOS:       https://evermeet.cx/ffmpeg/
+- Windows x64: https://www.gyan.dev/ffmpeg/builds/
+
+These distributors compile FFmpeg from source and provide static binary
+distributions. Refer to each distributor's website for their specific
+build configurations and any additional licensing information.
+
+Compliance
+----------
+In compliance with the LGPL, the complete corresponding source code for
+FFmpeg is available at https://git.ffmpeg.org/ffmpeg.git. The specific
+version used can be determined by running:
+
+    ffprobe -version
+
+This will display the FFmpeg version, build configuration, and library
+versions used in the binary.

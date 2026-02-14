@@ -12,6 +12,7 @@ import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryConfig;
 import io.exoreaction.synthesis.util.AnsiOutput;
+import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -154,6 +155,18 @@ public class StatusCommand implements Callable<Integer> {
                 } catch (Exception ignored) {
                     // Media stats are informational -- don't fail status
                 }
+            }
+
+            // External Tools
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("External Tools:"));
+            if (FfprobeDetector.isAvailable()) {
+                String statusDisplay = FfprobeDetector.getStatusDisplay();
+                System.out.printf("    %-15s %s%n", "ffprobe:",
+                        AnsiOutput.success(statusDisplay));
+            } else {
+                System.out.printf("    %-15s %s%n", "ffprobe:",
+                        AnsiOutput.dim("Not installed (optional, " + FfprobeDetector.getInstallHint() + ")"));
             }
 
             // AI status

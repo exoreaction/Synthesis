@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
+import io.exoreaction.synthesis.analyzer.VideoAnalyzer;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
@@ -12,6 +13,7 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
 import io.exoreaction.synthesis.util.AnsiOutput;
+import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
 import io.exoreaction.synthesis.util.ProgressReporter;
 import picocli.CommandLine.Command;
@@ -111,12 +113,27 @@ public class ScanCommand implements Callable<Integer> {
             DirectoryScanner scanner = new DirectoryScanner(workspaceRoot, config.getScan(), verbose);
             ScanResult scanResult = scanner.scan();
 
+            // Show video file detection and ffprobe status
+            long videoCount = scanResult.files().stream()
+                    .filter(fm -> fm.fileType() == FileUtils.FileType.VIDEO
+                            || fm.fileType() == FileUtils.FileType.AUDIO)
+                    .count();
+
+            if (videoCount > 0) {
+                printVideoGuidance(videoCount, scanResult);
+            }
+
             System.out.println();
             AnsiOutput.printInfo("Phase 2: Analyzing files and building index...");
 
             // Phase 2: Analyze and index
             AnalyzerRegistry analyzers = new AnalyzerRegistry();
             FileIndexer fileIndexer = new FileIndexer();
+
+            // Track video metadata extraction methods for summary
+            int videosWithFullMeta = 0;
+            int videosWithBasicMeta = 0;
+            int videosNeedingFfprobe = 0;
 
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 if (fullRebuild) {
@@ -132,6 +149,26 @@ public class ScanCommand implements Callable<Integer> {
                 for (FileMetadata metadata : scanResult.files()) {
                     try {
                         AnalysisResult analysis = analyzers.analyze(metadata);
+
+                        // Track video extraction methods for summary
+                        if (metadata.fileType() == FileUtils.FileType.VIDEO
+                                || metadata.fileType() == FileUtils.FileType.AUDIO) {
+                            Object method = analysis.metrics().get("extractionMethod");
+                            if ("metadata_extractor".equals(method) || "ffprobe".equals(method)) {
+                                videosWithFullMeta++;
+                            } else {
+                                videosWithBasicMeta++;
+                                if (analysis.keywords().contains("ffprobe-needed")) {
+                                    videosNeedingFfprobe++;
+                                }
+                            }
+
+                            // Verbose per-file output
+                            if (verbose) {
+                                printVerboseVideoLine(metadata, analysis);
+                            }
+                        }
+
                         var doc = fileIndexer.createDocument(metadata, analysis);
                         index.addDocument(doc);
                         indexed++;
@@ -149,6 +186,12 @@ public class ScanCommand implements Callable<Integer> {
 
                 // Print summary
                 printSummary(scanResult, indexed, errors, index.documentCount());
+
+                // Print video metadata coverage if applicable
+                if (videoCount > 0 && (videosWithBasicMeta > 0 || videosNeedingFfprobe > 0)) {
+                    printVideoSummary(videoCount, videosWithFullMeta,
+                            videosWithBasicMeta, videosNeedingFfprobe);
+                }
             }
 
             // Phase 3: AI vision analysis for images (default enabled, --no-vision to disable)
@@ -348,5 +391,110 @@ public class ScanCommand implements Callable<Integer> {
         if (millis < 1000) return millis + "ms";
         if (millis < 60000) return String.format("%.1fs", millis / 1000.0);
         return String.format("%dm %ds", millis / 60000, (millis % 60000) / 1000);
+    }
+
+    /**
+     * Shows video file detection info and ffprobe availability guidance.
+     * Displayed once after Phase 1 scan, before indexing begins.
+     */
+    private void printVideoGuidance(long videoCount, ScanResult scanResult) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.cyan("Found " + videoCount + " video/audio file"
+                + (videoCount != 1 ? "s" : "")));
+
+        if (FfprobeDetector.isAvailable()) {
+            String source = FfprobeDetector.isUsingBundled() ? "bundled ffprobe" : "ffprobe detected";
+            System.out.println("  " + AnsiOutput.success(source)
+                    + " - full video format support");
+        } else {
+            System.out.println("  " + AnsiOutput.info("ffprobe not detected")
+                    + " - using pure Java metadata extraction");
+            System.out.println("    Supports: MP4, MOV, AVI, M4V, 3GP (covers ~90% of videos)");
+
+            // Count how many files specifically need ffprobe
+            long ffprobeNeeded = scanResult.files().stream()
+                    .filter(fm -> fm.fileType() == FileUtils.FileType.VIDEO
+                            || fm.fileType() == FileUtils.FileType.AUDIO)
+                    .filter(fm -> FfprobeDetector.isFfprobeOnlyFormat(fm.extension()))
+                    .count();
+
+            if (ffprobeNeeded > 0) {
+                System.out.println("    " + AnsiOutput.warning(ffprobeNeeded + " file"
+                        + (ffprobeNeeded != 1 ? "s" : "")
+                        + " (MKV/WebM/FLV) need ffprobe for full metadata"));
+                System.out.println();
+                System.out.println("    Installation:");
+                System.out.println("      Linux:   sudo apt install ffmpeg  (or dnf/pacman)");
+                System.out.println("      macOS:   brew install ffmpeg");
+                System.out.println("      Windows: winget install ffmpeg");
+                System.out.println();
+                System.out.println("    Optional - videos will still be indexed with available metadata.");
+            } else {
+                System.out.println("    All video files are in supported formats.");
+            }
+        }
+    }
+
+    /**
+     * Prints a verbose per-file line for video analysis results.
+     */
+    private void printVerboseVideoLine(FileMetadata metadata, AnalysisResult analysis) {
+        Object method = analysis.metrics().get("extractionMethod");
+        String methodStr = method != null ? method.toString() : "basic";
+
+        StringBuilder line = new StringBuilder("  ");
+        if ("metadata_extractor".equals(methodStr) || "ffprobe".equals(methodStr)) {
+            line.append(AnsiOutput.success("[OK]")).append(" ");
+        } else {
+            line.append(AnsiOutput.warning("[!!]")).append(" ");
+        }
+
+        line.append(metadata.relativePath()).append(" (");
+        line.append(methodStr);
+
+        Object duration = analysis.metrics().get("durationSeconds");
+        if (duration instanceof Number d && d.doubleValue() > 0) {
+            line.append(": ").append(VideoAnalyzer.formatDuration(d.doubleValue()));
+        }
+
+        Object width = analysis.metrics().get("width");
+        Object height = analysis.metrics().get("height");
+        if (width instanceof Number w && height instanceof Number h && w.intValue() > 0) {
+            line.append(", ").append(w.intValue()).append("x").append(h.intValue());
+        }
+
+        if ("basic".equals(methodStr) && analysis.keywords().contains("ffprobe-needed")) {
+            line.append(", ffprobe needed for metadata");
+        }
+
+        line.append(")");
+        System.out.println(line);
+    }
+
+    /**
+     * Prints the video metadata coverage summary at the end of the scan.
+     */
+    private void printVideoSummary(long totalVideos, int withFullMeta,
+                                    int withBasicMeta, int needingFfprobe) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Video metadata coverage:"));
+        if (withFullMeta > 0) {
+            System.out.printf("    %d video%s with full metadata (via metadata-extractor/ffprobe)%n",
+                    withFullMeta, withFullMeta != 1 ? "s" : "");
+        }
+        if (withBasicMeta > 0) {
+            System.out.printf("    %d video%s with basic metadata",
+                    withBasicMeta, withBasicMeta != 1 ? "s" : "");
+            if (needingFfprobe > 0) {
+                System.out.printf(" (%d need ffprobe)", needingFfprobe);
+            }
+            System.out.println();
+        }
+
+        if (needingFfprobe > 0 && !FfprobeDetector.isAvailable()) {
+            System.out.println();
+            System.out.println("  Tip: Install ffmpeg for complete video support: "
+                    + AnsiOutput.cyan(FfprobeDetector.getInstallHint()));
+        }
     }
 }

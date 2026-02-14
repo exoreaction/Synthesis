@@ -892,6 +892,20 @@ try {
 # ---------------------------------------------------------------------------
 $CreatedSynthesisHome = $false  # Disable cleanup
 
+# ---------------------------------------------------------------------------
+# Step 11: Check Optional Dependencies
+# ---------------------------------------------------------------------------
+Write-Step "Checking optional dependencies..."
+
+if (Get-Command ffprobe -ErrorAction SilentlyContinue) {
+    $ffprobeVer = (ffprobe -version 2>&1 | Select-Object -First 1) -replace 'ffprobe version ', '' -replace ' .*', '' -replace '-.*', ''
+    Write-Info "ffprobe detected (version $ffprobeVer) - full video metadata support"
+} else {
+    Write-Detail "ffprobe not found (optional, for video metadata)"
+    Write-Detail "  Synthesis works without it for MP4, MOV, AVI (~90% of videos)"
+    Write-Detail "  For MKV/WebM support: winget install ffmpeg"
+}
+
 Write-Host ""
 Write-Host "Synthesis installed successfully!" -ForegroundColor Green
 Write-Host ""

@@ -1,0 +1,5 @@
+# Ignore downloaded ffprobe binaries (60-90 MB each)
+# Run scripts/download-ffprobe-binaries.sh to download them
+linux-x64/ffprobe
+darwin-universal/ffprobe
+windows-x64/ffprobe.exe
