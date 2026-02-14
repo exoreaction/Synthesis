@@ -41,9 +41,15 @@ public class SearchCommand implements Callable<Integer> {
 
     @Option(
             names = {"-t", "--type"},
-            description = "Filter by file type: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF"
+            description = "Filter by file type: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF, IMAGE, VIDEO, AUDIO"
     )
     private String fileType;
+
+    @Option(
+            names = {"--media-type"},
+            description = "Filter by media type: presentation, document, spreadsheet, photo, screenshot, diagram"
+    )
+    private String mediaType;
 
     @Option(
             names = {"-l", "--limit"},
@@ -93,7 +99,10 @@ public class SearchCommand implements Callable<Integer> {
             // Search
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 List<SearchResult> results;
-                if (company != null || client != null) {
+                if (mediaType != null) {
+                    results = index.searchWithMediaType(query, fileType, repo, mediaType,
+                            company, client, limit);
+                } else if (company != null || client != null) {
                     results = index.search(query, fileType, repo, company, client, limit);
                 } else {
                     results = index.search(query, fileType, repo, limit);
@@ -178,12 +187,16 @@ public class SearchCommand implements Callable<Integer> {
     private String colorForType(String fileType) {
         if (fileType == null) return AnsiOutput.dim("[???]");
         return switch (fileType) {
-            case "MARKDOWN" -> AnsiOutput.green("[MD] ");
+            case "MARKDOWN" -> AnsiOutput.green("[MD]  ");
             case "CODE"     -> AnsiOutput.blue("[CODE]");
             case "YAML"     -> AnsiOutput.magenta("[YAML]");
             case "JSON"     -> AnsiOutput.cyan("[JSON]");
             case "CONFIG"   -> AnsiOutput.yellow("[CONF]");
             case "PDF"      -> AnsiOutput.red("[PDF] ");
+            case "IMAGE"    -> AnsiOutput.magenta("[IMG] ");
+            case "VIDEO"    -> AnsiOutput.cyan("[VID] ");
+            case "AUDIO"    -> AnsiOutput.yellow("[AUD] ");
+            case "DOCUMENT" -> AnsiOutput.red("[DOC] ");
             default         -> AnsiOutput.dim("[" + fileType + "]");
         };
     }

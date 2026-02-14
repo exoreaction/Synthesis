@@ -64,9 +64,39 @@ public record FileMetadata(
 
     /**
      * Whether this file's content should be indexed for full-text search.
-     * Binary files, very large files, and media files are excluded.
+     * Binary files and pure binary archives are excluded.
+     * Media files (images, video, audio) are indexable when they have
+     * metadata or AI-generated descriptions.
      */
     public boolean isIndexableContent() {
         return fileType != FileUtils.FileType.BINARY;
+    }
+
+    /**
+     * Whether this file is a media file (image, video, or audio).
+     */
+    public boolean isMedia() {
+        return fileType.isMedia();
+    }
+
+    /**
+     * Whether this file is an image.
+     */
+    public boolean isImage() {
+        return fileType == FileUtils.FileType.IMAGE;
+    }
+
+    /**
+     * Whether this file is a video.
+     */
+    public boolean isVideo() {
+        return fileType == FileUtils.FileType.VIDEO;
+    }
+
+    /**
+     * Whether this file is an audio file.
+     */
+    public boolean isAudio() {
+        return fileType == FileUtils.FileType.AUDIO;
     }
 }

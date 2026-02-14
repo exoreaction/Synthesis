@@ -75,12 +75,32 @@ public final class FileUtils {
             ".env", ".xml", ".plist"
     );
 
-    /** File extensions for binary/media files that should not be indexed for content. */
-    private static final Set<String> BINARY_EXTENSIONS = Set.of(
+    /** File extensions for image files. */
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of(
             ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico", ".webp",
-            ".mp4", ".avi", ".mov", ".mkv", ".webm",
-            ".mp3", ".wav", ".flac", ".ogg",
-            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".tiff", ".tif", ".heic", ".heif", ".raw", ".cr2", ".nef", ".dng"
+    );
+
+    /** File extensions for video files. */
+    private static final Set<String> VIDEO_EXTENSIONS = Set.of(
+            ".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv",
+            ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv"
+    );
+
+    /** File extensions for audio files. */
+    private static final Set<String> AUDIO_EXTENSIONS = Set.of(
+            ".mp3", ".wav", ".flac", ".ogg", ".aac", ".wma", ".m4a",
+            ".opus", ".aiff", ".ape", ".alac"
+    );
+
+    /** File extensions for document files (non-PDF). */
+    private static final Set<String> DOCUMENT_EXTENSIONS = Set.of(
+            ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".odt", ".ods", ".odp", ".rtf"
+    );
+
+    /** File extensions for binary/archive files that should not be indexed for content. */
+    private static final Set<String> BINARY_EXTENSIONS = Set.of(
             ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
             ".jar", ".war", ".ear", ".class",
             ".exe", ".dll", ".so", ".dylib",
@@ -99,6 +119,10 @@ public final class FileUtils {
         if (JSON_EXTENSIONS.contains(ext)) return FileType.JSON;
         if (CONFIG_EXTENSIONS.contains(ext)) return FileType.CONFIG;
         if (ext.equals(".pdf")) return FileType.PDF;
+        if (IMAGE_EXTENSIONS.contains(ext)) return FileType.IMAGE;
+        if (VIDEO_EXTENSIONS.contains(ext)) return FileType.VIDEO;
+        if (AUDIO_EXTENSIONS.contains(ext)) return FileType.AUDIO;
+        if (DOCUMENT_EXTENSIONS.contains(ext)) return FileType.DOCUMENT;
         if (BINARY_EXTENSIONS.contains(ext)) return FileType.BINARY;
 
         return FileType.OTHER;
@@ -160,12 +184,21 @@ public final class FileUtils {
         return new String(bytes, 0, read);
     }
 
+    /** Text-based file extensions that happen to be in media categories. */
+    private static final Set<String> TEXT_BASED_MEDIA = Set.of(".svg");
+
     /**
      * Checks if a file is likely binary by examining first bytes.
      */
     public static boolean isBinaryFile(Path path) {
         String ext = getExtension(path).toLowerCase();
+        // SVG files are text-based XML images -- never treat as binary
+        if (TEXT_BASED_MEDIA.contains(ext)) return false;
         if (BINARY_EXTENSIONS.contains(ext)) return true;
+        if (IMAGE_EXTENSIONS.contains(ext)) return true;
+        if (VIDEO_EXTENSIONS.contains(ext)) return true;
+        if (AUDIO_EXTENSIONS.contains(ext)) return true;
+        if (DOCUMENT_EXTENSIONS.contains(ext)) return true;
 
         // Check first 512 bytes for null bytes
         try (InputStream is = Files.newInputStream(path)) {
@@ -179,6 +212,35 @@ public final class FileUtils {
         } catch (IOException e) {
             return true; // Assume binary if unreadable
         }
+    }
+
+    /**
+     * Returns true if the file type represents a media file (image, video, or audio).
+     */
+    public static boolean isMediaFile(Path path) {
+        FileType type = classifyFile(path);
+        return type == FileType.IMAGE || type == FileType.VIDEO || type == FileType.AUDIO;
+    }
+
+    /**
+     * Returns the image extension set for use by analyzers.
+     */
+    public static Set<String> getImageExtensions() {
+        return IMAGE_EXTENSIONS;
+    }
+
+    /**
+     * Returns the video extension set for use by analyzers.
+     */
+    public static Set<String> getVideoExtensions() {
+        return VIDEO_EXTENSIONS;
+    }
+
+    /**
+     * Returns the audio extension set for use by analyzers.
+     */
+    public static Set<String> getAudioExtensions() {
+        return AUDIO_EXTENSIONS;
     }
 
     /**
@@ -201,7 +263,26 @@ public final class FileUtils {
         JSON,
         CONFIG,
         PDF,
+        IMAGE,
+        VIDEO,
+        AUDIO,
+        DOCUMENT,
         BINARY,
-        OTHER
+        OTHER;
+
+        /**
+         * Returns true if this type represents a media file (image, video, or audio).
+         */
+        public boolean isMedia() {
+            return this == IMAGE || this == VIDEO || this == AUDIO;
+        }
+
+        /**
+         * Returns true if this type can potentially be analyzed for searchable content.
+         * Images can be described by vision AI, videos may have companion transcripts.
+         */
+        public boolean isAnalyzable() {
+            return this != BINARY && this != OTHER;
+        }
     }
 }

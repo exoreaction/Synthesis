@@ -241,4 +241,216 @@ public final class PromptTemplates {
     public static String buildOnboardingGuidePrompt(String name, String type, String root, String fileIndex) {
         return ONBOARDING_GUIDE_TEMPLATE.formatted(name, type, root, fileIndex);
     }
+
+    // --- Vision prompts ---
+
+    /**
+     * Prompt for describing an image for search indexing.
+     * Used by the vision integration to generate searchable descriptions.
+     */
+    public static final String IMAGE_DESCRIPTION = """
+            Describe this image concisely for a file search index. Include:
+            1. What the image shows (subject, scene, content)
+            2. Type of image (screenshot, diagram, photo, chart, logo, UI mockup, etc.)
+            3. Key text visible in the image (if any)
+            4. Technical details if relevant (architecture diagram, flowchart, data visualization)
+
+            Respond with a concise description (2-4 sentences) followed by 5-10 keywords \
+            on a separate line prefixed with "Keywords: ".
+
+            Example format:
+            Screenshot of a Java IDE showing a Spring Boot application with test results. \
+            The code editor displays a REST controller with 3 endpoints. Test panel shows 42 passing tests.
+            Keywords: screenshot, IDE, Java, Spring Boot, REST API, testing, code editor
+            """;
+
+    /**
+     * Prompt for describing a PDF slide for search indexing.
+     * Used when extracting slides from presentation PDFs.
+     */
+    public static final String SLIDE_DESCRIPTION = """
+            Describe this presentation slide concisely for a search index. Include:
+            1. Slide title and main message
+            2. Key bullet points or data shown
+            3. Any charts, diagrams, or images on the slide
+            4. The context/topic of the presentation if discernible
+
+            Respond with a concise description (2-3 sentences) followed by keywords.
+            Format: Description text.
+            Keywords: keyword1, keyword2, ...
+            """;
+
+    // --- Directed Synthesis prompts ---
+
+    /**
+     * Prompt template for generating analytical perspectives on a question.
+     */
+    private static final String PERSPECTIVES_TEMPLATE = """
+            You are an analytical reasoning engine. Given a question and workspace context, \
+            generate %d distinct analytical perspectives. Each perspective should examine the \
+            question through a different lens.
+
+            WORKSPACE CONTEXT:
+            %s
+
+            QUESTION: %s
+
+            For each perspective, provide:
+            ## Perspective [N]: [Lens Name]
+            **Approach:** 1-sentence description of this analytical angle
+            **Analysis:** 3-5 sentences examining the question through this lens
+            **Key Insight:** 1 sentence capturing the unique insight from this perspective
+            **Confidence:** High/Medium/Low based on available evidence
+
+            After all perspectives, provide:
+            ## Synthesis
+            A 2-3 sentence synthesis combining the most valuable insights across perspectives.
+
+            Perspectives to consider (use the most relevant %d):
+            - Technical feasibility and implementation complexity
+            - Business impact and ROI
+            - Risk and trade-off analysis
+            - Historical precedent and patterns
+            - Team and organizational impact
+            - Scalability and maintenance burden
+            - Security and compliance implications
+            - User experience impact
+            """;
+
+    /**
+     * Builds a prompt for generating multiple analytical perspectives.
+     *
+     * @param question     the user's question
+     * @param context      workspace context from search results
+     * @param numPerspectives number of perspectives to generate (typically 3-5)
+     * @return the formatted prompt
+     */
+    public static String buildPerspectivesPrompt(String question, String context, int numPerspectives) {
+        return PERSPECTIVES_TEMPLATE.formatted(numPerspectives, context, question, numPerspectives);
+    }
+
+    /**
+     * Prompt template for comparing two approaches or options.
+     */
+    private static final String COMPARISON_TEMPLATE = """
+            You are a technical comparison analyst. Compare the following options \
+            based on the workspace context provided.
+
+            WORKSPACE CONTEXT:
+            %s
+
+            COMPARISON REQUEST: %s
+
+            Provide a structured comparison:
+
+            ## Option Analysis
+            For each option identified:
+            - **Description:** What this option entails
+            - **Pros:** Key advantages (bullet points)
+            - **Cons:** Key disadvantages (bullet points)
+            - **Effort:** Estimated effort (Low/Medium/High)
+            - **Risk:** Risk level (Low/Medium/High)
+
+            ## Recommendation
+            Which option best fits the current context and why (2-3 sentences).
+
+            ## Decision Factors
+            Key factors that could change this recommendation.
+            """;
+
+    /**
+     * Builds a prompt for comparing options/approaches.
+     *
+     * @param question the comparison question
+     * @param context  workspace context
+     * @return the formatted prompt
+     */
+    public static String buildComparisonPrompt(String question, String context) {
+        return COMPARISON_TEMPLATE.formatted(context, question);
+    }
+
+    /**
+     * Prompt template for impact analysis (what-if scenarios).
+     */
+    private static final String IMPACT_TEMPLATE = """
+            You are a systems thinking analyst. Analyze the potential impact of the \
+            proposed change or decision based on the workspace context.
+
+            WORKSPACE CONTEXT:
+            %s
+
+            CHANGE/DECISION: %s
+
+            Provide an impact analysis:
+
+            ## Direct Effects
+            Immediate consequences of this change (3-5 bullet points).
+
+            ## Ripple Effects
+            Secondary and tertiary effects across the codebase/organization (3-5 points).
+
+            ## Dependencies Affected
+            Which components, files, or teams would be impacted.
+
+            ## Risk Assessment
+            - **Probability of Issues:** High/Medium/Low
+            - **Severity if Issues Occur:** High/Medium/Low
+            - **Reversibility:** Easy/Moderate/Difficult
+
+            ## Recommended Approach
+            How to implement this change safely (2-3 sentences).
+            """;
+
+    /**
+     * Builds a prompt for impact analysis.
+     *
+     * @param question the change/decision to analyze
+     * @param context  workspace context
+     * @return the formatted prompt
+     */
+    public static String buildImpactPrompt(String question, String context) {
+        return IMPACT_TEMPLATE.formatted(context, question);
+    }
+
+    /**
+     * Prompt template for gap analysis.
+     */
+    private static final String GAP_ANALYSIS_TEMPLATE = """
+            You are a strategic analyst. Identify gaps, missing pieces, and opportunities \
+            based on the workspace context and the question.
+
+            WORKSPACE CONTEXT:
+            %s
+
+            QUESTION: %s
+
+            Provide a gap analysis:
+
+            ## Current State
+            What exists today based on the evidence (3-5 bullet points).
+
+            ## Gaps Identified
+            What is missing, incomplete, or could be improved (3-5 items).
+            For each gap:
+            - **Gap:** Description
+            - **Impact:** Why this matters
+            - **Effort to Address:** Low/Medium/High
+
+            ## Opportunities
+            Hidden opportunities revealed by this analysis (2-3 items).
+
+            ## Priority Ranking
+            Ranked list of gaps to address first, with rationale.
+            """;
+
+    /**
+     * Builds a prompt for gap analysis.
+     *
+     * @param question the area to analyze for gaps
+     * @param context  workspace context
+     * @return the formatted prompt
+     */
+    public static String buildGapAnalysisPrompt(String question, String context) {
+        return GAP_ANALYSIS_TEMPLATE.formatted(context, question);
+    }
 }

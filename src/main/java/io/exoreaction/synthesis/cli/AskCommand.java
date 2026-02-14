@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -145,11 +146,28 @@ public class AskCommand implements Callable<Integer> {
             }
             System.out.println();
 
+            // Suggest perspectives command for complex/ambiguous questions
+            if (DirectedSynthesisEngine.isPerspectivesCandidate(question)) {
+                System.out.println(AnsiOutput.cyan(
+                        "  \u2139\uFE0F  This question might benefit from multiple perspectives. Try:"));
+                System.out.println(AnsiOutput.cyan(
+                        "  synthesis perspectives '" + truncateQuestion(question) + "'"));
+                System.out.println();
+            }
+
             return 0;
         } catch (Exception e) {
             AnsiOutput.printError("Ask failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Truncates a question for display in suggestions.
+     */
+    private static String truncateQuestion(String question) {
+        if (question.length() <= 60) return question;
+        return question.substring(0, 57) + "...";
     }
 
     /**
