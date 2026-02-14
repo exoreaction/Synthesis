@@ -136,6 +136,23 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!-- Standard resources (filtered normally) -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>binaries/**</exclude>
+                </excludes>
+            </resource>
+            <!-- Binary resources (must NOT be filtered to preserve binary content) -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <includes>
+                    <include>binaries/**</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <!-- Compiler with Picocli annotation processor -->
             <plugin>

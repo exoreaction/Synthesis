@@ -164,6 +164,22 @@ java -jar target/synthesis-1.0.0-SNAPSHOT.jar --help
 
 The launcher performs a daily background update check and will notify you when a new version is available. Disable with `SYNTHESIS_NO_UPDATE_CHECK=1`.
 
+### Video Support (Batteries Included)
+
+Synthesis bundles ffprobe for all major platforms (Linux x64, macOS, Windows x64), providing full video metadata support out of the box. No external installation needed.
+
+On first use, the appropriate ffprobe binary is automatically extracted from the JAR to `~/.synthesis/bin/` and cached for subsequent runs. Supported video formats include MP4, MOV, AVI, MKV, WebM, FLV, WMV, and more.
+
+The `synthesis status` command shows ffprobe status:
+```
+External Tools:
+  ffprobe: Bundled (FFmpeg 7.0.2)
+```
+
+If you prefer to use your own system-installed ffprobe, it will be detected as a fallback. See [docs/FFMPEG-BINARIES.md](docs/FFMPEG-BINARIES.md) for details on the bundled binary approach.
+
+**Note:** The bundled binaries increase JAR size to approximately 136 MB (compressed). Uncompressed binary sizes: Linux ~76 MB, macOS ~76 MB, Windows ~95 MB.
+
 ## Commands
 
 ### Core Commands
@@ -237,6 +253,9 @@ The launcher performs a daily background update check and will notify you when a
 | Code | `.java`, `.py`, `.js`, `.ts`, `.go`, `.rs`, `.rb`, `.kt`, `.sh`, etc. | LOC, imports, declarations, language, frameworks |
 | YAML | `.yaml`, `.yml` | Type detection (Docker Compose, GitHub Actions, Kubernetes, Claude skills), key extraction |
 | PDF | `.pdf` | Text extraction, page count, title, author |
+| Image | `.jpg`, `.png`, `.gif`, `.svg`, `.webp`, etc. | EXIF metadata, dimensions, camera info, GPS, IPTC keywords |
+| Video | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`, etc. | Duration, resolution (metadata-extractor + ffprobe fallback), companion transcripts |
+| Audio | `.mp3`, `.wav`, `.flac`, `.ogg`, `.aac`, etc. | Duration, companion transcripts |
 | JSON | `.json` | Content indexing |
 | Config | `.toml`, `.ini`, `.properties`, `.xml` | Content indexing |
 
@@ -414,6 +433,7 @@ io.exoreaction.synthesis/
     DownloadsClassifier.java # File classification for Downloads routing
   util/                      # Utilities
     AnsiOutput.java          # Terminal colors
+    FfprobeDetector.java     # ffprobe detection & caching
     FileUtils.java           # File classification
     ProgressReporter.java    # Progress bars
 ```

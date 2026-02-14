@@ -1,6 +1,11 @@
 package io.exoreaction.synthesis.analyzer;
 
+import com.drew.imaging.ImageMetadataReader;
+import com.drew.metadata.Directory;
+import com.drew.metadata.Metadata;
+import com.drew.metadata.Tag;
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
 
 import java.io.IOException;
@@ -11,16 +16,22 @@ import java.util.*;
 /**
  * Analyzes video files to extract metadata and companion transcripts.
  *
- * <p>Extracts the following from video files:
+ * <p>Uses a two-tier metadata extraction strategy:
+ * <ol>
+ *   <li><strong>Primary:</strong> metadata-extractor (pure Java) -- handles MP4, MOV, AVI, M4V, 3GP
+ *       (~90% of videos). Zero external dependencies.</li>
+ *   <li><strong>Fallback:</strong> ffprobe (external binary) -- handles MKV, WebM, and edge cases
+ *       where metadata-extractor fails. Optional; Synthesis works without it.</li>
+ * </ol>
+ *
+ * <p>Additionally extracts companion transcript content (makes videos searchable):
  * <ul>
- *   <li>Basic file metadata (format, size)</li>
- *   <li>Duration and resolution via ffprobe (when available)</li>
- *   <li>Companion transcript content (makes videos searchable)</li>
+ *   <li>Companion transcripts are detected by looking for files with the same
+ *       base name but different extension (e.g., video.mp4 -> video.txt, video.srt,
+ *       video.vtt, video.md).</li>
  * </ul>
  *
- * <p>Companion transcripts are detected by looking for files with the same
- * base name but different extension (e.g., video.mp4 -> video.txt, video.srt,
- * video.vtt, video.md).
+ * @see FfprobeDetector
  */
 public class VideoAnalyzer implements FileAnalyzer {
 
@@ -28,6 +39,32 @@ public class VideoAnalyzer implements FileAnalyzer {
     private static final Set<String> TRANSCRIPT_EXTENSIONS = Set.of(
             ".txt", ".srt", ".vtt", ".md", ".json", ".yaml", ".yml"
     );
+
+    /**
+     * Metadata extraction method used for a particular file.
+     * Tracked for reporting purposes (verbose mode, scan summary).
+     */
+    public enum ExtractionMethod {
+        /** Pure Java metadata-extractor succeeded. */
+        METADATA_EXTRACTOR,
+        /** External ffprobe binary succeeded. */
+        FFPROBE,
+        /** Basic metadata only (format, size). Neither extractor succeeded. */
+        BASIC
+    }
+
+    /**
+     * Result of the last analysis, including which extraction method was used.
+     * Used by ScanCommand for verbose output and summary reporting.
+     */
+    private ExtractionMethod lastExtractionMethod = ExtractionMethod.BASIC;
+
+    /**
+     * Returns the extraction method used for the most recent {@link #analyze} call.
+     */
+    public ExtractionMethod getLastExtractionMethod() {
+        return lastExtractionMethod;
+    }
 
     @Override
     public boolean canAnalyze(FileMetadata metadata) {
@@ -63,8 +100,27 @@ public class VideoAnalyzer implements FileAnalyzer {
             }
         }
 
-        // Try ffprobe for duration and resolution
-        FfprobeResult ffprobe = tryFfprobe(metadata.path());
+        // ---- Smart fallback metadata extraction ----
+        // Strategy 1: Try metadata-extractor first (pure Java, no external dependency)
+        VideoMetadata videoMeta = tryMetadataExtractor(metadata.path());
+
+        // Strategy 2: If metadata-extractor failed or file needs ffprobe, try ffprobe
+        if (videoMeta == null && FfprobeDetector.isAvailable()) {
+            FfprobeResult ffprobeResult = tryFfprobe(metadata.path());
+            if (ffprobeResult != null) {
+                videoMeta = new VideoMetadata(
+                        ffprobeResult.duration(), ffprobeResult.width(), ffprobeResult.height());
+                lastExtractionMethod = ExtractionMethod.FFPROBE;
+            }
+        } else if (videoMeta == null && FfprobeDetector.isFfprobeOnlyFormat(ext)) {
+            // File needs ffprobe but it's not available
+            lastExtractionMethod = ExtractionMethod.BASIC;
+            keywords.add("ffprobe-needed");
+        }
+
+        if (videoMeta == null) {
+            lastExtractionMethod = ExtractionMethod.BASIC;
+        }
 
         // Build summary
         StringBuilder summaryBuilder = new StringBuilder();
@@ -72,13 +128,13 @@ public class VideoAnalyzer implements FileAnalyzer {
         summaryBuilder.append(" (").append(formatName).append(", ");
         summaryBuilder.append(FileUtils.formatSize(metadata.sizeBytes())).append(")");
 
-        if (ffprobe != null) {
-            if (ffprobe.duration > 0) {
-                summaryBuilder.append(" [").append(formatDuration(ffprobe.duration)).append("]");
-                keywords.add(categorizeDuration(ffprobe.duration));
+        if (videoMeta != null) {
+            if (videoMeta.duration > 0) {
+                summaryBuilder.append(" [").append(formatDuration(videoMeta.duration)).append("]");
+                keywords.add(categorizeDuration(videoMeta.duration));
             }
-            if (ffprobe.width > 0 && ffprobe.height > 0 && !isAudio) {
-                summaryBuilder.append(" ").append(ffprobe.width).append("x").append(ffprobe.height);
+            if (videoMeta.width > 0 && videoMeta.height > 0 && !isAudio) {
+                summaryBuilder.append(" ").append(videoMeta.width).append("x").append(videoMeta.height);
             }
         }
 
@@ -90,11 +146,11 @@ public class VideoAnalyzer implements FileAnalyzer {
         StringBuilder structBuilder = new StringBuilder();
         structBuilder.append(mediaType).append(", ").append(FileUtils.formatSize(metadata.sizeBytes()));
         structBuilder.append(", ").append(formatName);
-        if (ffprobe != null && ffprobe.duration > 0) {
-            structBuilder.append(", ").append(formatDuration(ffprobe.duration));
+        if (videoMeta != null && videoMeta.duration > 0) {
+            structBuilder.append(", ").append(formatDuration(videoMeta.duration));
         }
-        if (ffprobe != null && ffprobe.width > 0 && !isAudio) {
-            structBuilder.append(", ").append(ffprobe.width).append("x").append(ffprobe.height);
+        if (videoMeta != null && videoMeta.width > 0 && !isAudio) {
+            structBuilder.append(", ").append(videoMeta.width).append("x").append(videoMeta.height);
         }
         if (companionPath != null) {
             structBuilder.append(", transcript: ").append(companionPath.getFileName());
@@ -104,13 +160,14 @@ public class VideoAnalyzer implements FileAnalyzer {
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("format", formatName);
         metrics.put("mediaType", isAudio ? "audio" : "video");
-        if (ffprobe != null) {
-            if (ffprobe.duration > 0) metrics.put("durationSeconds", ffprobe.duration);
-            if (ffprobe.width > 0 && !isAudio) {
-                metrics.put("width", ffprobe.width);
-                metrics.put("height", ffprobe.height);
+        if (videoMeta != null) {
+            if (videoMeta.duration > 0) metrics.put("durationSeconds", videoMeta.duration);
+            if (videoMeta.width > 0 && !isAudio) {
+                metrics.put("width", videoMeta.width);
+                metrics.put("height", videoMeta.height);
             }
         }
+        metrics.put("extractionMethod", lastExtractionMethod.name().toLowerCase());
         if (companionPath != null) {
             metrics.put("companionFile", companionPath.getFileName().toString());
         }
@@ -140,13 +197,80 @@ public class VideoAnalyzer implements FileAnalyzer {
     }
 
     /**
+     * Tries to extract video metadata using the pure Java metadata-extractor library.
+     * Works well for MP4, MOV, AVI, M4V, 3GP containers.
+     *
+     * @return VideoMetadata if extraction succeeded, null otherwise
+     */
+    VideoMetadata tryMetadataExtractor(Path filePath) {
+        try {
+            Metadata metadata = ImageMetadataReader.readMetadata(filePath.toFile());
+
+            double duration = 0;
+            int width = 0;
+            int height = 0;
+
+            // Iterate through all directories looking for video-relevant metadata
+            for (Directory directory : metadata.getDirectories()) {
+                for (Tag tag : directory.getTags()) {
+                    String tagName = tag.getTagName();
+                    String desc = tag.getDescription();
+
+                    if (desc == null || desc.isEmpty()) continue;
+
+                    // Duration (various directory types store this differently)
+                    if (duration == 0 && tagName != null &&
+                            (tagName.toLowerCase().contains("duration") ||
+                             tagName.equals("Length"))) {
+                        duration = parseDurationString(desc);
+                    }
+
+                    // Width
+                    if (width == 0 && tagName != null &&
+                            (tagName.contains("Width") || tagName.contains("width"))) {
+                        width = parseIntFromDescription(desc);
+                    }
+
+                    // Height
+                    if (height == 0 && tagName != null &&
+                            (tagName.contains("Height") || tagName.contains("height"))) {
+                        height = parseIntFromDescription(desc);
+                    }
+                }
+            }
+
+            if (duration > 0 || width > 0) {
+                lastExtractionMethod = ExtractionMethod.METADATA_EXTRACTOR;
+                return new VideoMetadata(duration, width, height);
+            }
+
+            return null;
+        } catch (Exception e) {
+            // metadata-extractor couldn't handle this format
+            return null;
+        }
+    }
+
+    /**
      * Tries to run ffprobe to get video/audio metadata.
-     * Returns null if ffprobe is not available.
+     * Uses the ffprobe path from {@link FfprobeDetector}, which may be a bundled
+     * binary extracted from the JAR or a system-installed one.
+     *
+     * @return FfprobeResult if extraction succeeded, null otherwise
      */
     FfprobeResult tryFfprobe(Path filePath) {
+        if (!FfprobeDetector.isAvailable()) {
+            return null;
+        }
+
+        String ffprobeCommand = FfprobeDetector.getFfprobePath();
+        if (ffprobeCommand == null) {
+            ffprobeCommand = "ffprobe"; // Fallback to PATH
+        }
+
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    "ffprobe", "-v", "quiet", "-print_format", "json",
+                    ffprobeCommand, "-v", "quiet", "-print_format", "json",
                     "-show_format", "-show_streams",
                     filePath.toAbsolutePath().toString()
             );
@@ -211,7 +335,7 @@ public class VideoAnalyzer implements FileAnalyzer {
     /**
      * Formats a duration in seconds as human-readable string.
      */
-    static String formatDuration(double seconds) {
+    public static String formatDuration(double seconds) {
         if (seconds < 60) return String.format("%.0fs", seconds);
         long mins = (long) (seconds / 60);
         long secs = (long) (seconds % 60);
@@ -270,6 +394,62 @@ public class VideoAnalyzer implements FileAnalyzer {
         return (int) extractJsonDouble(json, key);
     }
 
+    /**
+     * Parses a duration string from metadata-extractor into seconds.
+     * Handles formats like "00:05:23", "5:23", "323.5", "323 sec", etc.
+     */
+    static double parseDurationString(String desc) {
+        if (desc == null || desc.isEmpty()) return 0;
+
+        desc = desc.trim();
+
+        // Try HH:MM:SS or MM:SS format
+        if (desc.contains(":")) {
+            String[] parts = desc.split(":");
+            try {
+                if (parts.length == 3) {
+                    return Integer.parseInt(parts[0].trim()) * 3600
+                            + Integer.parseInt(parts[1].trim()) * 60
+                            + Double.parseDouble(parts[2].trim());
+                } else if (parts.length == 2) {
+                    return Integer.parseInt(parts[0].trim()) * 60
+                            + Double.parseDouble(parts[1].trim());
+                }
+            } catch (NumberFormatException e) {
+                // fall through
+            }
+        }
+
+        // Try pure numeric (seconds)
+        String numericPart = desc.replaceAll("[^0-9.]", "");
+        if (!numericPart.isEmpty()) {
+            try {
+                return Double.parseDouble(numericPart);
+            } catch (NumberFormatException e) {
+                // fall through
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Extracts an integer from a metadata description string.
+     * Handles formats like "1920", "1920 pixels", etc.
+     */
+    static int parseIntFromDescription(String desc) {
+        if (desc == null || desc.isEmpty()) return 0;
+        String numericPart = desc.replaceAll("[^0-9]", "");
+        if (!numericPart.isEmpty()) {
+            try {
+                return Integer.parseInt(numericPart);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
     private static String truncate(String s, int maxLen) {
         return s.length() > maxLen ? s.substring(0, maxLen) + "..." : s;
     }
@@ -278,4 +458,9 @@ public class VideoAnalyzer implements FileAnalyzer {
      * Result from ffprobe metadata extraction.
      */
     record FfprobeResult(double duration, int width, int height) {}
+
+    /**
+     * Unified video metadata result used internally regardless of extraction source.
+     */
+    record VideoMetadata(double duration, int width, int height) {}
 }
