@@ -6,43 +6,163 @@ Synthesis is a CLI tool that scans, indexes, and searches workspace file systems
 
 ## Quick Start
 
+**Linux / macOS:**
+```bash
+# Install (one command)
+curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+# Install (one command, requires RemoteSigned execution policy)
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser   # one-time setup
+iex (iwr -useb https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.ps1).Content
+```
+
+**Then use Synthesis:**
 ```bash
 # Initialize a workspace
-java -jar synthesis.jar init ~/projects/my-project --name "My Project"
+synthesis init ~/projects/my-project --name "My Project"
 
 # Scan and index all files
-java -jar synthesis.jar -d ~/projects/my-project scan
+synthesis -d ~/projects/my-project scan
 
 # Search for content
-java -jar synthesis.jar -d ~/projects/my-project search "authentication pipeline"
+synthesis -d ~/projects/my-project search "authentication pipeline"
 
 # Check workspace health
-java -jar synthesis.jar -d ~/projects/my-project status
+synthesis -d ~/projects/my-project status
 ```
 
 ## Installation
 
 **Requirements:** Java 17 or later.
 
-```bash
-# Download the JAR (or build from source)
-cp synthesis-1.0.0.jar /usr/local/lib/
+### Linux / macOS
 
-# Create a convenience alias
-alias synthesis='java -jar /usr/local/lib/synthesis-1.0.0.jar'
-
-# Verify installation
-synthesis --version
-```
-
-### Build from Source
+#### One-Command Install
 
 ```bash
-git clone <repository-url>
-cd synthesis
-mvn clean package
-# JAR is at target/synthesis-1.0.0-SNAPSHOT.jar
+curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash
 ```
+
+This will:
+- Check prerequisites (Java 17+, git, curl)
+- Download the latest Synthesis JAR (from GitHub releases or Cantara Maven repository)
+- Install to `~/.synthesis/` with launcher script, updater, and symlink management
+- Add `~/.synthesis/bin` to your PATH
+
+After installation, open a new terminal and run `synthesis --version` to verify.
+
+#### Install from Source
+
+If you have the source code locally:
+
+```bash
+git clone https://github.com/exoreaction/Synthesis.git
+cd Synthesis
+mvn clean package -DskipTests
+./bin/install.sh --source .
+```
+
+#### Updating
+
+```bash
+synthesis-update                   # Update to latest version
+synthesis-update --check           # Check for updates without installing
+synthesis-update --force           # Force re-download
+synthesis-update --version '1.0.*' # Update to a specific version pattern
+synthesis-update --rollback        # Rollback to previous version
+```
+
+#### Uninstalling
+
+```bash
+~/.synthesis/bin/uninstall.sh
+# Or from the source directory:
+./bin/uninstall.sh
+```
+
+This removes `~/.synthesis/`, cleans PATH entries from your shell config, and optionally removes Claude Code skills (`--remove-skills`). Workspace `.synthesis/` directories inside your projects are preserved.
+
+### Windows
+
+For detailed Windows instructions, see [INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md).
+
+#### One-Command Install (PowerShell)
+
+```powershell
+# First time: allow PowerShell scripts (run once)
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Install Synthesis
+iex (iwr -useb https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.ps1).Content
+```
+
+Or download and run:
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.ps1" -OutFile install.ps1
+.\install.ps1
+```
+
+This will:
+- Check prerequisites (Java 17+, PowerShell 5.1+)
+- Download the latest Synthesis JAR (same sources as Linux/macOS)
+- Install to `%USERPROFILE%\.synthesis\` with launcher (`synthesis.bat`), updater, and hard link management
+- Add `%USERPROFILE%\.synthesis\bin` to User PATH
+- Configure PowerShell profile with aliases
+
+#### Install from Source (Windows)
+
+```powershell
+git clone https://github.com/exoreaction/Synthesis.git
+cd Synthesis
+mvn clean package -DskipTests
+.\bin\install.ps1 -Source .
+```
+
+#### Updating (Windows)
+
+```powershell
+synthesis-update                      # Update to latest version
+synthesis-update -Check               # Check for updates without installing
+synthesis-update -Force               # Force re-download
+synthesis-update -Version "1.0.*"     # Update to a specific version pattern
+synthesis-update -Rollback            # Rollback to previous version
+```
+
+#### Uninstalling (Windows)
+
+```powershell
+& "$env:USERPROFILE\.synthesis\bin\uninstall.ps1"
+# Or from the source directory:
+.\bin\uninstall.ps1
+```
+
+This removes `%USERPROFILE%\.synthesis\`, cleans User PATH entries, cleans PowerShell profile, and optionally removes Claude Code skills (`-RemoveSkills`). Workspace `.synthesis\` directories inside your projects are preserved.
+
+### Manual Install (Any Platform)
+
+```bash
+# Build the JAR
+git clone https://github.com/exoreaction/Synthesis.git
+cd Synthesis
+mvn clean package -DskipTests
+
+# Run directly
+java -jar target/synthesis-1.0.0-SNAPSHOT.jar --help
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `SYNTHESIS_HOME` | Installation directory (default: `~/.synthesis` or `%USERPROFILE%\.synthesis`) |
+| `SYNTHESIS_NO_UPDATE_CHECK` | Set to `1` to disable daily auto-update checks |
+| `SYNTHESIS_JAVA_OPTS` | Extra JVM options passed to Java (e.g., `-Xmx2g`) |
+
+The launcher performs a daily background update check and will notify you when a new version is available. Disable with `SYNTHESIS_NO_UPDATE_CHECK=1`.
 
 ## Commands
 

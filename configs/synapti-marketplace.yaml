@@ -7,7 +7,7 @@
 #   3. Search: synthesis search "authentication"
 #
 # Or initialize with:
-#   synthesis init ~/synapti --name "Synapti Marketplace" --type plugin-ecosystem
+#   synthesis init ~/synapti --name "Synapti Marketplace"
 
 workspace:
   name: "Synapti Marketplace"
@@ -15,79 +15,134 @@ workspace:
   description: "Plugin marketplace with multiple independent plugins as git submodules"
 
 scan:
-  # Include all relevant source files
+  # Plugin ecosystem categories
+  # Category 1: Plugin source code
   includePatterns:
     # Documentation
     - "**/*.md"
     - "**/*.txt"
-    # Code
+    - "**/*.rst"
+    # Java / Kotlin (JVM plugins)
     - "**/*.java"
     - "**/*.kt"
-    - "**/*.py"
+    - "**/*.kts"
+    - "**/*.scala"
+    - "**/*.groovy"
+    # JavaScript / TypeScript (frontend plugins)
     - "**/*.js"
     - "**/*.ts"
     - "**/*.tsx"
     - "**/*.jsx"
+    - "**/*.mjs"
+    - "**/*.cjs"
+    - "**/*.vue"
+    - "**/*.svelte"
+    # Python
+    - "**/*.py"
+    # Go / Rust (native plugins)
     - "**/*.go"
     - "**/*.rs"
-    - "**/*.rb"
+    # Shell scripts
     - "**/*.sh"
-    # Configuration
+    - "**/*.bash"
+    # Category 2: Configuration
     - "**/*.yaml"
     - "**/*.yml"
     - "**/*.json"
     - "**/*.toml"
     - "**/*.xml"
     - "**/*.properties"
-    # Build files
+    - "**/*.env.example"
+    # Category 3: Build definitions
     - "**/pom.xml"
     - "**/build.gradle"
+    - "**/build.gradle.kts"
+    - "**/settings.gradle"
+    - "**/settings.gradle.kts"
     - "**/package.json"
     - "**/Cargo.toml"
     - "**/go.mod"
-    # SQL
+    - "**/go.sum"
+    - "**/Makefile"
+    - "**/Dockerfile"
+    - "**/docker-compose.yaml"
+    - "**/docker-compose.yml"
+    # Category 4: Database / SQL
     - "**/*.sql"
-    # HTML/CSS
+    - "**/migrations/**"
+    # Category 5: API definitions
+    - "**/*.graphql"
+    - "**/*.proto"
+    # Category 6: Web (static assets documentation)
     - "**/*.html"
     - "**/*.css"
-    # PDFs (documentation)
+    - "**/*.scss"
+    # Category 7: Documentation assets
     - "**/*.pdf"
 
   excludePatterns:
     # Version control
     - "**/.git/**"
     - "**/.gitmodules"
-    # Build artifacts
+    # Build artifacts (critical for plugin ecosystems)
     - "**/node_modules/**"
     - "**/target/**"
     - "**/build/**"
     - "**/dist/**"
     - "**/out/**"
     - "**/.gradle/**"
+    - "**/.mvn/**"
+    - "**/vendor/**"
     # IDE
     - "**/.idea/**"
     - "**/.vscode/**"
+    - "**/.eclipse/**"
     # Python
     - "**/__pycache__/**"
     - "**/.venv/**"
     - "**/venv/**"
-    # Synthesis itself
-    - "**/.synthesis/**"
-    # Compiled/binary
+    - "**/.tox/**"
+    - "**/.mypy_cache/**"
+    # JavaScript
+    - "**/.next/**"
+    - "**/.nuxt/**"
+    - "**/.cache/**"
+    - "**/coverage/**"
+    # Rust
+    - "**/target/debug/**"
+    - "**/target/release/**"
+    # Synthesis itself (avoid indexing the index)
+    - "**/.synthesis/index/**"
+    - "**/.synthesis/skills/**"
+    # Compiled / binary
     - "**/*.class"
     - "**/*.jar"
     - "**/*.war"
+    - "**/*.pyc"
+    - "**/*.pyo"
+    - "**/*.o"
+    - "**/*.so"
+    - "**/*.dylib"
+    # Lock files (usually noise for search)
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+    - "**/pnpm-lock.yaml"
+    - "**/Cargo.lock"
+    # Generated
+    - "**/generated/**"
+    - "**/.generated/**"
+    - "**/auto-generated/**"
 
   computeHashes: true
   maxFileSizeBytes: 10485760  # 10 MB
 
 search:
-  maxResults: 30              # More results for larger workspaces
-  previewLength: 200
-  contentPreviewBytes: 10240
+  maxResults: 50              # More results for cross-plugin searches
+  previewLength: 250          # Longer previews for context
+  contentPreviewBytes: 10240  # 10 KB content preview
 
 ai:
-  enabled: false              # Enable for README generation
+  enabled: false              # Enable when ready for AI-powered features
   model: "claude-sonnet-4-5-20250929"
   readmeGeneration: true
   contentSummary: false

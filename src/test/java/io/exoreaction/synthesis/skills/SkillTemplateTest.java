@@ -4,9 +4,12 @@ import io.exoreaction.synthesis.org.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -239,6 +242,160 @@ class SkillTemplateTest {
         assertTrue(yaml.contains("/src/test/repo/"));
     }
 
+    // --- Architecture overview ---
+
+    @Test
+    void architectureOverview_generatesValidYaml() {
+        Organization org = createOrg("TestCo", OrganizationType.COMPANY);
+        org.addProduct(new Product("lib-pcb", "TestCo", tempDir.resolve("pcb")));
+        org.getCodebasePaths().add("/src/testco/main-repo/");
+
+        String yaml = SkillTemplate.architectureOverview(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.startsWith("name: architecture-overview\n"));
+        assertTrue(yaml.contains("version: 1.0.0"));
+        assertTrue(yaml.contains("auto_load: true"));
+        assertTrue(yaml.contains("instructions: |"));
+    }
+
+    @Test
+    void architectureOverview_includesProductsAsComponents() {
+        Organization org = createOrg("TestCo", OrganizationType.COMPANY);
+        org.addProduct(new Product("product-alpha", "TestCo", tempDir.resolve("alpha")));
+
+        String yaml = SkillTemplate.architectureOverview(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("Components:"));
+        assertTrue(yaml.contains("product-alpha"));
+    }
+
+    @Test
+    void architectureOverview_includesCodebasesAsRepositories() {
+        Organization org = createOrg("TestCo", OrganizationType.COMPANY);
+        org.getCodebasePaths().add("/src/testco/repo/");
+
+        String yaml = SkillTemplate.architectureOverview(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("Source Repositories:"));
+        assertTrue(yaml.contains("/src/testco/repo/"));
+    }
+
+    @Test
+    void architectureOverview_skipsEmptyOrgs() {
+        Organization empty = createOrg("EmptyCo", OrganizationType.COMPANY);
+        Organization withProducts = createOrg("ActiveCo", OrganizationType.COMPANY);
+        withProducts.addProduct(new Product("prod", "ActiveCo", tempDir.resolve("p")));
+
+        String yaml = SkillTemplate.architectureOverview(
+                List.of(empty, withProducts), TIMESTAMP);
+
+        assertFalse(yaml.contains("EmptyCo"));
+        assertTrue(yaml.contains("ActiveCo"));
+    }
+
+    @Test
+    void architectureOverview_truncatesLongCodebaseLists() {
+        Organization org = createOrg("BigCo", OrganizationType.COMPANY);
+        for (int i = 0; i < 15; i++) {
+            org.getCodebasePaths().add("/src/repo-" + i + "/");
+        }
+
+        String yaml = SkillTemplate.architectureOverview(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("(+5 more)"));
+    }
+
+    // --- Tech stack ---
+
+    @Test
+    void techStack_generatesValidYaml() {
+        Organization org = createOrg("TestCo", OrganizationType.COMPANY);
+
+        String yaml = SkillTemplate.techStack(List.of(org), tempDir, TIMESTAMP);
+
+        assertTrue(yaml.startsWith("name: tech-stack\n"));
+        assertTrue(yaml.contains("version: 1.0.0"));
+        assertTrue(yaml.contains("instructions: |"));
+    }
+
+    @Test
+    void techStack_detectsMavenJava() throws IOException {
+        Organization org = createOrg("JavaCo", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("JavaCo");
+        Files.createDirectories(orgDir);
+        Files.writeString(orgDir.resolve("pom.xml"), "<project/>");
+
+        String yaml = SkillTemplate.techStack(List.of(org), tempDir, TIMESTAMP);
+
+        assertTrue(yaml.contains("Java (Maven)"));
+    }
+
+    @Test
+    void techStack_detectsNodeJs() throws IOException {
+        Organization org = createOrg("JsCo", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("JsCo");
+        Files.createDirectories(orgDir);
+        Files.writeString(orgDir.resolve("package.json"), "{}");
+
+        String yaml = SkillTemplate.techStack(List.of(org), tempDir, TIMESTAMP);
+
+        assertTrue(yaml.contains("JavaScript/TypeScript (Node.js)"));
+    }
+
+    @Test
+    void techStack_showsNoTechWhenNoneDetected() {
+        Organization org = createOrg("EmptyCo", OrganizationType.COMPANY);
+
+        String yaml = SkillTemplate.techStack(List.of(org), tempDir, TIMESTAMP);
+
+        assertTrue(yaml.contains("No technology indicators detected"));
+    }
+
+    // --- Key decisions ---
+
+    @Test
+    void keyDecisions_generatesValidYaml() {
+        Organization org = createOrg("TestCo", OrganizationType.COMPANY);
+
+        String yaml = SkillTemplate.keyDecisions(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.startsWith("name: key-decisions\n"));
+        assertTrue(yaml.contains("version: 1.0.0"));
+        assertTrue(yaml.contains("instructions: |"));
+    }
+
+    @Test
+    void keyDecisions_findsStrategyDirectory() throws IOException {
+        Organization org = createOrg("StrategicCo", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("StrategicCo");
+        Files.createDirectories(orgDir.resolve("business").resolve("strategy"));
+
+        String yaml = SkillTemplate.keyDecisions(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("StrategicCo"));
+        assertTrue(yaml.contains("business" + java.io.File.separator + "strategy"));
+    }
+
+    @Test
+    void keyDecisions_showsNoRecordsMessage() {
+        Organization org = createOrg("NoDocs", OrganizationType.COMPANY);
+
+        String yaml = SkillTemplate.keyDecisions(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("No formal decision records"));
+    }
+
+    @Test
+    void keyDecisions_findsAdrDirectory() throws IOException {
+        Organization org = createOrg("AdrCo", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("AdrCo");
+        Files.createDirectories(orgDir.resolve("docs").resolve("adr"));
+
+        String yaml = SkillTemplate.keyDecisions(List.of(org), TIMESTAMP);
+
+        assertTrue(yaml.contains("AdrCo"));
+    }
+
     // --- Utility methods ---
 
     @Test
@@ -278,6 +435,51 @@ class SkillTemplateTest {
         assertTrue(result.contains("  Line 2\n"));
         assertTrue(result.contains("\n\n"));
         assertTrue(result.contains("  Line 4\n"));
+    }
+
+    // --- detectTechnologies ---
+
+    @Test
+    void detectTechnologies_emptyOrg_noTech() {
+        Organization org = createOrg("Empty", OrganizationType.COMPANY);
+
+        Set<String> tech = SkillTemplate.detectTechnologies(org);
+
+        assertTrue(tech.isEmpty());
+    }
+
+    @Test
+    void detectTechnologies_mavenProject() throws IOException {
+        Organization org = createOrg("JavaProject", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("JavaProject");
+        Files.createDirectories(orgDir);
+        Files.writeString(orgDir.resolve("pom.xml"), "<project/>");
+
+        Set<String> tech = SkillTemplate.detectTechnologies(org);
+
+        assertTrue(tech.contains("Java (Maven)"));
+    }
+
+    @Test
+    void detectTechnologies_multiTechProject() throws IOException {
+        Organization org = createOrg("FullStack", OrganizationType.COMPANY);
+        java.nio.file.Path orgDir = tempDir.resolve("FullStack");
+        Files.createDirectories(orgDir);
+        Files.writeString(orgDir.resolve("pom.xml"), "<project/>");
+        Files.writeString(orgDir.resolve("Dockerfile"), "FROM java:21");
+
+        Set<String> tech = SkillTemplate.detectTechnologies(org);
+
+        assertTrue(tech.contains("Java (Maven)"));
+        assertTrue(tech.contains("Docker"));
+    }
+
+    // --- MAX_LIST_ITEMS ---
+
+    @Test
+    void maxListItems_isReasonableValue() {
+        assertTrue(SkillTemplate.MAX_LIST_ITEMS > 0);
+        assertTrue(SkillTemplate.MAX_LIST_ITEMS <= 20);
     }
 
     // --- Helper ---

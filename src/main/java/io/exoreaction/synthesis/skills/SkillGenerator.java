@@ -24,6 +24,9 @@ import java.util.*;
  *   <li>{@code navigate-clients.yaml} - Client navigation shortcuts</li>
  *   <li>{@code pipeline-tracker.yaml} - Business pipeline awareness</li>
  *   <li>{@code proof-points.yaml} - Technical achievements</li>
+ *   <li>{@code architecture-overview.yaml} - High-level architecture</li>
+ *   <li>{@code tech-stack.yaml} - Technologies and frameworks</li>
+ *   <li>{@code key-decisions.yaml} - Important decision records</li>
  * </ul>
  */
 public class SkillGenerator {
@@ -134,6 +137,25 @@ public class SkillGenerator {
                     writeSkill("proof-points.yaml",
                             SkillTemplate.proofPoints(orgs, timestamp)));
         }
+
+        // 6. Architecture overview (only if there are codebases or products)
+        boolean hasArchitecture = orgs.stream()
+                .anyMatch(o -> !o.getCodebasePaths().isEmpty() || !o.getProducts().isEmpty());
+        if (hasArchitecture) {
+            skills.put("architecture-overview.yaml",
+                    writeSkill("architecture-overview.yaml",
+                            SkillTemplate.architectureOverview(orgs, timestamp)));
+        }
+
+        // 7. Tech stack (always generate - detects from directory structure)
+        skills.put("tech-stack.yaml",
+                writeSkill("tech-stack.yaml",
+                        SkillTemplate.techStack(orgs, workspaceRoot, timestamp)));
+
+        // 8. Key decisions (always generate - guides users to decision records)
+        skills.put("key-decisions.yaml",
+                writeSkill("key-decisions.yaml",
+                        SkillTemplate.keyDecisions(orgs, timestamp)));
 
         return new GenerationResult(skills, skills.size(), skillsDir);
     }

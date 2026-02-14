@@ -199,6 +199,66 @@ class SkillGeneratorTest {
         assertTrue(skillsDir.toString().endsWith("skills"));
     }
 
+    // --- New skill types ---
+
+    @Test
+    void generateAll_orgWithCodebases_generatesArchitectureOverview() throws IOException {
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY,
+                tempDir.resolve("TestCo"));
+        org.getCodebasePaths().add("/src/testco/repo/");
+        registry.addOrganization(org);
+
+        SkillGenerator.GenerationResult result = generator.generateAll(TIMESTAMP);
+
+        assertTrue(result.skills().containsKey("architecture-overview.yaml"));
+    }
+
+    @Test
+    void generateAll_alwaysGeneratesTechStack() throws IOException {
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY,
+                tempDir.resolve("TestCo"));
+        registry.addOrganization(org);
+
+        SkillGenerator.GenerationResult result = generator.generateAll(TIMESTAMP);
+
+        assertTrue(result.skills().containsKey("tech-stack.yaml"));
+    }
+
+    @Test
+    void generateAll_alwaysGeneratesKeyDecisions() throws IOException {
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY,
+                tempDir.resolve("TestCo"));
+        registry.addOrganization(org);
+
+        SkillGenerator.GenerationResult result = generator.generateAll(TIMESTAMP);
+
+        assertTrue(result.skills().containsKey("key-decisions.yaml"));
+    }
+
+    @Test
+    void generateAll_allSkillTypes_fullOrg() throws IOException {
+        Organization org = new Organization("TestCo", OrganizationType.COMPANY,
+                tempDir.resolve("TestCo"));
+        org.addClient(new Client("Acme", "TestCo",
+                tempDir.resolve("acme"), ClientStatus.ACTIVE, "Acme"));
+        org.addProduct(new Product("lib-pcb", "TestCo", tempDir.resolve("pcb")));
+        org.getCodebasePaths().add("/src/testco/repo/");
+        registry.addOrganization(org);
+
+        SkillGenerator.GenerationResult result = generator.generateAll(TIMESTAMP);
+
+        // Should now generate all 8 skill types
+        assertTrue(result.skills().containsKey("workspace-context.yaml"));
+        assertTrue(result.skills().containsKey("organization-testco.yaml"));
+        assertTrue(result.skills().containsKey("navigate-clients.yaml"));
+        assertTrue(result.skills().containsKey("pipeline-tracker.yaml"));
+        assertTrue(result.skills().containsKey("proof-points.yaml"));
+        assertTrue(result.skills().containsKey("architecture-overview.yaml"));
+        assertTrue(result.skills().containsKey("tech-stack.yaml"));
+        assertTrue(result.skills().containsKey("key-decisions.yaml"));
+        assertEquals(8, result.totalFiles());
+    }
+
     // --- Past-only clients should NOT generate pipeline tracker ---
 
     @Test
