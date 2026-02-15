@@ -46,6 +46,24 @@ public class WorkspaceManager {
      * @throws IOException if directory creation fails
      */
     public SynthesisConfig init(String name, String type) throws IOException {
+        return initWithMetadata(name, type, null, null, 0, null);
+    }
+
+    /**
+     * Initializes a new Synthesis workspace with extended metadata.
+     *
+     * @param name            workspace name (used in config)
+     * @param type            workspace type (e.g., "general")
+     * @param category        workspace category: source-code, documents, or mixed
+     * @param primaryLanguage primary programming language (may be null)
+     * @param repoCount       number of repositories (0 if unknown)
+     * @param company         owning company (may be null)
+     * @return the loaded configuration
+     * @throws IOException if directory creation fails
+     */
+    public SynthesisConfig initWithMetadata(String name, String type,
+                                             String category, String primaryLanguage,
+                                             int repoCount, String company) throws IOException {
         Path synthesisDir = workspaceRoot.resolve(SYNTHESIS_DIR);
 
         if (Files.exists(synthesisDir)) {
@@ -57,11 +75,12 @@ public class WorkspaceManager {
         Files.createDirectories(synthesisDir.resolve(INDEX_DIR));
         Files.createDirectories(synthesisDir.resolve(REPORTS_DIR));
 
-        // Generate default config
+        // Generate config with metadata
         String workspaceName = name != null && !name.isBlank() ? name : workspaceRoot.getFileName().toString();
         String workspaceType = type != null && !type.isBlank() ? type : "general";
 
-        String configContent = ConfigLoader.generateDefaultConfig(workspaceName, workspaceType);
+        String configContent = ConfigLoader.generateDefaultConfig(
+                workspaceName, workspaceType, category, primaryLanguage, repoCount, company);
         Path configPath = synthesisDir.resolve("config.yaml");
         Files.writeString(configPath, configContent);
 

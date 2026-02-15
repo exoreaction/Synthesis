@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.metrics;
 
+import org.flywaydb.core.Flyway;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,7 +25,6 @@ public class MetricsDatabase implements AutoCloseable {
 
     private static final Logger LOG = Logger.getLogger(MetricsDatabase.class.getName());
 
-    private static final String SCHEMA_VERSION = "1";
     private static final int RETENTION_DAYS = 90;
 
     private final Path dbPath;
@@ -60,13 +61,20 @@ public class MetricsDatabase implements AutoCloseable {
             // Load SQLite JDBC driver
             Class.forName("org.sqlite.JDBC");
 
-            // Connect to database
+            // Run Flyway migrations
             String url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+            Flyway flyway = Flyway.configure()
+                    .dataSource(url, null, null)
+                    .locations("classpath:db/migration")
+                    .baselineOnMigrate(true)
+                    .baselineVersion("0")
+                    .load();
+
+            flyway.migrate();
+
+            // Connect to database
             connection = DriverManager.getConnection(url);
             connection.setAutoCommit(true);
-
-            // Create tables if they don't exist
-            createTables();
 
             // Clean up old records
             cleanupOldRecords();
@@ -77,49 +85,8 @@ public class MetricsDatabase implements AutoCloseable {
         }
     }
 
-    /**
-     * Creates the database schema.
-     */
-    private void createTables() throws SQLException {
-        String schemaSql = """
-            CREATE TABLE IF NOT EXISTS metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp INTEGER NOT NULL,
-                event_type TEXT NOT NULL,
-                mcp_tool TEXT,
-                mcp_workspace TEXT,
-                execution_time_ms INTEGER,
-                result_count INTEGER,
-                success INTEGER NOT NULL,
-                error_message TEXT,
-                search_pattern TEXT,
-                ai_feature TEXT,
-                ai_tokens_used INTEGER,
-                ai_retry INTEGER
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_timestamp ON metrics(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_mcp_tool ON metrics(mcp_tool);
-            CREATE INDEX IF NOT EXISTS idx_workspace ON metrics(mcp_workspace);
-            CREATE INDEX IF NOT EXISTS idx_event_type ON metrics(event_type);
-
-            CREATE TABLE IF NOT EXISTS metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            """;
-
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate(schemaSql);
-
-            // Store schema version
-            String versionSql = "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)";
-            try (PreparedStatement ps = connection.prepareStatement(versionSql)) {
-                ps.setString(1, SCHEMA_VERSION);
-                ps.executeUpdate();
-            }
-        }
-    }
+    // Schema is now managed by Flyway migrations in src/main/resources/db/migration/
+    // V1__initial_schema.sql contains the initial schema definition
 
     /**
      * Deletes records older than the retention period.
@@ -220,6 +187,41 @@ public class MetricsDatabase implements AutoCloseable {
         Map<String, ToolStats> stats = new LinkedHashMap<>();
         try (PreparedStatement ps = connection.prepareStatement(querySql)) {
             ps.setLong(1, cutoffEpoch);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String tool = rs.getString("mcp_tool");
+                    int count = rs.getInt("count");
+                    double avgTime = rs.getDouble("avg_time");
+                    long maxTime = rs.getLong("max_time");
+                    int successCount = rs.getInt("success_count");
+
+                    stats.put(tool, new ToolStats(tool, count, avgTime, maxTime, successCount));
+                }
+            }
+        }
+        return stats;
+    }
+
+    /**
+     * Returns tool statistics filtered by workspace and time period.
+     */
+    public synchronized Map<String, ToolStats> getToolStats(String workspacePath, long sinceEpochSeconds) throws SQLException {
+        String querySql = """
+            SELECT mcp_tool, COUNT(*) as count, AVG(execution_time_ms) as avg_time,
+                   MAX(execution_time_ms) as max_time, SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count
+            FROM metrics
+            WHERE mcp_tool IS NOT NULL
+              AND timestamp >= ?
+              AND mcp_workspace = ?
+            GROUP BY mcp_tool
+            ORDER BY count DESC
+            """;
+
+        Map<String, ToolStats> stats = new LinkedHashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(querySql)) {
+            ps.setLong(1, sinceEpochSeconds);
+            ps.setString(2, workspacePath);
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

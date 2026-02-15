@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -9,6 +10,7 @@ import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryConfig;
 import io.exoreaction.synthesis.telemetry.TelemetryService;
 import io.exoreaction.synthesis.util.AnsiOutput;
+import io.exoreaction.synthesis.workspace.WorkspaceType;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -16,6 +18,7 @@ import picocli.CommandLine.ParentCommand;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.List;
@@ -73,6 +76,31 @@ public class InitCommand implements Callable<Integer> {
             defaultValue = "general"
     )
     private String type;
+
+    @Option(
+            names = {"--category"},
+            description = "Workspace category: source-code, documents, mixed"
+    )
+    private String category;
+
+    @Option(
+            names = {"--language"},
+            description = "Primary programming language (e.g., java, javascript, python)"
+    )
+    private String primaryLanguage;
+
+    @Option(
+            names = {"--company"},
+            description = "Company or organization that owns this workspace"
+    )
+    private String company;
+
+    @Option(
+            names = {"--repo-count"},
+            description = "Number of repositories in this workspace",
+            defaultValue = "0"
+    )
+    private int repoCount;
 
     @Option(
             names = {"--repos"},
@@ -133,8 +161,17 @@ public class InitCommand implements Callable<Integer> {
                 return handleAddRepo(workspace, targetDir);
             }
 
-            // Standard init
-            SynthesisConfig config = workspace.init(name, type);
+            // Prompt for workspace category if not provided and not in non-interactive mode
+            String resolvedCategory = category;
+            if (resolvedCategory == null && !noInteractive) {
+                resolvedCategory = promptWorkspaceCategory(targetDir);
+            } else if (resolvedCategory == null) {
+                resolvedCategory = detectWorkspaceCategory(targetDir);
+            }
+
+            // Standard init with metadata
+            SynthesisConfig config = workspace.initWithMetadata(
+                    name, type, resolvedCategory, primaryLanguage, repoCount, company);
 
             // Handle --repos (multi-repo init)
             if (repos != null && !repos.isEmpty()) {
@@ -144,6 +181,15 @@ public class InitCommand implements Callable<Integer> {
             System.out.println();
             AnsiOutput.printInfo("Workspace: " + config.getWorkspace().getName());
             AnsiOutput.printInfo("Type:      " + config.getWorkspace().getType());
+            if (resolvedCategory != null) {
+                AnsiOutput.printInfo("Category:  " + resolvedCategory);
+            }
+            if (primaryLanguage != null) {
+                AnsiOutput.printInfo("Language:  " + primaryLanguage);
+            }
+            if (company != null) {
+                AnsiOutput.printInfo("Company:   " + company);
+            }
 
             // Organization discovery (unless skipped)
             if (!skipOrgScan) {
@@ -304,6 +350,90 @@ public class InitCommand implements Callable<Integer> {
         System.out.println();
         AnsiOutput.printInfo("Multi-repo workspace with " + repoManager.getRepositories().size()
                 + " repositories");
+    }
+
+    /**
+     * Prompts the user interactively for workspace category.
+     * Falls back to auto-detection if user enters empty input.
+     */
+    String promptWorkspaceCategory(Path targetDir) {
+        String detected = detectWorkspaceCategory(targetDir);
+        try {
+            BufferedReader reader = customInput != null ? customInput
+                    : new BufferedReader(new InputStreamReader(System.in));
+            PrintStream out = customOutput != null ? customOutput : System.out;
+
+            out.println();
+            out.println("  " + AnsiOutput.bold("Workspace Category"));
+            out.println("  Choose a category for this workspace:");
+            out.println("    1. " + AnsiOutput.cyan("source-code") + " - Source code repositories");
+            out.println("    2. " + AnsiOutput.cyan("documents")   + " - Documents and knowledge bases");
+            out.println("    3. " + AnsiOutput.cyan("mixed")       + " - Both code and documents");
+            out.println();
+            out.print("  Category [" + detected + "]: ");
+            out.flush();
+
+            String input = reader.readLine();
+            if (input == null || input.isBlank()) {
+                return detected;
+            }
+
+            input = input.trim();
+            return switch (input) {
+                case "1", "source-code", "source_code" -> "source-code";
+                case "2", "documents", "docs" -> "documents";
+                case "3", "mixed" -> "mixed";
+                default -> detected;
+            };
+        } catch (IOException e) {
+            return detected;
+        }
+    }
+
+    /**
+     * Auto-detects the workspace category by examining directory contents.
+     */
+    static String detectWorkspaceCategory(Path targetDir) {
+        boolean hasCode = false;
+        boolean hasDocs = false;
+
+        // Check for common source code indicators
+        String[] codeIndicators = {"pom.xml", "build.gradle", "package.json",
+                "Cargo.toml", "go.mod", "requirements.txt", "setup.py",
+                "CMakeLists.txt", "Makefile", ".git"};
+        for (String indicator : codeIndicators) {
+            if (java.nio.file.Files.exists(targetDir.resolve(indicator))) {
+                hasCode = true;
+                break;
+            }
+        }
+
+        // Check for src/ directory as a strong code indicator
+        if (java.nio.file.Files.isDirectory(targetDir.resolve("src"))) {
+            hasCode = true;
+        }
+
+        // Check if this looks like a Documents/Downloads folder
+        String dirName = targetDir.getFileName() != null ? targetDir.getFileName().toString().toLowerCase() : "";
+        if (dirName.equals("documents") || dirName.equals("downloads") ||
+            dirName.equals("docs") || dirName.equals("desktop")) {
+            hasDocs = true;
+        }
+
+        // Check for common document patterns
+        String[] docIndicators = {"CLAUDE.md", "README.md", "CHANGELOG.md"};
+        int docCount = 0;
+        for (String indicator : docIndicators) {
+            if (java.nio.file.Files.exists(targetDir.resolve(indicator))) {
+                docCount++;
+            }
+        }
+        if (docCount >= 2) hasDocs = true;
+
+        if (hasCode && hasDocs) return "mixed";
+        if (hasCode) return "source-code";
+        if (hasDocs) return "documents";
+        return "mixed"; // default
     }
 
     private int handleAddRepo(WorkspaceManager workspace, Path targetDir) throws Exception {

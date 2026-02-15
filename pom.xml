@@ -148,6 +148,13 @@
             <version>3.47.1.0</version>
         </dependency>
 
+        <!-- Flyway for database migrations -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>10.22.0</version>
+        </dependency>
+
         <!-- SLF4J Simple Logger (suppresses warnings) -->
         <dependency>
             <groupId>org.slf4j</groupId>

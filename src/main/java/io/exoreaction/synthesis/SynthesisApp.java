@@ -47,6 +47,9 @@ import java.util.concurrent.Callable;
  *   synthesis perspectives <q>     Analyze a question from multiple perspectives
  *   synthesis extract-slides <pdf> Extract slides from a presentation PDF
  *   synthesis telemetry            View pilot status and telemetry info
+ *   synthesis which <file>          Find which workspace(s) contain a file
+ *   synthesis search --all <query> Search across all workspaces
+ *   synthesis list --type source   Filter workspaces by type
  *   synthesis update               Update all components (JARs, scripts, docs)
  *   synthesis update --check       Check for updates without installing
  *   synthesis update --health      Check installation health
@@ -84,7 +87,9 @@ import java.util.concurrent.Callable;
                 EnrichCommand.class,
                 ExplainCommand.class,
                 ArchitectureCommand.class,
-                MetricsCommand.class
+                MetricsCommand.class,
+                ListWorkspacesCommand.class,
+                WhichCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {

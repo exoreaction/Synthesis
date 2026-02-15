@@ -1,5 +1,8 @@
 package io.exoreaction.synthesis.config;
 
+import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
+import io.exoreaction.synthesis.workspace.WorkspaceType;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +41,7 @@ public class SynthesisConfig {
         private String name = "";
         private String type = "general";
         private String description = "";
+        private WorkspaceMetadata metadata = new WorkspaceMetadata();
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -47,6 +51,22 @@ public class SynthesisConfig {
 
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+
+        public WorkspaceMetadata getMetadata() { return metadata; }
+        public void setMetadata(WorkspaceMetadata metadata) { this.metadata = metadata; }
+
+        /**
+         * Returns the resolved workspace type, preferring metadata.category
+         * over the legacy type field.
+         */
+        public WorkspaceType getWorkspaceType() {
+            if (metadata != null && metadata.getCategory() != null
+                    && !metadata.getCategory().isBlank()
+                    && !"mixed".equals(metadata.getCategory())) {
+                return WorkspaceType.fromConfigValue(metadata.getCategory());
+            }
+            return WorkspaceType.fromConfigValue(type);
+        }
     }
 
     /**

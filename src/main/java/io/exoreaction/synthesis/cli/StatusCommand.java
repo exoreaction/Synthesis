@@ -8,12 +8,15 @@ import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.metrics.MetricsDatabase;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryConfig;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
+import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
+import io.exoreaction.synthesis.workspace.WorkspaceType;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
@@ -75,9 +78,30 @@ public class StatusCommand implements Callable<Integer> {
             // Load config
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
 
-            System.out.printf("  %-20s %s%n", "Workspace:", AnsiOutput.bold(config.getWorkspace().getName()));
-            System.out.printf("  %-20s %s%n", "Type:", config.getWorkspace().getType());
+            // Workspace info with type badge
+            WorkspaceType wsType = config.getWorkspace().getWorkspaceType();
+            String typeBadge = switch (wsType) {
+                case SOURCE_CODE -> AnsiOutput.blue("[source]");
+                case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                case MIXED -> AnsiOutput.yellow("[mixed] ");
+            };
+
+            System.out.println("  " + typeBadge + " " + AnsiOutput.bold(config.getWorkspace().getName()));
             System.out.printf("  %-20s %s%n", "Root:", workspaceRoot);
+
+            // Workspace metadata
+            WorkspaceMetadata metadata = config.getWorkspace().getMetadata();
+            if (metadata != null) {
+                if (metadata.getCompany() != null) {
+                    System.out.printf("  %-20s %s%n", "Company:", metadata.getCompany());
+                }
+                if (metadata.getPrimaryLanguage() != null) {
+                    System.out.printf("  %-20s %s%n", "Language:", AnsiOutput.cyan(metadata.getPrimaryLanguage()));
+                }
+                if (metadata.getRepoCount() > 0) {
+                    System.out.printf("  %-20s %d repositories%n", "Scope:", metadata.getRepoCount());
+                }
+            }
             System.out.println();
 
             // Multi-repo status
@@ -155,6 +179,30 @@ public class StatusCommand implements Callable<Integer> {
                 } catch (Exception ignored) {
                     // Media stats are informational -- don't fail status
                 }
+            }
+
+            // Watch daemon status
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Real-time Monitoring:"));
+            boolean watchDaemonRunning = isWatchDaemonRunning(config.getWorkspace().getName());
+            System.out.printf("    %-15s %s%n", "Watch daemon:",
+                    watchDaemonRunning
+                        ? AnsiOutput.success("✓ Active")
+                        : AnsiOutput.dim("✗ Not running"));
+            if (!watchDaemonRunning) {
+                System.out.println("      " + AnsiOutput.dim("Run: systemctl --user start synthesis-watch-<workspace>.service"));
+            }
+
+            // Recent metrics summary (last 24h)
+            try {
+                Path metricsDbPath = MetricsDatabase.getDefaultPath();
+                if (Files.exists(metricsDbPath)) {
+                    try (MetricsDatabase db = new MetricsDatabase(metricsDbPath)) {
+                        showMetricsSummary(db, workspaceRoot);
+                    }
+                }
+            } catch (Exception e) {
+                // Metrics are optional, don't fail status
             }
 
             // External Tools
@@ -292,6 +340,82 @@ public class StatusCommand implements Callable<Integer> {
                     .sum();
         } catch (IOException e) {
             return 0;
+        }
+    }
+
+    /**
+     * Checks if watch daemon is running for this workspace.
+     */
+    private boolean isWatchDaemonRunning(String workspaceName) {
+        try {
+            // Normalize workspace name for service name
+            String normalized = workspaceName
+                    .toLowerCase()
+                    .replaceAll("[^a-z0-9]", "")
+                    .replaceAll("\"", "");
+
+            // Try common service name patterns
+            String[] servicePatterns = {
+                "synthesis-watch-" + normalized + ".service",
+                "synthesis-watch-" + workspaceName.toLowerCase() + ".service"
+            };
+
+            for (String serviceName : servicePatterns) {
+                Process process = new ProcessBuilder("systemctl", "--user", "is-active", serviceName)
+                        .redirectErrorStream(true)
+                        .start();
+
+                process.waitFor();
+                if (process.exitValue() == 0) {
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Shows metrics summary for last 24 hours.
+     */
+    private void showMetricsSummary(MetricsDatabase db, Path workspaceRoot) {
+        try {
+            // Query last 24h metrics for this workspace
+            long since = Instant.now().minusSeconds(24 * 60 * 60).getEpochSecond();
+            String workspacePath = workspaceRoot.toAbsolutePath().normalize().toString();
+
+            // Get MCP tool stats
+            var stats = db.getToolStats(workspacePath, since);
+
+            if (!stats.isEmpty()) {
+                System.out.println();
+                System.out.println("  " + AnsiOutput.bold("MCP Activity (Last 24h):"));
+
+                long totalCalls = 0;
+                double totalTime = 0;
+
+                for (var entry : stats.entrySet()) {
+                    String tool = entry.getKey();
+                    var toolStats = entry.getValue();
+                    int calls = toolStats.invocationCount();
+                    double avgTime = toolStats.avgExecutionTimeMs();
+
+                    totalCalls += calls;
+                    totalTime += avgTime * calls;
+
+                    System.out.printf("    %-15s %d calls (avg %.2fs)%n",
+                            tool + ":", calls, avgTime / 1000.0);
+                }
+
+                if (totalCalls > 0) {
+                    System.out.printf("    %-15s %d calls (avg %.2fs)%n",
+                            AnsiOutput.bold("Total:"), totalCalls, (totalTime / totalCalls) / 1000.0);
+                }
+            }
+        } catch (Exception e) {
+            // Metrics are optional, silently skip
         }
     }
 }
