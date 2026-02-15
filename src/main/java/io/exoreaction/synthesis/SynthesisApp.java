@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis;
 
 import io.exoreaction.synthesis.cli.*;
+import io.exoreaction.synthesis.telemetry.ApprovalConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryService;
@@ -10,6 +11,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -81,15 +83,15 @@ import java.util.concurrent.Callable;
                 UpdateCommand.class,
                 EnrichCommand.class,
                 ExplainCommand.class,
-                ArchitectureCommand.class
+                ArchitectureCommand.class,
+                MetricsCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
 
     @Option(
             names = {"-d", "--directory"},
-            description = "Workspace root directory (default: current directory)",
-            defaultValue = ".",
+            description = "Workspace root directory (default: configured workspace or current directory)",
             scope = CommandLine.ScopeType.INHERIT
     )
     private Path workspaceRoot;
@@ -97,9 +99,42 @@ public class SynthesisApp implements Callable<Integer> {
     /**
      * Returns the resolved workspace root directory.
      * Used by subcommands via @ParentCommand injection.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>Explicit -d/--directory flag (if provided)</li>
+     *   <li>SYNTHESIS_WORKSPACE environment variable</li>
+     *   <li>~/.synthesis/workspace file</li>
+     *   <li>Current directory (fallback)</li>
+     * </ol>
      */
     public Path getWorkspaceRoot() {
-        return workspaceRoot.toAbsolutePath().normalize();
+        // If explicitly provided via -d flag, use that
+        if (workspaceRoot != null) {
+            return workspaceRoot.toAbsolutePath().normalize();
+        }
+
+        // Try environment variable
+        String envWorkspace = System.getenv("SYNTHESIS_WORKSPACE");
+        if (envWorkspace != null && !envWorkspace.isBlank()) {
+            return Path.of(envWorkspace).toAbsolutePath().normalize();
+        }
+
+        // Try ~/.synthesis/workspace file
+        Path workspaceFile = Path.of(System.getProperty("user.home"), ".synthesis", "workspace");
+        if (Files.exists(workspaceFile)) {
+            try {
+                String configuredWorkspace = Files.readString(workspaceFile).trim();
+                if (!configuredWorkspace.isEmpty()) {
+                    return Path.of(configuredWorkspace).toAbsolutePath().normalize();
+                }
+            } catch (Exception e) {
+                // Ignore and fall through to default
+            }
+        }
+
+        // Fall back to current directory
+        return Path.of(".").toAbsolutePath().normalize();
     }
 
     // ---- Edition Detection ----
@@ -247,12 +282,23 @@ public class SynthesisApp implements Callable<Integer> {
             }
 
             ApprovalService approval = ApprovalService.create();
+            ApprovalConfig config = ApprovalConfig.load();
 
-            // If approval system is not configured, skip silently
-            if (!approval.shouldRefresh() && approval.getCachedApproval() == null) {
+            // If approval system is not configured (empty tokens), skip silently
+            if (!config.isConfigured()) {
                 return;
             }
 
+            // If we have a cached status and it's not time to refresh, use cached
+            if (!approval.shouldRefresh() && approval.getCachedApproval() != null) {
+                boolean isApproved = approval.getCachedApproval();
+                if (isApproved && approval.shouldShowWelcome()) {
+                    System.err.println("  \u2713 Pilot approved -- Thank you for participating!");
+                }
+                return;
+            }
+
+            // Perform approval check
             boolean isApproved = approval.isApproved(clientUuid);
 
             if (isApproved) {

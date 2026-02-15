@@ -38,8 +38,15 @@ public class ApprovalConfig {
     private String approvalChannelId;
 
     public ApprovalConfig() {
-        this.slackBotToken = DEFAULT_BOT_TOKEN;
-        this.approvalChannelId = DEFAULT_APPROVAL_CHANNEL_ID;
+        // Check environment variable to disable approval system
+        String disabled = System.getenv("SYNTHESIS_DISABLE_APPROVAL");
+        if ("true".equalsIgnoreCase(disabled) || "1".equals(disabled)) {
+            this.slackBotToken = "";
+            this.approvalChannelId = "";
+        } else {
+            this.slackBotToken = DEFAULT_BOT_TOKEN;
+            this.approvalChannelId = DEFAULT_APPROVAL_CHANNEL_ID;
+        }
     }
 
     // --- Getters and Setters ---

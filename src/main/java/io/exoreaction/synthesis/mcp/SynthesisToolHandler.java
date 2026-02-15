@@ -20,6 +20,7 @@ import io.exoreaction.synthesis.graph.GraphBuilder.FileGraph;
 import io.exoreaction.synthesis.graph.GraphRenderer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.metrics.MetricsCollector;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,10 +44,12 @@ public class SynthesisToolHandler {
     private static final Logger LOG = Logger.getLogger(SynthesisToolHandler.class.getName());
     private final ObjectMapper mapper;
     private final Path defaultWorkspace;
+    private final MetricsCollector metrics;
 
     public SynthesisToolHandler(ObjectMapper mapper, Path defaultWorkspace) {
         this.mapper = mapper;
         this.defaultWorkspace = defaultWorkspace;
+        this.metrics = MetricsCollector.create();
     }
 
     /**
@@ -87,6 +90,9 @@ public class SynthesisToolHandler {
      * @return JSON object with: results[], totalHits, searchTime
      */
     public ObjectNode handleSearch(JsonNode params) throws McpToolException {
+        long startTime = System.nanoTime();
+        Path workspacePath = resolveWorkspace(params);
+
         if (params == null || !params.has("query")) {
             throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: query");
         }
@@ -106,13 +112,15 @@ public class SynthesisToolHandler {
         if (limit < 1) limit = 1;
         if (limit > 200) limit = 200;
 
-        Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
-        long startTime = System.nanoTime();
         try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
             List<SearchResult> results = index.search(query, fileType, limit);
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            // Record metrics
+            metrics.recordMcpInvocation("search", workspacePath.toString(), elapsedMs,
+                                      results.size(), true, null);
 
             ObjectNode response = mapper.createObjectNode();
             ArrayNode resultsArray = mapper.createArrayNode();
@@ -159,6 +167,14 @@ public class SynthesisToolHandler {
 
             return response;
         } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            // Record failure metrics
+            if (!(e instanceof McpToolException)) {
+                metrics.recordMcpInvocation("search", workspacePath.toString(), elapsedMs,
+                                          null, false, e.getMessage());
+            }
+
             if (e instanceof McpToolException) throw (McpToolException) e;
             LOG.warning("Search failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Search failed: " + e.getMessage());
@@ -176,6 +192,9 @@ public class SynthesisToolHandler {
      * @return JSON object with: file, outgoing[], incoming[], stats
      */
     public ObjectNode handleRelate(JsonNode params) throws McpToolException {
+        long startTime = System.nanoTime();
+        Path workspacePath = resolveWorkspace(params);
+
         if (params == null || !params.has("filePath")) {
             throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: filePath");
         }
@@ -188,7 +207,6 @@ public class SynthesisToolHandler {
         String format = params.has("format") && !params.get("format").isNull()
                 ? params.get("format").asText() : "json";
 
-        Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
         try {
@@ -261,10 +279,19 @@ public class SynthesisToolHandler {
             stats.put("totalConnections", relationshipMap.outgoing().size() + relationshipMap.incoming().size());
             response.set("stats", stats);
 
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            int totalConnections = relationshipMap.outgoing().size() + relationshipMap.incoming().size();
+            metrics.recordMcpInvocation("relate", workspacePath.toString(), elapsedMs,
+                                      totalConnections, true, null);
+
             return response;
         } catch (McpToolException e) {
             throw e;
         } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("relate", workspacePath.toString(), elapsedMs,
+                                      null, false, e.getMessage());
+
             LOG.warning("Relate failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Relate failed: " + e.getMessage());
         }
@@ -366,10 +393,17 @@ public class SynthesisToolHandler {
                 default -> response.put("graph", renderer.toMermaid(graph));
             }
 
+            metrics.recordMcpInvocation("graph", workspacePath.toString(), elapsedMs,
+                                      graph.nodes().size(), true, null);
+
             return response;
         } catch (McpToolException e) {
             throw e;
         } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("graph", workspacePath.toString(), elapsedMs,
+                                      null, false, e.getMessage());
+
             LOG.warning("Graph generation failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                     "Graph generation failed: " + e.getMessage());
@@ -387,6 +421,7 @@ public class SynthesisToolHandler {
      * @return JSON object with file counts, index size, health info
      */
     public ObjectNode handleStats(JsonNode params) throws McpToolException {
+        long startTime = System.nanoTime();
         Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
@@ -442,8 +477,18 @@ public class SynthesisToolHandler {
             response.put("health", health);
             response.put("timestamp", Instant.now().toString());
 
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("stats", workspacePath.toString(), elapsedMs,
+                                      null, true, null);
+
             return response;
         } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            if (!(e instanceof McpToolException)) {
+                metrics.recordMcpInvocation("stats", workspacePath.toString(), elapsedMs,
+                                          null, false, e.getMessage());
+            }
+
             if (e instanceof McpToolException) throw (McpToolException) e;
             LOG.warning("Stats failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
@@ -742,6 +787,16 @@ public class SynthesisToolHandler {
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
         if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
         return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    /**
+     * Shuts down the metrics collector.
+     * Should be called when the MCP server is shutting down.
+     */
+    public void shutdown() {
+        if (metrics != null) {
+            metrics.shutdown();
+        }
     }
 
     /**
