@@ -73,10 +73,12 @@ public enum EnrichmentLevel {
             return AI;
         }
 
-        // TODO: Phase 2 -- Check for local tools (Whisper, pdftoppm)
-        // if (WhisperDetector.isAvailable() || PdftoppmDetector.isAvailable()) {
-        //     return LOCAL;
-        // }
+        // Phase 2: Check for local tools (Whisper, Tesseract, pdftoppm)
+        if (io.exoreaction.synthesis.util.WhisperDetector.isAvailable() ||
+            io.exoreaction.synthesis.util.TesseractDetector.isAvailable() ||
+            io.exoreaction.synthesis.util.PdftoppmDetector.isAvailable()) {
+            return LOCAL;
+        }
 
         return BASIC;
     }
