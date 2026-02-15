@@ -83,12 +83,40 @@ public class StatusCommand implements Callable<Integer> {
 
             AnsiOutput.printHeader("Synthesis - Workspace Status");
 
-            // Validate workspace
+            // Validate current workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
             var validation = workspace.validate();
             if (validation.isPresent()) {
                 AnsiOutput.printError(validation.get());
                 return 1;
+            }
+
+            // Discover all workspaces for aggregate info
+            List<WorkspaceStatusInfo> allWorkspaces = discoverAllWorkspacesForStatus();
+            Path normalizedCurrent = workspaceRoot.toAbsolutePath().normalize();
+
+            // Ensure current workspace is in the list
+            boolean currentFound = allWorkspaces.stream()
+                    .anyMatch(ws -> ws.path.equals(normalizedCurrent));
+            if (!currentFound) {
+                try {
+                    Path synthDir = normalizedCurrent.resolve(".synthesis");
+                    if (Files.isDirectory(synthDir)) {
+                        allWorkspaces.add(createWorkspaceStatusInfo(normalizedCurrent, synthDir));
+                    }
+                } catch (IOException e) {
+                    // Ignore - current workspace validation already passed
+                }
+            }
+
+            // Show aggregate totals if multiple workspaces exist
+            if (allWorkspaces.size() > 1) {
+                showAggregateSummary(allWorkspaces);
+                System.out.println();
+                System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+                System.out.println("  " + AnsiOutput.bold("Current Workspace Details"));
+                System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+                System.out.println();
             }
 
             // Load config
@@ -276,6 +304,11 @@ public class StatusCommand implements Callable<Integer> {
             } else {
                 System.out.printf("  %-20s %s%n", "Pilot Status:",
                         AnsiOutput.dim("Not checked yet"));
+            }
+
+            // Show other workspaces summary if there are multiple workspaces
+            if (allWorkspaces.size() > 1) {
+                showOtherWorkspacesSummary(allWorkspaces, normalizedCurrent);
             }
 
             System.out.println();
@@ -690,6 +723,106 @@ public class StatusCommand implements Callable<Integer> {
         info.watching = isWatchDaemonRunning(info.name);
 
         return info;
+    }
+
+    /**
+     * Shows condensed aggregate summary of all workspaces.
+     */
+    private void showAggregateSummary(List<WorkspaceStatusInfo> workspaces) {
+        long totalFiles = 0;
+        long totalIndexSize = 0;
+        int indexedWorkspaces = 0;
+        int watchingWorkspaces = 0;
+
+        Map<WorkspaceType, Integer> byType = new HashMap<>();
+        Map<String, Integer> byLanguage = new HashMap<>();
+        Map<String, Integer> byCompany = new HashMap<>();
+
+        for (WorkspaceStatusInfo ws : workspaces) {
+            if (ws.indexed) {
+                indexedWorkspaces++;
+                totalFiles += ws.fileCount;
+                totalIndexSize += ws.indexSize;
+            }
+            if (ws.watching) {
+                watchingWorkspaces++;
+            }
+            byType.merge(ws.workspaceType, 1, Integer::sum);
+            if (ws.primaryLanguage != null) {
+                byLanguage.merge(ws.primaryLanguage, 1, Integer::sum);
+            }
+            if (ws.company != null) {
+                byCompany.merge(ws.company, 1, Integer::sum);
+            }
+        }
+
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("╔═══════════════════════════════════════╗"));
+        System.out.println("  " + AnsiOutput.bold("║  System Overview                      ║"));
+        System.out.println("  " + AnsiOutput.bold("╚═══════════════════════════════════════╝"));
+        System.out.println();
+        System.out.printf("  %-25s %s workspaces%n", "Total:", AnsiOutput.bold(String.valueOf(workspaces.size())));
+        System.out.printf("  %-25s %s%n", "Total Files:", AnsiOutput.bold(String.format("%,d", totalFiles)));
+        System.out.printf("  %-25s %s%n", "Total Index:", FileUtils.formatSize(totalIndexSize));
+        System.out.printf("  %-25s %d/%d workspaces%n", "Watch Daemons:", watchingWorkspaces, workspaces.size());
+    }
+
+    /**
+     * Shows brief summary of other workspaces.
+     */
+    private void showOtherWorkspacesSummary(List<WorkspaceStatusInfo> allWorkspaces, Path currentPath) {
+        List<WorkspaceStatusInfo> otherWorkspaces = allWorkspaces.stream()
+                .filter(ws -> !ws.path.equals(currentPath))
+                .toList();
+
+        if (otherWorkspaces.isEmpty()) {
+            return;
+        }
+
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+        System.out.println("  " + AnsiOutput.bold("Other Workspaces (" + otherWorkspaces.size() + ")"));
+        System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+        System.out.println();
+
+        for (WorkspaceStatusInfo ws : otherWorkspaces) {
+            String typeBadge = switch (ws.workspaceType) {
+                case SOURCE_CODE -> AnsiOutput.blue("[source]");
+                case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                case MIXED -> AnsiOutput.yellow("[mixed] ");
+            };
+
+            System.out.print("  " + typeBadge + " " + AnsiOutput.bold(ws.name));
+
+            // Add language/company tags if available
+            List<String> tags = new ArrayList<>();
+            if (ws.primaryLanguage != null) {
+                tags.add(AnsiOutput.cyan(ws.primaryLanguage));
+            }
+            if (ws.company != null) {
+                tags.add(ws.company);
+            }
+            if (!tags.isEmpty()) {
+                System.out.print(AnsiOutput.dim(" (" + String.join(", ", tags) + ")"));
+            }
+            System.out.println();
+
+            // Status line: indexed status + watch daemon
+            List<String> statuses = new ArrayList<>();
+            if (ws.indexed) {
+                statuses.add(String.format("%,d files", ws.fileCount));
+            } else {
+                statuses.add(AnsiOutput.dim("not indexed"));
+            }
+            if (ws.watching) {
+                statuses.add(AnsiOutput.success("✓ watching"));
+            }
+            System.out.println("    " + AnsiOutput.dim(ws.path.toString()) + " " + AnsiOutput.dim("·") + " " + String.join(AnsiOutput.dim(" · "), statuses));
+        }
+
+        System.out.println();
+        System.out.println("  " + AnsiOutput.dim("Use ") + AnsiOutput.cyan("synthesis status --all") +
+                           AnsiOutput.dim(" to see full details for all workspaces."));
     }
 
     private static class WorkspaceStatusInfo {
