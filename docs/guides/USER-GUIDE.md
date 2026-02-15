@@ -597,6 +597,292 @@ Perfect for:
 
 ---
 
+### `synthesis enrich` - Generate Companion Files
+
+**Purpose:** Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs, audio) to make them fully text-searchable.
+
+**Usage:**
+```bash
+synthesis enrich                       # Generate companions for all binary files
+synthesis enrich --force               # Regenerate even if companions exist
+synthesis enrich --type video          # Only for video files
+synthesis enrich --type image          # Only for image files
+synthesis enrich --level basic         # Force basic enrichment (no AI)
+synthesis enrich --level ai            # Full AI enrichment (requires API key)
+synthesis enrich --dry-run             # Show what would be generated
+synthesis enrich --stats               # Show enrichment coverage statistics
+```
+
+**What it does:**
+1. Scans the index for binary files (VIDEO, IMAGE, PDF, AUDIO)
+2. For each file, generates a `.synthesis.md` companion containing:
+   - YAML front matter with metadata (type, size, format)
+   - Extracted technical metadata (dimensions, duration, page count)
+   - Related file references (subtitles, slides, associated docs)
+   - AI descriptions (with `--level ai`)
+3. Companion files are indexed by the next `synthesis scan`
+
+**Enrichment levels:**
+
+| Level | Description | Requires |
+|-------|-------------|----------|
+| `basic` | File metadata only (size, type, format) | Nothing |
+| `local` | Metadata + local tool analysis (ffprobe, image dimensions) | Nothing |
+| `ai` | Full enrichment including AI vision and content descriptions | `ANTHROPIC_API_KEY` |
+
+**Example output:**
+```bash
+$ synthesis enrich
+
+========================================
+  Synthesis - Enrich Binary Assets
+========================================
+
+  Processing binary files...
+    [==============================] 100% (45/45)
+
+  Generated:  38 companion files
+  Skipped:     5 (already enriched)
+  Errors:      2 (file access issues)
+  Level:       BASIC
+  Duration:    3.2s
+
+  Run 'synthesis scan' to index the new companion files.
+```
+
+**Companion file example** (`demo.mp4.synthesis.md`):
+```markdown
+---
+companion_for: demo.mp4
+type: VIDEO
+enrichment_level: BASIC
+generated: 2026-02-15T10:30:00Z
+---
+
+# demo.mp4
+
+**Type:** VIDEO | **Size:** 45.2 MB
+
+## Technical Metadata
+- Duration: 5:30
+- Resolution: 1080p
+- Codec: H.264
+
+## Description
+A demo video.
+
+## Related Files
+- `demo.srt` (subtitle/transcript)
+- `demo-slides.pdf` (slides)
+```
+
+---
+
+### `synthesis explain` - AI Code Explanation
+
+**Purpose:** Generate AI-powered explanations of files, modules, or architectural patterns.
+
+**Usage:**
+```bash
+synthesis explain --file src/auth/Login.java           # Explain a file
+synthesis explain --module src/auth/                    # Explain a module/directory
+synthesis explain --pattern "authentication"            # Explain a concept/pattern
+synthesis explain --file Login.java --depth deep        # Deep dive analysis
+synthesis explain --file Login.java --depth brief       # Quick 3-5 sentence summary
+synthesis explain --file Login.java --format json       # Machine-readable output
+synthesis explain --file Login.java --format markdown   # Markdown output
+```
+
+**Requires:** `ANTHROPIC_API_KEY` environment variable.
+
+**Modes:**
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| File | `--file` | Explains a single file: purpose, structure, relationships |
+| Module | `--module` | Explains a directory: role, internal structure, dependencies |
+| Pattern | `--pattern` | Explains a concept: how it is implemented across the codebase |
+
+**Depths:**
+
+| Depth | Output | Best for |
+|-------|--------|----------|
+| `brief` | 3-5 sentences | Quick overview, code review |
+| `standard` | Multiple sections with code references | Day-to-day understanding |
+| `deep` | Comprehensive analysis with full context | Onboarding, documentation |
+
+**Example:**
+```bash
+$ synthesis explain --file src/auth/AuthService.java --depth standard
+
+========================================
+  Synthesis - Explain
+========================================
+
+  Mode:     File
+  Target:   src/auth/AuthService.java
+  Depth:    STANDARD
+  Context:  8 related files
+
+  ## AuthService.java
+
+  This is the core authentication service that handles user login,
+  token generation, and session management.
+
+  ### Purpose
+  AuthService acts as the central coordination point for all
+  authentication flows in the application...
+
+  ### Key Methods
+  - `authenticate(credentials)` - Validates user credentials
+  - `refreshToken(token)` - Generates new JWT from refresh token
+  - `logout(sessionId)` - Invalidates session
+
+  ### Relationships
+  - Depends on: TokenManager, UserRepository, PasswordEncoder
+  - Used by: LoginController, AuthenticationFilter
+
+  Duration: 2.3s
+```
+
+---
+
+### `synthesis architecture` - Architecture Intelligence
+
+**Purpose:** Detect anti-patterns, coupling issues, and quality gaps in your codebase.
+
+**Usage:**
+```bash
+synthesis architecture analyze                            # Full analysis
+synthesis architecture analyze --severity warning         # Only warnings and errors
+synthesis architecture analyze --category GOD_CLASS       # Filter by category
+synthesis architecture analyze --format json              # JSON output
+synthesis architecture analyze --limit 20                 # Limit results
+```
+
+**What it detects:**
+
+| Category | Description | Severity |
+|----------|-------------|----------|
+| `GOD_CLASS` | Files with too many lines (>1000 warning, >2000 error) | WARNING/ERROR |
+| `CIRCULAR_DEPENDENCY` | Circular import/reference chains | ERROR |
+| `DEAD_CODE` | Files not referenced by any other file | INFO |
+| `MISSING_DOCUMENTATION` | Directories with code but no README | WARNING |
+| `TEST_COVERAGE_GAP` | Source files without corresponding test files | WARNING |
+| `HIGH_COUPLING` | Files with excessive incoming references | WARNING |
+| `FEATURE_ENVY` | Files that reference another module more than their own | INFO |
+
+**Example:**
+```bash
+$ synthesis architecture analyze --severity warning
+
+========================================
+  Synthesis - Architecture Analysis
+========================================
+
+  Found 7 alerts: 2 errors, 3 warnings, 2 info (1.2s)
+
+  GOD_CLASS (2)
+    ERROR  src/legacy/MonolithService.java
+           File has 2,450 lines (threshold: 1,000)
+    WARN   src/utils/StringHelper.java
+           File has 1,200 lines (threshold: 1,000)
+
+  CIRCULAR_DEPENDENCY (1)
+    ERROR  src/auth/AuthService.java -> src/user/UserService.java -> src/auth/AuthService.java
+           Circular dependency chain detected
+
+  MISSING_DOCUMENTATION (2)
+    WARN   src/payment/
+           Directory has 8 code files but no README
+    WARN   src/notification/
+           Directory has 5 code files but no README
+
+  TEST_COVERAGE_GAP (2)
+    WARN   src/payment/PaymentProcessor.java
+           No test file found (expected PaymentProcessorTest.java)
+    WARN   src/notification/EmailSender.java
+           No test file found (expected EmailSenderTest.java)
+```
+
+**JSON output:**
+```bash
+$ synthesis architecture analyze --format json
+{
+  "totalAlerts": 7,
+  "durationMs": 1200,
+  "alerts": [
+    {
+      "severity": "ERROR",
+      "category": "GOD_CLASS",
+      "filePath": "src/legacy/MonolithService.java",
+      "message": "File has 2,450 lines (threshold: 1,000)"
+    }
+  ]
+}
+```
+
+**Daemon mode integration:** When running `synthesis watch`, architecture analysis runs automatically on changed code files and reports alerts in verbose mode.
+
+**LSP integration:** The LSP server publishes architecture alerts as diagnostics. In your IDE, you will see architecture issues as warnings/errors in the Problems panel.
+
+---
+
+### `synthesis search --semantic` - Semantic Search
+
+**Purpose:** Search by meaning rather than keywords using embedding-based similarity.
+
+**Usage:**
+```bash
+synthesis search "how errors are handled" --semantic                    # Semantic search
+synthesis search "database connection management" --semantic --limit 10 # With limit
+synthesis search "retry logic" --semantic --similarity-threshold 0.5    # Higher threshold
+```
+
+**How it works:**
+1. Generates a vector embedding of your query (256 dimensions)
+2. Compares against embeddings of indexed file content
+3. Returns files ranked by cosine similarity (meaning-based)
+4. Falls back to local TF-IDF embeddings when no OpenAI API key is set
+
+**Parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--semantic` | Enable semantic search mode | `false` |
+| `--similarity-threshold` | Minimum similarity score (0.0-1.0) | `0.3` |
+
+**When to use semantic vs keyword search:**
+
+| Use Case | Keyword Search | Semantic Search |
+|----------|---------------|-----------------|
+| Exact class/method name | Better | -- |
+| Concept or behavior | -- | Better |
+| "How does X work?" | -- | Better |
+| Finding specific error messages | Better | -- |
+| Finding related implementations | -- | Better |
+
+**Example:**
+```bash
+$ synthesis search "how authentication tokens are refreshed" --semantic
+
+  5 results (semantic, threshold: 0.3)
+
+  1. [CODE] src/auth/TokenRefresher.java          (similarity: 0.87)
+     Token refresh logic with expiration handling
+     12.3 KB | Java | CODE
+
+  2. [CODE] src/auth/JwtTokenManager.java          (similarity: 0.72)
+     JWT token generation and validation
+     8.1 KB | Java | CODE
+
+  3. [MD]   docs/auth/token-lifecycle.md            (similarity: 0.65)
+     Token lifecycle documentation
+     4.2 KB | MARKDOWN
+```
+
+---
+
 ## Advanced Features
 
 ### Media Support (Batteries Included)
@@ -1603,6 +1889,22 @@ GRAPHS
   synthesis graph <file> --depth 2              File relationships
   synthesis graph --cross-repo --format png     Repo dependencies
 
+AI FEATURES (require ANTHROPIC_API_KEY)
+  synthesis explain --file <path>              Explain a file
+  synthesis explain --module <dir>             Explain a directory
+  synthesis explain --pattern "concept"        Explain a pattern
+  synthesis search "query" --semantic          Meaning-based search
+
+ENRICHMENT (works without AI, enhanced with AI)
+  synthesis enrich                Generate companion files for binary assets
+  synthesis enrich --force        Regenerate all companion files
+  synthesis enrich --level ai     Full AI enrichment
+
+ARCHITECTURE
+  synthesis architecture analyze                 Full analysis
+  synthesis architecture analyze --severity warning   Warnings+errors
+  synthesis architecture analyze --format json   JSON output
+
 FILE TYPES
   [CODE]  Source code (.java, .py, .js, .ts, .go, .rs...)
   [MD]    Markdown (.md)
@@ -1618,12 +1920,16 @@ TIPS
   - Start with --modules graph for architecture overview
   - Check 'synthesis status' to see last scan time
   - Use --verbose to see detailed progress
+  - Use --semantic for conceptual searches
+  - Run 'synthesis enrich' then 'synthesis scan' for media search
 
 CONFIG FILE
   .synthesis/config.yaml
     - includePatterns: Files to index
     - excludePatterns: Files to skip
     - maxFileSizeBytes: Size limit (default 10 MB)
+    - ai.enabled: Enable AI features
+    - ai.model: Claude model to use
 
 EXTERNAL TOOLS
   ffprobe: Bundled (extracted to ~/.synthesis/bin/)

@@ -90,7 +90,7 @@ The Synthesis LSP server advertises the following capabilities during initializa
 | Go to Definition | `textDocument/definition` | Navigate to referenced file |
 | Find References | `textDocument/references` | Find all referencing files |
 | Code Lens | `textDocument/codeLens` | Inline relationship counts |
-| Diagnostics | `textDocument/publishDiagnostics` | Broken link warnings |
+| Diagnostics | `textDocument/publishDiagnostics` | Broken link warnings + architecture alerts |
 | Text Document Sync | `textDocument/didOpen`, etc. | Incremental document tracking |
 
 ---
@@ -270,11 +270,17 @@ import com.example.db.UserRepository;
 
 ### 7. Diagnostics
 
-**What it does:** Warns about broken file references in markdown documents. Diagnostics appear in the IDE's Problems panel and as squiggly underlines in the editor.
+**What it does:** Provides two types of diagnostics:
+1. **Broken link detection** for markdown documents
+2. **Architecture alerts** for code files (god classes, circular dependencies, etc.)
+
+Diagnostics appear in the IDE's Problems panel and as squiggly underlines in the editor.
 
 **How to use:** Diagnostics are computed automatically when you:
 1. Open a file (`didOpen`)
 2. Save a file (`didSave`)
+
+#### Broken Link Diagnostics (Markdown)
 
 **What you see:**
 - **Warning:** Yellow squiggly underline on the broken link text
@@ -286,6 +292,26 @@ import com.example.db.UserRepository;
 - Anchor fragments in file links are stripped before checking
 
 **Severity:** Warning (not Error). Broken links are informational -- they do not prevent compilation or execution.
+
+#### Architecture Diagnostics (Code)
+
+**What you see:**
+- **Error/Warning/Info:** Squiggly underlines at line 1 of code files with architecture issues
+- **Problems panel:** Architecture alerts with source "synthesis-architecture"
+
+**What is detected:**
+
+| Category | Diagnostic Severity | Description |
+|----------|-------------------|-------------|
+| God Class | Error (>2000 lines) or Warning (>1000 lines) | File has too many lines |
+| Dead Code | Info | File is not referenced by any other file |
+| Missing Documentation | Warning | Directory has code but no README |
+| Test Coverage Gap | Warning | Source file has no corresponding test file |
+
+**How it works:** When a code file is opened or saved, the LSP server runs `ArchitectureMonitor.analyzeFile()` against the Synthesis index and converts any alerts to LSP diagnostics. Alert severities are mapped:
+- `ERROR` -> `DiagnosticSeverity.Error`
+- `WARNING` -> `DiagnosticSeverity.Warning`
+- `INFO` -> `DiagnosticSeverity.Information`
 
 **Clearing diagnostics:** When you close a file, its diagnostics are cleared. When you fix a broken link and save, diagnostics are recomputed.
 
@@ -455,7 +481,8 @@ All times measured on a 16 GB RAM laptop with SSD and an 8,934-file workspace.
 | Go to definition | <0.1s | Path resolution only |
 | Find references | 0.5-2.0s | Scans up to 5,000 files for incoming refs |
 | Code lens | 0.5-2.0s | Full relationship analysis (both directions) |
-| Diagnostics | <0.1s | Markdown link checking only |
+| Diagnostics (markdown) | <0.1s | Markdown link checking |
+| Diagnostics (code) | 0.2-1.0s | Architecture analysis via index |
 
 ### Concurrency
 

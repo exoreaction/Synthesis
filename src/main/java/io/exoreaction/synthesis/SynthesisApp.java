@@ -78,7 +78,10 @@ import java.util.concurrent.Callable;
                 PerspectivesCommand.class,
                 ExtractSlidesCommand.class,
                 TelemetryCommand.class,
-                UpdateCommand.class
+                UpdateCommand.class,
+                EnrichCommand.class,
+                ExplainCommand.class,
+                ArchitectureCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
