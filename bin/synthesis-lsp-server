@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# Synthesis LSP Server Launcher
+# Launches the Synthesis Language Server Protocol server for IDE integration.
+#
+# This server implements LSP 3.17 over stdio, providing workspace symbols,
+# document links, hover, diagnostics, go-to-definition, find references,
+# and code lens features powered by Synthesis indexing.
+#
+# Usage:
+#   synthesis-lsp-server                          # Start with current directory
+#   synthesis-lsp-server --workspace ~/project    # Start with specific workspace
+#   synthesis-lsp-server --version                # Show version
+#
+# VSCode Integration (settings.json or extension):
+#   "synthesis.server.path": "synthesis-lsp-server"
+#
+# Neovim Integration (nvim-lspconfig):
+#   require('lspconfig').synthesis.setup{ cmd = { "synthesis-lsp-server" } }
+#
+# Environment:
+#   SYNTHESIS_HOME              Installation directory (default: ~/.synthesis)
+#   SYNTHESIS_JAVA_OPTS         Extra JVM options (e.g., "-Xmx2g")
+#
+# Copyright (c) 2026 eXOReaction AS. All rights reserved.
+
+set -euo pipefail
+
+readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
+readonly JAR_NAME="synthesis-lsp-server.jar"
+readonly JAR_PATH="$SYNTHESIS_HOME/lib/$JAR_NAME"
+readonly MIN_JAVA_VERSION=17
+
+# ---------------------------------------------------------------------------
+# Pre-flight Checks (output to stderr, not stdout -- stdout is for LSP)
+# ---------------------------------------------------------------------------
+
+# Check JAR exists
+if [ ! -f "$JAR_PATH" ]; then
+    # Try local development path
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    DEV_JAR="$SCRIPT_DIR/../target/$JAR_NAME"
+    if [ -f "$DEV_JAR" ]; then
+        JAR_TO_USE="$DEV_JAR"
+    else
+        echo "Error: Synthesis LSP Server JAR not found at $JAR_PATH" >&2
+        echo "  Run: mvn package -DskipTests" >&2
+        echo "  Or: bin/install.sh" >&2
+        exit 1
+    fi
+else
+    JAR_TO_USE="$JAR_PATH"
+fi
+
+# Check Java exists
+if ! command -v java >/dev/null 2>&1; then
+    echo "Error: Java not found. Java ${MIN_JAVA_VERSION}+ is required." >&2
+    exit 1
+fi
+
+# Check Java version
+JAVA_VER=$(java -version 2>&1 | head -1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')
+JAVA_VER="${JAVA_VER:-0}"
+if [ "$JAVA_VER" -lt "$MIN_JAVA_VERSION" ]; then
+    echo "Error: Java $JAVA_VER found, but Java ${MIN_JAVA_VERSION}+ is required." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Launch LSP Server
+# ---------------------------------------------------------------------------
+
+JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-}"
+
+exec java $JAVA_OPTS -jar "$JAR_TO_USE" "$@"

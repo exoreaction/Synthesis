@@ -601,6 +601,75 @@ chmod +x "$SYNTHESIS_HOME/bin/synthesis"
 info "Installed launcher at $SYNTHESIS_HOME/bin/synthesis"
 
 # ---------------------------------------------------------------------------
+# Step 6b: Install MCP and LSP Server Scripts
+# ---------------------------------------------------------------------------
+step "Installing MCP and LSP server scripts..."
+
+# Copy MCP server JAR if present
+MCP_JAR_NAME="synthesis-mcp-server.jar"
+LSP_JAR_NAME="synthesis-lsp-server.jar"
+
+# Try to find server JARs in source directory or build output
+for SERVER_JAR in "$MCP_JAR_NAME" "$LSP_JAR_NAME"; do
+    SERVER_JAR_FOUND=false
+    if [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/target/$SERVER_JAR" ]; then
+        cp "$SOURCE_DIR/target/$SERVER_JAR" "$SYNTHESIS_HOME/lib/$SERVER_JAR"
+        SERVER_JAR_FOUND=true
+    fi
+    # Try same-directory detection
+    if [ "$SERVER_JAR_FOUND" = false ]; then
+        for candidate in "$HOME/src/synthesis" "$HOME/src/exoreaction/synthesis" "$HOME/projects/synthesis" "$(pwd)"; do
+            if [ -f "$candidate/target/$SERVER_JAR" ]; then
+                cp "$candidate/target/$SERVER_JAR" "$SYNTHESIS_HOME/lib/$SERVER_JAR"
+                SERVER_JAR_FOUND=true
+                break
+            fi
+        done
+    fi
+    if [ "$SERVER_JAR_FOUND" = true ]; then
+        info "Installed $SERVER_JAR"
+    fi
+done
+
+# MCP server launcher
+cat > "$SYNTHESIS_HOME/bin/synthesis-mcp-server" << 'MCP_LAUNCHER_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
+readonly JAR_PATH="$SYNTHESIS_HOME/lib/synthesis-mcp-server.jar"
+if [ ! -f "$JAR_PATH" ]; then
+    echo "Error: MCP Server JAR not found at $JAR_PATH" >&2
+    echo "  Rebuild: cd ~/src/synthesis && mvn package -DskipTests" >&2
+    exit 1
+fi
+if ! command -v java >/dev/null 2>&1; then
+    echo "Error: Java not found." >&2; exit 1
+fi
+exec java ${SYNTHESIS_JAVA_OPTS:-} -jar "$JAR_PATH" "$@"
+MCP_LAUNCHER_EOF
+chmod +x "$SYNTHESIS_HOME/bin/synthesis-mcp-server"
+info "Installed synthesis-mcp-server launcher"
+
+# LSP server launcher
+cat > "$SYNTHESIS_HOME/bin/synthesis-lsp-server" << 'LSP_LAUNCHER_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
+readonly JAR_PATH="$SYNTHESIS_HOME/lib/synthesis-lsp-server.jar"
+if [ ! -f "$JAR_PATH" ]; then
+    echo "Error: LSP Server JAR not found at $JAR_PATH" >&2
+    echo "  Rebuild: cd ~/src/synthesis && mvn package -DskipTests" >&2
+    exit 1
+fi
+if ! command -v java >/dev/null 2>&1; then
+    echo "Error: Java not found." >&2; exit 1
+fi
+exec java ${SYNTHESIS_JAVA_OPTS:-} -jar "$JAR_PATH" "$@"
+LSP_LAUNCHER_EOF
+chmod +x "$SYNTHESIS_HOME/bin/synthesis-lsp-server"
+info "Installed synthesis-lsp-server launcher"
+
+# ---------------------------------------------------------------------------
 # Step 7: Install Update Script
 # ---------------------------------------------------------------------------
 step "Installing update script..."
