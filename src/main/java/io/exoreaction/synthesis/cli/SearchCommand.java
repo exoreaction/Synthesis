@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.EmbeddingService;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
@@ -11,8 +12,9 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Callable;
 
 /**
@@ -77,6 +79,20 @@ public class SearchCommand implements Callable<Integer> {
     private String client;
 
     @Option(
+            names = {"--semantic"},
+            description = "Use semantic search (embedding-based) instead of keyword search",
+            defaultValue = "false"
+    )
+    private boolean semantic;
+
+    @Option(
+            names = {"--similarity-threshold"},
+            description = "Minimum similarity score for semantic search (0.0-1.0, default: 0.3)",
+            defaultValue = "0.3"
+    )
+    private float similarityThreshold;
+
+    @Option(
             names = {"-v", "--verbose"},
             description = "Show detailed result information",
             defaultValue = "false"
@@ -96,7 +112,12 @@ public class SearchCommand implements Callable<Integer> {
                 return 1;
             }
 
-            // Search
+            // Semantic search mode
+            if (semantic) {
+                return performSemanticSearch(workspace);
+            }
+
+            // Keyword search
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 List<SearchResult> results;
                 if (mediaType != null) {
@@ -181,6 +202,93 @@ public class SearchCommand implements Callable<Integer> {
             }
             System.out.printf("     %s%n", AnsiOutput.dim(meta.toString()));
             System.out.println();
+        }
+    }
+
+    /**
+     * Performs semantic search using embedding similarity.
+     */
+    private int performSemanticSearch(WorkspaceManager workspace) {
+        try {
+            EmbeddingService embeddingService = EmbeddingService.create();
+            AnsiOutput.printInfo("Semantic search using " + embeddingService.getProvider() + " embeddings");
+            System.out.println();
+
+            // Generate query embedding
+            float[] queryEmbedding = embeddingService.embed(query);
+
+            // Get all files and compute similarity
+            List<SearchResult> allFiles;
+            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                allFiles = index.listAll(fileType, limit * 5);
+            }
+
+            // Score each file by embedding similarity
+            record ScoredResult(SearchResult result, float similarity) {}
+            List<ScoredResult> scored = new ArrayList<>();
+
+            for (SearchResult file : allFiles) {
+                try {
+                    if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
+
+                    // Build file representation for embedding
+                    String fileText = file.summary() + " " + file.headings() + " " + file.fileName();
+                    if (!file.structure().isEmpty()) fileText += " " + file.structure();
+
+                    float[] fileEmbedding = embeddingService.embed(fileText);
+                    float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
+
+                    if (similarity >= similarityThreshold) {
+                        scored.add(new ScoredResult(file, similarity));
+                    }
+                } catch (Exception e) {
+                    // Skip files that fail
+                }
+            }
+
+            // Sort by similarity (descending)
+            scored.sort((a, b) -> Float.compare(b.similarity(), a.similarity()));
+
+            // Limit results
+            if (scored.size() > limit) {
+                scored = scored.subList(0, limit);
+            }
+
+            if (scored.isEmpty()) {
+                System.out.println("  No semantic matches found for: " + AnsiOutput.bold(query));
+                System.out.println("  (threshold: " + similarityThreshold + ")");
+                return 0;
+            }
+
+            System.out.printf("  %s semantic results for: %s%n%n",
+                    AnsiOutput.bold(String.valueOf(scored.size())),
+                    AnsiOutput.bold(query));
+
+            for (int i = 0; i < scored.size(); i++) {
+                ScoredResult sr = scored.get(i);
+                SearchResult result = sr.result();
+
+                String typeColor = colorForType(result.fileType());
+                System.out.printf("  %s %s %s  %s%n",
+                        AnsiOutput.dim(String.format("%2d.", i + 1)),
+                        typeColor,
+                        AnsiOutput.bold(result.relativePath()),
+                        AnsiOutput.cyan(String.format("%.1f%%", sr.similarity() * 100)));
+
+                if (!result.summary().isEmpty()) {
+                    String summaryText = result.summary();
+                    if (summaryText.length() > 100) {
+                        summaryText = summaryText.substring(0, 100) + "...";
+                    }
+                    System.out.printf("     %s%n", AnsiOutput.dim(summaryText));
+                }
+                System.out.println();
+            }
+
+            return 0;
+        } catch (Exception e) {
+            AnsiOutput.printError("Semantic search failed: " + e.getMessage());
+            return 1;
         }
     }
 
