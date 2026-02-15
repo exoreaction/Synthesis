@@ -141,6 +141,20 @@
             <version>1.44.2</version>
         </dependency>
 
+        <!-- SQLite JDBC for metrics storage -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.47.1.0</version>
+        </dependency>
+
+        <!-- SLF4J Simple Logger (suppresses warnings) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.16</version>
+        </dependency>
+
         <!-- JSON processing (for telemetry events) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
