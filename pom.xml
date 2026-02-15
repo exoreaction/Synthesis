@@ -93,6 +93,26 @@
             <version>2.19.0</version>
         </dependency>
 
+        <!-- Tesseract OCR (Phase 2: LOCAL enrichment) -->
+        <dependency>
+            <groupId>net.sourceforge.tess4j</groupId>
+            <artifactId>tess4j</artifactId>
+            <version>5.9.0</version>
+            <exclusions>
+                <!-- Exclude bundled native libs - we'll use system-installed Tesseract -->
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- JNA for native library access -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.14.0</version>
+        </dependency>
+
         <!-- Git Integration -->
         <dependency>
             <groupId>org.eclipse.jgit</groupId>
