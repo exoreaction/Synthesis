@@ -10,6 +10,9 @@
 #   synthesis-update --force           # Force update even if current
 #   synthesis-update --rollback        # Rollback to previous version
 #   synthesis-update --self-update     # Update this script itself
+#   synthesis-update --full            # Comprehensive update (JARs + scripts + docs)
+#   synthesis-update --health          # Check installation health
+#   synthesis-update --install-component NAME  # Install specific component
 #
 # Copyright (c) 2026 eXOReaction AS. All rights reserved.
 
@@ -320,6 +323,10 @@ ACTION="update"
 VERSION_PATTERN=""
 FORCE=false
 QUIET=false
+FULL_UPDATE=false
+SKIP_DOCS=false
+SKIP_VISUALS=false
+INSTALL_COMPONENT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -347,6 +354,27 @@ while [[ $# -gt 0 ]]; do
             ACTION="self-update"
             shift
             ;;
+        --full)
+            FULL_UPDATE=true
+            shift
+            ;;
+        --health)
+            ACTION="health"
+            shift
+            ;;
+        --install-component)
+            ACTION="install-component"
+            INSTALL_COMPONENT="$2"
+            shift 2
+            ;;
+        --skip-docs)
+            SKIP_DOCS=true
+            shift
+            ;;
+        --skip-visuals)
+            SKIP_VISUALS=true
+            shift
+            ;;
         --help|-h)
             echo "Synthesis Updater"
             echo ""
@@ -354,14 +382,26 @@ while [[ $# -gt 0 ]]; do
             echo "  update.sh [options]"
             echo ""
             echo "Actions:"
-            echo "  (default)         Update to latest version"
-            echo "  --check           Check for updates without installing"
-            echo "  --rollback        Rollback to previous version"
-            echo "  --self-update     Update the update script itself"
+            echo "  (default)          Update JARs to latest version"
+            echo "  --full             Comprehensive update (JARs + scripts + docs + assets)"
+            echo "  --check            Check for updates without installing"
+            echo "  --health           Check installation health"
+            echo "  --install-component NAME  Install a specific component"
+            echo "  --rollback         Rollback to previous version"
+            echo "  --self-update      Update the update script itself"
+            echo ""
+            echo "Components:"
+            echo "  synthesis-mcp-server    MCP server for AI agent integration"
+            echo "  synthesis-lsp-server    LSP server for IDE integration"
+            echo "  launcher-scripts        All launcher scripts"
+            echo "  update-script           Update management script"
+            echo "  documentation           User guides and docs"
             echo ""
             echo "Options:"
             echo "  --version PATTERN  Specific version or pattern (e.g., 1.0.*, 1.1.0)"
             echo "  --force            Force update even if current version matches"
+            echo "  --skip-docs        Skip documentation (--full mode)"
+            echo "  --skip-visuals     Skip visual assets (--full mode, saves ~270MB)"
             echo "  --quiet, -q        Minimal output (for background checks)"
             echo "  -h, --help         Show this help"
             echo ""
@@ -369,8 +409,11 @@ while [[ $# -gt 0 ]]; do
             echo "  SYNTHESIS_HOME     Installation directory (default: ~/.synthesis)"
             echo ""
             echo "Examples:"
-            echo "  synthesis-update                    # Update to latest"
+            echo "  synthesis-update                    # Update JARs to latest"
+            echo "  synthesis-update --full             # Update everything"
             echo "  synthesis-update --check            # Check only"
+            echo "  synthesis-update --health           # Check installation"
+            echo "  synthesis-update --install-component synthesis-mcp-server"
             echo "  synthesis-update --version '1.0.*'  # Specific pattern"
             echo "  synthesis-update --rollback         # Rollback"
             exit 0
@@ -416,6 +459,233 @@ if [ "$ACTION" = "self-update" ]; then
         error "Failed to download update script"
         exit 1
     fi
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Helper: Find source directory
+# ---------------------------------------------------------------------------
+find_source_dir() {
+    local src_dir=""
+    if [ -f "$META_DIR/source-dir" ]; then
+        src_dir=$(cat "$META_DIR/source-dir")
+    fi
+    if [ -z "$src_dir" ] || [ ! -d "$src_dir" ]; then
+        for candidate in "$HOME/src/synthesis" "$HOME/src/exoreaction/synthesis" "$HOME/projects/synthesis"; do
+            if [ -f "$candidate/pom.xml" ] && grep -q "synthesis" "$candidate/pom.xml" 2>/dev/null; then
+                src_dir="$candidate"
+                break
+            fi
+        done
+    fi
+    echo "$src_dir"
+}
+
+# ---------------------------------------------------------------------------
+# Action: Health Check
+# ---------------------------------------------------------------------------
+if [ "$ACTION" = "health" ]; then
+    step "Checking installation health..."
+
+    CURRENT_VERSION=$(get_current_version)
+    echo ""
+    printf "  %-20s %s\n" "Version:" "$CURRENT_VERSION"
+    if [ -f "$META_DIR/install-date" ]; then
+        printf "  %-20s %s\n" "Install date:" "$(cat "$META_DIR/install-date")"
+    fi
+    if [ -f "$META_DIR/source-dir" ]; then
+        printf "  %-20s %s\n" "Source:" "$(cat "$META_DIR/source-dir")"
+    fi
+    echo ""
+
+    ISSUES=0
+
+    # Check CLI JAR
+    if [ -f "$LIB_DIR/current.jar" ]; then
+        printf "  ${GREEN}✓${NC} %-35s %s\n" "synthesis-cli" "($(readlink "$LIB_DIR/current.jar" 2>/dev/null || echo "current.jar"))"
+    else
+        printf "  ${RED}✗${NC} %-35s %s\n" "synthesis-cli" "MISSING (critical)"
+        ISSUES=$((ISSUES + 1))
+    fi
+
+    # Check MCP server JAR
+    if [ -f "$LIB_DIR/synthesis-mcp-server.jar" ]; then
+        printf "  ${GREEN}✓${NC} %-35s %s\n" "synthesis-mcp-server" "(installed)"
+    else
+        printf "  ${YELLOW}○${NC} %-35s %s\n" "synthesis-mcp-server" "(not installed, available since 1.0.4)"
+    fi
+
+    # Check LSP server JAR
+    if [ -f "$LIB_DIR/synthesis-lsp-server.jar" ]; then
+        printf "  ${GREEN}✓${NC} %-35s %s\n" "synthesis-lsp-server" "(installed)"
+    else
+        printf "  ${YELLOW}○${NC} %-35s %s\n" "synthesis-lsp-server" "(not installed, available since 1.0.4)"
+    fi
+
+    echo ""
+
+    # Check launcher scripts
+    for script in synthesis synthesis-mcp-server synthesis-lsp-server; do
+        if [ -f "$SYNTHESIS_HOME/bin/$script" ]; then
+            if [ -x "$SYNTHESIS_HOME/bin/$script" ]; then
+                printf "  ${GREEN}✓${NC} %-35s %s\n" "bin/$script" "(executable)"
+            else
+                printf "  ${YELLOW}!${NC} %-35s %s\n" "bin/$script" "(not executable)"
+                ISSUES=$((ISSUES + 1))
+            fi
+        else
+            printf "  ${YELLOW}○${NC} %-35s %s\n" "bin/$script" "(not installed)"
+        fi
+    done
+
+    # Check management scripts
+    for script in update.sh install.sh uninstall.sh; do
+        if [ -f "$SYNTHESIS_HOME/bin/$script" ]; then
+            printf "  ${GREEN}✓${NC} %-35s %s\n" "bin/$script" "(present)"
+        else
+            printf "  ${DIM}○${NC} %-35s %s\n" "bin/$script" "(not installed)"
+        fi
+    done
+
+    # Check documentation
+    echo ""
+    if [ -d "$SYNTHESIS_HOME/docs" ]; then
+        DOC_COUNT=$(find "$SYNTHESIS_HOME/docs" -name "*.md" 2>/dev/null | wc -l || echo 0)
+        printf "  ${GREEN}✓${NC} %-35s %s\n" "documentation" "($DOC_COUNT files)"
+    else
+        printf "  ${YELLOW}○${NC} %-35s %s\n" "documentation" "(not installed)"
+    fi
+
+    # Check fingerprint
+    if [ -f "$SYNTHESIS_HOME/.installation.json" ]; then
+        printf "  ${GREEN}✓${NC} %-35s %s\n" "installation fingerprint" "(present)"
+    else
+        printf "  ${YELLOW}○${NC} %-35s %s\n" "installation fingerprint" "(not created yet)"
+    fi
+
+    echo ""
+    if [ $ISSUES -gt 0 ]; then
+        warn "$ISSUES issue(s) detected."
+        detail "Run 'synthesis-update --full' to fix."
+    else
+        info "Installation is functional."
+        if [ ! -f "$LIB_DIR/synthesis-mcp-server.jar" ] || [ ! -f "$LIB_DIR/synthesis-lsp-server.jar" ]; then
+            detail "Optional components available. Run 'synthesis-update --full' to install."
+        fi
+    fi
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Action: Install Component
+# ---------------------------------------------------------------------------
+if [ "$ACTION" = "install-component" ]; then
+    if [ -z "$INSTALL_COMPONENT" ]; then
+        error "No component specified. Usage: --install-component NAME"
+        detail "Available: synthesis-mcp-server, synthesis-lsp-server, launcher-scripts"
+        exit 1
+    fi
+
+    SOURCE_DIR=$(find_source_dir)
+
+    step "Installing component: $INSTALL_COMPONENT"
+
+    case "$INSTALL_COMPONENT" in
+        synthesis-mcp-server)
+            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/target/synthesis-mcp-server.jar" ]; then
+                cp "$SOURCE_DIR/target/synthesis-mcp-server.jar" "$LIB_DIR/synthesis-mcp-server.jar"
+                info "Installed synthesis-mcp-server.jar from source"
+            elif [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/synthesis-mcp-server" ]; then
+                # JAR not built yet
+                error "MCP server JAR not found. Build first:"
+                detail "cd $SOURCE_DIR && mvn package -DskipTests"
+                exit 1
+            else
+                error "Source directory not found. Cannot install component."
+                detail "Build from source first or use --full update."
+                exit 1
+            fi
+            # Install launcher script
+            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/synthesis-mcp-server" ]; then
+                cp "$SOURCE_DIR/bin/synthesis-mcp-server" "$SYNTHESIS_HOME/bin/synthesis-mcp-server"
+                chmod +x "$SYNTHESIS_HOME/bin/synthesis-mcp-server"
+                info "Installed bin/synthesis-mcp-server launcher"
+            fi
+            echo ""
+            info "MCP server installed! Configure Claude Code:"
+            detail "Add to ~/.claude/config.json:"
+            detail '  { "mcpServers": { "synthesis": {'
+            detail '      "command": "synthesis-mcp-server",'
+            detail '      "args": ["--workspace", "/path/to/project"]'
+            detail '  }}}'
+            ;;
+        synthesis-lsp-server)
+            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/target/synthesis-lsp-server.jar" ]; then
+                cp "$SOURCE_DIR/target/synthesis-lsp-server.jar" "$LIB_DIR/synthesis-lsp-server.jar"
+                info "Installed synthesis-lsp-server.jar from source"
+            else
+                error "LSP server JAR not found. Build first:"
+                detail "cd $SOURCE_DIR && mvn package -DskipTests"
+                exit 1
+            fi
+            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/synthesis-lsp-server" ]; then
+                cp "$SOURCE_DIR/bin/synthesis-lsp-server" "$SYNTHESIS_HOME/bin/synthesis-lsp-server"
+                chmod +x "$SYNTHESIS_HOME/bin/synthesis-lsp-server"
+                info "Installed bin/synthesis-lsp-server launcher"
+            fi
+            ;;
+        launcher-scripts)
+            if [ -n "$SOURCE_DIR" ]; then
+                for script in synthesis synthesis-mcp-server synthesis-lsp-server; do
+                    if [ -f "$SOURCE_DIR/bin/$script" ]; then
+                        cp "$SOURCE_DIR/bin/$script" "$SYNTHESIS_HOME/bin/$script"
+                        chmod +x "$SYNTHESIS_HOME/bin/$script"
+                        info "Installed bin/$script"
+                    fi
+                done
+            else
+                error "Source directory not found."
+                exit 1
+            fi
+            ;;
+        update-script)
+            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/update.sh" ]; then
+                cp "$SOURCE_DIR/bin/update.sh" "$SYNTHESIS_HOME/bin/update.sh"
+                chmod +x "$SYNTHESIS_HOME/bin/update.sh"
+                (cd "$SYNTHESIS_HOME/bin" && ln -sf update.sh synthesis-update)
+                info "Installed bin/update.sh"
+            else
+                # Try GitHub
+                TEMP_SCRIPT=$(mktemp)
+                if download_file "${GITHUB_RAW}/bin/update.sh" "$TEMP_SCRIPT"; then
+                    cp "$TEMP_SCRIPT" "$SYNTHESIS_HOME/bin/update.sh"
+                    chmod +x "$SYNTHESIS_HOME/bin/update.sh"
+                    rm -f "$TEMP_SCRIPT"
+                    info "Downloaded and installed update.sh from GitHub"
+                else
+                    rm -f "$TEMP_SCRIPT"
+                    error "Failed to install update script"
+                    exit 1
+                fi
+            fi
+            ;;
+        documentation)
+            if [ -n "$SOURCE_DIR" ] && [ -d "$SOURCE_DIR/docs" ]; then
+                mkdir -p "$SYNTHESIS_HOME/docs"
+                cp -r "$SOURCE_DIR/docs"/* "$SYNTHESIS_HOME/docs/"
+                DOC_COUNT=$(find "$SYNTHESIS_HOME/docs" -name "*.md" | wc -l)
+                info "Installed documentation ($DOC_COUNT files)"
+            else
+                error "Source docs not found."
+                exit 1
+            fi
+            ;;
+        *)
+            error "Unknown component: $INSTALL_COMPONENT"
+            detail "Available: synthesis-mcp-server, synthesis-lsp-server, launcher-scripts, update-script, documentation"
+            exit 1
+            ;;
+    esac
     exit 0
 fi
 
@@ -800,3 +1070,115 @@ get_installed_versions | while read -r v; do
     fi
 done
 printf "\n"
+
+# ---------------------------------------------------------------------------
+# Comprehensive Update (scripts, docs, assets) -- triggered by --full flag
+# ---------------------------------------------------------------------------
+if [ "$FULL_UPDATE" = true ]; then
+    SOURCE_DIR=$(find_source_dir)
+
+    step "Performing comprehensive update..."
+
+    UPDATED_COMPONENTS=0
+
+    # Update launcher scripts
+    if [ -n "$SOURCE_DIR" ]; then
+        for script in synthesis synthesis-mcp-server synthesis-lsp-server; do
+            if [ -f "$SOURCE_DIR/bin/$script" ]; then
+                cp "$SOURCE_DIR/bin/$script" "$SYNTHESIS_HOME/bin/$script"
+                chmod +x "$SYNTHESIS_HOME/bin/$script"
+                detail "Updated bin/$script"
+                UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+            fi
+        done
+
+        # Update management scripts
+        for script in update.sh install.sh uninstall.sh; do
+            if [ -f "$SOURCE_DIR/bin/$script" ]; then
+                cp "$SOURCE_DIR/bin/$script" "$SYNTHESIS_HOME/bin/$script"
+                chmod +x "$SYNTHESIS_HOME/bin/$script"
+                detail "Updated bin/$script"
+                UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+            fi
+        done
+
+        # Recreate synthesis-update symlink
+        (cd "$SYNTHESIS_HOME/bin" && ln -sf update.sh synthesis-update)
+
+        # Install MCP server JAR (if built)
+        if [ -f "$SOURCE_DIR/target/synthesis-mcp-server.jar" ]; then
+            cp "$SOURCE_DIR/target/synthesis-mcp-server.jar" "$LIB_DIR/synthesis-mcp-server.jar"
+            detail "Updated synthesis-mcp-server.jar"
+            UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+        fi
+
+        # Install LSP server JAR (if built)
+        if [ -f "$SOURCE_DIR/target/synthesis-lsp-server.jar" ]; then
+            cp "$SOURCE_DIR/target/synthesis-lsp-server.jar" "$LIB_DIR/synthesis-lsp-server.jar"
+            detail "Updated synthesis-lsp-server.jar"
+            UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+        fi
+
+        # Install documentation
+        if [ "$SKIP_DOCS" = false ] && [ -d "$SOURCE_DIR/docs" ]; then
+            mkdir -p "$SYNTHESIS_HOME/docs"
+            cp -r "$SOURCE_DIR/docs"/* "$SYNTHESIS_HOME/docs/" 2>/dev/null || true
+            DOC_COUNT=$(find "$SYNTHESIS_HOME/docs" -name "*.md" 2>/dev/null | wc -l || echo 0)
+            detail "Updated documentation ($DOC_COUNT files)"
+            UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+        fi
+
+        # Install README
+        if [ -f "$SOURCE_DIR/README.md" ]; then
+            cp "$SOURCE_DIR/README.md" "$SYNTHESIS_HOME/README.md"
+            detail "Updated README.md"
+        fi
+
+    else
+        # No source directory -- try downloading scripts from GitHub
+        detail "No source directory found. Downloading from GitHub..."
+        for script in synthesis synthesis-mcp-server synthesis-lsp-server update.sh install.sh uninstall.sh; do
+            TEMP_FILE=$(mktemp)
+            if download_file "${GITHUB_RAW}/bin/$script" "$TEMP_FILE" 2>/dev/null; then
+                cp "$TEMP_FILE" "$SYNTHESIS_HOME/bin/$script"
+                chmod +x "$SYNTHESIS_HOME/bin/$script"
+                detail "Downloaded bin/$script"
+                UPDATED_COMPONENTS=$((UPDATED_COMPONENTS + 1))
+            fi
+            rm -f "$TEMP_FILE"
+        done
+        (cd "$SYNTHESIS_HOME/bin" && ln -sf update.sh synthesis-update)
+    fi
+
+    # Write installation fingerprint
+    FINGERPRINT="$SYNTHESIS_HOME/.installation.json"
+    HAS_MCP=$([ -f "$LIB_DIR/synthesis-mcp-server.jar" ] && echo "true" || echo "false")
+    HAS_LSP=$([ -f "$LIB_DIR/synthesis-lsp-server.jar" ] && echo "true" || echo "false")
+    HAS_DOCS=$([ -d "$SYNTHESIS_HOME/docs" ] && echo "true" || echo "false")
+    cat > "$FINGERPRINT" <<FPEOF
+{
+  "version": "$BEST_VERSION",
+  "installDate": "$(cat "$META_DIR/install-date" 2>/dev/null || date -Iseconds)",
+  "lastUpdateDate": "$(date -Iseconds)",
+  "installMethod": "$([ -n "$SOURCE_DIR" ] && echo "source" || echo "github")",
+  "installSource": "$([ -n "$SOURCE_DIR" ] && echo "source-build" || echo "$BEST_SOURCE")",
+  "sourceDirectory": "${SOURCE_DIR:-}",
+  "components": {
+    "synthesis-cli": { "installed": true, "version": "$BEST_VERSION" },
+    "synthesis-mcp-server": { "installed": $HAS_MCP, "version": "$BEST_VERSION" },
+    "synthesis-lsp-server": { "installed": $HAS_LSP, "version": "$BEST_VERSION" },
+    "launcher-synthesis": { "installed": true, "version": "$BEST_VERSION" },
+    "launcher-mcp-server": { "installed": $([ -f "$SYNTHESIS_HOME/bin/synthesis-mcp-server" ] && echo "true" || echo "false"), "version": "$BEST_VERSION" },
+    "launcher-lsp-server": { "installed": $([ -f "$SYNTHESIS_HOME/bin/synthesis-lsp-server" ] && echo "true" || echo "false"), "version": "$BEST_VERSION" },
+    "update-script": { "installed": true, "version": "$BEST_VERSION" },
+    "documentation": { "installed": $HAS_DOCS, "version": "$BEST_VERSION" }
+  }
+}
+FPEOF
+    detail "Written installation fingerprint"
+
+    printf "\n"
+    printf "${GREEN}${BOLD}Comprehensive update complete!${NC}\n"
+    printf "  ${BOLD}Components updated:${NC} %d\n" "$UPDATED_COMPONENTS"
+    printf "\n"
+fi

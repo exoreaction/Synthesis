@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.cli.*;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryService;
+import io.exoreaction.synthesis.update.UpdateChecker;
 import io.exoreaction.synthesis.util.Version;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -43,6 +44,9 @@ import java.util.concurrent.Callable;
  *   synthesis perspectives <q>     Analyze a question from multiple perspectives
  *   synthesis extract-slides <pdf> Extract slides from a presentation PDF
  *   synthesis telemetry            View pilot status and telemetry info
+ *   synthesis update               Update all components (JARs, scripts, docs)
+ *   synthesis update --check       Check for updates without installing
+ *   synthesis update --health      Check installation health
  * </pre>
  *
  * @author Thor Henning Hetland / eXOReaction
@@ -72,7 +76,8 @@ import java.util.concurrent.Callable;
                 LearnCommand.class,
                 PerspectivesCommand.class,
                 ExtractSlidesCommand.class,
-                TelemetryCommand.class
+                TelemetryCommand.class,
+                UpdateCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -106,6 +111,16 @@ public class SynthesisApp implements Callable<Integer> {
 
         // Check pilot approval status and show nag if not approved
         checkPilotApproval(telemetry.getClientUuid());
+
+        // Background update check (non-blocking, daily)
+        Path synthesisHome = Path.of(System.getProperty("user.home"), ".synthesis");
+        UpdateChecker.checkInBackground(synthesisHome);
+
+        // Show any pending update notification from previous check
+        String firstArg = args.length > 0 ? args[0] : "";
+        if (!"update".equals(firstArg) && !"--version".equals(firstArg) && !"-V".equals(firstArg)) {
+            UpdateChecker.showPendingNotification(synthesisHome);
+        }
 
         // Determine the command name for telemetry tracking
         String commandName = args.length > 0 ? args[0] : "help";

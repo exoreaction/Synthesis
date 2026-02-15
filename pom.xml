@@ -23,6 +23,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss'Z'</maven.build.timestamp.format>
 
         <!-- Dependency versions -->
         <anthropic.version>2.14.0</anthropic.version>
@@ -145,12 +146,13 @@
 
     <build>
         <resources>
-            <!-- Version properties file: filtered to inject Maven version -->
+            <!-- Version properties and manifest: filtered to inject Maven version -->
             <resource>
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>
                     <include>version.properties</include>
+                    <include>synthesis-manifest.json</include>
                 </includes>
             </resource>
             <!-- Standard resources (not filtered, excludes binaries and version.properties) -->
