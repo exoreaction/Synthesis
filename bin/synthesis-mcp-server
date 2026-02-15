@@ -73,6 +73,8 @@ fi
 # Launch MCP Server
 # ---------------------------------------------------------------------------
 
-JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-}"
+# JVM flags to suppress warnings (can be overridden via SYNTHESIS_JAVA_OPTS)
+DEFAULT_JAVA_OPTS="--enable-native-access=ALL-UNNAMED -Djava.util.logging.config.file=/dev/null"
+JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-$DEFAULT_JAVA_OPTS}"
 
 exec java $JAVA_OPTS -jar "$JAR_TO_USE" "$@"

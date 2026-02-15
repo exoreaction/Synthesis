@@ -114,7 +114,8 @@ fi
 # Resolve the actual JAR path (follow symlink)
 REAL_JAR=$(readlink -f "$JAR_PATH" 2>/dev/null || readlink "$JAR_PATH" 2>/dev/null || echo "$JAR_PATH")
 
-# Build Java command with optional extra opts
-JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-}"
+# JVM flags to suppress warnings (can be overridden via SYNTHESIS_JAVA_OPTS)
+DEFAULT_JAVA_OPTS="--enable-native-access=ALL-UNNAMED -Djava.util.logging.config.file=/dev/null"
+JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-$DEFAULT_JAVA_OPTS}"
 
 exec java $JAVA_OPTS -jar "$REAL_JAR" "$@"
