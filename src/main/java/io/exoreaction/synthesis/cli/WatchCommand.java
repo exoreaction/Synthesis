@@ -18,6 +18,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
@@ -35,14 +36,21 @@ import static java.nio.file.StandardWatchEventKinds.*;
  * automatically maintains the search index in real-time.
  *
  * <p>Uses Java's {@link WatchService} to efficiently detect file system events.
- * Runs as a foreground daemon and shuts down gracefully on Ctrl+C.
+ * Runs as a foreground process by default, or as a background daemon with {@code --daemon}.
  *
  * <p>Usage:
  * <pre>
- *   synthesis watch                # Start watching
+ *   synthesis watch                # Start watching (foreground)
  *   synthesis watch --verbose      # Show all events
  *   synthesis watch --debounce 500 # Custom debounce (ms)
+ *   synthesis watch --daemon       # Start as background daemon
+ *   synthesis watch --stop         # Stop running daemon
+ *   synthesis watch --status       # Show daemon status
  * </pre>
+ *
+ * <p>Daemon mode creates a PID file at {@code .synthesis/daemon.pid} in the workspace.
+ * Only one daemon can run per workspace. The PID file is cleaned up on graceful
+ * shutdown or detected as stale on next start.
  */
 @Command(
         name = "watch",
@@ -50,6 +58,9 @@ import static java.nio.file.StandardWatchEventKinds.*;
         mixinStandardHelpOptions = true
 )
 public class WatchCommand implements Callable<Integer> {
+
+    /** Name of the PID file inside the .synthesis directory. */
+    static final String PID_FILE_NAME = "daemon.pid";
 
     @ParentCommand
     private SynthesisApp parent;
@@ -74,6 +85,27 @@ public class WatchCommand implements Callable<Integer> {
             defaultValue = "false"
     )
     private boolean learn;
+
+    @Option(
+            names = {"--daemon"},
+            description = "Run as background daemon process",
+            defaultValue = "false"
+    )
+    private boolean daemon;
+
+    @Option(
+            names = {"--stop"},
+            description = "Stop a running daemon for this workspace",
+            defaultValue = "false"
+    )
+    private boolean stopDaemon;
+
+    @Option(
+            names = {"--status"},
+            description = "Show daemon status for this workspace",
+            defaultValue = "false"
+    )
+    private boolean showStatus;
 
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicInteger eventCount = new AtomicInteger(0);
@@ -109,47 +141,256 @@ public class WatchCommand implements Callable<Integer> {
                 return 1;
             }
 
-            SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+            Path pidFile = workspaceRoot.resolve(WorkspaceManager.SYNTHESIS_DIR).resolve(PID_FILE_NAME);
 
-            System.out.println();
-            AnsiOutput.printInfo("Watching workspace: " + config.getWorkspace().getName());
-            AnsiOutput.printInfo("Root: " + workspaceRoot);
-            if (learn) {
-                AnsiOutput.printInfo("Learning mode enabled - will regenerate skills on org changes");
-            }
-            AnsiOutput.printInfo("Press Ctrl+C to stop.");
-            System.out.println();
-
-            // Register shutdown hook for graceful termination
-            Thread shutdownHook = new Thread(() -> {
-                running.set(false);
-                System.out.println();
-                AnsiOutput.printInfo("Shutting down watcher...");
-            });
-            Runtime.getRuntime().addShutdownHook(shutdownHook);
-
-            // Start watching
-            try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-                registerDirectories(workspaceRoot, watchService, config.getScan());
-
-                watchLoop(watchService, workspace, config, workspaceRoot);
-            } finally {
-                try {
-                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
-                } catch (IllegalStateException e) {
-                    // JVM is already shutting down, ignore
-                }
+            // Handle --status: show daemon status and exit
+            if (showStatus) {
+                return handleStatus(pidFile);
             }
 
-            System.out.println();
-            AnsiOutput.printSuccess("Watcher stopped. Processed " + eventCount.get() +
-                    " events, indexed " + indexedCount.get() + " files.");
-            System.out.println();
+            // Handle --stop: stop running daemon and exit
+            if (stopDaemon) {
+                return handleStop(pidFile);
+            }
 
-            return 0;
+            // Handle --daemon: launch as background process
+            if (daemon) {
+                return handleDaemonStart(workspaceRoot, pidFile);
+            }
+
+            // Normal foreground watch mode
+            return runForeground(workspaceRoot, workspace, pidFile);
         } catch (Exception e) {
             AnsiOutput.printError("Watch failed: " + e.getMessage());
             return 1;
+        }
+    }
+
+    /**
+     * Runs the watcher in normal foreground mode.
+     */
+    private Integer runForeground(Path workspaceRoot, WorkspaceManager workspace,
+                                   Path pidFile) throws Exception {
+        SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+
+        // Check if a daemon is already running for this workspace
+        Optional<Long> existingPid = readPid(pidFile);
+        if (existingPid.isPresent() && isProcessAlive(existingPid.get())) {
+            AnsiOutput.printError("A watcher daemon is already running for this workspace (PID: "
+                    + existingPid.get() + ").");
+            AnsiOutput.printInfo("Stop it with: synthesis watch --stop");
+            return 1;
+        }
+
+        System.out.println();
+        AnsiOutput.printInfo("Watching workspace: " + config.getWorkspace().getName());
+        AnsiOutput.printInfo("Root: " + workspaceRoot);
+        if (learn) {
+            AnsiOutput.printInfo("Learning mode enabled - will regenerate skills on org changes");
+        }
+        AnsiOutput.printInfo("Press Ctrl+C to stop.");
+        System.out.println();
+
+        // Write PID file (even in foreground mode, prevents duplicate watchers)
+        writePid(pidFile);
+
+        // Register shutdown hook for graceful termination
+        Thread shutdownHook = new Thread(() -> {
+            running.set(false);
+            cleanupPidFile(pidFile);
+            System.out.println();
+            AnsiOutput.printInfo("Shutting down watcher...");
+        });
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
+
+        // Start watching
+        try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
+            registerDirectories(workspaceRoot, watchService, config.getScan());
+
+            watchLoop(watchService, workspace, config, workspaceRoot);
+        } finally {
+            cleanupPidFile(pidFile);
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException e) {
+                // JVM is already shutting down, ignore
+            }
+        }
+
+        System.out.println();
+        AnsiOutput.printSuccess("Watcher stopped. Processed " + eventCount.get() +
+                " events, indexed " + indexedCount.get() + " files.");
+        System.out.println();
+
+        return 0;
+    }
+
+    /**
+     * Handles --daemon: spawns the watcher as a background process.
+     *
+     * <p>Uses ProcessBuilder to re-launch Synthesis with the same arguments
+     * but without --daemon, redirecting output to a log file. The spawned
+     * process writes its own PID file.
+     */
+    private Integer handleDaemonStart(Path workspaceRoot, Path pidFile) throws IOException {
+        // Check if already running
+        Optional<Long> existingPid = readPid(pidFile);
+        if (existingPid.isPresent() && isProcessAlive(existingPid.get())) {
+            AnsiOutput.printError("Daemon already running (PID: " + existingPid.get() + ").");
+            AnsiOutput.printInfo("Stop it with: synthesis watch --stop");
+            return 1;
+        }
+
+        // Clean up stale PID file
+        cleanupPidFile(pidFile);
+
+        // Build the command to re-launch ourselves without --daemon
+        Path synthesisHome = Path.of(System.getProperty("user.home"), ".synthesis");
+        Path jarPath = synthesisHome.resolve("lib/current.jar");
+
+        if (!Files.exists(jarPath)) {
+            AnsiOutput.printError("Cannot find Synthesis JAR at: " + jarPath);
+            return 1;
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add(ProcessHandle.current().info().command().orElse("java"));
+        command.add("-jar");
+        command.add(jarPath.toAbsolutePath().toString());
+        command.add("-d");
+        command.add(workspaceRoot.toAbsolutePath().toString());
+        command.add("watch");
+        if (verbose) command.add("--verbose");
+        if (learn) command.add("--learn");
+        command.add("--debounce");
+        command.add(String.valueOf(debounceMs));
+
+        // Log file for daemon output
+        Path logFile = pidFile.getParent().resolve("daemon.log");
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectOutput(ProcessBuilder.Redirect.to(logFile.toFile()));
+        pb.redirectErrorStream(true);
+
+        // Inherit environment (including SYNTHESIS_EDITION)
+        Process process = pb.start();
+
+        // Write the PID of the spawned process
+        long pid = process.pid();
+        Files.writeString(pidFile, String.valueOf(pid), StandardCharsets.UTF_8);
+
+        System.out.println();
+        AnsiOutput.printSuccess("Daemon started (PID: " + pid + ")");
+        AnsiOutput.printInfo("Log: " + logFile);
+        AnsiOutput.printInfo("Stop: synthesis watch --stop");
+        AnsiOutput.printInfo("Status: synthesis watch --status");
+        System.out.println();
+
+        return 0;
+    }
+
+    /**
+     * Handles --stop: sends SIGTERM to the daemon process.
+     */
+    private Integer handleStop(Path pidFile) {
+        Optional<Long> pid = readPid(pidFile);
+        if (pid.isEmpty()) {
+            AnsiOutput.printInfo("No daemon running for this workspace.");
+            return 0;
+        }
+
+        if (!isProcessAlive(pid.get())) {
+            AnsiOutput.printInfo("Daemon PID " + pid.get() + " is no longer running (stale PID file).");
+            cleanupPidFile(pidFile);
+            return 0;
+        }
+
+        // Send graceful shutdown signal
+        Optional<ProcessHandle> handle = ProcessHandle.of(pid.get());
+        if (handle.isPresent()) {
+            boolean destroyed = handle.get().destroy();
+            if (destroyed) {
+                AnsiOutput.printSuccess("Daemon stopped (PID: " + pid.get() + ").");
+                cleanupPidFile(pidFile);
+                return 0;
+            } else {
+                AnsiOutput.printError("Failed to stop daemon (PID: " + pid.get() + ").");
+                AnsiOutput.printInfo("Try: kill " + pid.get());
+                return 1;
+            }
+        } else {
+            AnsiOutput.printInfo("Process " + pid.get() + " not found (already stopped).");
+            cleanupPidFile(pidFile);
+            return 0;
+        }
+    }
+
+    /**
+     * Handles --status: shows whether a daemon is running.
+     */
+    private Integer handleStatus(Path pidFile) {
+        Optional<Long> pid = readPid(pidFile);
+
+        System.out.println();
+        if (pid.isEmpty()) {
+            AnsiOutput.printInfo("No daemon configured for this workspace.");
+        } else if (isProcessAlive(pid.get())) {
+            AnsiOutput.printSuccess("Daemon running (PID: " + pid.get() + ")");
+            Path logFile = pidFile.getParent().resolve("daemon.log");
+            if (Files.exists(logFile)) {
+                AnsiOutput.printInfo("Log: " + logFile);
+            }
+        } else {
+            AnsiOutput.printInfo("Daemon PID " + pid.get() + " is no longer running (stale).");
+            cleanupPidFile(pidFile);
+        }
+        System.out.println();
+
+        return 0;
+    }
+
+    // ---- PID File Management ----
+
+    /**
+     * Writes the current process PID to the PID file.
+     */
+    void writePid(Path pidFile) throws IOException {
+        long pid = ProcessHandle.current().pid();
+        Files.createDirectories(pidFile.getParent());
+        Files.writeString(pidFile, String.valueOf(pid), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reads the PID from the PID file.
+     *
+     * @return the PID, or empty if the file does not exist or is unreadable
+     */
+    static Optional<Long> readPid(Path pidFile) {
+        try {
+            if (!Files.exists(pidFile)) return Optional.empty();
+            String content = Files.readString(pidFile, StandardCharsets.UTF_8).trim();
+            if (content.isEmpty()) return Optional.empty();
+            return Optional.of(Long.parseLong(content));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Checks if a process with the given PID is still alive.
+     */
+    static boolean isProcessAlive(long pid) {
+        return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+    }
+
+    /**
+     * Removes the PID file if it exists. Never throws.
+     */
+    static void cleanupPidFile(Path pidFile) {
+        try {
+            Files.deleteIfExists(pidFile);
+        } catch (IOException e) {
+            // Best effort -- PID file cleanup should never fail the operation
         }
     }
 
