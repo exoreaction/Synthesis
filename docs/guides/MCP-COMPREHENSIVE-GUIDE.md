@@ -14,6 +14,9 @@ Synthesis provides a native MCP (Model Context Protocol) server that gives Claud
   - [relate](#relate---relationship-analysis)
   - [graph](#graph---architecture-visualization)
   - [stats](#stats---workspace-health)
+  - [ask](#ask---ai-powered-qa) (AI)
+  - [enrich](#enrich---companion-file-generation)
+  - [explain](#explain---ai-code-explanation) (AI)
 - [Advanced Configuration](#advanced-configuration)
 - [Integration](#integration)
 - [Troubleshooting](#troubleshooting)
@@ -108,7 +111,7 @@ If the agent successfully calls the `stats` tool and returns file counts, the se
 
 ## Tools Reference
 
-The MCP server exposes four tools. Each tool accepts JSON parameters and returns structured JSON results wrapped in MCP content blocks.
+The MCP server exposes seven tools. Each tool accepts JSON parameters and returns structured JSON results wrapped in MCP content blocks. The first four tools (search, relate, graph, stats) work offline. The AI-powered tools (ask, explain) require an `ANTHROPIC_API_KEY` environment variable. The enrich tool works at basic level without AI, or at AI level with an API key.
 
 ### `search` -- Full-Text Search
 
@@ -431,6 +434,205 @@ Get workspace statistics including file counts by type, index size, health statu
 
 ---
 
+### `ask` -- AI-Powered Q&A
+
+Ask natural language questions about the codebase. The tool searches the Synthesis index for relevant files, builds context with file content and line numbers, and generates an answer with citations using Claude. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | **Yes** | -- | The question to ask about the codebase |
+| `workspace` | string | No | server default | Override workspace path |
+
+**Example Queries:**
+
+```
+# Understand authentication flow
+{"query": "How does authentication work in this project?"}
+
+# Find usage patterns
+{"query": "Where and how is the database connection pool configured?"}
+
+# Architecture questions
+{"query": "What design patterns are used in the service layer?"}
+```
+
+**Response Format:**
+
+```json
+{
+  "answer": "Authentication is handled by AuthService.java which uses OAuth2...",
+  "citations": [
+    "src/auth/AuthService.java",
+    "src/config/SecurityConfig.java",
+    "src/auth/TokenManager.java"
+  ],
+  "contextFiles": 10,
+  "workspace": "/home/user/project"
+}
+```
+
+**Response fields explained:**
+
+| Field | Description |
+|-------|-------------|
+| `answer` | AI-generated answer with code references |
+| `citations` | Files used as context for generating the answer |
+| `contextFiles` | Number of files retrieved from the index |
+| `workspace` | Workspace path used |
+
+**Error cases:**
+- Missing or empty `query` parameter: returns `INVALID_PARAMS` error
+- No `ANTHROPIC_API_KEY` set: returns error with setup instructions
+
+---
+
+### `enrich` -- Companion File Generation
+
+Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs, audio). These companion files contain structured metadata, extracted text, and AI descriptions that make binary content fully text-searchable. Run with `filePath` for a single file, or without for batch processing of all binary files in the index.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePath` | string | No | -- | Path to a specific file (omit for batch mode) |
+| `level` | string | No | `basic` | Enrichment level: `basic`, `local`, `ai` |
+| `force` | boolean | No | `false` | Regenerate even if companion exists |
+| `workspace` | string | No | server default | Override workspace path |
+
+**Enrichment Levels:**
+
+| Level | Description | Requirements |
+|-------|-------------|--------------|
+| `basic` | Metadata extraction only (size, type, format) | None |
+| `local` | Metadata + local tool analysis (ffprobe, image dimensions) | None |
+| `ai` | Metadata + local tools + AI description (vision for images, content summary for PDFs) | `ANTHROPIC_API_KEY` |
+
+**Example -- Single file:**
+
+```json
+// Input: {"filePath": "docs/architecture-diagram.png", "level": "basic"}
+// Output:
+{
+  "generated": true,
+  "sourcePath": "/home/user/project/docs/architecture-diagram.png",
+  "companionPath": "/home/user/project/docs/architecture-diagram.png.synthesis.md",
+  "level": "BASIC"
+}
+```
+
+**Example -- Batch mode:**
+
+```json
+// Input: {"level": "basic"}
+// Output:
+{
+  "generated": 12,
+  "skipped": 3,
+  "errors": 0,
+  "level": "BASIC",
+  "workspace": "/home/user/project"
+}
+```
+
+**Companion file format:**
+
+The generated `.synthesis.md` file contains YAML front matter and markdown body:
+
+```markdown
+---
+companion_for: diagram.png
+type: IMAGE
+enrichment_level: BASIC
+generated: 2026-02-15T10:30:00Z
+---
+
+# diagram.png
+
+**Type:** IMAGE | **Size:** 45.2 KB
+
+## Metadata
+- Dimensions: 1920x1080
+- Format: PNG
+
+## Description
+A diagram image.
+```
+
+**Batch behavior:**
+- Processes all VIDEO, IMAGE, PDF, and AUDIO files in the index
+- Skips files that already have companion files (unless `force: true`)
+- Reports counts of generated, skipped, and errored files
+
+---
+
+### `explain` -- AI Code Explanation
+
+Generate comprehensive AI-powered explanations of files, directories, or architectural patterns. Uses the Synthesis index as context to ground explanations in the actual workspace structure. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `target` | string | **Yes** | -- | File path, directory path, or pattern name |
+| `includeContext` | boolean | No | `true` | Include related files in explanation context |
+| `depth` | string | No | `standard` | Depth: `brief`, `standard`, `deep` |
+| `workspace` | string | No | server default | Override workspace path |
+
+**Explanation Modes:**
+
+The tool auto-detects the mode based on the `target`:
+
+| Mode | Detection | Description |
+|------|-----------|-------------|
+| `file` | Target resolves to a regular file | Explains the file's purpose, structure, and relationships |
+| `module` | Target resolves to a directory | Explains the module's role, internal structure, and external dependencies |
+| `pattern` | Target does not resolve to a file or directory | Searches the index for the concept and explains how it is implemented |
+
+**Explanation Depths:**
+
+| Depth | Output | Best for |
+|-------|--------|----------|
+| `brief` | 3-5 sentences | Quick overview, code review comments |
+| `standard` | Multiple sections with code references | Day-to-day understanding |
+| `deep` | Comprehensive analysis with architecture context | Onboarding, documentation |
+
+**Example -- File explanation:**
+
+```json
+// Input: {"target": "src/auth/AuthService.java", "depth": "standard"}
+// Output:
+{
+  "target": "src/auth/AuthService.java",
+  "mode": "file",
+  "explanation": "## AuthService.java\n\nThis is the core authentication service...",
+  "contextDocuments": 8,
+  "durationMs": 2340
+}
+```
+
+**Example -- Pattern explanation:**
+
+```json
+// Input: {"target": "authentication", "depth": "brief"}
+// Output:
+{
+  "target": "authentication",
+  "mode": "pattern",
+  "explanation": "Authentication in this project follows OAuth2 with JWT tokens...",
+  "contextDocuments": 15,
+  "durationMs": 3120
+}
+```
+
+**Error cases:**
+- Missing or empty `target` parameter: returns `INVALID_PARAMS` error
+- No `ANTHROPIC_API_KEY` set: returns error with setup instructions
+- File/directory not found and no matching pattern: attempts pattern explanation
+
+---
+
 ## Advanced Configuration
 
 ### Multiple Workspaces
@@ -543,7 +745,7 @@ Options:
 }
 ```
 
-The agent automatically discovers the four tools (`search`, `relate`, `graph`, `stats`) via the `tools/list` MCP method. No additional setup is required.
+The agent automatically discovers all seven tools (`search`, `relate`, `graph`, `stats`, `ask`, `enrich`, `explain`) via the `tools/list` MCP method. No additional setup is required. The AI-powered tools (`ask`, `explain`) require `ANTHROPIC_API_KEY` to be set.
 
 ### Cursor
 
@@ -715,6 +917,12 @@ Measured on a standard development laptop (16 GB RAM, SSD) with an 8,934-file wo
 | Graph (dependencies, full) | 0.5-2.0s | Depends on workspace size |
 | Graph (cross-repo) | 0.5-3.0s | Depends on repository count |
 | Stats | 0.05-0.1s | Metadata only, no search |
+| Ask | 2-8s | Depends on context size + Claude API latency |
+| Enrich (single) | 0.1-3s | Depends on enrichment level (basic < local < ai) |
+| Enrich (batch, 50 files) | 5-30s | Parallel processing, varies with level |
+| Explain (file) | 2-5s | Depends on file size + Claude API latency |
+| Explain (module) | 3-10s | Depends on module size + Claude API latency |
+| Explain (pattern) | 3-8s | Depends on search results + Claude API latency |
 
 ### Scaling Characteristics
 
@@ -800,6 +1008,42 @@ The agent will:
 2. Call `relate` on each document to check outgoing references
 3. Identify references where the target file is missing
 4. Report the broken links with specific file paths and line references
+
+### 6. AI-Powered Codebase Q&A
+
+When the agent needs deep understanding of a concept:
+
+> "How does the payment processing pipeline work in this codebase?"
+
+The agent will:
+1. Call `ask` with the question
+2. The server searches the index for relevant files (payment, pipeline, processing)
+3. Claude generates an answer grounded in the actual code with file citations
+4. The agent presents the answer with references to specific files
+
+### 7. Enriching Binary Assets
+
+When binary files need to be searchable:
+
+> "Make all the images and videos in this project searchable"
+
+The agent will:
+1. Call `enrich` in batch mode (no `filePath`)
+2. The server generates `.synthesis.md` companion files for each binary asset
+3. Report the results (generated, skipped, errors)
+4. Suggest running `synthesis scan` to index the new companion files
+
+### 8. Understanding Unfamiliar Code
+
+When a developer needs to understand a complex module:
+
+> "Explain how the authentication module works"
+
+The agent will:
+1. Call `explain` with `target: "src/auth"` (module mode)
+2. The server analyzes all files in the directory, their relationships, and structure
+3. Claude generates a comprehensive explanation with code references
+4. The agent presents the explanation with navigation suggestions
 
 ---
 

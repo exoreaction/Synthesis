@@ -83,4 +83,15 @@ public final class DocumentFields {
 
     /** Companion file path (e.g., transcript for video, metadata sidecar). */
     public static final String COMPANION_FILE = "companionFile";
+
+    /** Source file that this companion file was generated for. */
+    public static final String COMPANION_FOR = "companionFor";
+
+    // --- Embedding fields ---
+
+    /** Embedding vector for semantic search (KNN vector field). */
+    public static final String EMBEDDING = "embedding";
+
+    /** Embedding model used (e.g., "text-embedding-3-small"). */
+    public static final String EMBEDDING_MODEL = "embeddingModel";
 }

@@ -486,6 +486,40 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                     }
                 }
 
+                // Architecture diagnostics for code files
+                try {
+                    io.exoreaction.synthesis.util.FileUtils.FileType fileType =
+                            io.exoreaction.synthesis.util.FileUtils.classifyFile(filePath);
+                    if (fileType == io.exoreaction.synthesis.util.FileUtils.FileType.CODE) {
+                        WorkspaceManager ws = new WorkspaceManager(workspaceRoot);
+                        if (ws.validate().isEmpty()) {
+                            io.exoreaction.synthesis.architecture.ArchitectureMonitor archMonitor =
+                                    new io.exoreaction.synthesis.architecture.ArchitectureMonitor(workspaceRoot);
+                            try (SearchIndex index = new SearchIndex(ws.getIndexPath())) {
+                                var alerts = archMonitor.analyzeFile(filePath, index);
+                                for (var alert : alerts) {
+                                    DiagnosticSeverity severity = switch (alert.severity()) {
+                                        case ERROR -> DiagnosticSeverity.Error;
+                                        case WARNING -> DiagnosticSeverity.Warning;
+                                        case INFO -> DiagnosticSeverity.Information;
+                                    };
+                                    Range range = new Range(
+                                            new Position(0, 0), new Position(0, 1));
+                                    Diagnostic diag = new Diagnostic(
+                                            range,
+                                            "[" + alert.category().name() + "] " + alert.message(),
+                                            severity,
+                                            "synthesis-architecture"
+                                    );
+                                    diagnostics.add(diag);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception archErr) {
+                    log.fine("Architecture diagnostics failed: " + archErr.getMessage());
+                }
+
                 client.publishDiagnostics(new PublishDiagnosticsParams(uri, diagnostics));
                 log.fine("Published " + diagnostics.size() + " diagnostics for " + uri);
             } catch (Exception e) {

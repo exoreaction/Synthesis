@@ -4,6 +4,26 @@
 
 Synthesis is a CLI tool that scans, indexes, and searches workspace file systems, providing rapid discovery of documents, code, and knowledge artifacts. It creates a local Lucene search index enriched with file analysis (headings, keywords, code structure, PDF content), enabling instant search across your entire workspace.
 
+## Features
+
+**Core (offline, no API key required):**
+- Full-text search across all file types (code, docs, videos, PDFs, configs)
+- Bi-directional relationship mapping (imports, references, dependencies)
+- Architecture visualization (module graphs, cross-repo dependencies)
+- Companion file generation for binary assets (`synthesis enrich`)
+- Architecture intelligence: anti-pattern detection, god classes, circular dependencies, dead code, test gaps
+
+**AI-powered (requires `ANTHROPIC_API_KEY`):**
+- Natural language Q&A about your codebase (`synthesis explain`, MCP `ask` tool)
+- AI-powered code explanation for files, modules, and patterns
+- Semantic search using vector embeddings (`synthesis search --semantic`)
+- AI-enriched companion files with vision descriptions
+
+**Integrations:**
+- MCP server for Claude Code, Cursor, Aider (7 tools)
+- LSP server for IDE integration (symbols, hover, diagnostics, architecture alerts)
+- Daemon mode with real-time architecture monitoring (`synthesis watch`)
+
 ## Quick Start
 
 **Linux / macOS:**
@@ -51,7 +71,7 @@ Synthesis exposes its capabilities through two server protocols for seamless int
 
 ### MCP Server (AI Agent Integration)
 
-Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides `search`, `relate`, `graph`, and `stats` tools over JSON-RPC 2.0.
+Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides seven tools over JSON-RPC 2.0: `search`, `relate`, `graph`, `stats` (offline), plus `ask`, `enrich`, and `explain` (AI-powered).
 
 | Document | Description | Time |
 |----------|-------------|------|
@@ -62,7 +82,7 @@ Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI age
 
 ### LSP Server (IDE Integration)
 
-Bring workspace intelligence into your IDE: workspace symbols, document links, hover metadata, go-to-definition, find references, code lens, and diagnostics.
+Bring workspace intelligence into your IDE: workspace symbols, document links, hover metadata, go-to-definition, find references, code lens, diagnostics, and architecture alerts.
 
 | Document | Description | Time |
 |----------|-------------|------|

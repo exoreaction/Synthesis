@@ -610,6 +610,84 @@ The following JSON Schemas define the input parameters for each tool. These are 
 }
 ```
 
+### ask
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The question to ask about the codebase"
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Workspace path (defaults to server's configured workspace)"
+    }
+  },
+  "required": ["query"]
+}
+```
+
+### enrich
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "filePath": {
+      "type": "string",
+      "description": "Path to a specific file to enrich (omit for batch mode)"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["basic", "local", "ai"],
+      "default": "basic",
+      "description": "Enrichment level: basic (metadata only), local (with tools), ai (with Claude)"
+    },
+    "force": {
+      "type": "boolean",
+      "default": false,
+      "description": "Force regeneration even if companion file exists"
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Workspace path (defaults to server's configured workspace)"
+    }
+  }
+}
+```
+
+### explain
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "File path, directory path, or pattern name to explain"
+    },
+    "includeContext": {
+      "type": "boolean",
+      "default": true,
+      "description": "Include related files in the explanation context"
+    },
+    "depth": {
+      "type": "string",
+      "enum": ["brief", "standard", "deep"],
+      "default": "standard",
+      "description": "Explanation depth: brief (3-5 sentences), standard (sections), deep (comprehensive)"
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Workspace path (defaults to server's configured workspace)"
+    }
+  },
+  "required": ["target"]
+}
+```
+
 ---
 
 ## Error Handling
@@ -669,6 +747,10 @@ Common tool errors:
 | `File not found in index: <name>` | `relate` target not in index | Verify file exists and index is current |
 | `No files in index. Run 'synthesis scan' first.` | Empty index | Run `synthesis scan` |
 | `No files match filter: <filter>` | `graph` filter matched nothing | Verify the filter pattern |
+| `Missing required parameter: target` | `explain` called without `target` | Include `target` in arguments |
+| `Parameter 'target' must not be empty` | Empty string passed as target | Provide a non-empty target |
+| `AI not configured. Set ANTHROPIC_API_KEY environment variable.` | `ask` or `explain` without API key | Set `ANTHROPIC_API_KEY` |
+| `File not found: <path>` | `enrich` target file missing | Verify file path |
 | Workspace validation errors | Workspace not initialized | Run `synthesis init && synthesis scan` |
 
 ---

@@ -540,6 +540,33 @@ public class WatchCommand implements Callable<Integer> {
                         " change" + (changes.size() != 1 ? "s" : ""));
             }
 
+            // Run architecture check on code file changes (debounced by batch)
+            boolean hasCodeChanges = changes.keySet().stream()
+                    .anyMatch(p -> FileUtils.classifyFile(p) == FileUtils.FileType.CODE);
+            if (hasCodeChanges) {
+                try {
+                    io.exoreaction.synthesis.architecture.ArchitectureMonitor archMonitor =
+                            new io.exoreaction.synthesis.architecture.ArchitectureMonitor(workspaceRoot);
+                    for (Map.Entry<Path, WatchEvent.Kind<?>> entry : changes.entrySet()) {
+                        if (entry.getValue() != ENTRY_DELETE &&
+                                FileUtils.classifyFile(entry.getKey()) == FileUtils.FileType.CODE) {
+                            var alerts = archMonitor.analyzeFile(entry.getKey(), index);
+                            if (!alerts.isEmpty() && verbose) {
+                                for (var alert : alerts) {
+                                    System.out.println("    " + AnsiOutput.dim(timestamp()) +
+                                            " " + AnsiOutput.yellow("ARCH") + " " + alert.toSummaryLine());
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    if (verbose) {
+                        System.err.println("    " + AnsiOutput.dim(timestamp()) +
+                                " " + AnsiOutput.red("ARCH-ERR") + " " + e.getMessage());
+                    }
+                }
+            }
+
             // Regenerate skills if learn mode and organizational files changed
             if (learn) {
                 boolean orgFilesChanged = changes.keySet().stream()
