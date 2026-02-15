@@ -73,6 +73,19 @@ public class TelemetryService {
     }
 
     /**
+     * Creates a no-op TelemetryService that silently discards all events.
+     *
+     * <p>Used in air-gapped mode ({@code SYNTHESIS_EDITION=core} or
+     * {@code SYNTHESIS_EDITION=enterprise}) where no network connectivity
+     * is available or desired.
+     *
+     * @return a TelemetryService that does nothing
+     */
+    public static TelemetryService createNoOp() {
+        return new TelemetryService(new TelemetryConfig(), "air-gapped");
+    }
+
+    /**
      * Creates a TelemetryService from the global configuration and UUID.
      *
      * <p>This is the standard factory method for production use. It loads
