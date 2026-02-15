@@ -237,6 +237,83 @@ If you prefer to use your own system-installed ffprobe, it will be detected as a
 
 **Note:** The bundled binaries increase JAR size to approximately 136 MB (compressed). Uncompressed binary sizes: Linux ~76 MB, macOS ~76 MB, Windows ~95 MB.
 
+## Optional Dependencies (LOCAL Enrichment)
+
+Synthesis automatically detects and uses local tools to enable **LOCAL enrichment tier** (air-gapped media processing without cloud API):
+
+### Whisper (Speech-to-Text Transcription)
+
+Convert audio/video to searchable text. Supports 99 languages.
+
+**Option 1: whisper.cpp (Recommended - 100x faster)**
+```bash
+# macOS
+brew install whisper-cpp
+
+# Linux (build from source)
+git clone https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp && make
+sudo cp main /usr/local/bin/whisper
+```
+
+**Option 2: OpenAI Whisper (Python)**
+```bash
+pip install openai-whisper
+```
+
+**Supported formats:** MP3, WAV, M4A, OGG, FLAC, Opus, AAC
+
+### Tesseract OCR (Image Text Extraction)
+
+Extract text from screenshots, diagrams, charts. Supports 100+ languages.
+
+```bash
+# macOS
+brew install tesseract
+
+# Linux (Ubuntu/Debian)
+sudo apt install tesseract-ocr tesseract-ocr-eng
+
+# Linux (RHEL/CentOS)
+sudo yum install tesseract
+
+# Windows
+# Download from: https://github.com/UB-Mannheim/tesseract/wiki
+```
+
+**Supported formats:** PNG, JPEG, TIFF, BMP, GIF, WebP
+
+### Poppler (Scanned PDF Processing)
+
+Convert PDF pages to images for OCR extraction.
+
+```bash
+# macOS
+brew install poppler
+
+# Linux (Ubuntu/Debian)
+sudo apt install poppler-utils
+
+# Linux (RHEL/CentOS)
+sudo yum install poppler-utils
+
+# Windows
+# Download from: https://github.com/oschwartz10612/poppler-windows/releases
+```
+
+**Benefits:**
+- ✅ **Privacy-first:** 100% local processing, zero cloud calls
+- ✅ **Air-gapped:** Works in enterprise/government environments
+- ✅ **Cost-free:** No API keys or usage limits
+- ✅ **Fast:** whisper.cpp processes 1 min audio in ~5-10 seconds
+
+Check tool availability:
+```bash
+synthesis status
+```
+
+See [FEATURE-LOCAL-MEDIA-ENRICHMENT.md](docs/features/FEATURE-LOCAL-MEDIA-ENRICHMENT.md) for complete documentation.
+
 ## Commands
 
 ### Core Commands
