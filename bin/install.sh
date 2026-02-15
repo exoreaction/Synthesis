@@ -738,6 +738,42 @@ fi
 info "Version: $INSTALLED_VERSION"
 info "Installed: $(date)"
 
+# Write installation fingerprint
+step "Writing installation fingerprint..."
+
+FINGERPRINT="$SYNTHESIS_HOME/.installation.json"
+HAS_MCP=$([ -f "$SYNTHESIS_HOME/lib/synthesis-mcp-server.jar" ] && echo "true" || echo "false")
+HAS_LSP=$([ -f "$SYNTHESIS_HOME/lib/synthesis-lsp-server.jar" ] && echo "true" || echo "false")
+INSTALL_METHOD="installer"
+INSTALL_SRC=""
+if [ -n "${SOURCE_DIR:-}" ]; then
+    INSTALL_METHOD="source"
+    INSTALL_SRC="source-build"
+else
+    INSTALL_SRC="unknown"
+fi
+
+cat > "$FINGERPRINT" <<FPEOF
+{
+  "version": "$INSTALLED_VERSION",
+  "installDate": "$(date -Iseconds)",
+  "lastUpdateDate": null,
+  "installMethod": "$INSTALL_METHOD",
+  "installSource": "$INSTALL_SRC",
+  "sourceDirectory": "${SOURCE_DIR:-}",
+  "components": {
+    "synthesis-cli": { "installed": true, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "synthesis-mcp-server": { "installed": $HAS_MCP, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "synthesis-lsp-server": { "installed": $HAS_LSP, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "launcher-synthesis": { "installed": true, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "launcher-mcp-server": { "installed": true, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "launcher-lsp-server": { "installed": true, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" },
+    "update-script": { "installed": true, "version": "$INSTALLED_VERSION", "installedDate": "$(date -Iseconds)" }
+  }
+}
+FPEOF
+info "Installation fingerprint created"
+
 # ---------------------------------------------------------------------------
 # Step 9: Shell Integration
 # ---------------------------------------------------------------------------

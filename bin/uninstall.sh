@@ -107,9 +107,16 @@ if [ -d "$SYNTHESIS_HOME" ]; then
     JAR_COUNT=$(ls -1 "$SYNTHESIS_HOME/lib"/synthesis-*.jar 2>/dev/null | wc -l || echo 0)
     detail "${BOLD}$SYNTHESIS_HOME/${NC} ($DIR_SIZE)"
     detail "  bin/synthesis (launcher)"
+    detail "  bin/synthesis-mcp-server (MCP server launcher)"
+    detail "  bin/synthesis-lsp-server (LSP server launcher)"
     detail "  bin/update.sh (updater)"
     detail "  lib/ ($JAR_COUNT JAR files)"
     detail "  .metadata/ (installation data)"
+    detail "  .installation.json (installation fingerprint)"
+    if [ -d "$SYNTHESIS_HOME/docs" ]; then
+        DOC_COUNT=$(find "$SYNTHESIS_HOME/docs" -name "*.md" 2>/dev/null | wc -l || echo 0)
+        detail "  docs/ ($DOC_COUNT documentation files)"
+    fi
 fi
 
 # Shell integration
