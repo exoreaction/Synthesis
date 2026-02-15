@@ -24,6 +24,7 @@ import picocli.CommandLine.ParentCommand;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -60,8 +61,23 @@ public class StatusCommand implements Callable<Integer> {
     )
     private boolean perRepo;
 
+    @Option(
+            names = {"--all"},
+            description = "Show totals and stats for all workspaces",
+            defaultValue = "false"
+    )
+    private boolean showAll;
+
     @Override
     public Integer call() {
+        if (showAll) {
+            return showAllWorkspaces();
+        }
+
+        return showSingleWorkspace();
+    }
+
+    private Integer showSingleWorkspace() {
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
 
@@ -417,5 +433,275 @@ public class StatusCommand implements Callable<Integer> {
         } catch (Exception e) {
             // Metrics are optional, silently skip
         }
+    }
+
+    private Integer showAllWorkspaces() {
+        try {
+            AnsiOutput.printHeader("Synthesis - Global Status");
+
+            // Discover all workspaces using same logic as ListWorkspacesCommand
+            List<WorkspaceStatusInfo> workspaces = discoverAllWorkspacesForStatus();
+
+            if (workspaces.isEmpty()) {
+                System.out.println("  No Synthesis workspaces found.");
+                return 0;
+            }
+
+            // Calculate totals
+            long totalFiles = 0;
+            long totalIndexSize = 0;
+            int totalWorkspaces = workspaces.size();
+            int indexedWorkspaces = 0;
+            int watchingWorkspaces = 0;
+
+            Map<WorkspaceType, Integer> byType = new HashMap<>();
+            Map<String, Integer> byLanguage = new HashMap<>();
+            Map<String, Integer> byCompany = new HashMap<>();
+
+            for (WorkspaceStatusInfo ws : workspaces) {
+                if (ws.indexed) {
+                    indexedWorkspaces++;
+                    totalFiles += ws.fileCount;
+                    totalIndexSize += ws.indexSize;
+                }
+                if (ws.watching) {
+                    watchingWorkspaces++;
+                }
+
+                byType.merge(ws.workspaceType, 1, Integer::sum);
+                if (ws.primaryLanguage != null) {
+                    byLanguage.merge(ws.primaryLanguage, 1, Integer::sum);
+                }
+                if (ws.company != null) {
+                    byCompany.merge(ws.company, 1, Integer::sum);
+                }
+            }
+
+            // Display aggregate totals
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("╔═══════════════════════════════════════╗"));
+            System.out.println("  " + AnsiOutput.bold("║  Aggregate Totals                     ║"));
+            System.out.println("  " + AnsiOutput.bold("╚═══════════════════════════════════════╝"));
+            System.out.println();
+            System.out.printf("  %-25s %s%n", "Total Workspaces:", AnsiOutput.bold(String.valueOf(totalWorkspaces)));
+            System.out.printf("  %-25s %d/%d%n", "Indexed:", indexedWorkspaces, totalWorkspaces);
+            System.out.printf("  %-25s %d/%d%n", "Watch Daemons:", watchingWorkspaces, totalWorkspaces);
+            System.out.printf("  %-25s %s%n", "Total Files:", AnsiOutput.bold(String.format("%,d", totalFiles)));
+            System.out.printf("  %-25s %s%n", "Total Index Size:", FileUtils.formatSize(totalIndexSize));
+            System.out.println();
+
+            // By type
+            System.out.println("  " + AnsiOutput.bold("By Type:"));
+            byType.forEach((type, count) -> {
+                String badge = switch (type) {
+                    case SOURCE_CODE -> AnsiOutput.blue("[source]");
+                    case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                    case MIXED -> AnsiOutput.yellow("[mixed] ");
+                };
+                System.out.printf("    %s  %d workspaces%n", badge, count);
+            });
+            System.out.println();
+
+            // By language (if any)
+            if (!byLanguage.isEmpty()) {
+                System.out.println("  " + AnsiOutput.bold("By Language:"));
+                byLanguage.entrySet().stream()
+                        .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                        .forEach(e -> System.out.printf("    %-15s %d workspaces%n",
+                                AnsiOutput.cyan(e.getKey() + ":"), e.getValue()));
+                System.out.println();
+            }
+
+            // By company (if any)
+            if (!byCompany.isEmpty()) {
+                System.out.println("  " + AnsiOutput.bold("By Company:"));
+                byCompany.entrySet().stream()
+                        .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                        .forEach(e -> System.out.printf("    %-20s %d workspaces%n", e.getKey() + ":", e.getValue()));
+                System.out.println();
+            }
+
+            // Per-workspace breakdown
+            System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+            System.out.println("  " + AnsiOutput.bold("Per-Workspace Breakdown"));
+            System.out.println("  " + AnsiOutput.bold("═══════════════════════════════════════"));
+            System.out.println();
+
+            for (WorkspaceStatusInfo ws : workspaces) {
+                String typeBadge = switch (ws.workspaceType) {
+                    case SOURCE_CODE -> AnsiOutput.blue("[source]");
+                    case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                    case MIXED -> AnsiOutput.yellow("[mixed] ");
+                };
+
+                System.out.println("  " + typeBadge + " " + AnsiOutput.bold(ws.name));
+                System.out.printf("    %-20s %s%n", "Path:", ws.path);
+
+                if (ws.company != null) {
+                    System.out.printf("    %-20s %s%n", "Company:", ws.company);
+                }
+                if (ws.primaryLanguage != null) {
+                    System.out.printf("    %-20s %s%n", "Language:", AnsiOutput.cyan(ws.primaryLanguage));
+                }
+                if (ws.repoCount > 0) {
+                    System.out.printf("    %-20s %d%n", "Repositories:", ws.repoCount);
+                }
+
+                System.out.printf("    %-20s %s%n", "Indexed:",
+                        ws.indexed ? AnsiOutput.success("✓") + " (" + String.format("%,d", ws.fileCount) + " files)" : AnsiOutput.dim("✗"));
+
+                if (ws.indexed) {
+                    System.out.printf("    %-20s %s%n", "Index size:", FileUtils.formatSize(ws.indexSize));
+                }
+
+                System.out.printf("    %-20s %s%n", "Watch daemon:",
+                        ws.watching ? AnsiOutput.success("✓ Active") : AnsiOutput.dim("✗ Not running"));
+
+                System.out.println();
+            }
+
+            return 0;
+
+        } catch (Exception e) {
+            AnsiOutput.printError("Global status check failed: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    private List<WorkspaceStatusInfo> discoverAllWorkspacesForStatus() throws IOException {
+        List<WorkspaceStatusInfo> workspaces = new ArrayList<>();
+        Set<Path> searchPaths = new LinkedHashSet<>();
+        Set<Path> seen = new HashSet<>();
+
+        // Common workspace locations
+        String homeDir = System.getProperty("user.home");
+        searchPaths.add(Paths.get(homeDir, "Documents"));
+        searchPaths.add(Paths.get(homeDir, "Downloads"));
+        searchPaths.add(Paths.get("/src"));
+        searchPaths.add(Paths.get(homeDir, "src"));
+
+        // Check for workspaces in these locations
+        for (Path searchPath : searchPaths) {
+            if (!Files.exists(searchPath)) {
+                continue;
+            }
+
+            // Direct .synthesis directory
+            Path synthDir = searchPath.resolve(".synthesis");
+            if (Files.isDirectory(synthDir)) {
+                Path abs = searchPath.toAbsolutePath().normalize();
+                if (seen.add(abs)) {
+                    workspaces.add(createWorkspaceStatusInfo(abs, synthDir));
+                }
+            }
+
+            // Search one level deep
+            if (Files.isDirectory(searchPath)) {
+                try (Stream<Path> entries = Files.list(searchPath)) {
+                    entries.filter(Files::isDirectory)
+                            .forEach(subDir -> {
+                                Path subSynthDir = subDir.resolve(".synthesis");
+                                if (Files.isDirectory(subSynthDir)) {
+                                    Path abs = subDir.toAbsolutePath().normalize();
+                                    if (seen.add(abs)) {
+                                        try {
+                                            workspaces.add(createWorkspaceStatusInfo(abs, subSynthDir));
+                                        } catch (IOException e) {
+                                            // Skip this workspace
+                                        }
+                                    }
+                                }
+                            });
+                } catch (IOException e) {
+                    // Skip this search path
+                }
+            }
+        }
+
+        // Sort by path
+        workspaces.sort(Comparator.comparing(w -> w.path.toString()));
+
+        return workspaces;
+    }
+
+    private WorkspaceStatusInfo createWorkspaceStatusInfo(Path workspacePath, Path synthDir) throws IOException {
+        WorkspaceStatusInfo info = new WorkspaceStatusInfo();
+        info.path = workspacePath.toAbsolutePath().normalize();
+        info.name = workspacePath.getFileName() != null
+                ? workspacePath.getFileName().toString() : workspacePath.toString();
+
+        // Read config
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+            if (config.getWorkspace() != null) {
+                if (config.getWorkspace().getName() != null && !config.getWorkspace().getName().isBlank()) {
+                    info.name = config.getWorkspace().getName().replace("\"", "");
+                }
+                info.workspaceType = config.getWorkspace().getWorkspaceType();
+
+                WorkspaceMetadata metadata = config.getWorkspace().getMetadata();
+                if (metadata != null) {
+                    info.primaryLanguage = metadata.getPrimaryLanguage();
+                    info.repoCount = metadata.getRepoCount();
+                    info.company = metadata.getCompany();
+                }
+            }
+        } catch (Exception e) {
+            // Fallback if config reading fails
+        }
+
+        // Check index status
+        Path indexDir = synthDir.resolve("index");
+        if (Files.isDirectory(indexDir)) {
+            info.indexed = true;
+
+            // Get index size
+            try (Stream<Path> files = Files.walk(indexDir)) {
+                info.indexSize = files
+                        .filter(Files::isRegularFile)
+                        .mapToLong(f -> {
+                            try {
+                                return Files.size(f);
+                            } catch (IOException e) {
+                                return 0;
+                            }
+                        })
+                        .sum();
+            }
+
+            // Get file count
+            Path scanStateFile = synthDir.resolve("scan-state.json");
+            if (Files.exists(scanStateFile)) {
+                String scanState = Files.readString(scanStateFile);
+                if (scanState.contains("\"fileCount\"")) {
+                    try {
+                        String fileCountStr = scanState.substring(scanState.indexOf("\"fileCount\""));
+                        fileCountStr = fileCountStr.substring(fileCountStr.indexOf(":") + 1);
+                        fileCountStr = fileCountStr.substring(0, fileCountStr.indexOf(",")).trim();
+                        info.fileCount = Integer.parseInt(fileCountStr);
+                    } catch (Exception e) {
+                        // Ignore parse errors
+                    }
+                }
+            }
+        }
+
+        // Check if watch daemon is running
+        info.watching = isWatchDaemonRunning(info.name);
+
+        return info;
+    }
+
+    private static class WorkspaceStatusInfo {
+        Path path;
+        String name;
+        WorkspaceType workspaceType = WorkspaceType.MIXED;
+        String primaryLanguage;
+        String company;
+        int repoCount;
+        boolean indexed;
+        int fileCount;
+        long indexSize;
+        boolean watching;
     }
 }
