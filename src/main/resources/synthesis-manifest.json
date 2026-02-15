@@ -1,0 +1,98 @@
+{
+  "version": "${project.version}",
+  "artifactId": "${project.artifactId}",
+  "groupId": "${project.groupId}",
+  "buildTimestamp": "${maven.build.timestamp}",
+  "components": [
+    {
+      "name": "synthesis-cli",
+      "description": "Synthesis CLI - core search and indexing",
+      "file": "synthesis-${project.version}.jar",
+      "type": "jar",
+      "required": true,
+      "since": "1.0.0"
+    },
+    {
+      "name": "synthesis-mcp-server",
+      "description": "MCP server for AI agent integration (Claude Code, Cursor)",
+      "file": "synthesis-mcp-server.jar",
+      "type": "jar",
+      "required": false,
+      "since": "1.0.4"
+    },
+    {
+      "name": "synthesis-lsp-server",
+      "description": "LSP server for IDE integration (VSCode, IntelliJ, Neovim)",
+      "file": "synthesis-lsp-server.jar",
+      "type": "jar",
+      "required": false,
+      "since": "1.0.4"
+    },
+    {
+      "name": "launcher-synthesis",
+      "description": "Main CLI launcher script",
+      "file": "bin/synthesis",
+      "type": "script",
+      "required": true,
+      "since": "1.0.0"
+    },
+    {
+      "name": "launcher-mcp-server",
+      "description": "MCP server launcher script",
+      "file": "bin/synthesis-mcp-server",
+      "type": "script",
+      "required": false,
+      "since": "1.0.4"
+    },
+    {
+      "name": "launcher-lsp-server",
+      "description": "LSP server launcher script",
+      "file": "bin/synthesis-lsp-server",
+      "type": "script",
+      "required": false,
+      "since": "1.0.4"
+    },
+    {
+      "name": "update-script",
+      "description": "Self-update management script",
+      "file": "bin/update.sh",
+      "type": "script",
+      "required": true,
+      "since": "1.0.0"
+    },
+    {
+      "name": "install-script",
+      "description": "Installation script",
+      "file": "bin/install.sh",
+      "type": "script",
+      "required": false,
+      "since": "1.0.0"
+    },
+    {
+      "name": "uninstall-script",
+      "description": "Uninstallation script",
+      "file": "bin/uninstall.sh",
+      "type": "script",
+      "required": false,
+      "since": "1.0.0"
+    },
+    {
+      "name": "documentation",
+      "description": "User guides, API docs, and tutorials",
+      "path": "docs/",
+      "type": "docs",
+      "required": false,
+      "since": "1.0.0"
+    },
+    {
+      "name": "visual-assets",
+      "description": "Infographics, presentations, and NotebookLM audio",
+      "path": "docs/visuals/",
+      "type": "assets",
+      "required": false,
+      "since": "1.0.3"
+    }
+  ],
+  "changelog": "https://github.com/exoreaction/Synthesis/releases",
+  "repository": "https://github.com/exoreaction/Synthesis"
+}
