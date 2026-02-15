@@ -59,7 +59,39 @@ Perfect for:
 
 ---
 
-## 🎯 Which Guide Should I Read?
+### Protocol Integration Guides
+
+#### MCP Server (AI Agent Integration)
+
+Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents.
+
+| Document | Audience | Time |
+|----------|----------|------|
+| **[MCP Quick Start](./MCP-QUICKSTART.md)** | Developers | 5 min |
+| **[MCP Comprehensive Guide](./MCP-COMPREHENSIVE-GUIDE.md)** | Power users, enterprise architects | 20 min |
+| **[MCP Performance Benchmarks](./MCP-PERFORMANCE-BENCHMARKS.md)** | Platform partners, performance engineers | 10 min |
+| **[MCP Protocol Reference](../api/MCP-PROTOCOL-REFERENCE.md)** | Platform engineers, MCP client developers | 15 min |
+
+#### LSP Server (IDE Integration)
+
+Bring Synthesis intelligence directly into your IDE: VSCode, IntelliJ, Neovim, Vim, Emacs.
+
+| Document | Audience | Time |
+|----------|----------|------|
+| **[LSP Quick Start](./LSP-QUICKSTART.md)** | Developers | 5 min |
+| **[LSP Comprehensive Guide](./LSP-COMPREHENSIVE-GUIDE.md)** | Power users, enterprise architects | 20 min |
+| **[LSP IDE Integration Guides](./LSP-IDE-INTEGRATION-GUIDES.md)** | Developers (per-IDE setup) | 5 min/IDE |
+| **[LSP Protocol Reference](../api/LSP-PROTOCOL-REFERENCE.md)** | IDE extension developers | 15 min |
+
+#### API Reference
+
+| Document | Description |
+|----------|-------------|
+| **[API Reference Hub](../api/README.md)** | Index of all protocol-level documentation |
+
+---
+
+## Which Guide Should I Read?
 
 ### "I'm brand new to Synthesis"
 → **Start with [Quick Start Guide](./QUICK-START.md)**
@@ -79,6 +111,27 @@ Deep dive into all features, use cases, and advanced workflows.
 → **Start with [Documentation by Role](../perspectives/README.md)**
 
 Role-specific guides that address your concerns without requiring CLI knowledge.
+
+---
+
+### "I want to use Synthesis with Claude Code or Cursor"
+> **Start with [MCP Quick Start](./MCP-QUICKSTART.md)**
+
+Set up the MCP server in 5 minutes. Gives AI agents access to search, relate, graph, and stats tools.
+
+---
+
+### "I want to use Synthesis in my IDE"
+> **Start with [LSP Quick Start](./LSP-QUICKSTART.md)**
+
+Set up the LSP server in 5 minutes. Provides workspace symbols, document links, hover, diagnostics, and more.
+
+---
+
+### "I'm a platform engineer evaluating Synthesis for integration"
+> **Read the [MCP Protocol Reference](../api/MCP-PROTOCOL-REFERENCE.md) and [LSP Protocol Reference](../api/LSP-PROTOCOL-REFERENCE.md)**
+
+Full JSON-RPC protocol details, tool schemas, and capability advertisements.
 
 ---
 

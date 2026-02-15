@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.cli.*;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryService;
+import io.exoreaction.synthesis.util.Version;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -49,7 +50,7 @@ import java.util.concurrent.Callable;
 @Command(
         name = "synthesis",
         description = "AI operations partner for knowledge infrastructure",
-        version = "Synthesis 1.0.0-SNAPSHOT",
+        versionProvider = SynthesisApp.VersionProvider.class,
         mixinStandardHelpOptions = true,
         subcommands = {
                 InitCommand.class,
@@ -130,6 +131,17 @@ public class SynthesisApp implements Callable<Integer> {
         telemetry.shutdown();
 
         System.exit(exitCode);
+    }
+
+    /**
+     * Version provider for picocli that reads from Version utility
+     * instead of a hardcoded string.
+     */
+    static class VersionProvider implements CommandLine.IVersionProvider {
+        @Override
+        public String[] getVersion() {
+            return new String[] { Version.getFullVersion() };
+        }
     }
 
     /**

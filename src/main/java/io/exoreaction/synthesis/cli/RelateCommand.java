@@ -148,7 +148,7 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Finds the best matching file from search results.
      */
-    SearchResult findBestMatch(List<SearchResult> results, String target) {
+    public SearchResult findBestMatch(List<SearchResult> results, String target) {
         if (results.isEmpty()) return null;
 
         // Exact path match first
@@ -172,7 +172,7 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Analyzes outgoing references (what this file imports/references).
      */
-    void analyzeOutgoingRefs(SearchResult target, Path workspaceRoot,
+    public void analyzeOutgoingRefs(SearchResult target, Path workspaceRoot,
                              RelationshipMap map, Map<String, List<String>> fileNameIndex) {
         try {
             Path filePath = target.path();
@@ -229,7 +229,7 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Analyzes incoming references (what references this file).
      */
-    void analyzeIncomingRefs(SearchResult target, List<SearchResult> allFiles,
+    public void analyzeIncomingRefs(SearchResult target, List<SearchResult> allFiles,
                              Path workspaceRoot, RelationshipMap map) {
         String targetName = target.fileName();
         // Remove extension for import matching
@@ -307,7 +307,7 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Resolves a reference string to an actual file in the index.
      */
-    String resolveReference(String ref, String sourceRelPath,
+    public String resolveReference(String ref, String sourceRelPath,
                             Map<String, List<String>> fileNameIndex) {
         if (ref == null || ref.isBlank()) return null;
 
@@ -422,7 +422,7 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Generates a Mermaid diagram of relationships.
      */
-    String generateMermaid(RelationshipMap map) {
+    public String generateMermaid(RelationshipMap map) {
         StringBuilder sb = new StringBuilder();
         sb.append("```mermaid\ngraph LR\n");
 
@@ -455,25 +455,25 @@ public class RelateCommand implements Callable<Integer> {
     /**
      * Tracks bidirectional relationships for a target file.
      */
-    static class RelationshipMap {
+    public static class RelationshipMap {
         private final String targetFile;
         private final Map<String, String> outgoing = new LinkedHashMap<>();
         private final Map<String, String> incoming = new LinkedHashMap<>();
 
-        RelationshipMap(String targetFile) {
+        public RelationshipMap(String targetFile) {
             this.targetFile = targetFile;
         }
 
-        void addOutgoing(String file, String type) {
+        public void addOutgoing(String file, String type) {
             outgoing.put(file, type);
         }
 
-        void addIncoming(String file, String type) {
+        public void addIncoming(String file, String type) {
             incoming.put(file, type);
         }
 
-        String targetFile() { return targetFile; }
-        Map<String, String> outgoing() { return Collections.unmodifiableMap(outgoing); }
-        Map<String, String> incoming() { return Collections.unmodifiableMap(incoming); }
+        public String targetFile() { return targetFile; }
+        public Map<String, String> outgoing() { return Collections.unmodifiableMap(outgoing); }
+        public Map<String, String> incoming() { return Collections.unmodifiableMap(incoming); }
     }
 }

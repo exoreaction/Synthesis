@@ -31,6 +31,7 @@
         <snakeyaml.version>2.2</snakeyaml.version>
         <pdfbox.version>3.0.4</pdfbox.version>
         <junit.version>5.11.4</junit.version>
+        <lsp4j.version>0.23.1</lsp4j.version>
     </properties>
 
     <dependencies>
@@ -126,6 +127,13 @@
             <version>2.18.2</version>
         </dependency>
 
+        <!-- LSP4J - Language Server Protocol for Java -->
+        <dependency>
+            <groupId>org.eclipse.lsp4j</groupId>
+            <artifactId>org.eclipse.lsp4j</artifactId>
+            <version>${lsp4j.version}</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -137,11 +145,21 @@
 
     <build>
         <resources>
-            <!-- Standard resources (filtered normally) -->
+            <!-- Version properties file: filtered to inject Maven version -->
             <resource>
                 <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>version.properties</include>
+                </includes>
+            </resource>
+            <!-- Standard resources (not filtered, excludes binaries and version.properties) -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
                 <excludes>
                     <exclude>binaries/**</exclude>
+                    <exclude>version.properties</exclude>
                 </excludes>
             </resource>
             <!-- Binary resources (must NOT be filtered to preserve binary content) -->
@@ -181,7 +199,9 @@
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.6.0</version>
                 <executions>
+                    <!-- Main CLI JAR (synthesis.jar) -->
                     <execution>
+                        <id>shade-cli</id>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
@@ -190,6 +210,62 @@
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>io.exoreaction.synthesis.SynthesisApp</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
+                    </execution>
+                    <!-- MCP Server JAR (synthesis-mcp-server.jar) -->
+                    <execution>
+                        <id>shade-mcp</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>synthesis-mcp-server</finalName>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>io.exoreaction.synthesis.mcp.SynthesisMCPServer</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
+                    </execution>
+                    <!-- LSP Server JAR (synthesis-lsp-server.jar) -->
+                    <execution>
+                        <id>shade-lsp</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>synthesis-lsp-server</finalName>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>io.exoreaction.synthesis.lsp.SynthesisLanguageServer</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
                             </transformers>
