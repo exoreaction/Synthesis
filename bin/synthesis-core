@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# Synthesis Core Launcher (Air-Gapped Edition)
+# Launches Synthesis with AI features disabled and no cloud connectivity.
+#
+# This script is the air-gapped variant of the Synthesis launcher.
+# It sets SYNTHESIS_EDITION=core, which causes the Java runtime to:
+#   - Disable AI-dependent commands (ask, perspectives, analyze with AI)
+#   - Skip telemetry reporting
+#   - Skip update checks
+#   - Skip pilot approval checks
+#
+# All indexing, search, graph, insights, and export features work normally.
+#
+# Usage:
+#   synthesis-core init ~/my-project
+#   synthesis-core scan
+#   synthesis-core search "query"
+#   synthesis-core --version
+#
+# Environment:
+#   SYNTHESIS_HOME              Installation directory (default: ~/.synthesis)
+#   SYNTHESIS_JAVA_OPTS         Extra JVM options (e.g., "-Xmx2g")
+#
+# Note: SYNTHESIS_EDITION is set automatically by this script.
+#       SYNTHESIS_NO_UPDATE_CHECK is forced to 1 (air-gapped).
+#
+# Copyright (c) 2026 eXOReaction AS. All rights reserved.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Edition Configuration
+# ---------------------------------------------------------------------------
+export SYNTHESIS_EDITION="core"
+export SYNTHESIS_NO_UPDATE_CHECK="1"
+
+readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
+readonly JAR_PATH="$SYNTHESIS_HOME/lib/current.jar"
+readonly MIN_JAVA_VERSION=17
+
+# ---------------------------------------------------------------------------
+# Color Output
+# ---------------------------------------------------------------------------
+if [ -t 1 ] && [ -t 2 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    DIM='\033[2m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' DIM='' NC=''
+fi
+
+# ---------------------------------------------------------------------------
+# Pre-flight Checks
+# ---------------------------------------------------------------------------
+
+# Check JAR exists
+if [ ! -f "$JAR_PATH" ]; then
+    printf "${RED}Error:${NC} Synthesis JAR not found at %s\n" "$JAR_PATH" >&2
+    printf "  Run the installer:\n" >&2
+    printf "    curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash\n" >&2
+    printf "  Or install from source:\n" >&2
+    printf "    ./bin/install.sh --source /path/to/synthesis\n" >&2
+    exit 1
+fi
+
+# Check Java exists
+if ! command -v java >/dev/null 2>&1; then
+    printf "${RED}Error:${NC} Java not found. Java %d+ is required.\n" "$MIN_JAVA_VERSION" >&2
+    printf "  Install:\n" >&2
+    printf "    Ubuntu/Debian: sudo apt install openjdk-17-jdk\n" >&2
+    printf "    macOS:         brew install openjdk@17\n" >&2
+    printf "    Fedora:        sudo dnf install java-17-openjdk\n" >&2
+    exit 1
+fi
+
+# Check Java version
+JAVA_VER=$(java -version 2>&1 | head -1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')
+JAVA_VER="${JAVA_VER:-0}"
+if [ "$JAVA_VER" -lt "$MIN_JAVA_VERSION" ]; then
+    printf "${RED}Error:${NC} Java %s found, but Java %d+ is required.\n" "$JAVA_VER" "$MIN_JAVA_VERSION" >&2
+    printf "  Upgrade your Java installation.\n" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Launch Synthesis (Air-Gapped Mode)
+# ---------------------------------------------------------------------------
+
+# No update check in air-gapped mode (intentionally omitted)
+
+# Resolve the actual JAR path (follow symlink)
+REAL_JAR=$(readlink -f "$JAR_PATH" 2>/dev/null || readlink "$JAR_PATH" 2>/dev/null || echo "$JAR_PATH")
+
+# Build Java command with optional extra opts
+JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-}"
+
+# Show edition indicator (subtle, one line)
+printf "${DIM}[core]${NC} " >&2
+
+exec java $JAVA_OPTS -jar "$REAL_JAR" "$@"

@@ -11,6 +11,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -98,6 +99,54 @@ public class SynthesisApp implements Callable<Integer> {
         return workspaceRoot.toAbsolutePath().normalize();
     }
 
+    // ---- Edition Detection ----
+
+    /** Commands that require AI/cloud connectivity and are disabled in air-gapped mode. */
+    private static final Set<String> AI_COMMAND_NAMES = Set.of(
+            "ask", "perspectives"
+    );
+
+    /**
+     * Returns the current Synthesis edition.
+     *
+     * <p>Editions are determined by the {@code SYNTHESIS_EDITION} environment variable,
+     * typically set by the launcher script ({@code bin/synthesis} or {@code bin/synthesis-core}).
+     *
+     * <p>Valid editions:
+     * <ul>
+     *   <li>{@code core} -- Air-gapped, no AI, no telemetry, no cloud</li>
+     *   <li>{@code pro} -- Full features including AI (default)</li>
+     *   <li>{@code enterprise} -- Air-gapped with daemon support</li>
+     *   <li>{@code ultimate} -- Full features with daemon support</li>
+     * </ul>
+     *
+     * @return the edition string, defaults to "pro" if not set
+     */
+    public static String getEdition() {
+        String edition = System.getenv("SYNTHESIS_EDITION");
+        return (edition != null && !edition.isBlank()) ? edition.toLowerCase() : "pro";
+    }
+
+    /**
+     * Returns {@code true} if running in air-gapped mode (no cloud connectivity).
+     *
+     * <p>In air-gapped mode:
+     * <ul>
+     *   <li>AI-dependent commands (ask, perspectives) are not registered</li>
+     *   <li>Telemetry is disabled</li>
+     *   <li>Update checks are skipped</li>
+     *   <li>Pilot approval checks are skipped</li>
+     * </ul>
+     *
+     * <p>Air-gapped editions: {@code core}, {@code enterprise}.
+     *
+     * @return true if the current edition is air-gapped
+     */
+    public static boolean isAirGapped() {
+        String edition = getEdition();
+        return "core".equals(edition) || "enterprise".equals(edition);
+    }
+
     @Override
     public Integer call() {
         // No subcommand specified -- print usage
@@ -106,20 +155,28 @@ public class SynthesisApp implements Callable<Integer> {
     }
 
     public static void main(String[] args) {
-        // Initialize telemetry (async, non-blocking, mandatory)
-        TelemetryService telemetry = TelemetryService.create();
+        boolean airGapped = isAirGapped();
 
-        // Check pilot approval status and show nag if not approved
-        checkPilotApproval(telemetry.getClientUuid());
+        // Initialize telemetry (async, non-blocking)
+        // In air-gapped mode, TelemetryService.create() returns a no-op instance
+        TelemetryService telemetry = airGapped
+                ? TelemetryService.createNoOp()
+                : TelemetryService.create();
 
-        // Background update check (non-blocking, daily)
-        Path synthesisHome = Path.of(System.getProperty("user.home"), ".synthesis");
-        UpdateChecker.checkInBackground(synthesisHome);
+        // Skip pilot approval and update checks in air-gapped mode
+        if (!airGapped) {
+            // Check pilot approval status and show nag if not approved
+            checkPilotApproval(telemetry.getClientUuid());
 
-        // Show any pending update notification from previous check
-        String firstArg = args.length > 0 ? args[0] : "";
-        if (!"update".equals(firstArg) && !"--version".equals(firstArg) && !"-V".equals(firstArg)) {
-            UpdateChecker.showPendingNotification(synthesisHome);
+            // Background update check (non-blocking, daily)
+            Path synthesisHome = Path.of(System.getProperty("user.home"), ".synthesis");
+            UpdateChecker.checkInBackground(synthesisHome);
+
+            // Show any pending update notification from previous check
+            String firstArg = args.length > 0 ? args[0] : "";
+            if (!"update".equals(firstArg) && !"--version".equals(firstArg) && !"-V".equals(firstArg)) {
+                UpdateChecker.showPendingNotification(synthesisHome);
+            }
         }
 
         // Determine the command name for telemetry tracking
@@ -128,17 +185,25 @@ public class SynthesisApp implements Callable<Integer> {
 
         int exitCode;
         try {
-            exitCode = new CommandLine(new SynthesisApp())
-                    .setExecutionExceptionHandler((ex, cmd, parseResult) -> {
+            CommandLine cmd = new CommandLine(new SynthesisApp())
+                    .setExecutionExceptionHandler((ex, cmdLine, parseResult) -> {
                         System.err.println("Error: " + ex.getMessage());
                         return 1;
-                    })
-                    .execute(args);
+                    });
+
+            // In air-gapped mode, remove AI-dependent commands
+            if (airGapped) {
+                for (String aiCommand : AI_COMMAND_NAMES) {
+                    cmd.getSubcommands().remove(aiCommand);
+                }
+            }
+
+            exitCode = cmd.execute(args);
         } catch (Exception e) {
             exitCode = 1;
         }
 
-        // Report command execution (async, non-blocking, mandatory)
+        // Report command execution (async, non-blocking)
         long durationMs = System.currentTimeMillis() - startTime;
         telemetry.reportCommand(commandName, exitCode == 0, durationMs);
 
