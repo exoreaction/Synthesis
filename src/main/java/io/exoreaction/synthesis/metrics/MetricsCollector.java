@@ -104,17 +104,19 @@ public class MetricsCollector {
                                      Integer resultCount, boolean success, String errorMessage) {
         if (!enabled) return;
 
-        MetricsEvent event = MetricsEvent.builder()
+        MetricsEvent.Builder builder = MetricsEvent.builder()
                 .eventType("mcp_tool_invocation")
                 .mcpTool(tool)
                 .mcpWorkspace(workspace)
                 .executionTimeMs(executionTimeMs)
-                .resultCount(resultCount)
                 .success(success)
-                .errorMessage(errorMessage)
-                .build();
+                .errorMessage(errorMessage);
 
-        recordEvent(event);
+        if (resultCount != null) {
+            builder.resultCount(resultCount);
+        }
+
+        recordEvent(builder.build());
     }
 
     /**

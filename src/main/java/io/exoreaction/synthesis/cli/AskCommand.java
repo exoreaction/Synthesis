@@ -19,9 +19,7 @@ import picocli.CommandLine.ParentCommand;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.Callable;
 
 /**
@@ -49,7 +47,8 @@ public class AskCommand implements Callable<Integer> {
 
     @Parameters(
             index = "0",
-            description = "Your question about the workspace"
+            description = "Your question about the workspace",
+            arity = "0..1"
     )
     private String question;
 
@@ -74,8 +73,30 @@ public class AskCommand implements Callable<Integer> {
     )
     private int maxTokens;
 
+    @Option(
+            names = {"-i", "--interactive"},
+            description = "Start interactive conversation mode",
+            defaultValue = "false"
+    )
+    private boolean interactive;
+
     @Override
     public Integer call() {
+        if (interactive) {
+            return runInteractive();
+        }
+
+        if (question == null || question.isBlank()) {
+            AnsiOutput.printError("Question is required (or use --interactive for conversation mode)");
+            System.out.println("  Usage: synthesis ask \"your question\"");
+            System.out.println("  Or:    synthesis ask --interactive");
+            return 1;
+        }
+
+        return runSingleQuestion();
+    }
+
+    private Integer runSingleQuestion() {
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
 
@@ -210,4 +231,185 @@ public class AskCommand implements Callable<Integer> {
 
         return context.toString();
     }
+
+    private Integer runInteractive() {
+        try {
+            Path workspaceRoot = parent.getWorkspaceRoot();
+
+            // Validate workspace
+            WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+            var validation = workspace.validate();
+            if (validation.isPresent()) {
+                AnsiOutput.printError(validation.get());
+                return 1;
+            }
+
+            // Load config and create AI client
+            SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            if (clientOpt.isEmpty()) {
+                AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide ANTHROPIC_API_KEY.");
+                AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable ANTHROPIC_API_KEY.");
+                return 1;
+            }
+
+            ClaudeClient client = clientOpt.get();
+
+            // Print welcome banner
+            System.out.println();
+            System.out.println(AnsiOutput.bold("╔════════════════════════════════════════════════════════════════╗"));
+            System.out.println(AnsiOutput.bold("║ Synthesis Interactive Q&A                                      ║"));
+            System.out.println(AnsiOutput.bold("║ Workspace: " + String.format("%-49s", config.getWorkspace().getName()) + "║"));
+            System.out.println(AnsiOutput.bold("╚════════════════════════════════════════════════════════════════╝"));
+            System.out.println();
+            System.out.println("  Type your question or " + AnsiOutput.cyan("/help") + " for commands.");
+            System.out.println("  Press " + AnsiOutput.cyan("Ctrl+D") + " or type " + AnsiOutput.cyan("/exit") + " to quit.");
+            System.out.println();
+
+            // Conversation history (keep last 10 Q&A pairs)
+            List<ConversationTurn> history = new ArrayList<>();
+            Scanner scanner = new Scanner(System.in);
+
+            while (true) {
+                System.out.print(AnsiOutput.bold("You: "));
+                System.out.flush();
+
+                if (!scanner.hasNextLine()) {
+                    // Ctrl+D pressed
+                    System.out.println();
+                    break;
+                }
+
+                String input = scanner.nextLine().trim();
+
+                if (input.isEmpty()) {
+                    continue;
+                }
+
+                // Handle commands
+                if (input.startsWith("/")) {
+                    if (input.equals("/exit") || input.equals("/quit")) {
+                        break;
+                    } else if (input.equals("/help")) {
+                        showInteractiveHelp();
+                        continue;
+                    } else if (input.equals("/clear")) {
+                        history.clear();
+                        System.out.println(AnsiOutput.dim("  Conversation history cleared."));
+                        System.out.println();
+                        continue;
+                    } else if (input.equals("/history")) {
+                        showHistory(history);
+                        continue;
+                    } else {
+                        System.out.println(AnsiOutput.warning("  Unknown command: " + input));
+                        System.out.println("  Type /help for available commands.");
+                        System.out.println();
+                        continue;
+                    }
+                }
+
+                // Process question
+                try {
+                    System.out.println(AnsiOutput.dim("  🤔 Thinking..."));
+                    System.out.println();
+
+                    // Search for relevant files
+                    List<SearchResult> results;
+                    try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                        results = index.search(input, contextFiles);
+                    }
+
+                    if (results.isEmpty()) {
+                        System.out.println(AnsiOutput.warning("  No relevant files found for this question."));
+                        System.out.println();
+                        continue;
+                    }
+
+                    // Build context from files and conversation history
+                    String fileContext = buildContext(results, workspaceRoot);
+                    String conversationContext = buildConversationContext(history);
+
+                    // Generate prompt with conversation history
+                    String prompt;
+                    if (history.isEmpty()) {
+                        prompt = PromptTemplates.buildAskPrompt(input, fileContext);
+                    } else {
+                        prompt = PromptTemplates.buildAskPrompt(input, fileContext + "\n\nPrevious conversation:\n" + conversationContext);
+                    }
+
+                    // Ask Claude
+                    String answer = client.generate(prompt, maxTokens);
+
+                    // Store in history (keep last 10)
+                    history.add(new ConversationTurn(input, answer));
+                    if (history.size() > 10) {
+                        history.remove(0);
+                    }
+
+                    // Display answer
+                    System.out.println(AnsiOutput.cyan("Assistant:"));
+                    for (String line : answer.split("\n")) {
+                        System.out.println("  " + line);
+                    }
+                    System.out.println();
+
+                } catch (Exception e) {
+                    System.out.println(AnsiOutput.error("  Error: " + e.getMessage()));
+                    System.out.println();
+                }
+            }
+
+            System.out.println(AnsiOutput.dim("  Goodbye!"));
+            return 0;
+
+        } catch (Exception e) {
+            AnsiOutput.printError("Interactive session failed: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    private void showInteractiveHelp() {
+        System.out.println();
+        System.out.println(AnsiOutput.bold("  Available Commands:"));
+        System.out.println("    " + AnsiOutput.cyan("/help") + "     - Show this help message");
+        System.out.println("    " + AnsiOutput.cyan("/exit") + "     - Exit interactive mode");
+        System.out.println("    " + AnsiOutput.cyan("/quit") + "     - Exit interactive mode");
+        System.out.println("    " + AnsiOutput.cyan("/clear") + "    - Clear conversation history");
+        System.out.println("    " + AnsiOutput.cyan("/history") + "  - Show conversation history");
+        System.out.println();
+    }
+
+    private void showHistory(List<ConversationTurn> history) {
+        System.out.println();
+        if (history.isEmpty()) {
+            System.out.println(AnsiOutput.dim("  (No conversation history)"));
+        } else {
+            System.out.println(AnsiOutput.bold("  Conversation History:"));
+            System.out.println();
+            for (int i = 0; i < history.size(); i++) {
+                ConversationTurn turn = history.get(i);
+                System.out.println("  " + AnsiOutput.bold("[" + (i + 1) + "]") + " You: " + turn.question());
+                System.out.println("      " + AnsiOutput.cyan("→") + " " +
+                    (turn.answer().length() > 80 ? turn.answer().substring(0, 77) + "..." : turn.answer()));
+                System.out.println();
+            }
+        }
+        System.out.println();
+    }
+
+    private String buildConversationContext(List<ConversationTurn> history) {
+        if (history.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder context = new StringBuilder();
+        for (ConversationTurn turn : history) {
+            context.append("Q: ").append(turn.question()).append("\n");
+            context.append("A: ").append(turn.answer()).append("\n\n");
+        }
+        return context.toString();
+    }
+
+    private record ConversationTurn(String question, String answer) {}
 }

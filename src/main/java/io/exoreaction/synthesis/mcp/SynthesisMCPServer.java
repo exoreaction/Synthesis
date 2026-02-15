@@ -10,6 +10,9 @@ import io.exoreaction.synthesis.util.Version;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.*;
 
@@ -60,23 +63,50 @@ public class SynthesisMCPServer {
     private final BufferedReader stdin;
     private final OutputStream stdout;
     private final Logger log;
+    private final String serverDisplayName;
 
     private volatile boolean running = true;
 
+    /**
+     * Creates an MCP server for a single workspace.
+     */
     public SynthesisMCPServer(Path workspace) {
+        this(workspace, List.of(), null);
+    }
+
+    /**
+     * Creates an MCP server for multiple workspaces.
+     *
+     * @param defaultWorkspace  the primary workspace (first in list, or fallback)
+     * @param additionalWorkspaces additional workspaces to search across
+     * @param displayName optional display name for the server
+     */
+    public SynthesisMCPServer(Path defaultWorkspace, List<Path> additionalWorkspaces, String displayName) {
         this.mapper = new ObjectMapper();
-        this.toolHandler = new SynthesisToolHandler(mapper, workspace);
+        List<Path> allWorkspaces = new ArrayList<>();
+        allWorkspaces.add(defaultWorkspace);
+        allWorkspaces.addAll(additionalWorkspaces);
+        this.toolHandler = new SynthesisToolHandler(mapper, defaultWorkspace, allWorkspaces);
         this.stdin = new BufferedReader(new InputStreamReader(System.in));
         this.stdout = System.out;
         this.log = setupLogging();
+        this.serverDisplayName = displayName != null ? displayName : SERVER_NAME;
     }
 
     /**
      * Main entry point. Parses command-line arguments and starts the server.
+     *
+     * <p>Supports two modes:
+     * <ul>
+     *   <li>Single workspace: {@code --workspace /path/to/workspace}</li>
+     *   <li>Multi-workspace: {@code --workspaces /path1,/path2,/path3 --name source}</li>
+     * </ul>
      */
     public static void main(String[] args) {
         Path workspace = Path.of(".").toAbsolutePath().normalize();
+        List<Path> workspacesList = null;
         String logLevel = "WARNING";
+        String displayName = null;
 
         // Parse simple command-line flags
         for (int i = 0; i < args.length; i++) {
@@ -84,6 +114,21 @@ public class SynthesisMCPServer {
                 case "--workspace", "-w" -> {
                     if (i + 1 < args.length) {
                         workspace = Path.of(args[++i]).toAbsolutePath().normalize();
+                    }
+                }
+                case "--workspaces" -> {
+                    if (i + 1 < args.length) {
+                        String paths = args[++i];
+                        workspacesList = Arrays.stream(paths.split(","))
+                                .map(String::trim)
+                                .filter(s -> !s.isEmpty())
+                                .map(s -> Path.of(s).toAbsolutePath().normalize())
+                                .toList();
+                    }
+                }
+                case "--name" -> {
+                    if (i + 1 < args.length) {
+                        displayName = args[++i];
                     }
                 }
                 case "--log-level" -> {
@@ -105,9 +150,24 @@ public class SynthesisMCPServer {
         // Configure root logger level
         Logger.getLogger("io.exoreaction.synthesis.mcp").setLevel(Level.parse(logLevel));
 
-        SynthesisMCPServer server = new SynthesisMCPServer(workspace);
-        server.log.info("Starting Synthesis MCP Server v" + Version.getVersion());
-        server.log.info("Workspace: " + workspace);
+        SynthesisMCPServer server;
+        if (workspacesList != null && !workspacesList.isEmpty()) {
+            // Multi-workspace mode
+            Path primary = workspacesList.get(0);
+            List<Path> additional = workspacesList.size() > 1
+                    ? workspacesList.subList(1, workspacesList.size())
+                    : List.of();
+            server = new SynthesisMCPServer(primary, additional, displayName);
+            server.log.info("Starting Synthesis MCP Server v" + Version.getVersion() + " (multi-workspace)");
+            for (Path ws : workspacesList) {
+                server.log.info("  Workspace: " + ws);
+            }
+        } else {
+            // Single workspace mode (backward compatible)
+            server = new SynthesisMCPServer(workspace);
+            server.log.info("Starting Synthesis MCP Server v" + Version.getVersion());
+            server.log.info("Workspace: " + workspace);
+        }
         server.log.info("Protocol: MCP " + PROTOCOL_VERSION);
 
         // Graceful shutdown
@@ -213,7 +273,7 @@ public class SynthesisMCPServer {
 
         // Server info
         ObjectNode serverInfo = mapper.createObjectNode();
-        serverInfo.put("name", SERVER_NAME);
+        serverInfo.put("name", serverDisplayName != null ? serverDisplayName : SERVER_NAME);
         serverInfo.put("version", Version.getVersion());
         result.set("serverInfo", serverInfo);
 
@@ -689,20 +749,32 @@ public class SynthesisMCPServer {
         System.err.println("Usage: synthesis-mcp-server [OPTIONS]");
         System.err.println();
         System.err.println("Options:");
-        System.err.println("  --workspace, -w <path>  Workspace root directory (default: current dir)");
-        System.err.println("  --log-level <level>     Logging level: FINE, INFO, WARNING, SEVERE");
-        System.err.println("  --version, -v           Print version and exit");
-        System.err.println("  --help, -h              Print this help and exit");
+        System.err.println("  --workspace, -w <path>     Single workspace root directory (default: current dir)");
+        System.err.println("  --workspaces <p1,p2,...>    Multiple workspace paths (comma-separated)");
+        System.err.println("  --name <name>              Display name for this MCP server");
+        System.err.println("  --log-level <level>        Logging level: FINE, INFO, WARNING, SEVERE");
+        System.err.println("  --version, -v              Print version and exit");
+        System.err.println("  --help, -h                 Print this help and exit");
         System.err.println();
         System.err.println("MCP Protocol: JSON-RPC 2.0 over stdio");
-        System.err.println("Tools: search, relate, graph, stats");
+        System.err.println("Tools: search, relate, graph, stats, ask, enrich, explain");
         System.err.println();
-        System.err.println("Claude Code configuration (~/.claude/config.json):");
+        System.err.println("Single workspace (~/.claude/config.json):");
         System.err.println("  {");
         System.err.println("    \"mcpServers\": {");
         System.err.println("      \"synthesis\": {");
         System.err.println("        \"command\": \"synthesis-mcp-server\",");
         System.err.println("        \"args\": [\"--workspace\", \"/path/to/project\"]");
+        System.err.println("      }");
+        System.err.println("    }");
+        System.err.println("  }");
+        System.err.println();
+        System.err.println("Multi-workspace (unified source server):");
+        System.err.println("  {");
+        System.err.println("    \"mcpServers\": {");
+        System.err.println("      \"synthesis-source\": {");
+        System.err.println("        \"command\": \"synthesis-mcp-server\",");
+        System.err.println("        \"args\": [\"--workspaces\", \"/src/a,/src/b,/src/c\", \"--name\", \"source\"]");
         System.err.println("      }");
         System.err.println("    }");
         System.err.println("  }");

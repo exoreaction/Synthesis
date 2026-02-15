@@ -21,6 +21,7 @@ import io.exoreaction.synthesis.graph.GraphRenderer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsCollector;
+import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,11 +45,30 @@ public class SynthesisToolHandler {
     private static final Logger LOG = Logger.getLogger(SynthesisToolHandler.class.getName());
     private final ObjectMapper mapper;
     private final Path defaultWorkspace;
+    private final List<Path> allWorkspaces;
+    private final boolean multiWorkspaceMode;
     private final MetricsCollector metrics;
 
+    /**
+     * Single workspace constructor (backward compatible).
+     */
     public SynthesisToolHandler(ObjectMapper mapper, Path defaultWorkspace) {
+        this(mapper, defaultWorkspace, List.of(defaultWorkspace));
+    }
+
+    /**
+     * Multi-workspace constructor.
+     *
+     * @param mapper           Jackson ObjectMapper
+     * @param defaultWorkspace primary workspace (fallback)
+     * @param allWorkspaces    all workspaces to search across
+     */
+    public SynthesisToolHandler(ObjectMapper mapper, Path defaultWorkspace, List<Path> allWorkspaces) {
         this.mapper = mapper;
         this.defaultWorkspace = defaultWorkspace;
+        this.allWorkspaces = allWorkspaces != null && !allWorkspaces.isEmpty()
+                ? allWorkspaces : List.of(defaultWorkspace);
+        this.multiWorkspaceMode = this.allWorkspaces.size() > 1;
         this.metrics = MetricsCollector.create();
     }
 
@@ -85,13 +105,14 @@ public class SynthesisToolHandler {
 
     /**
      * Searches the Synthesis index across all file types.
+     * In multi-workspace mode, searches across all configured workspaces
+     * and returns results grouped by workspace.
      *
      * @param params JSON object with: query (required), fileType, limit, workspace
      * @return JSON object with: results[], totalHits, searchTime
      */
     public ObjectNode handleSearch(JsonNode params) throws McpToolException {
         long startTime = System.nanoTime();
-        Path workspacePath = resolveWorkspace(params);
 
         if (params == null || !params.has("query")) {
             throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: query");
@@ -112,6 +133,13 @@ public class SynthesisToolHandler {
         if (limit < 1) limit = 1;
         if (limit > 200) limit = 200;
 
+        // Multi-workspace search
+        if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
+            return handleMultiWorkspaceSearch(query, fileType, limit, startTime);
+        }
+
+        // Single workspace search (original behavior)
+        Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
         try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
@@ -122,54 +150,10 @@ public class SynthesisToolHandler {
             metrics.recordMcpInvocation("search", workspacePath.toString(), elapsedMs,
                                       results.size(), true, null);
 
-            ObjectNode response = mapper.createObjectNode();
-            ArrayNode resultsArray = mapper.createArrayNode();
-
-            for (SearchResult result : results) {
-                ObjectNode item = mapper.createObjectNode();
-                item.put("path", result.path().toString());
-                item.put("relativePath", result.relativePath());
-                item.put("type", result.fileType() != null ? result.fileType() : "UNKNOWN");
-                item.put("score", Math.round(result.score() * 100.0) / 100.0);
-                item.put("fileName", result.fileName());
-
-                if (!result.summary().isEmpty()) {
-                    String snippet = result.summary();
-                    if (snippet.length() > 300) {
-                        snippet = snippet.substring(0, 300) + "...";
-                    }
-                    item.put("snippet", snippet);
-                }
-
-                ObjectNode metadata = mapper.createObjectNode();
-                metadata.put("size", result.sizeBytes());
-                if (result.language() != null) {
-                    metadata.put("language", result.language());
-                }
-                if (!result.headings().isEmpty()) {
-                    metadata.put("headings", result.headings());
-                }
-                if (!result.structure().isEmpty()) {
-                    metadata.put("structure", result.structure());
-                }
-                if (result.repository() != null) {
-                    metadata.put("repository", result.repository());
-                }
-                item.set("metadata", metadata);
-
-                resultsArray.add(item);
-            }
-
-            response.set("results", resultsArray);
-            response.put("totalHits", results.size());
-            response.put("searchTime", String.format("%.1fs", elapsedMs / 1000.0));
-            response.put("workspace", workspacePath.toString());
-
-            return response;
+            return buildSearchResponse(results, elapsedMs, workspacePath.toString());
         } catch (Exception e) {
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
-            // Record failure metrics
             if (!(e instanceof McpToolException)) {
                 metrics.recordMcpInvocation("search", workspacePath.toString(), elapsedMs,
                                           null, false, e.getMessage());
@@ -179,6 +163,134 @@ public class SynthesisToolHandler {
             LOG.warning("Search failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Search failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Performs search across all configured workspaces.
+     */
+    private ObjectNode handleMultiWorkspaceSearch(String query, String fileType,
+                                                    int limit, long startTime) throws McpToolException {
+        try {
+            MultiWorkspaceSearch multiSearch = new MultiWorkspaceSearch(allWorkspaces);
+            MultiWorkspaceSearch.MultiSearchResult multiResult = multiSearch.search(query, fileType, limit);
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            ObjectNode response = mapper.createObjectNode();
+            ArrayNode resultsArray = mapper.createArrayNode();
+
+            // Flatten results from all workspaces, adding workspace info to each result
+            for (MultiWorkspaceSearch.GroupedResults group : multiResult.groups()) {
+                if (group.hasError() || !group.hasResults()) continue;
+
+                for (SearchResult result : group.results()) {
+                    ObjectNode item = buildSearchResultNode(result);
+                    // Add workspace info to each result
+                    item.put("workspace", group.workspace().path().toString());
+                    item.put("workspaceName", group.workspace().name());
+                    resultsArray.add(item);
+                }
+            }
+
+            response.set("results", resultsArray);
+            response.put("totalHits", multiResult.totalResults());
+            response.put("searchTime", String.format("%.1fs", elapsedMs / 1000.0));
+            response.put("workspaceCount", multiResult.groups().size());
+            response.put("multiWorkspace", true);
+
+            // Also add grouped view
+            ArrayNode groupsArray = mapper.createArrayNode();
+            for (MultiWorkspaceSearch.GroupedResults group : multiResult.groups()) {
+                ObjectNode groupNode = mapper.createObjectNode();
+                groupNode.put("workspace", group.workspace().path().toString());
+                groupNode.put("name", group.workspace().name());
+                groupNode.put("resultCount", group.hasResults() ? group.results().size() : 0);
+                groupNode.put("searchTimeMs", group.searchTimeMs());
+                if (group.hasError()) {
+                    groupNode.put("error", group.error());
+                }
+                groupsArray.add(groupNode);
+            }
+            response.set("workspaces", groupsArray);
+
+            // Record metrics
+            metrics.recordMcpInvocation("search", "multi:" + allWorkspaces.size(),
+                    elapsedMs, multiResult.totalResults(), true, null);
+
+            return response;
+        } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("search", "multi:" + allWorkspaces.size(),
+                    elapsedMs, null, false, e.getMessage());
+            LOG.warning("Multi-workspace search failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Multi-workspace search failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Builds a search result node from a SearchResult.
+     */
+    private ObjectNode buildSearchResultNode(SearchResult result) {
+        ObjectNode item = mapper.createObjectNode();
+        item.put("path", result.path().toString());
+        item.put("relativePath", result.relativePath());
+        item.put("type", result.fileType() != null ? result.fileType() : "UNKNOWN");
+        item.put("score", Math.round(result.score() * 100.0) / 100.0);
+        item.put("fileName", result.fileName());
+
+        if (!result.summary().isEmpty()) {
+            String snippet = result.summary();
+            if (snippet.length() > 300) {
+                snippet = snippet.substring(0, 300) + "...";
+            }
+            item.put("snippet", snippet);
+        }
+
+        ObjectNode metadata = mapper.createObjectNode();
+        metadata.put("size", result.sizeBytes());
+        if (result.language() != null) {
+            metadata.put("language", result.language());
+        }
+        if (!result.headings().isEmpty()) {
+            metadata.put("headings", result.headings());
+        }
+        if (!result.structure().isEmpty()) {
+            metadata.put("structure", result.structure());
+        }
+        if (result.repository() != null) {
+            metadata.put("repository", result.repository());
+        }
+        item.set("metadata", metadata);
+
+        return item;
+    }
+
+    /**
+     * Builds the standard search response from a list of results.
+     */
+    private ObjectNode buildSearchResponse(List<SearchResult> results, long elapsedMs, String workspace) {
+        ObjectNode response = mapper.createObjectNode();
+        ArrayNode resultsArray = mapper.createArrayNode();
+
+        for (SearchResult result : results) {
+            resultsArray.add(buildSearchResultNode(result));
+        }
+
+        response.set("results", resultsArray);
+        response.put("totalHits", results.size());
+        response.put("searchTime", String.format("%.1fs", elapsedMs / 1000.0));
+        response.put("workspace", workspace);
+
+        return response;
+    }
+
+    /**
+     * Checks if the params include an explicit workspace override.
+     */
+    private boolean hasExplicitWorkspace(JsonNode params) {
+        return params != null && params.has("workspace")
+                && !params.get("workspace").isNull()
+                && !params.get("workspace").asText().isBlank();
     }
 
     // -----------------------------------------------------------------------
@@ -416,66 +528,25 @@ public class SynthesisToolHandler {
 
     /**
      * Returns workspace statistics.
+     * In multi-workspace mode, returns aggregated stats across all workspaces.
      *
      * @param params JSON object with: workspace
      * @return JSON object with file counts, index size, health info
      */
     public ObjectNode handleStats(JsonNode params) throws McpToolException {
         long startTime = System.nanoTime();
+
+        // Multi-workspace stats
+        if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
+            return handleMultiWorkspaceStats(startTime);
+        }
+
+        // Single workspace stats (original behavior)
         Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
         try {
-            ObjectNode response = mapper.createObjectNode();
-            response.put("workspace", workspacePath.toString());
-
-            // Get document count and type breakdown
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
-                int totalDocs = index.documentCount();
-                response.put("totalFiles", totalDocs);
-
-                // Type breakdown
-                ObjectNode typeBreakdown = mapper.createObjectNode();
-                for (String type : List.of("CODE", "MARKDOWN", "YAML", "JSON", "CONFIG",
-                        "PDF", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT")) {
-                    List<SearchResult> typed = index.listAll(type, 50000);
-                    if (!typed.isEmpty()) {
-                        typeBreakdown.put(type, typed.size());
-                    }
-                }
-                response.set("fileTypes", typeBreakdown);
-            }
-
-            // Index size
-            Path indexPath = workspace.getIndexPath();
-            if (Files.exists(indexPath)) {
-                long indexSize = Files.walk(indexPath)
-                        .filter(Files::isRegularFile)
-                        .mapToLong(p -> {
-                            try { return Files.size(p); }
-                            catch (Exception e) { return 0; }
-                        })
-                        .sum();
-                response.put("indexSizeBytes", indexSize);
-                response.put("indexSize", formatSize(indexSize));
-            }
-
-            // Scan state
-            Path scanStatePath = workspace.getScanStatePath();
-            if (Files.exists(scanStatePath)) {
-                response.put("lastScan", Files.getLastModifiedTime(scanStatePath).toInstant().toString());
-            } else {
-                response.put("lastScan", "never");
-            }
-
-            // Health status
-            String health = "healthy";
-            Path configPath = workspacePath.resolve(".synthesis").resolve("config.yaml");
-            if (!Files.exists(configPath)) {
-                health = "missing-config";
-            }
-            response.put("health", health);
-            response.put("timestamp", Instant.now().toString());
+            ObjectNode response = buildSingleWorkspaceStats(workspacePath, workspace);
 
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
             metrics.recordMcpInvocation("stats", workspacePath.toString(), elapsedMs,
@@ -493,6 +564,108 @@ public class SynthesisToolHandler {
             LOG.warning("Stats failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                     "Stats failed: " + e.getMessage());
+        }
+    }
+
+    private ObjectNode buildSingleWorkspaceStats(Path workspacePath, WorkspaceManager workspace) throws Exception {
+        ObjectNode response = mapper.createObjectNode();
+        response.put("workspace", workspacePath.toString());
+
+        // Get document count and type breakdown
+        try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            int totalDocs = index.documentCount();
+            response.put("totalFiles", totalDocs);
+
+            // Type breakdown
+            ObjectNode typeBreakdown = mapper.createObjectNode();
+            for (String type : List.of("CODE", "MARKDOWN", "YAML", "JSON", "CONFIG",
+                    "PDF", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT")) {
+                List<SearchResult> typed = index.listAll(type, 50000);
+                if (!typed.isEmpty()) {
+                    typeBreakdown.put(type, typed.size());
+                }
+            }
+            response.set("fileTypes", typeBreakdown);
+        }
+
+        // Index size
+        Path indexPath = workspace.getIndexPath();
+        if (Files.exists(indexPath)) {
+            long indexSize = Files.walk(indexPath)
+                    .filter(Files::isRegularFile)
+                    .mapToLong(p -> {
+                        try { return Files.size(p); }
+                        catch (Exception e) { return 0; }
+                    })
+                    .sum();
+            response.put("indexSizeBytes", indexSize);
+            response.put("indexSize", formatSize(indexSize));
+        }
+
+        // Scan state
+        Path scanStatePath = workspace.getScanStatePath();
+        if (Files.exists(scanStatePath)) {
+            response.put("lastScan", Files.getLastModifiedTime(scanStatePath).toInstant().toString());
+        } else {
+            response.put("lastScan", "never");
+        }
+
+        // Health status
+        String health = "healthy";
+        Path configPath = workspacePath.resolve(".synthesis").resolve("config.yaml");
+        if (!Files.exists(configPath)) {
+            health = "missing-config";
+        }
+        response.put("health", health);
+        response.put("timestamp", Instant.now().toString());
+
+        return response;
+    }
+
+    private ObjectNode handleMultiWorkspaceStats(long startTime) throws McpToolException {
+        try {
+            ObjectNode response = mapper.createObjectNode();
+            response.put("multiWorkspace", true);
+            response.put("workspaceCount", allWorkspaces.size());
+
+            int totalFiles = 0;
+            long totalIndexSize = 0;
+            ArrayNode workspacesArray = mapper.createArrayNode();
+
+            for (Path wsPath : allWorkspaces) {
+                try {
+                    WorkspaceManager ws = validateWorkspace(wsPath);
+                    ObjectNode wsStats = buildSingleWorkspaceStats(wsPath, ws);
+                    workspacesArray.add(wsStats);
+
+                    totalFiles += wsStats.has("totalFiles") ? wsStats.get("totalFiles").asInt() : 0;
+                    totalIndexSize += wsStats.has("indexSizeBytes") ? wsStats.get("indexSizeBytes").asLong() : 0;
+                } catch (Exception e) {
+                    ObjectNode errorNode = mapper.createObjectNode();
+                    errorNode.put("workspace", wsPath.toString());
+                    errorNode.put("error", e.getMessage());
+                    workspacesArray.add(errorNode);
+                }
+            }
+
+            response.set("workspaces", workspacesArray);
+            response.put("totalFiles", totalFiles);
+            response.put("totalIndexSizeBytes", totalIndexSize);
+            response.put("totalIndexSize", formatSize(totalIndexSize));
+            response.put("timestamp", Instant.now().toString());
+
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("stats", "multi:" + allWorkspaces.size(),
+                    elapsedMs, null, true, null);
+
+            return response;
+        } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            metrics.recordMcpInvocation("stats", "multi:" + allWorkspaces.size(),
+                    elapsedMs, null, false, e.getMessage());
+            LOG.warning("Multi-workspace stats failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Multi-workspace stats failed: " + e.getMessage());
         }
     }
 

@@ -5,6 +5,9 @@ import io.exoreaction.synthesis.ai.EmbeddingService;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
+import io.exoreaction.synthesis.search.MultiWorkspaceSearch.GroupedResults;
+import io.exoreaction.synthesis.search.MultiWorkspaceSearch.MultiSearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
 import picocli.CommandLine.Command;
@@ -79,6 +82,20 @@ public class SearchCommand implements Callable<Integer> {
     private String client;
 
     @Option(
+            names = {"--all"},
+            description = "Search across all discovered Synthesis workspaces",
+            defaultValue = "false"
+    )
+    private boolean searchAll;
+
+    @Option(
+            names = {"--workspaces"},
+            description = "Comma-separated list of workspace names or paths to search",
+            split = ","
+    )
+    private List<String> workspaceNames;
+
+    @Option(
             names = {"--semantic"},
             description = "Use semantic search (embedding-based) instead of keyword search",
             defaultValue = "false"
@@ -102,6 +119,11 @@ public class SearchCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
+            // Multi-workspace search mode
+            if (searchAll || (workspaceNames != null && !workspaceNames.isEmpty())) {
+                return performMultiWorkspaceSearch();
+            }
+
             Path workspaceRoot = parent.getWorkspaceRoot();
 
             // Validate workspace
@@ -153,6 +175,128 @@ public class SearchCommand implements Callable<Integer> {
             AnsiOutput.printError("Search failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Performs search across multiple workspaces.
+     */
+    private int performMultiWorkspaceSearch() {
+        List<Path> workspacePaths;
+
+        if (searchAll) {
+            workspacePaths = MultiWorkspaceSearch.discoverAllWorkspaces();
+            if (workspacePaths.isEmpty()) {
+                AnsiOutput.printError("No Synthesis workspaces found. Run 'synthesis init' first.");
+                return 1;
+            }
+        } else {
+            // Resolve workspace names/paths
+            workspacePaths = resolveWorkspacePaths(workspaceNames);
+            if (workspacePaths.isEmpty()) {
+                AnsiOutput.printError("No valid workspaces found for: " + String.join(", ", workspaceNames));
+                return 1;
+            }
+        }
+
+        MultiWorkspaceSearch multiSearch = new MultiWorkspaceSearch(workspacePaths);
+        MultiSearchResult result = multiSearch.search(query, fileType, limit);
+
+        // Print results grouped by workspace
+        System.out.println();
+        System.out.printf("  %s results across %s workspaces for: %s  %s%n%n",
+                AnsiOutput.bold(String.valueOf(result.totalResults())),
+                AnsiOutput.bold(String.valueOf(result.groups().size())),
+                AnsiOutput.bold(query),
+                AnsiOutput.dim(String.format("(%.1fs)", result.totalTimeMs() / 1000.0)));
+
+        for (GroupedResults group : result.groups()) {
+            // Workspace header
+            String wsLabel = AnsiOutput.bold(group.workspace().name());
+            String wsPath = AnsiOutput.dim(" (" + group.workspace().path() + ")");
+
+            if (group.hasError()) {
+                System.out.printf("  %s%s %s%n", wsLabel, wsPath,
+                        AnsiOutput.red("[error: " + group.error() + "]"));
+                System.out.println();
+                continue;
+            }
+
+            if (!group.hasResults()) {
+                System.out.printf("  %s%s %s%n", wsLabel, wsPath,
+                        AnsiOutput.dim("[no results]"));
+                System.out.println();
+                continue;
+            }
+
+            System.out.printf("  %s%s  %s results  %s%n",
+                    wsLabel, wsPath,
+                    AnsiOutput.cyan(String.valueOf(group.results().size())),
+                    AnsiOutput.dim(String.format("%.1fs", group.searchTimeMs() / 1000.0)));
+
+            for (int i = 0; i < group.results().size(); i++) {
+                SearchResult sr = group.results().get(i);
+                String typeColor = colorForType(sr.fileType());
+                System.out.printf("    %s %s %s%n",
+                        AnsiOutput.dim(String.format("%2d.", i + 1)),
+                        typeColor,
+                        AnsiOutput.bold(sr.relativePath()));
+
+                if (!sr.summary().isEmpty()) {
+                    String summaryText = sr.summary();
+                    if (summaryText.length() > 100) {
+                        summaryText = summaryText.substring(0, 100) + "...";
+                    }
+                    System.out.printf("       %s%n", AnsiOutput.dim(summaryText));
+                }
+
+                StringBuilder meta = new StringBuilder();
+                meta.append(FileUtils.formatSize(sr.sizeBytes()));
+                if (sr.language() != null) meta.append(" | ").append(sr.language());
+                if (sr.fileType() != null) meta.append(" | ").append(sr.fileType());
+                if (verbose) {
+                    meta.append(String.format(" | score: %.2f", sr.score()));
+                }
+                System.out.printf("       %s%n", AnsiOutput.dim(meta.toString()));
+            }
+            System.out.println();
+        }
+
+        return 0;
+    }
+
+    /**
+     * Resolves workspace names to actual paths.
+     * Accepts both absolute paths and workspace names (matched against discovered workspaces).
+     */
+    private List<Path> resolveWorkspacePaths(List<String> names) {
+        List<Path> resolved = new ArrayList<>();
+        List<Path> allWorkspaces = MultiWorkspaceSearch.discoverAllWorkspaces();
+
+        for (String name : names) {
+            // Try as absolute path first
+            Path asPath = Path.of(name);
+            if (asPath.isAbsolute() && Files.isDirectory(asPath.resolve(".synthesis"))) {
+                resolved.add(asPath.toAbsolutePath().normalize());
+                continue;
+            }
+
+            // Try matching by workspace name or directory name
+            boolean found = false;
+            for (Path wsPath : allWorkspaces) {
+                String wsName = wsPath.getFileName() != null ? wsPath.getFileName().toString() : "";
+                if (wsName.equalsIgnoreCase(name) || wsPath.toString().contains(name)) {
+                    resolved.add(wsPath);
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                AnsiOutput.printWarning("Workspace not found: " + name);
+            }
+        }
+
+        return resolved;
     }
 
     private void printResults(List<SearchResult> results, String query) {
