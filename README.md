@@ -45,6 +45,32 @@ synthesis -d ~/projects/my-project status
 
 Not a developer? Start at the [Role Selector](docs/perspectives/README.md) to find the guide written for your perspective.
 
+## Protocol Integrations
+
+Synthesis exposes its capabilities through two server protocols for seamless integration with AI agents and IDEs.
+
+### MCP Server (AI Agent Integration)
+
+Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides `search`, `relate`, `graph`, and `stats` tools over JSON-RPC 2.0.
+
+| Document | Description | Time |
+|----------|-------------|------|
+| [MCP Quick Start](docs/guides/MCP-QUICKSTART.md) | Get running in 5 minutes | 5 min |
+| [MCP Comprehensive Guide](docs/guides/MCP-COMPREHENSIVE-GUIDE.md) | Full tool reference, configuration, troubleshooting | 20 min |
+| [MCP Performance Benchmarks](docs/guides/MCP-PERFORMANCE-BENCHMARKS.md) | Response times, scaling characteristics | 10 min |
+| [MCP Protocol Reference](docs/api/MCP-PROTOCOL-REFERENCE.md) | JSON-RPC protocol details for platform engineers | 15 min |
+
+### LSP Server (IDE Integration)
+
+Bring workspace intelligence into your IDE: workspace symbols, document links, hover metadata, go-to-definition, find references, code lens, and diagnostics.
+
+| Document | Description | Time |
+|----------|-------------|------|
+| [LSP Quick Start](docs/guides/LSP-QUICKSTART.md) | Get running in 5 minutes | 5 min |
+| [LSP Comprehensive Guide](docs/guides/LSP-COMPREHENSIVE-GUIDE.md) | Full feature reference, configuration, troubleshooting | 20 min |
+| [IDE Integration Guides](docs/guides/LSP-IDE-INTEGRATION-GUIDES.md) | VSCode, IntelliJ, Neovim, Vim, Emacs setup | 5 min/IDE |
+| [LSP Protocol Reference](docs/api/LSP-PROTOCOL-REFERENCE.md) | LSP 3.17 protocol details for extension developers | 15 min |
+
 ## Installation
 
 **Requirements:** Java 17 or later.
@@ -442,6 +468,14 @@ io.exoreaction.synthesis/
     OrganizationRegistry.java # Registry with persistence
     OrganizationScanner.java # Auto-discovery from directory structure
     DownloadsClassifier.java # File classification for Downloads routing
+  mcp/                       # MCP server (AI agent integration)
+    SynthesisMCPServer.java  # MCP protocol handler (JSON-RPC 2.0 over stdio)
+    SynthesisToolHandler.java# Tool implementations (search, relate, graph, stats)
+    JsonRpcMessage.java      # JSON-RPC 2.0 message types
+  lsp/                       # LSP server (IDE integration)
+    SynthesisLanguageServer.java   # LSP 3.17 server (workspace symbols, hover, etc.)
+    SynthesisTextDocumentService.java # Document links, hover, diagnostics, definition
+    SynthesisWorkspaceService.java    # Workspace symbol search
   util/                      # Utilities
     AnsiOutput.java          # Terminal colors
     FfprobeDetector.java     # ffprobe detection & caching

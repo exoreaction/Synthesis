@@ -20,6 +20,7 @@
 | **Sales / Business Dev** | [Sales Enablement](./SALES-ENABLEMENT.md) | 12 min | Discovery questions, demo flow, objection handling, pricing |
 | **Security / Compliance** | [Security Posture](./SECURITY-POSTURE.md) | 10 min | Threat model, data handling, compliance (GDPR, SOC2, HIPAA) |
 | **AI Agent Developer** | [LLM/Agent Tool](./LLM-AGENT-TOOL.md) ([Summary](./LLM-AGENT-TOOL-EXECUTIVE-SUMMARY.md)) | 30 min | Context infrastructure for autonomous agents, 3.3x speedup, API integration |
+| **Platform Engineer** | [MCP Protocol](../api/MCP-PROTOCOL-REFERENCE.md) / [LSP Protocol](../api/LSP-PROTOCOL-REFERENCE.md) | 15 min each | Protocol integration, tool schemas, capability negotiation |
 
 ---
 
@@ -59,7 +60,9 @@
 | "What are all the commands?" | [User Guide](../guides/USER-GUIDE.md) | Essential Commands |
 | "Is it secure?" | [Executive Brief](./EXECUTIVE-BRIEF.md) | Investment and Risk |
 | "Can AI agents use Synthesis?" | [LLM/Agent Tool](./LLM-AGENT-TOOL.md) | Agent Context Infrastructure |
-| "How do I integrate with Claude/Cursor?" | [LLM/Agent Tool](./LLM-AGENT-TOOL.md) | Integration Patterns |
+| "How do I integrate with Claude/Cursor?" | [MCP Quick Start](../guides/MCP-QUICKSTART.md) | Setup in 5 minutes |
+| "How do I integrate with my IDE?" | [LSP Quick Start](../guides/LSP-QUICKSTART.md) | VSCode, IntelliJ, Neovim, Vim, Emacs |
+| "What is the MCP/LSP protocol?" | [API Reference](../api/README.md) | Protocol details for platform engineers |
 
 ---
 
@@ -80,6 +83,15 @@
 - [Quick Start](../guides/QUICK-START.md) -- 5-minute hands-on introduction
 - [Complete User Guide](../guides/USER-GUIDE.md) -- Full command reference, advanced features, troubleshooting
 - [Guides Hub](../guides/README.md) -- Navigation for all technical guides
+
+### Protocol Integration
+- [MCP Quick Start](../guides/MCP-QUICKSTART.md) -- 5-minute AI agent integration (Claude Code, Cursor)
+- [MCP Comprehensive Guide](../guides/MCP-COMPREHENSIVE-GUIDE.md) -- Full MCP tool reference, configuration, troubleshooting
+- [MCP Performance Benchmarks](../guides/MCP-PERFORMANCE-BENCHMARKS.md) -- Response times, scaling, agent productivity metrics
+- [LSP Quick Start](../guides/LSP-QUICKSTART.md) -- 5-minute IDE integration (VSCode, IntelliJ, Neovim, Vim, Emacs)
+- [LSP Comprehensive Guide](../guides/LSP-COMPREHENSIVE-GUIDE.md) -- Full LSP feature reference, configuration, troubleshooting
+- [IDE Integration Guides](../guides/LSP-IDE-INTEGRATION-GUIDES.md) -- Per-IDE setup instructions
+- [API Reference Hub](../api/README.md) -- Protocol-level documentation for MCP and LSP
 
 ### Visual Assets
 - [Infographics & Presentations](../visuals/README.md) -- NotebookLM-generated visuals (sales decks, infographics, workshop slides)
