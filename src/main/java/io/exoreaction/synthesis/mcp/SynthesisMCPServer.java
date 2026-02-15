@@ -275,6 +275,33 @@ public class SynthesisMCPServer {
                 createStatsSchema()
         ));
 
+        // Tool: ask
+        toolsArray.add(createToolDefinition(
+                "ask",
+                "Ask questions about the codebase using AI. Searches the Synthesis index for " +
+                        "relevant files, builds context, and generates an answer with file citations. " +
+                        "Requires ANTHROPIC_API_KEY.",
+                createAskSchema()
+        ));
+
+        // Tool: enrich
+        toolsArray.add(createToolDefinition(
+                "enrich",
+                "Generate .synthesis.md companion files for binary assets (images, videos, PDFs, audio). " +
+                        "Makes binary content searchable by extracting metadata, text, and AI descriptions. " +
+                        "Run with filePath for single file or without for batch mode.",
+                createEnrichSchema()
+        ));
+
+        // Tool: explain
+        toolsArray.add(createToolDefinition(
+                "explain",
+                "AI-powered explanation of files, directories, or architectural patterns. " +
+                        "Generates comprehensive explanations with code references and context. " +
+                        "Pass a file path, directory path, or pattern name. Requires ANTHROPIC_API_KEY.",
+                createExplainSchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -298,6 +325,9 @@ public class SynthesisMCPServer {
                 case "relate" -> toolHandler.handleRelate(toolArgs);
                 case "graph" -> toolHandler.handleGraph(toolArgs);
                 case "stats" -> toolHandler.handleStats(toolArgs);
+                case "ask" -> toolHandler.handleAsk(toolArgs);
+                case "enrich" -> toolHandler.handleEnrich(toolArgs);
+                case "explain" -> toolHandler.handleExplain(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -477,6 +507,111 @@ public class SynthesisMCPServer {
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createAskSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode query = mapper.createObjectNode();
+        query.put("type", "string");
+        query.put("description", "The question to ask about the codebase");
+        properties.set("query", query);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("query");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createEnrichSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode filePath = mapper.createObjectNode();
+        filePath.put("type", "string");
+        filePath.put("description", "Path to a specific file to enrich (omit for batch mode)");
+        properties.set("filePath", filePath);
+
+        ObjectNode level = mapper.createObjectNode();
+        level.put("type", "string");
+        ArrayNode levelEnum = mapper.createArrayNode();
+        levelEnum.add("basic");
+        levelEnum.add("local");
+        levelEnum.add("ai");
+        level.set("enum", levelEnum);
+        level.put("default", "basic");
+        level.put("description", "Enrichment level: basic (metadata only), local (with tools), ai (with Claude)");
+        properties.set("level", level);
+
+        ObjectNode force = mapper.createObjectNode();
+        force.put("type", "boolean");
+        force.put("default", false);
+        force.put("description", "Force regeneration even if companion file exists");
+        properties.set("force", force);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createExplainSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode target = mapper.createObjectNode();
+        target.put("type", "string");
+        target.put("description", "File path, directory path, or pattern name to explain");
+        properties.set("target", target);
+
+        ObjectNode includeContext = mapper.createObjectNode();
+        includeContext.put("type", "boolean");
+        includeContext.put("default", true);
+        includeContext.put("description", "Include related files in the explanation context");
+        properties.set("includeContext", includeContext);
+
+        ObjectNode depth = mapper.createObjectNode();
+        depth.put("type", "string");
+        ArrayNode depthEnum = mapper.createArrayNode();
+        depthEnum.add("brief");
+        depthEnum.add("standard");
+        depthEnum.add("deep");
+        depth.set("enum", depthEnum);
+        depth.put("default", "standard");
+        depth.put("description", "Explanation depth: brief (3-5 sentences), standard (sections), deep (comprehensive)");
+        properties.set("depth", depth);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("target");
+        schema.set("required", required);
 
         return schema;
     }

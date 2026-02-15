@@ -4,8 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.CodeExplainer;
+import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
+import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.cli.RelateCommand;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.core.FileMetadata;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.enrichment.CompanionFileGenerator;
+import io.exoreaction.synthesis.enrichment.EnrichmentLevel;
 import io.exoreaction.synthesis.graph.GraphBuilder;
 import io.exoreaction.synthesis.graph.GraphBuilder.FileGraph;
 import io.exoreaction.synthesis.graph.GraphRenderer;
@@ -14,6 +23,7 @@ import io.exoreaction.synthesis.index.SearchResult;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.*;
 import java.util.logging.Logger;
@@ -438,6 +448,292 @@ public class SynthesisToolHandler {
             LOG.warning("Stats failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                     "Stats failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: ask
+    // -----------------------------------------------------------------------
+
+    /**
+     * AI-powered Q&A about the workspace using Directed Synthesis.
+     *
+     * @param params JSON object with: query (required), workspace
+     * @return JSON object with: answer, citations[]
+     */
+    public ObjectNode handleAsk(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("query")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: query");
+        }
+
+        String query = params.get("query").asText();
+        if (query == null || query.isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Parameter 'query' must not be empty");
+        }
+
+        Path workspacePath = resolveWorkspace(params);
+        WorkspaceManager workspace = validateWorkspace(workspacePath);
+
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            if (clientOpt.isEmpty()) {
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                        "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
+            }
+
+            DirectedSynthesisEngine engine = new DirectedSynthesisEngine(clientOpt.get(), config.getAi().getMaxTokens());
+
+            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                // Search for relevant files
+                List<SearchResult> results = index.search(query, 10);
+
+                // Build context from results
+                StringBuilder context = new StringBuilder();
+                List<String> citations = new ArrayList<>();
+
+                for (SearchResult result : results) {
+                    if (Files.exists(result.path()) && Files.isReadable(result.path())) {
+                        try {
+                            String fileContent = io.exoreaction.synthesis.util.FileUtils.readPreview(result.path(), 4096);
+                            context.append("\n--- ").append(result.relativePath()).append(" ---\n");
+
+                            // Add line numbers
+                            String[] lines = fileContent.split("\n");
+                            for (int i = 0; i < lines.length; i++) {
+                                context.append(String.format("L%d: %s%n", i + 1, lines[i]));
+                            }
+
+                            citations.add(result.relativePath());
+                        } catch (Exception e) {
+                            // Skip unreadable files
+                        }
+                    }
+                }
+
+                // Generate answer using the ask prompt
+                String prompt = io.exoreaction.synthesis.ai.PromptTemplates.buildAskPrompt(
+                        query, context.toString());
+                String answer = clientOpt.get().generate(prompt, config.getAi().getMaxTokens());
+
+                // Build response
+                ObjectNode response = mapper.createObjectNode();
+                response.put("answer", answer);
+
+                ArrayNode citationsArray = mapper.createArrayNode();
+                for (String citation : citations) {
+                    citationsArray.add(citation);
+                }
+                response.set("citations", citationsArray);
+                response.put("contextFiles", results.size());
+                response.put("workspace", workspacePath.toString());
+
+                return response;
+            }
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("Ask failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Ask failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: enrich
+    // -----------------------------------------------------------------------
+
+    /**
+     * Generates companion files for binary assets.
+     *
+     * @param params JSON object with: filePath (optional), level, force, workspace
+     * @return JSON object with: generated, companionPath, metadata
+     */
+    public ObjectNode handleEnrich(JsonNode params) throws McpToolException {
+        String filePath = params != null && params.has("filePath")
+                ? params.get("filePath").asText() : null;
+        String levelStr = params != null && params.has("level")
+                ? params.get("level").asText() : "basic";
+        boolean force = params != null && params.has("force")
+                && params.get("force").asBoolean(false);
+
+        Path workspacePath = resolveWorkspace(params);
+        WorkspaceManager workspace = validateWorkspace(workspacePath);
+
+        try {
+            EnrichmentLevel level = switch (levelStr.toLowerCase()) {
+                case "local" -> EnrichmentLevel.LOCAL;
+                case "ai" -> EnrichmentLevel.AI;
+                default -> EnrichmentLevel.BASIC;
+            };
+
+            // Get optional AI client
+            ClaudeClient aiClient = null;
+            if (level.hasAI()) {
+                SynthesisConfig config = ConfigLoader.load(workspacePath);
+                aiClient = ClaudeClient.create(config.getAi()).orElse(null);
+                if (aiClient == null) {
+                    level = EnrichmentLevel.BASIC;
+                }
+            }
+
+            CompanionFileGenerator generator = new CompanionFileGenerator(level, force, aiClient);
+            AnalyzerRegistry analyzers = new AnalyzerRegistry();
+
+            if (filePath != null && !filePath.isBlank()) {
+                // Single file enrichment
+                Path resolved = Path.of(filePath);
+                if (!resolved.isAbsolute()) {
+                    resolved = workspacePath.resolve(resolved);
+                }
+
+                if (!Files.exists(resolved)) {
+                    throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                            "File not found: " + filePath);
+                }
+
+                BasicFileAttributes attrs = Files.readAttributes(resolved, BasicFileAttributes.class);
+                FileMetadata metadata = FileMetadata.of(
+                        resolved, workspacePath, attrs.size(),
+                        attrs.lastModifiedTime().toInstant(), null);
+
+                io.exoreaction.synthesis.analyzer.AnalysisResult analysis = analyzers.analyze(metadata);
+                Optional<Path> companionPath = generator.generate(metadata, analysis, List.of());
+
+                ObjectNode response = mapper.createObjectNode();
+                response.put("generated", companionPath.isPresent());
+                response.put("sourcePath", resolved.toString());
+                if (companionPath.isPresent()) {
+                    response.put("companionPath", companionPath.get().toString());
+                }
+                response.put("level", level.name());
+
+                return response;
+            } else {
+                // Batch mode: process all binary files
+                int generated = 0;
+                int skipped = 0;
+                int errors = 0;
+
+                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                    List<SearchResult> allFiles = index.listAll(null, 50000);
+
+                    for (SearchResult file : allFiles) {
+                        String ft = file.fileType();
+                        if (ft == null || !(ft.equals("VIDEO") || ft.equals("IMAGE") || ft.equals("PDF") || ft.equals("AUDIO"))) {
+                            continue;
+                        }
+
+                        try {
+                            Path fp = file.path();
+                            if (!Files.exists(fp)) { errors++; continue; }
+
+                            BasicFileAttributes attrs = Files.readAttributes(fp, BasicFileAttributes.class);
+                            FileMetadata metadata = FileMetadata.of(
+                                    fp, workspacePath, attrs.size(),
+                                    attrs.lastModifiedTime().toInstant(), null);
+
+                            io.exoreaction.synthesis.analyzer.AnalysisResult analysis = analyzers.analyze(metadata);
+                            Optional<Path> companion = generator.generate(metadata, analysis, List.of());
+
+                            if (companion.isPresent()) generated++;
+                            else skipped++;
+                        } catch (Exception e) {
+                            errors++;
+                        }
+                    }
+                }
+
+                ObjectNode response = mapper.createObjectNode();
+                response.put("generated", generated);
+                response.put("skipped", skipped);
+                response.put("errors", errors);
+                response.put("level", level.name());
+                response.put("workspace", workspacePath.toString());
+
+                return response;
+            }
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("Enrich failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Enrich failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: explain
+    // -----------------------------------------------------------------------
+
+    /**
+     * AI-powered code explanation.
+     *
+     * @param params JSON object with: target (required), includeContext, depth, workspace
+     * @return JSON object with: explanation, mode, target, contextDocuments, durationMs
+     */
+    public ObjectNode handleExplain(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("target")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: target");
+        }
+
+        String target = params.get("target").asText();
+        if (target == null || target.isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Parameter 'target' must not be empty");
+        }
+
+        boolean includeContext = params.has("includeContext") && params.get("includeContext").asBoolean(true);
+        String depthStr = params.has("depth") ? params.get("depth").asText() : "standard";
+
+        Path workspacePath = resolveWorkspace(params);
+        WorkspaceManager workspace = validateWorkspace(workspacePath);
+
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            if (clientOpt.isEmpty()) {
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                        "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
+            }
+
+            CodeExplainer.Depth depth = switch (depthStr.toLowerCase()) {
+                case "brief" -> CodeExplainer.Depth.BRIEF;
+                case "deep" -> CodeExplainer.Depth.DEEP;
+                default -> CodeExplainer.Depth.STANDARD;
+            };
+
+            CodeExplainer explainer = new CodeExplainer(clientOpt.get(), config.getAi().getMaxTokens());
+
+            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                CodeExplainer.ExplanationResult result;
+
+                // Determine mode: file, module, or pattern
+                Path targetPath = Path.of(target);
+                if (!targetPath.isAbsolute()) {
+                    targetPath = workspacePath.resolve(target);
+                }
+
+                if (Files.isRegularFile(targetPath)) {
+                    result = explainer.explainFile(targetPath, index, workspacePath, depth);
+                } else if (Files.isDirectory(targetPath)) {
+                    result = explainer.explainModule(targetPath, index, workspacePath, depth);
+                } else {
+                    // Treat as pattern/concept
+                    result = explainer.explainPattern(target, index, workspacePath, depth);
+                }
+
+                ObjectNode response = mapper.createObjectNode();
+                response.put("target", result.target());
+                response.put("mode", result.mode());
+                response.put("explanation", result.explanation());
+                response.put("contextDocuments", result.contextDocuments());
+                response.put("durationMs", result.durationMs());
+
+                return response;
+            }
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("Explain failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Explain failed: " + e.getMessage());
         }
     }
 
