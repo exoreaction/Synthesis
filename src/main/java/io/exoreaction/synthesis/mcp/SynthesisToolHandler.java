@@ -973,6 +973,138 @@ public class SynthesisToolHandler {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Tool: summary (Phase 4)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Generate executive summary of the codebase.
+     *
+     * @param params JSON object with: level (executive/manager/developer),
+     *               perspective (general/executive/architect/security/devops/product_manager/engineering_manager/developer),
+     *               format (terminal/markdown/json), noAi (boolean), workspace
+     * @return JSON object with: summary (text), level, perspective, fromCache, generationTimeMs
+     */
+    public ObjectNode handleSummary(JsonNode params) throws McpToolException {
+        String level = params.has("level") ? params.get("level").asText() : "executive";
+        String perspective = params.has("perspective") ? params.get("perspective").asText() : "general";
+        String format = params.has("format") ? params.get("format").asText() : "markdown";
+        boolean noAi = params.has("noAi") && params.get("noAi").asBoolean(false);
+        boolean noCache = params.has("noCache") && params.get("noCache").asBoolean(false);
+
+        Path workspacePath = resolveWorkspace(params);
+        WorkspaceManager workspace = validateWorkspace(workspacePath);
+
+        try {
+            long startTime = System.currentTimeMillis();
+
+            // Parse parameters
+            io.exoreaction.synthesis.summary.SummaryLevel summaryLevel =
+                io.exoreaction.synthesis.summary.SummaryLevel.fromString(level);
+            io.exoreaction.synthesis.summary.SummaryPerspective summaryPerspective =
+                io.exoreaction.synthesis.summary.SummaryPerspective.fromString(perspective);
+
+            // Phase 3: Check cache
+            String indexFingerprint = io.exoreaction.synthesis.summary.SummaryCache
+                .generateIndexFingerprint(workspace.getIndexPath());
+            io.exoreaction.synthesis.summary.SummaryResult result = null;
+
+            if (!noCache) {
+                try {
+                    io.exoreaction.synthesis.db.SynthesisDatabase db =
+                        io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+                    java.sql.Connection conn = db.getConnection();
+                    io.exoreaction.synthesis.summary.SummaryCache cache =
+                        new io.exoreaction.synthesis.summary.SummaryCache(conn, 0);
+                    Optional<io.exoreaction.synthesis.summary.SummaryResult> cached =
+                        cache.get(workspacePath, summaryLevel, summaryPerspective, indexFingerprint);
+
+                    if (cached.isPresent()) {
+                        result = cached.get();
+                    }
+                } catch (Exception e) {
+                    // Cache failures don't break functionality
+                }
+            }
+
+            // Generate if not cached
+            if (result == null) {
+                // Generate profile
+                io.exoreaction.synthesis.summary.CodebaseProfile profiler =
+                    new io.exoreaction.synthesis.summary.CodebaseProfile();
+                io.exoreaction.synthesis.summary.CodebaseProfile.Profile profile;
+                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                    profile = profiler.generate(index, workspacePath);
+                }
+
+                // AI-enhanced summary
+                String aiSummary = null;
+                String modelUsed = null;
+                if (!noAi) {
+                    SynthesisConfig config = ConfigLoader.load(workspacePath);
+                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+
+                    if (clientOpt.isPresent()) {
+                        io.exoreaction.synthesis.summary.SummaryEngine engine =
+                            new io.exoreaction.synthesis.summary.SummaryEngine(clientOpt.get());
+                        modelUsed = engine.getModel();
+                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective);
+                    }
+                }
+
+                long generationTime = System.currentTimeMillis() - startTime;
+
+                // Create result
+                if (aiSummary != null) {
+                    result = io.exoreaction.synthesis.summary.SummaryResult.withAiSummary(
+                        profile, aiSummary, summaryLevel, summaryPerspective, generationTime);
+                } else {
+                    result = io.exoreaction.synthesis.summary.SummaryResult.fromProfile(
+                        profile, summaryLevel, summaryPerspective, generationTime);
+                }
+
+                // Store in cache
+                if (!noCache) {
+                    try {
+                        io.exoreaction.synthesis.db.SynthesisDatabase db =
+                            io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+                        java.sql.Connection conn = db.getConnection();
+                        io.exoreaction.synthesis.summary.SummaryCache cache =
+                            new io.exoreaction.synthesis.summary.SummaryCache(conn, 0);
+                        cache.put(workspacePath, summaryLevel, summaryPerspective,
+                            indexFingerprint, result, modelUsed);
+                    } catch (Exception e) {
+                        // Cache storage failures don't break functionality
+                    }
+                }
+            }
+
+            // Render output
+            io.exoreaction.synthesis.summary.SummaryRenderer renderer =
+                new io.exoreaction.synthesis.summary.SummaryRenderer();
+            String output = switch (format.toLowerCase()) {
+                case "markdown", "md" -> renderer.renderMarkdown(result);
+                case "json" -> renderer.renderJson(result);
+                default -> renderer.renderMarkdown(result);  // MCP prefers markdown
+            };
+
+            // Build response
+            ObjectNode response = mapper.createObjectNode();
+            response.put("summary", output);
+            response.put("level", result.level().cliValue());
+            response.put("perspective", result.perspective().cliValue());
+            response.put("fromCache", result.fromCache());
+            response.put("generationTimeMs", result.generationTimeMs());
+
+            return response;
+
+        } catch (Exception e) {
+            LOG.warning("Summary generation failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                "Summary generation failed: " + e.getMessage());
+        }
+    }
+
     private String formatSize(long bytes) {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
