@@ -6,6 +6,7 @@ import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.core.SubWorkspaceResolver;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
@@ -494,6 +495,9 @@ public class WatchCommand implements Callable<Integer> {
                         Path workspaceRoot, AnalyzerRegistry analyzers,
                         FileIndexer fileIndexer) {
         try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            // Initialize sub-workspace resolver for tagging
+            SubWorkspaceResolver subWsResolver = new SubWorkspaceResolver(config);
+
             for (var entry : changes.entrySet()) {
                 Path file = entry.getKey();
                 WatchEvent.Kind<?> kind = entry.getValue();
@@ -515,7 +519,12 @@ public class WatchCommand implements Callable<Integer> {
                                         attrs.lastModifiedTime().toInstant(), null
                                 );
                                 AnalysisResult analysis = analyzers.analyze(metadata);
-                                index.addDocument(fileIndexer.createDocument(metadata, analysis));
+
+                                // Resolve sub-workspace for this file
+                                String subWorkspace = subWsResolver.resolve(metadata.relativePath());
+
+                                index.addDocument(fileIndexer.createDocument(
+                                        metadata, analysis, null, null, null, subWorkspace));
                                 indexedCount.incrementAndGet();
                                 if (verbose) {
                                     logEvent(kind == ENTRY_CREATE ? "ADD" : "MOD", file, workspaceRoot);

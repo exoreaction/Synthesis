@@ -132,6 +132,55 @@ public class MultiWorkspaceSearch {
     }
 
     /**
+     * Searches across all workspaces in parallel, with optional sub-workspace scoping.
+     *
+     * <p>When a subWorkspaceFilter is provided, only results tagged with that
+     * sub-workspace are returned. This allows cross-workspace search that is
+     * also scoped to a logical sub-workspace (e.g., "find all Java files in
+     * the 'eXOReaction' sub-workspace across all workspaces").
+     *
+     * @param query              Lucene query string
+     * @param fileType           optional file type filter
+     * @param subWorkspaceFilter optional sub-workspace filter
+     * @param limit              max results per workspace
+     * @return aggregated results grouped by workspace
+     */
+    public MultiSearchResult searchWithSubWorkspace(String query, String fileType,
+                                                      String subWorkspaceFilter, int limit) {
+        long startTime = System.nanoTime();
+
+        ExecutorService executor = Executors.newFixedThreadPool(
+                Math.min(workspaces.size(), Runtime.getRuntime().availableProcessors()));
+
+        List<Future<GroupedResults>> futures = new ArrayList<>();
+
+        for (WorkspaceEntry ws : workspaces) {
+            futures.add(executor.submit(() -> searchSingleWorkspaceWithSubWorkspace(
+                    ws, query, fileType, subWorkspaceFilter, limit)));
+        }
+
+        List<GroupedResults> groups = new ArrayList<>();
+        int totalResults = 0;
+
+        for (Future<GroupedResults> future : futures) {
+            try {
+                GroupedResults result = future.get(30, TimeUnit.SECONDS);
+                groups.add(result);
+                if (result.hasResults()) {
+                    totalResults += result.results().size();
+                }
+            } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                LOG.warning("Workspace search failed: " + e.getMessage());
+            }
+        }
+
+        executor.shutdown();
+
+        long totalTimeMs = (System.nanoTime() - startTime) / 1_000_000;
+        return new MultiSearchResult(groups, totalResults, totalTimeMs);
+    }
+
+    /**
      * Finds which workspaces contain files matching a filename or pattern.
      *
      * @param filename the filename or pattern to search for
@@ -245,6 +294,40 @@ public class MultiWorkspaceSearch {
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 List<SearchResult> results;
                 if (fileType != null && !fileType.isBlank() && !"ALL".equalsIgnoreCase(fileType)) {
+                    results = index.search(query, fileType, limit);
+                } else {
+                    results = index.search(query, limit);
+                }
+                long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+                return new GroupedResults(ws, results, elapsedMs, null);
+            }
+        } catch (Exception e) {
+            long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            return new GroupedResults(ws, List.of(), elapsedMs, e.getMessage());
+        }
+    }
+
+    /**
+     * Searches a single workspace with sub-workspace filtering.
+     */
+    private GroupedResults searchSingleWorkspaceWithSubWorkspace(WorkspaceEntry ws, String query,
+                                                                   String fileType,
+                                                                   String subWorkspaceFilter,
+                                                                   int limit) {
+        long startTime = System.nanoTime();
+        try {
+            WorkspaceManager workspace = new WorkspaceManager(ws.path());
+            Optional<String> validation = workspace.validate();
+            if (validation.isPresent()) {
+                return new GroupedResults(ws, List.of(), 0, validation.get());
+            }
+
+            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                List<SearchResult> results;
+                if (subWorkspaceFilter != null && !subWorkspaceFilter.isBlank()) {
+                    results = index.searchWithSubWorkspace(query, fileType, null,
+                            null, null, subWorkspaceFilter, limit);
+                } else if (fileType != null && !fileType.isBlank() && !"ALL".equalsIgnoreCase(fileType)) {
                     results = index.search(query, fileType, limit);
                 } else {
                     results = index.search(query, limit);

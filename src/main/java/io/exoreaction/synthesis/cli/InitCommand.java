@@ -129,6 +129,13 @@ public class InitCommand implements Callable<Integer> {
     )
     private boolean noInteractive;
 
+    @Option(
+            names = {"--auto-discover"},
+            description = "Auto-discover sub-workspaces from directory structure and generate config",
+            defaultValue = "false"
+    )
+    private boolean autoDiscover;
+
     // Visible for testing: custom I/O for interactive confirmation
     private BufferedReader customInput;
     private PrintStream customOutput;
@@ -198,6 +205,12 @@ public class InitCommand implements Callable<Integer> {
                 if (orgResult != 0) {
                     AnsiOutput.printWarning("Organization discovery had issues, but workspace is initialized.");
                 }
+            }
+
+            // Auto-discover sub-workspaces from directory structure
+            if (autoDiscover) {
+                System.out.println();
+                handleSubWorkspaceDiscovery(targetDir);
             }
 
             // Register installation for pilot program (mandatory)
@@ -331,6 +344,79 @@ public class InitCommand implements Callable<Integer> {
         } catch (Exception e) {
             AnsiOutput.printError("Organization discovery failed: " + e.getMessage());
             return 1;
+        }
+    }
+
+    /**
+     * Auto-discovers sub-workspaces from the directory structure.
+     *
+     * <p>Scans top-level directories and uses the OrganizationScanner's confidence
+     * scoring to identify likely sub-workspaces. Generates sub-workspace entries
+     * in the config and prints a summary.
+     */
+    void handleSubWorkspaceDiscovery(Path targetDir) {
+        try {
+            OrganizationScanner scanner = new OrganizationScanner(targetDir);
+            java.util.List<SynthesisConfig.SubWorkspaceConfig> discovered = new java.util.ArrayList<>();
+
+            AnsiOutput.printInfo("Discovering sub-workspaces...");
+
+            try (java.nio.file.DirectoryStream<Path> dirs = java.nio.file.Files.newDirectoryStream(targetDir)) {
+                for (Path dir : dirs) {
+                    if (!java.nio.file.Files.isDirectory(dir)) continue;
+                    String dirName = dir.getFileName().toString();
+                    if (dirName.startsWith(".") || dirName.equals("archive") || dirName.equals("personal")) continue;
+
+                    int confidence = scanner.computeConfidence(dir);
+                    if (confidence >= 2) {
+                        SynthesisConfig.SubWorkspaceConfig sw = new SynthesisConfig.SubWorkspaceConfig(dirName, dirName);
+                        sw.setDescription("Auto-discovered from " + dirName + "/ (confidence: " + confidence + ")");
+                        // Classify type based on content
+                        String detectedCategory = detectWorkspaceCategory(dir);
+                        sw.setType(detectedCategory);
+                        discovered.add(sw);
+                    }
+                }
+            }
+
+            if (discovered.isEmpty()) {
+                AnsiOutput.printInfo("No sub-workspaces discovered. You can add them manually in synthesis-config.yaml.");
+                return;
+            }
+
+            // Print discovered sub-workspaces
+            System.out.println();
+            AnsiOutput.printSuccess("Discovered " + discovered.size() + " sub-workspace(s):");
+            for (SynthesisConfig.SubWorkspaceConfig sw : discovered) {
+                System.out.printf("    %s -> %s/ (%s)%n",
+                        AnsiOutput.bold(sw.getName()), sw.getPath(), sw.getType());
+            }
+
+            // Update config with discovered sub-workspaces
+            SynthesisConfig config = ConfigLoader.load(targetDir);
+            config.setSubWorkspaces(discovered);
+
+            // Append sub-workspace config to the config file
+            Path configFile = targetDir.resolve("synthesis-config.yaml");
+            if (!java.nio.file.Files.exists(configFile)) {
+                configFile = targetDir.resolve(".synthesis/config.yaml");
+            }
+            if (java.nio.file.Files.exists(configFile)) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("\n# Sub-workspaces (auto-discovered)\nsubWorkspaces:\n");
+                for (SynthesisConfig.SubWorkspaceConfig sw : discovered) {
+                    sb.append("  - name: \"").append(sw.getName()).append("\"\n");
+                    sb.append("    path: \"").append(sw.getPath()).append("\"\n");
+                    sb.append("    description: \"").append(sw.getDescription()).append("\"\n");
+                    sb.append("    type: \"").append(sw.getType()).append("\"\n");
+                }
+                java.nio.file.Files.writeString(configFile,
+                        java.nio.file.Files.readString(configFile) + sb.toString());
+                AnsiOutput.printInfo("Updated config: " + configFile);
+            }
+
+        } catch (Exception e) {
+            AnsiOutput.printWarning("Sub-workspace discovery failed: " + e.getMessage());
         }
     }
 

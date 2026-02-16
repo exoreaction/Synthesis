@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
 import io.exoreaction.synthesis.workspace.WorkspaceType;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +24,8 @@ public class SynthesisConfig {
     private ScanConfig scan = new ScanConfig();
     private TrackingConfig tracking = new TrackingConfig();
     private ChangelogConfig changelog = new ChangelogConfig();
+    private List<SubWorkspaceConfig> subWorkspaces = new ArrayList<>();
+    private StagingConfig staging = new StagingConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -41,6 +44,14 @@ public class SynthesisConfig {
 
     public ChangelogConfig getChangelog() { return changelog; }
     public void setChangelog(ChangelogConfig changelog) { this.changelog = changelog; }
+
+    public List<SubWorkspaceConfig> getSubWorkspaces() { return subWorkspaces; }
+    public void setSubWorkspaces(List<SubWorkspaceConfig> subWorkspaces) {
+        this.subWorkspaces = subWorkspaces != null ? subWorkspaces : new ArrayList<>();
+    }
+
+    public StagingConfig getStaging() { return staging; }
+    public void setStaging(StagingConfig staging) { this.staging = staging; }
 
     /**
      * Workspace identity and structure configuration.
@@ -266,5 +277,133 @@ public class SynthesisConfig {
                 this.massDeleteThreshold = massDeleteThreshold;
             }
         }
+    }
+
+    /**
+     * Sub-workspace configuration for logical partitioning within a workspace (v1.4.0+).
+     *
+     * <p>A sub-workspace maps a directory prefix (relative path) to a named logical partition.
+     * Files within that directory are tagged with the sub-workspace name in the index,
+     * enabling scoped search, per-partition analytics, and organizational hierarchy.
+     *
+     * <p>Sub-workspaces support inheritance: scan/exclude overrides are merged with
+     * the parent workspace's configuration. Unset fields fall back to parent defaults.
+     *
+     * <p>Example YAML:
+     * <pre>
+     * subWorkspaces:
+     *   - name: "eXOReaction"
+     *     path: "eXOReaction"
+     *     description: "eXOReaction company files"
+     *     tags:
+     *       - "company"
+     *       - "core"
+     *     excludePatterns:
+     *       - "**&#47;archive/**"
+     * </pre>
+     */
+    public static class SubWorkspaceConfig {
+        private String name = "";
+        private String path = "";
+        private String description = "";
+        private String type = "general";
+        private List<String> tags = new ArrayList<>();
+        private List<String> includePatterns = null;
+        private List<String> excludePatterns = null;
+
+        public SubWorkspaceConfig() {}
+
+        public SubWorkspaceConfig(String name, String path) {
+            this.name = name;
+            this.path = path;
+        }
+
+        /** Logical name for this sub-workspace (e.g., "eXOReaction", "Quadim"). */
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        /** Relative path prefix from workspace root (e.g., "eXOReaction" or "src/main"). */
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+
+        /** Human-readable description. */
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+
+        /** Sub-workspace type: "general", "source-code", "documents", "staging". */
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+
+        /** Optional tags for classification and filtering. */
+        public List<String> getTags() { return tags; }
+        public void setTags(List<String> tags) { this.tags = tags != null ? tags : new ArrayList<>(); }
+
+        /**
+         * Include patterns override (null = inherit from parent).
+         * If set, these patterns are used instead of the parent's include patterns
+         * for files within this sub-workspace.
+         */
+        public List<String> getIncludePatterns() { return includePatterns; }
+        public void setIncludePatterns(List<String> includePatterns) { this.includePatterns = includePatterns; }
+
+        /**
+         * Exclude patterns override (null = inherit from parent).
+         * If set, these patterns are ADDED to the parent's exclude patterns.
+         */
+        public List<String> getExcludePatterns() { return excludePatterns; }
+        public void setExcludePatterns(List<String> excludePatterns) { this.excludePatterns = excludePatterns; }
+
+        /**
+         * Returns whether this sub-workspace is a staging type.
+         */
+        public boolean isStaging() {
+            return "staging".equals(type);
+        }
+
+        @Override
+        public String toString() {
+            return "SubWorkspaceConfig{name='" + name + "', path='" + path + "'}";
+        }
+    }
+
+    /**
+     * Staging workspace configuration for incoming/temporary files (v1.4.0+).
+     *
+     * <p>Staging workspaces have special behavior:
+     * <ul>
+     *   <li>Time-based retention with configurable expiry</li>
+     *   <li>Promotion workflow to move files to permanent sub-workspaces</li>
+     *   <li>Auto-classification using organizational context</li>
+     *   <li>Periodic cleanup of expired files</li>
+     * </ul>
+     */
+    public static class StagingConfig {
+        private boolean enabled = false;
+        private int retentionDays = 30;
+        private boolean autoClassify = true;
+        private double classificationThreshold = 0.5;
+        private boolean cleanupExpired = false;
+
+        /** Whether staging functionality is enabled. */
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        /** Number of days to retain unclassified files before cleanup. */
+        public int getRetentionDays() { return retentionDays; }
+        public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
+
+        /** Whether to auto-classify incoming files using DownloadsClassifier. */
+        public boolean isAutoClassify() { return autoClassify; }
+        public void setAutoClassify(boolean autoClassify) { this.autoClassify = autoClassify; }
+
+        /** Minimum confidence threshold for auto-classification. */
+        public double getClassificationThreshold() { return classificationThreshold; }
+        public void setClassificationThreshold(double classificationThreshold) {
+            this.classificationThreshold = classificationThreshold;
+        }
+
+        /** Whether to automatically delete files that exceed retentionDays. */
+        public boolean isCleanupExpired() { return cleanupExpired; }
+        public void setCleanupExpired(boolean cleanupExpired) { this.cleanupExpired = cleanupExpired; }
     }
 }

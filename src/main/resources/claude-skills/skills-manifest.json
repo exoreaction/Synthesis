@@ -1,0 +1,182 @@
+{
+  "version": "1.4.1",
+  "generatedBy": "Synthesis",
+  "description": "Bundled Claude Code skills for Synthesis knowledge infrastructure",
+  "skills": [
+    {
+      "name": "synthesis-architecture-monitoring",
+      "file": "synthesis-architecture-monitoring.yaml",
+      "command": "architecture",
+      "category": "analysis",
+      "description": "Monitor architecture quality and detect anti-patterns"
+    },
+    {
+      "name": "synthesis-ask-workspace",
+      "file": "synthesis-ask-workspace.yaml",
+      "command": "ask",
+      "category": "ai",
+      "description": "AI-powered workspace Q&A"
+    },
+    {
+      "name": "synthesis-changelog-reports",
+      "file": "synthesis-changelog-reports.yaml",
+      "command": "changelog",
+      "category": "tracking",
+      "description": "Cross-workspace change reporting with snapshots and executive summaries"
+    },
+    {
+      "name": "synthesis-context",
+      "file": "synthesis-context.yaml",
+      "command": "context",
+      "category": "context",
+      "description": "Synthesis company and product context (auto-loaded)"
+    },
+    {
+      "name": "synthesis-database-migrations",
+      "file": "synthesis-database-migrations.md",
+      "command": "migrations",
+      "category": "development",
+      "description": "Flyway database migration patterns for Synthesis"
+    },
+    {
+      "name": "synthesis-development",
+      "file": "synthesis-development.md",
+      "command": "development",
+      "category": "development",
+      "description": "Synthesis development guide and conventions"
+    },
+    {
+      "name": "synthesis-enrich-media",
+      "file": "synthesis-enrich-media.yaml",
+      "command": "enrich",
+      "category": "media",
+      "description": "Make binary media files searchable with companion metadata"
+    },
+    {
+      "name": "synthesis-explain-code",
+      "file": "synthesis-explain-code.yaml",
+      "command": "explain",
+      "category": "ai",
+      "description": "AI-powered code explanations"
+    },
+    {
+      "name": "synthesis-export-docs",
+      "file": "synthesis-export-docs.yaml",
+      "command": "export",
+      "category": "documentation",
+      "description": "Export workspace index as documentation in multiple formats"
+    },
+    {
+      "name": "synthesis-graph-architecture",
+      "file": "synthesis-graph-architecture.yaml",
+      "command": "graph",
+      "category": "visualization",
+      "description": "Generate visual architecture diagrams with Mermaid or DOT"
+    },
+    {
+      "name": "synthesis-insights-metrics",
+      "file": "synthesis-insights-metrics.yaml",
+      "command": "insights",
+      "category": "analysis",
+      "description": "Deep codebase analysis with actionable metrics"
+    },
+    {
+      "name": "synthesis-interactive-cli",
+      "file": "synthesis-interactive-cli.md",
+      "command": "ask --interactive",
+      "category": "ai",
+      "description": "Interactive multi-turn AI conversations about workspace content"
+    },
+    {
+      "name": "synthesis-learn-skills",
+      "file": "synthesis-learn-skills.yaml",
+      "command": "learn",
+      "category": "ai",
+      "description": "Auto-generate Claude Code skills from workspace knowledge"
+    },
+    {
+      "name": "synthesis-linkedin-campaign",
+      "file": "synthesis-linkedin-campaign.yaml",
+      "command": "linkedin",
+      "category": "marketing",
+      "description": "Execute 9-week LinkedIn campaign for Synthesis"
+    },
+    {
+      "name": "synthesis-metrics-tracking",
+      "file": "synthesis-metrics-tracking.md",
+      "command": "metrics",
+      "category": "development",
+      "description": "MCP tool metrics tracking and performance analysis"
+    },
+    {
+      "name": "synthesis-perspectives-analysis",
+      "file": "synthesis-perspectives-analysis.yaml",
+      "command": "perspectives",
+      "category": "ai",
+      "description": "Multi-perspective directed synthesis analysis"
+    },
+    {
+      "name": "synthesis-product-context",
+      "file": "synthesis-product-context.yaml",
+      "command": "context",
+      "category": "context",
+      "description": "Comprehensive Synthesis product context (auto-loaded)"
+    },
+    {
+      "name": "synthesis-relate-dependencies",
+      "file": "synthesis-relate-dependencies.yaml",
+      "command": "relate",
+      "category": "analysis",
+      "description": "Show bidirectional file relationships and dependencies"
+    },
+    {
+      "name": "synthesis-release-manager",
+      "file": "synthesis-release-manager.yaml",
+      "command": "release",
+      "category": "development",
+      "description": "Manage Synthesis releases, PRs, and version updates"
+    },
+    {
+      "name": "synthesis-scoped-search",
+      "file": "synthesis-scoped-search.yaml",
+      "command": "search --scope",
+      "category": "search",
+      "description": "Search within specific sub-workspaces"
+    },
+    {
+      "name": "synthesis-search-workspace",
+      "file": "synthesis-search-workspace.yaml",
+      "command": "search",
+      "category": "search",
+      "description": "Full-text search across all indexed workspace files"
+    },
+    {
+      "name": "synthesis-staging-management",
+      "file": "synthesis-staging-management.yaml",
+      "command": "staging",
+      "category": "operations",
+      "description": "Manage temporary files in staging workspaces"
+    },
+    {
+      "name": "synthesis-subworkspace-navigation",
+      "file": "synthesis-subworkspace-navigation.yaml",
+      "command": "list",
+      "category": "navigation",
+      "description": "Navigate and explore sub-workspace hierarchies"
+    },
+    {
+      "name": "synthesis-track-movements",
+      "file": "synthesis-track-movements.yaml",
+      "command": "track",
+      "category": "tracking",
+      "description": "Track file movements with hash-based detection"
+    },
+    {
+      "name": "synthesis-workspace-management",
+      "file": "synthesis-workspace-management.md",
+      "command": "init",
+      "category": "operations",
+      "description": "Workspace creation, configuration, and management"
+    }
+  ]
+}

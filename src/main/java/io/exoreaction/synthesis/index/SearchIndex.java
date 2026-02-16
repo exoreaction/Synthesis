@@ -528,6 +528,125 @@ public class SearchIndex implements Closeable {
         return parser.parse(queryString);
     }
 
+    /**
+     * Searches the index with all filter parameters including sub-workspace.
+     *
+     * @param queryString          the search query
+     * @param fileTypeFilter       optional file type filter
+     * @param repoFilter           optional repository filter
+     * @param orgFilter            optional organization filter
+     * @param clientFilter         optional client filter
+     * @param subWorkspaceFilter   optional sub-workspace filter
+     * @param maxResults           maximum results to return
+     * @return ranked search results
+     */
+    public List<SearchResult> searchWithSubWorkspace(String queryString, String fileTypeFilter,
+                                                      String repoFilter, String orgFilter,
+                                                      String clientFilter, String subWorkspaceFilter,
+                                                      int maxResults) throws IOException {
+        if (queryString == null || queryString.isBlank()) {
+            return List.of();
+        }
+
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+
+            // Content query
+            Query contentQuery = buildQuery(queryString);
+            booleanQuery.add(contentQuery, BooleanClause.Occur.MUST);
+
+            // File type filter
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, fileTypeFilter.toUpperCase())),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Repository filter
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Organization filter
+            if (orgFilter != null && !orgFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.ORGANIZATION, orgFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Client filter
+            if (clientFilter != null && !clientFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.CLIENT, clientFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            // Sub-workspace filter
+            if (subWorkspaceFilter != null && !subWorkspaceFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.SUB_WORKSPACE, subWorkspaceFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        } catch (ParseException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Lists all documents with sub-workspace filter support.
+     */
+    public List<SearchResult> listAllWithSubWorkspace(String fileTypeFilter, String repoFilter,
+                                                       String orgFilter, String clientFilter,
+                                                       String subWorkspaceFilter,
+                                                       int maxResults) throws IOException {
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+            booleanQuery.add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST);
+
+            if (fileTypeFilter != null && !fileTypeFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.FILE_TYPE, fileTypeFilter.toUpperCase())),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (repoFilter != null && !repoFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.REPOSITORY, repoFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (orgFilter != null && !orgFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.ORGANIZATION, orgFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (clientFilter != null && !clientFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.CLIENT, clientFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+            if (subWorkspaceFilter != null && !subWorkspaceFilter.isBlank()) {
+                booleanQuery.add(new TermQuery(new Term(DocumentFields.SUB_WORKSPACE, subWorkspaceFilter)),
+                        BooleanClause.Occur.FILTER);
+            }
+
+            TopDocs topDocs = searcher.search(booleanQuery.build(), maxResults);
+
+            List<SearchResult> results = new ArrayList<>();
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+
+            return results;
+        }
+    }
+
     private SearchResult toSearchResult(Document doc, float score) {
         String sizeStr = doc.get(DocumentFields.SIZE);
         long sizeBytes = sizeStr != null ? Long.parseLong(sizeStr) : 0;
@@ -543,8 +662,38 @@ public class SearchIndex implements Closeable {
                 doc.get(DocumentFields.HEADINGS) != null ? doc.get(DocumentFields.HEADINGS) : "",
                 doc.get(DocumentFields.STRUCTURE) != null ? doc.get(DocumentFields.STRUCTURE) : "",
                 sizeBytes,
-                doc.get(DocumentFields.REPOSITORY)
+                doc.get(DocumentFields.REPOSITORY),
+                doc.get(DocumentFields.SUB_WORKSPACE)
         );
+    }
+
+    /**
+     * Returns the number of indexed documents grouped by sub-workspace.
+     *
+     * <p>Iterates all documents in the index and counts files per
+     * {@link DocumentFields#SUB_WORKSPACE} value. Documents without a
+     * sub-workspace are grouped under an empty-string key.
+     *
+     * @return map from sub-workspace name to file count
+     */
+    public Map<String, Long> getSubWorkspaceCounts() throws IOException {
+        Map<String, Long> counts = new HashMap<>();
+
+        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+            TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
+
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                String subWorkspace = doc.get(DocumentFields.SUB_WORKSPACE);
+                if (subWorkspace == null) {
+                    subWorkspace = "";
+                }
+                counts.merge(subWorkspace, 1L, Long::sum);
+            }
+        }
+
+        return counts;
     }
 
     @Override

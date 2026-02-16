@@ -1,0 +1,407 @@
+name: synthesis-product-context
+version: 1.4.0
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with sub-workspace architecture
+auto_load: true
+
+instructions: |
+  # Synthesis: Knowledge Infrastructure for AI-Augmented Development
+
+  **Official Repository:** https://github.com/exoreaction/Synthesis
+  **License:** MIT (Open Source)
+  **Local Path:** /home/totto/src/exoreaction/Synthesis
+  **Language:** Java 17+
+  **Status:** Production-ready (v1.4.1-SNAPSHOT as of Feb 16, 2026)
+  **Latest:** Sub-workspace architecture with hierarchical organization
+
+  ---
+
+  ## What is Synthesis?
+
+  **One-line:** Knowledge infrastructure that indexes everything your team creates (code, docs, videos, PDFs) and makes it instantly searchable with relationship tracking.
+
+  **The Problem It Solves:**
+  - AI tools made developers 10x faster at creating code
+  - But comprehension speed stayed at 1x (unchanged)
+  - Result: 40-60% of time spent searching for context = wasted AI investment
+  - Gap: 10x creation speed, 1.5x shipping speed (where did the other 8.5x go?)
+
+  **The Solution:**
+  - Indexes 200-300 files/second across all formats
+  - Sub-second search (<1 sec typical, 0.4s validated)
+  - Bi-directional relationship tracking (know what breaks before you change it)
+  - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
+  - Multi-format support (code, docs, videos, PDFs, configs, media)
+  - Local-only processing (zero cloud required, privacy-first)
+
+  ---
+
+  ## Validated Metrics (Feb 14, 2026 Integration Test)
+
+  **Performance:**
+  - 8,934 files indexed across 3 diverse workspaces
+  - Indexing speed: 200-300 files/second
+  - Search speed: Sub-second (0.4s typical)
+  - Storage overhead: 2.7% (11.6 MB index for 434 MB content)
+  - Cross-repo mapping: 58 repos, 429 dependencies in <31 seconds
+  - Tests: **802 tests passing** (43 new Phase 2 tests)
+
+  **Business Impact:**
+  - 92-95% reduction in retrieval time (5-15 min → 10-30 sec)
+  - 10-12x faster knowledge organization
+  - 70-80% AI realization rate (up from 15-20% without infrastructure)
+  - ROI: 4.1M NOK/year for 10-person team (40% search time × salary)
+
+  ---
+
+  ## Core Commands
+
+  ```bash
+  # Initialize workspace
+  synthesis init
+
+  # Scan/index files (200-300 files/sec)
+  synthesis scan
+
+  # Search everything (sub-second)
+  synthesis search "keyword or phrase"
+
+  # Show relationships (what breaks if you change this?)
+  synthesis relate "filename"
+
+  # Generate architecture graph (Mermaid format)
+  synthesis graph --modules --format mermaid
+
+  # Export documentation (for users' codebases)
+  synthesis export --format onboarding-guide
+  synthesis export --format architecture-doc
+
+  # Watch mode (continuous indexing)
+  synthesis watch
+
+  # NEW: Enrich media files (Phase 2)
+  synthesis enrich --level LOCAL "path/to/media/"
+
+  # NEW: AI code explanations
+  synthesis explain src/main/MyClass.java
+
+  # NEW: Semantic search
+  synthesis search "authentication logic" --semantic
+
+  # NEW: Architecture monitoring
+  synthesis architecture --check
+
+  # NEW v1.4.1: Sub-workspace features
+  synthesis search "<query>" --scope <sub-workspace>  # Scoped search
+  synthesis search "<query>" --aggregate              # Grouped results
+  synthesis migrate-repos [--dry-run]                 # Migrate to sub-workspaces
+  synthesis staging list                              # Manage staging files
+  synthesis staging promote <file> --to <workspace>   # Promote from staging
+  ```
+
+  ---
+
+  ## Sub-Workspace Architecture (v1.4.1+, Feb 16, 2026)
+
+  **Problem:** Flat workspace structure makes it hard to organize and search large codebases with multiple organizations, clients, and repos.
+
+  **Solution:** Hierarchical sub-workspaces with scoped search and aggregation.
+
+  ### Features
+  1. **Organizational Hierarchy:** Nest organizations, clients, products as sub-workspaces
+  2. **Repository Sub-Workspaces:** Treat individual repos as searchable units
+  3. **Scoped Search:** `--scope` flag filters to specific sub-workspace
+  4. **Aggregated Results:** `--aggregate` groups results by sub-workspace
+  5. **Staging Workspaces:** Temporary areas (Downloads, Screenshots) with retention policies
+  6. **Auto-Migration:** `migrate-repos` converts existing orgs/repos to sub-workspaces
+
+  ### Architecture
+  - **Data Model:** `SubWorkspaceConfig` with name, path, type, tags, inheritance
+  - **Index Tagging:** Lucene documents tagged with `subWorkspace` field
+  - **Configuration:** YAML-based with inheritance (parent → child)
+  - **Database:** New `workspaces` table with `parent_id` for tree structure
+
+  ### Example Structure
+  ```
+  Documents/
+    ├── eXOReaction/ (sub-workspace, 2,932 files)
+    │   ├── clients/
+    │   │   ├── Elprint/
+    │   │   └── Opplysningen-1881/
+    │   ├── products/
+    │   └── business/
+    ├── Quadim/ (sub-workspace, 459 files)
+    └── Cantara/ (sub-workspace, 857 files)
+  ```
+
+  ### Commands
+  ```bash
+  # See sub-workspace tree
+  synthesis list
+
+  # Scoped search
+  synthesis search "authentication" --scope eXOReaction
+
+  # Aggregated search
+  synthesis search "README" --aggregate
+
+  # Migrate existing orgs
+  synthesis migrate-repos [--dry-run] [--orgs-only]
+
+  # Staging management
+  synthesis staging list
+  synthesis staging promote "file.pdf" --to documents
+  ```
+
+  ---
+
+  ## Multi-Perspective Documentation (PR #8, Merged Feb 14, 2026)
+
+  **9 role-specific guides** (~64,000 words total):
+
+  1. **ENGINEERING-MANAGER.md** - 4-week adoption playbook, Success Dashboard (6 metrics), ROI calculator
+  2. **ARCHITECT.md** - Cross-repo dependency mapping, Mermaid graphs, governance integration
+  3. **EXECUTIVE-BRIEF.md** - AI Paradox, Three Classes of Orgs, Strategic Window (12-18 months)
+  4. **DEVOPS.md** - CI/CD integration (GitHub Actions YAML), Docker deployment, Git hooks
+  5. **PRODUCT-MANAGER.md** - Demo prep (60min → 3min), QBR automation, content audit
+  6. **WORKSHOP-FACILITATOR.md** - 2hr/4hr/8hr workshop plans, exercises, troubleshooting
+  7. **SALES-ENABLEMENT.md** - Discovery questions, 15-min demo script, objection handling
+  8. **SECURITY-POSTURE.md** - Threat model, GDPR/SOC2/HIPAA compliance, data flow diagram
+  9. **README.md** (perspectives/) - Role selector hub, navigation by question
+
+  **Visual Assets Library (153 MB):**
+  - 5 high-res infographics (PNG, 6+ MB each)
+  - 8 NotebookLM-generated presentations (PDF, 13-20 MB each)
+  - Complete usage guide with audience targeting
+
+  **Location:** `/home/totto/src/synthesis/docs/`
+  - `docs/perspectives/` - Role-specific guides
+  - `docs/guides/` - Quick Start, User Guide, Generating Docs
+  - `docs/visuals/` - Infographics + presentations
+
+  ---
+
+  ## Phase 2: Local Media Enrichment (PR #14, Merged Feb 15, 2026)
+
+  **Air-Gapped, Privacy-First Media Processing**
+
+  **New Features:**
+  - **Whisper Integration:** Speech-to-text transcription (99 languages)
+    - Supports: MP3, WAV, M4A, FLAC, OGG, WebM, MP4, AVI, MOV
+    - Performance: ~5-10 sec for 1 min audio (whisper.cpp 100x faster than Python)
+    - Local-only: No cloud APIs, no network calls
+
+  - **Tesseract Integration:** OCR text extraction (100+ languages)
+    - Supports: PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP
+    - Performance: ~1-2 sec for 1920×1080 screenshot
+    - Confidence scores + bounding boxes
+
+  - **PDF Support:** Multi-page PDF → images → OCR workflow
+    - Poppler utilities (pdftoppm) for PDF conversion
+    - 300 DPI conversion for optimal OCR accuracy
+    - Performance: ~1-2 sec per page
+
+  **Enrichment Tier Model:**
+  ```
+  ┌──────────┬──────────────────────────────────────────┐
+  │  BASIC   │ Deterministic metadata only              │
+  │          │ Works everywhere, zero dependencies      │
+  ├──────────┼──────────────────────────────────────────┤
+  │  LOCAL   │ BASIC + Local tools (Whisper, Tesseract)│ ← Phase 2
+  │          │ Air-gapped, privacy-first               │
+  ├──────────┼──────────────────────────────────────────┤
+  │    AI    │ LOCAL + Cloud AI (Claude Vision)        │
+  │          │ Requires API key and network             │
+  └──────────┴──────────────────────────────────────────┘
+  ```
+
+  **Compliance Ready:**
+  - ✅ HIPAA (healthcare - local processing)
+  - ✅ PCI-DSS (financial - no data transmission)
+  - ✅ GDPR (EU - privacy-first architecture)
+  - ✅ Air-gapped environments (government, classified)
+
+  **Commands:**
+  ```bash
+  # Enrich media files (auto-detects tier: BASIC/LOCAL/AI)
+  synthesis enrich [path]
+
+  # Specify enrichment level explicitly
+  synthesis enrich --level LOCAL [path]
+  synthesis enrich --level AI [path]
+
+  # Explain code with AI
+  synthesis explain [file]
+
+  # Search with semantic understanding (if embeddings available)
+  synthesis search "query" --semantic
+  ```
+
+  **Testing:**
+  - 802 tests passing (43 new Phase 2 tests)
+  - Zero regressions
+  - 100% backward compatible
+
+  **Installation (Optional Tools):**
+  ```bash
+  # Whisper (speech-to-text)
+  brew install whisper-cpp  # or: pip install openai-whisper
+
+  # Tesseract (OCR)
+  brew install tesseract
+
+  # Poppler (PDF conversion)
+  brew install poppler
+  ```
+
+  **Strategic Value:**
+  - Enterprise deployments with privacy requirements
+  - Government/classified environments (air-gapped)
+  - Healthcare organizations (HIPAA compliance)
+  - Financial institutions (PCI-DSS compliance)
+  - Competitive advantage: Only knowledge infrastructure with local media processing
+
+  **Revenue Opportunity:**
+  - Enterprise tier: $50K-100K/year (air-gapped deployments)
+  - Workshop upgrades: +$10K-20K per workshop (media-heavy customers)
+  - Expected Q3-Q4 revenue: $60K-120K (conservative)
+
+  ---
+
+  ## Technical Architecture
+
+  **Core:**
+  - Apache Lucene for full-text indexing
+  - SQLite for metadata and relationships
+  - Bundled ffprobe (FFmpeg 7.0.2-static) for video metadata
+  - Picocli for CLI interface
+  - Jackson for JSON processing
+
+  **Index Structure:**
+  - `.synthesis/index/` - Lucene index
+  - `.synthesis/config.yaml` - Configuration
+  - `.synthesis/organizations.json` - Organization metadata
+
+  **Supported Formats:**
+  - Code: Java, Python, JavaScript, TypeScript, Go, Rust, etc.
+  - Docs: Markdown, AsciiDoc, reStructuredText, plaintext
+  - Media: MP4, AVI, MOV (metadata extraction)
+  - Office: PDF, DOCX (coming soon)
+  - Config: YAML, JSON, XML, properties
+
+  ---
+
+  ## Strategic Positioning
+
+  **Category:** Knowledge Infrastructure (emerging category, 2026)
+  **Market:** AI-augmented development teams (5%+ adoption now, 60%+ in 24 months)
+  **Competitive Advantage:** First-mover in "knowledge infrastructure" category
+
+  **Three Classes of Organizations (Feb 2026):**
+  - **Class 1 (60%):** Output-Overwhelmed - 15-20% AI realization, 1.5x shipping speed
+  - **Class 2 (35%):** Synthesis-Enabled - 70-80% AI realization, 7-8x shipping speed
+  - **Class 3 (5%):** Synthesis-Native - 90-100% AI realization, 9-10x shipping speed
+
+  **Strategic Window:** 12-18 months (Feb 2026 - Aug 2027) to move Class 1 → Class 3
+  **After window:** Class 2 becomes table stakes, first-mover advantage diminishes
+
+  ---
+
+  ## Business Context (eXOReaction)
+
+  **Synthesis is developed by eXOReaction** (Thor Henning Hetland's company)
+
+  **Revenue Models:**
+  1. **Workshops:** 35-75K NOK (half-day to full-day, validated Feb 13 Item Consulting)
+  2. **Train-the-trainer:** 100-200K NOK (corporate internal rollout, SpareBank 1 pattern)
+  3. **Consulting:** Enterprise transformation (200-300K+ for org-wide adoption)
+  4. **Open Source:** Community growth, enterprise leads, speaking opportunities
+
+  **Current Pipeline:**
+  - Item Consulting: 55-75K committed (Feb 13 workshop, 75% developer commitment)
+  - SpareBank 1: 100-200K hot (Vidar presenting to team Feb 4)
+  - Mynder AS: 540-900K/year (Bergen retainer, recurring model)
+
+  **Proven Patterns:**
+  - LinkedIn drives leads (43% comment-to-lead conversion, 405-605K attributed revenue)
+  - Finance-led adoption (Item: CFO initiated purchase, bypassing internal sell)
+  - Conservative claims convert (10-30x closed deals, 320x failed)
+  - Help first, never pitch (SpareBank 1: inbound after helping with refactoring)
+
+  ---
+
+  ## Key People & Networks
+
+  **Thor Henning Hetland (Totto):**
+  - Chairman of IASA (International Association of Software Architects)
+  - Founder of JavaZone (largest Java conference in Nordics)
+  - 30+ years enterprise architecture
+  - Networks: Norwegian tech (JavaZone), Architecture (IASA), Enterprise (board members)
+
+  **Networks for Synthesis Promotion:**
+  - IASA: Architect community (present at meetings, workshops)
+  - JavaZone: Developer conference (guaranteed speaking slot as founder)
+  - LinkedIn: 9 different perspectives = 9 different audiences
+  - Enterprise: Board members, investors (IASA Chairman network)
+
+  ---
+
+  ## Related Projects & Proof Points
+
+  **Synthesis was built to solve eXOReaction's own problem:**
+
+  1. **lib-pcb** (11-day build, Jan 16-27, 2026)
+     - 197,831 lines Java code, 7,461 tests (99.8% pass)
+     - Industry standard: 10-18 months → Built in 11 days (25-66x faster)
+     - Generated 691 files/day with Claude Code
+     - Problem: Finding files, tracing dependencies across 8,000+ files
+     - Solution: Built Synthesis to manage the output explosion
+
+  2. **Quadim** (Production SaaS, 15+ microservices)
+     - Skill management platform
+     - Multi-repo development, cross-repo dependencies
+     - Synthesis used internally for architecture visibility
+
+  3. **Xorcery AAA** (eXOReaction IP, $10B+ market)
+     - Alchemy + Aurora: Temporal analytics, DevSecOps intelligence
+     - Complex multi-repo architecture
+     - Synthesis enables fast navigation across components
+
+  ---
+
+  ## When to Reference Synthesis
+
+  **Use Synthesis as example when discussing:**
+  - Knowledge infrastructure / AI output management
+  - Open source strategy (MIT license, community building)
+  - Multi-perspective documentation (9 audiences, not one size fits all)
+  - LinkedIn content strategy (9 perspectives = 9x reach)
+  - Workshop facilitation (Item Consulting validation, 75% commitment)
+  - Enterprise adoption patterns (SpareBank 1, finance-led at Item)
+  - Norwegian tech community (IASA, JavaZone connections)
+
+  **Quick Facts for Conversations:**
+  - "Built Synthesis to manage 691 files/day from lib-pcb build"
+  - "8,934 files indexed in 31 seconds, sub-second search"
+  - "92-95% reduction in retrieval time (validated)"
+  - "Open source MIT, 153 MB visual asset library"
+  - "9 perspective-specific guides, 64,000 words documentation"
+  - "Item Consulting: Finance team initiated workshop purchase (unprecedented)"
+
+  ---
+
+  ## Documentation Paths (Quick Reference)
+
+  **In Synthesis repo:**
+  - Perspectives: `/home/totto/src/synthesis/docs/perspectives/`
+  - Guides: `/home/totto/src/synthesis/docs/guides/`
+  - Visuals: `/home/totto/src/synthesis/docs/visuals/`
+
+  **In Documents (business/marketing):**
+  - Attention Strategy: `/home/totto/Documents/eXOReaction/marketing/SYNTHESIS-ATTENTION-STRATEGY.md`
+  - LinkedIn Strategy: `/home/totto/Documents/eXOReaction/marketing/linkedin/MONTHLY-CONTENT-STRATEGY.md`
+  - Pipeline Status: `/home/totto/Documents/eXOReaction/business/PIPELINE-STATUS.md`
+
+  ---
+
+  **Last Updated:** February 15, 2026 (PR #14 merged, Phase 2 local media enrichment complete)
+  **Next Milestone:** Phase 3: Auto-enrichment during scan, Show HN launch (Week 7, Mar 25), JavaZone CFP (Spring 2026)

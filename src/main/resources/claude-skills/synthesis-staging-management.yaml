@@ -1,0 +1,262 @@
+name: synthesis-staging-management
+version: 1.0.0
+description: |
+  Manage temporary/incoming files in staging workspaces (Downloads, Screenshots).
+  Track, classify, promote, and expire staged files with retention policies.
+
+trigger_phrases:
+  - "staging files"
+  - "manage downloads"
+  - "classify downloads"
+  - "promote file"
+  - "expired files"
+  - "staging stats"
+  - "cleanup staging"
+  - "review downloads"
+
+instructions: |
+  # Synthesis Staging Management
+
+  **New in v1.4.1:** Manage temporary/incoming files with time-based retention and promotion workflows.
+
+  ---
+
+  ## What is a Staging Workspace?
+
+  Staging workspaces are temporary holding areas for incoming files:
+  - **Downloads** - 30-day retention, auto-classification enabled
+  - **Pictures/Screenshots** - 90-day retention for screenshots
+
+  **Purpose:**
+  - Prevent clutter in permanent workspaces
+  - Auto-classify and route files to proper locations
+  - Track file age and suggest cleanup
+  - Promote valuable files to permanent storage
+
+  ---
+
+  ## Core Commands
+
+  ### 1. List Staged Files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging list 2>/dev/null
+  ```
+
+  **Shows:**
+  - File paths with status badges
+  - File sizes
+  - Classification info (if auto-classify enabled)
+  - Days until expiration
+  - Organization/destination suggestions
+
+  ### 2. Show Staging Stats
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging stats 2>/dev/null
+  ```
+
+  **Displays:**
+  - Total staged files
+  - Retention configuration (e.g., 30 days)
+  - Auto-classification settings
+  - Expired file count
+  - Storage usage
+
+  ### 3. Find Expired Files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging expire --dry-run 2>/dev/null
+  ```
+
+  **Preview mode:** Shows what would be expired without making changes.
+
+  ### 4. Process Expired Files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging expire 2>/dev/null
+  ```
+
+  **Warning:** This removes expired files from the index (files remain on disk).
+
+  ### 5. Promote File to Permanent Workspace
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging promote "path/to/file.pdf" --to documents 2>/dev/null
+  ```
+
+  **Optional:** Specify destination with `--dest "eXOReaction/clients/Elprint/"`
+
+  ### 6. Ingest New Files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Downloads staging ingest 2>/dev/null
+  ```
+
+  **Purpose:** Register newly downloaded files in the staging database.
+
+  ---
+
+  ## Staging Workflows
+
+  ### Workflow 1: Daily Download Review
+  ```bash
+  # 1. Check what's new
+  synthesis -d /home/totto/Downloads staging list 2>/dev/null
+
+  # 2. View stats
+  synthesis -d /home/totto/Downloads staging stats 2>/dev/null
+
+  # 3. Promote important files
+  synthesis -d /home/totto/Downloads staging promote "proposal.pdf" --to documents --dest "eXOReaction/clients/ItemConsulting/" 2>/dev/null
+
+  # 4. Check for expired files
+  synthesis -d /home/totto/Downloads staging expire --dry-run 2>/dev/null
+  ```
+
+  ### Workflow 2: Weekly Cleanup
+  ```bash
+  # 1. Find expired files (dry-run)
+  synthesis -d /home/totto/Downloads staging expire --dry-run 2>/dev/null
+
+  # 2. Review the list, then process
+  synthesis -d /home/totto/Downloads staging expire 2>/dev/null
+
+  # 3. Refresh index
+  synthesis -d /home/totto/Downloads scan 2>/dev/null
+  ```
+
+  ### Workflow 3: Screenshot Management
+  ```bash
+  # List screenshots by age
+  synthesis -d /home/totto/Pictures staging list 2>/dev/null
+
+  # Search for specific screenshots
+  synthesis -d /home/totto/Pictures search "dashboard" --scope Screenshots 2>/dev/null
+
+  # Promote important screenshot to Documents
+  synthesis -d /home/totto/Pictures staging promote "Screenshots/2026/Screenshot_dashboard.png" --to documents --dest "eXOReaction/products/xorcery-aaa/screenshots/" 2>/dev/null
+  ```
+
+  ---
+
+  ## Staging Configuration
+
+  **Downloads workspace** (`/home/totto/Downloads/.synthesis/config.yaml`):
+  ```yaml
+  staging:
+    enabled: true
+    retentionDays: 30              # Auto-expire after 30 days
+    autoClassify: true             # Run DownloadsClassifier
+    classificationThreshold: 0.5   # Min confidence
+    cleanupExpired: false          # Manual cleanup
+  ```
+
+  **Pictures/Screenshots** (`/home/totto/Pictures/.synthesis/config.yaml`):
+  ```yaml
+  subWorkspaces:
+    - name: "Screenshots"
+      path: "Screenshots"
+      type: "staging"              # Marks as staging sub-workspace
+      tags: ["screenshots", "temporary"]
+  ```
+
+  ---
+
+  ## Auto-Classification
+
+  **Downloads workspace** has auto-classification enabled via `DownloadsClassifier`:
+
+  **What it does:**
+  - Analyzes file names and content
+  - Maps files to organizations (eXOReaction, Quadim, Cantara)
+  - Suggests destination paths
+  - Flags software installers for skipping (.deb, .exe, .dmg)
+
+  **Example:**
+  - File: `elprint-invoice-2026-02.pdf`
+  - Classification: Organization = eXOReaction, Client = Elprint
+  - Suggestion: `eXOReaction/clients/Elprint/finance/invoices/`
+
+  ---
+
+  ## Retention Policies
+
+  | Workspace | Retention | Auto-Classify | Purpose |
+  |-----------|-----------|---------------|---------|
+  | Downloads | 30 days | ✅ Yes | Short-term staging, quick cleanup |
+  | Screenshots | 90 days | ❌ No | Keep longer, manual review |
+
+  **How retention works:**
+  1. Files are indexed when scanned
+  2. Age is tracked from first index date
+  3. After retention period, files become "expired"
+  4. `staging expire` removes expired entries from index
+  5. **Files remain on disk** (manual deletion if desired)
+
+  ---
+
+  ## Best Practices
+
+  1. **Review staging weekly:**
+     - Run `staging list` to see what's accumulated
+     - Promote important files immediately
+     - Let temporary files age out naturally
+
+  2. **Use auto-classification:**
+     - Downloads workspace automatically suggests destinations
+     - Review suggestions before promoting
+
+  3. **Don't promote everything:**
+     - Only promote files you need long-term
+     - Installers, temp files should age out
+
+  4. **Combine with search:**
+     - Use scoped search to find staged files: `synthesis search "invoice" --scope Downloads`
+     - Then promote matches
+
+  5. **Adjust retention as needed:**
+     - Edit `.synthesis/config.yaml` to change `retentionDays`
+     - Re-scan after config changes
+
+  ---
+
+  ## Integration with Regular Workspaces
+
+  **Promotion flow:**
+  ```
+  Downloads (staging)
+    ↓ classify
+    ↓ review
+    ↓ promote
+  Documents (permanent)
+    └── eXOReaction/
+        └── clients/
+            └── Elprint/
+                └── [promoted file]
+  ```
+
+  **After promotion:**
+  - File is moved (or copied) to destination
+  - Source index entry is removed
+  - Destination workspace is updated
+  - Both indexes reflect the change
+
+  ---
+
+  ## Error Handling
+
+  - **"Staging not configured"** - Add `staging:` section to workspace config
+  - **"No files found"** - Run `staging ingest` to register new files
+  - **Promotion fails** - Check destination path exists, check permissions
+  - **Classification confidence low** - Manually specify destination with `--dest`
+
+  ---
+
+  ## Follow-up Actions
+
+  After staging management:
+  - "Want to search staged files?" -> Use scoped search with workspace
+  - "Want to configure retention?" -> Edit `.synthesis/config.yaml`
+  - "Want to see staging stats?" -> Run `staging stats`
+  - "Need to bulk promote?" -> Script multiple `staging promote` commands

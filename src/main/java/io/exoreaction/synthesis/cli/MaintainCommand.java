@@ -8,6 +8,7 @@ import io.exoreaction.synthesis.changelog.WorkspaceSnapshot;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
+import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
@@ -282,6 +283,8 @@ public class MaintainCommand implements Callable<Integer> {
     }
 
     private int applyChanges(WorkspaceManager workspace, ScanState.ChangeSet changes) throws IOException {
+        SynthesisConfig config = ConfigLoader.load(workspace.getWorkspaceRoot());
+        SubWorkspaceResolver subWsResolver = new SubWorkspaceResolver(config);
         AnalyzerRegistry analyzers = new AnalyzerRegistry();
         FileIndexer fileIndexer = new FileIndexer();
         int updated = 0;
@@ -291,7 +294,9 @@ public class MaintainCommand implements Callable<Integer> {
             for (FileMetadata fm : changes.added()) {
                 try {
                     AnalysisResult analysis = analyzers.analyze(fm);
-                    index.addDocument(fileIndexer.createDocument(fm, analysis));
+                    String subWorkspace = subWsResolver.resolve(fm.relativePath());
+                    index.addDocument(fileIndexer.createDocument(fm, analysis,
+                            null, null, null, subWorkspace));
                     updated++;
                 } catch (Exception e) {
                     if (verbose) {
@@ -304,7 +309,9 @@ public class MaintainCommand implements Callable<Integer> {
             for (FileMetadata fm : changes.modified()) {
                 try {
                     AnalysisResult analysis = analyzers.analyze(fm);
-                    index.addDocument(fileIndexer.createDocument(fm, analysis));
+                    String subWorkspace = subWsResolver.resolve(fm.relativePath());
+                    index.addDocument(fileIndexer.createDocument(fm, analysis,
+                            null, null, null, subWorkspace));
                     updated++;
                 } catch (Exception e) {
                     if (verbose) {

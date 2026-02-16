@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.org;
 
+import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
+
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -376,5 +378,55 @@ public class OrganizationScanner {
         }
 
         return new ArrayList<>(keywords);
+    }
+
+    /**
+     * Converts discovered organizations to sub-workspace configurations.
+     *
+     * <p>Each organization above the confidence threshold is converted to a
+     * {@link SubWorkspaceConfig} with appropriate metadata. This method bridges
+     * the legacy organization scanning with the new sub-workspace architecture.
+     *
+     * @return list of sub-workspace configurations generated from organizational scan
+     * @since v1.4.0
+     */
+    public List<SubWorkspaceConfig> toSubWorkspaceConfigs() throws IOException {
+        List<DiscoveredOrganization> discovered = discoverWithConfidence();
+        List<SubWorkspaceConfig> configs = new ArrayList<>();
+
+        for (DiscoveredOrganization disc : discovered) {
+            Organization org = disc.organization();
+            SubWorkspaceConfig swConfig = new SubWorkspaceConfig(
+                    org.getName(),
+                    org.getName()  // path prefix matches directory name
+            );
+            swConfig.setDescription(org.getDescription() != null
+                    ? org.getDescription() : org.getType().name().toLowerCase() + " organization");
+
+            // Determine type based on organization type
+            String type = switch (org.getType()) {
+                case COMPANY -> "general";
+                case FOUNDATION -> "general";
+                case HOLDING -> "general";
+                case CONCEPT -> "general";
+                case OTHER -> "general";
+            };
+            swConfig.setType(type);
+
+            // Generate tags from organizational metadata
+            List<String> tags = new ArrayList<>();
+            tags.add(org.getType().name().toLowerCase());
+            if (!org.getClients().isEmpty()) {
+                tags.add("has-clients");
+            }
+            if (!org.getProducts().isEmpty()) {
+                tags.add("has-products");
+            }
+            swConfig.setTags(tags);
+
+            configs.add(swConfig);
+        }
+
+        return configs;
     }
 }

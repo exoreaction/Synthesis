@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
 import io.exoreaction.synthesis.workspace.WorkspaceType;
 import picocli.CommandLine.Command;
@@ -190,6 +191,9 @@ public class ListWorkspacesCommand implements Callable<Integer> {
                     info.company = metadata.getCompany();
                 }
             }
+            if (config.getSubWorkspaces() != null && !config.getSubWorkspaces().isEmpty()) {
+                info.subWorkspaces = config.getSubWorkspaces();
+            }
         } catch (Exception e) {
             // Fall back to simple parsing if YAML parsing fails
             Path configFile = synthDir.resolve("config.yaml");
@@ -330,6 +334,29 @@ public class ListWorkspacesCommand implements Callable<Integer> {
                 System.out.println("  Repos:       " + ws.repoCount);
             }
 
+            // Show sub-workspaces as tree view
+            if (!ws.subWorkspaces.isEmpty()) {
+                System.out.println("  Sub-spaces:  " + ws.subWorkspaces.size());
+                for (int i = 0; i < ws.subWorkspaces.size(); i++) {
+                    SubWorkspaceConfig sw = ws.subWorkspaces.get(i);
+                    boolean isLast = (i == ws.subWorkspaces.size() - 1);
+                    String connector = isLast ? "\u2514\u2500\u2500" : "\u251C\u2500\u2500";
+                    String desc = sw.getDescription() != null && !sw.getDescription().isEmpty()
+                            ? " \033[2m(" + sw.getDescription() + ")\033[0m" : "";
+                    String type = sw.getType() != null && !sw.getType().isEmpty()
+                            ? " \033[36m[" + sw.getType() + "]\033[0m" : "";
+                    System.out.println("               " + connector + " \033[1m" + sw.getName() + "\033[0m"
+                            + type + desc);
+                    if (verbose) {
+                        String prefix = isLast ? "               " : "               \u2502  ";
+                        System.out.println(prefix + "   path: " + sw.getPath());
+                        if (sw.getTags() != null && !sw.getTags().isEmpty()) {
+                            System.out.println(prefix + "   tags: " + String.join(", ", sw.getTags()));
+                        }
+                    }
+                }
+            }
+
             System.out.println("  Indexed:     " + (ws.indexed ? "\033[32m+\033[0m" : "\033[33m-\033[0m"));
 
             if (ws.indexed) {
@@ -389,7 +416,32 @@ public class ListWorkspacesCommand implements Callable<Integer> {
             System.out.println("      \"fileCount\": " + ws.fileCount + ",");
             System.out.println("      \"indexSize\": " + ws.indexSize + ",");
             System.out.println("      \"lastScan\": " + (ws.lastScan != null ? "\"" + ws.lastScan + "\"" : "null") + ",");
-            System.out.println("      \"watching\": " + ws.watching);
+            System.out.println("      \"watching\": " + ws.watching + ",");
+            // Sub-workspaces
+            System.out.println("      \"subWorkspaces\": [");
+            for (int j = 0; j < ws.subWorkspaces.size(); j++) {
+                SubWorkspaceConfig sw = ws.subWorkspaces.get(j);
+                System.out.println("        {");
+                System.out.println("          \"name\": \"" + sw.getName() + "\",");
+                System.out.println("          \"path\": \"" + sw.getPath() + "\",");
+                if (sw.getType() != null) {
+                    System.out.println("          \"type\": \"" + sw.getType() + "\",");
+                }
+                if (sw.getDescription() != null) {
+                    System.out.println("          \"description\": \"" + sw.getDescription() + "\",");
+                }
+                if (sw.getTags() != null && !sw.getTags().isEmpty()) {
+                    System.out.print("          \"tags\": [");
+                    for (int t = 0; t < sw.getTags().size(); t++) {
+                        System.out.print("\"" + sw.getTags().get(t) + "\"");
+                        if (t < sw.getTags().size() - 1) System.out.print(", ");
+                    }
+                    System.out.println("]");
+                }
+                System.out.print("        }");
+                System.out.println(j < ws.subWorkspaces.size() - 1 ? "," : "");
+            }
+            System.out.println("      ]");
             System.out.print("    }");
             System.out.println(i < workspaces.size() - 1 ? "," : "");
         }
@@ -427,5 +479,6 @@ public class ListWorkspacesCommand implements Callable<Integer> {
         long indexSize;
         Instant lastScan;
         boolean watching;
+        List<SubWorkspaceConfig> subWorkspaces = new ArrayList<>();
     }
 }

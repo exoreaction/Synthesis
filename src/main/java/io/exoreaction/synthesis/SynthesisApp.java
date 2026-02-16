@@ -91,7 +91,10 @@ import java.util.concurrent.Callable;
                 ListWorkspacesCommand.class,
                 WhichCommand.class,
                 TrackCommand.class,
-                ChangelogCommand.class
+                ChangelogCommand.class,
+                StagingCommand.class,
+                MigrateReposCommand.class,
+                ExportSkillsCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {

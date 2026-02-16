@@ -7,6 +7,7 @@ import io.exoreaction.synthesis.analyzer.VideoAnalyzer;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
+import io.exoreaction.synthesis.index.DocumentFields;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.ai.ClaudeClient;
@@ -130,10 +131,19 @@ public class ScanCommand implements Callable<Integer> {
             AnalyzerRegistry analyzers = new AnalyzerRegistry();
             FileIndexer fileIndexer = new FileIndexer();
 
+            // Initialize sub-workspace resolver
+            SubWorkspaceResolver subWsResolver = new SubWorkspaceResolver(config);
+            if (subWsResolver.hasSubWorkspaces()) {
+                AnsiOutput.printInfo("Sub-workspaces: " + subWsResolver.count() + " configured");
+            }
+
             // Track video metadata extraction methods for summary
             int videosWithFullMeta = 0;
             int videosWithBasicMeta = 0;
             int videosNeedingFfprobe = 0;
+
+            // Track sub-workspace tagging
+            Map<String, Integer> subWsCounts = new LinkedHashMap<>();
 
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 if (fullRebuild) {
@@ -169,9 +179,19 @@ public class ScanCommand implements Callable<Integer> {
                             }
                         }
 
-                        var doc = fileIndexer.createDocument(metadata, analysis);
+                        // Resolve sub-workspace for this file
+                        String subWorkspace = subWsResolver.resolve(metadata.relativePath());
+
+                        // Create document with sub-workspace tagging
+                        var doc = fileIndexer.createDocument(metadata, analysis,
+                                null, null, null, subWorkspace);
                         index.addDocument(doc);
                         indexed++;
+
+                        // Track sub-workspace counts
+                        if (subWorkspace != null) {
+                            subWsCounts.merge(subWorkspace, 1, Integer::sum);
+                        }
                     } catch (Exception e) {
                         errors++;
                         if (verbose) {
@@ -186,6 +206,11 @@ public class ScanCommand implements Callable<Integer> {
 
                 // Print summary
                 printSummary(scanResult, indexed, errors, index.documentCount());
+
+                // Print sub-workspace summary
+                if (!subWsCounts.isEmpty()) {
+                    printSubWorkspaceSummary(subWsCounts, indexed);
+                }
 
                 // Print video metadata coverage if applicable
                 if (videoCount > 0 && (videosWithBasicMeta > 0 || videosNeedingFfprobe > 0)) {
@@ -384,6 +409,21 @@ public class ScanCommand implements Callable<Integer> {
             AnsiOutput.printSuccess("Generated " + generated + " README files.");
         } else {
             AnsiOutput.printInfo("No new READMEs needed (" + skipped + " directories already have one).");
+        }
+    }
+
+    private void printSubWorkspaceSummary(Map<String, Integer> subWsCounts, int totalIndexed) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Sub-workspace tagging:"));
+        subWsCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .forEach(entry -> System.out.printf("    %-20s %d files%n",
+                        entry.getKey(), entry.getValue()));
+
+        int tagged = subWsCounts.values().stream().mapToInt(Integer::intValue).sum();
+        int untagged = totalIndexed - tagged;
+        if (untagged > 0) {
+            System.out.printf("    %-20s %d files%n", "(root)", untagged);
         }
     }
 
