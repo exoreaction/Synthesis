@@ -55,9 +55,24 @@ public class DirectoryScanner {
         }
         this.includeMatchers = List.copyOf(includeBuilders);
 
-        this.excludeMatchers = scanConfig.getExcludePatterns().stream()
+        // Use effective exclude patterns (includes smart defaults if enabled)
+        List<String> effectiveExcludes = scanConfig.getEffectiveExcludePatterns(workspaceRoot);
+        this.excludeMatchers = effectiveExcludes.stream()
                 .map(pattern -> fs.getPathMatcher("glob:" + pattern))
                 .toList();
+
+        // Verbose output for smart exclusions
+        if (verbose && scanConfig.isUseSmartDefaults()) {
+            java.util.Set<Ecosystem> detected = EcosystemDetector.detect(workspaceRoot);
+            if (!detected.isEmpty()) {
+                System.out.println("\n📦 Detected ecosystems: " +
+                    String.join(", ", detected.stream()
+                        .map(e -> e.name().toLowerCase().replace('_', '-'))
+                        .sorted()
+                        .toList()));
+                System.out.println("   Applying smart exclusions...\n");
+            }
+        }
     }
 
     /**
@@ -163,21 +178,23 @@ public class DirectoryScanner {
         if (dir.equals(workspaceRoot)) return false;
 
         Path relative = workspaceRoot.relativize(dir);
-        String name = dir.getFileName().toString();
 
-        // Fast check: common excluded directory names
-        if (name.equals(".git") || name.equals("node_modules") ||
-            name.equals("target") || name.equals("build") ||
-            name.equals("__pycache__") || name.equals(".venv") ||
-            name.equals(".idea") || name.equals(".vscode") ||
-            name.equals(".synthesis")) {
-            return true;
-        }
-
-        // Check against configured exclude patterns
+        // Check against configured exclude patterns (includes smart defaults if enabled)
         for (PathMatcher matcher : excludeMatchers) {
-            // Test with trailing separator to match directory patterns
-            if (matcher.matches(relative) || matcher.matches(Path.of(relative + "/"))) {
+            // Test the directory path itself
+            if (matcher.matches(relative)) {
+                return true;
+            }
+
+            // Test with trailing separator to match directory patterns (e.g., "logs/")
+            if (matcher.matches(Path.of(relative + "/"))) {
+                return true;
+            }
+
+            // Test if any file inside this directory would match
+            // For patterns like "node_modules/**", check if "node_modules/dummy" matches
+            Path testPath = Path.of(relative.toString(), "dummy");
+            if (matcher.matches(testPath)) {
                 return true;
             }
         }
