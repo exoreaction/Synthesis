@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -225,7 +226,7 @@ public class StatusCommand implements Callable<Integer> {
 
                     // Sub-workspace breakdown
                     if (config.getSubWorkspaces() != null && !config.getSubWorkspaces().isEmpty()) {
-                        showSubWorkspaceBreakdown(index);
+                        showSubWorkspaceBreakdown(index, config.getSubWorkspaces());
                     }
                 } catch (Exception ignored) {
                     // Media stats are informational -- don't fail status
@@ -370,7 +371,7 @@ public class StatusCommand implements Callable<Integer> {
     /**
      * Shows sub-workspace file count breakdown.
      */
-    private void showSubWorkspaceBreakdown(SearchIndex index) {
+    private void showSubWorkspaceBreakdown(SearchIndex index, List<SubWorkspaceConfig> subWorkspaces) {
         try {
             Map<String, Long> counts = index.getSubWorkspaceCounts();
             if (counts.isEmpty()) {
@@ -382,22 +383,8 @@ public class StatusCommand implements Callable<Integer> {
                 return;
             }
 
-            System.out.println();
-            System.out.println("  " + AnsiOutput.bold("Sub-workspace Breakdown:"));
-
-            counts.entrySet().stream()
-                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                    .forEach(entry -> {
-                        String name = entry.getKey();
-                        long count = entry.getValue();
-                        double pct = (count * 100.0) / total;
-
-                        String displayName = (name == null || name.isEmpty()) ? "(root)" : name;
-                        String pctStr = pct < 1.0 ? "<1" : String.valueOf(Math.round(pct));
-
-                        System.out.printf("    %-22s %,6d files (%s%%)%n",
-                                AnsiOutput.cyan(displayName), count, pctStr);
-                    });
+            // Use the new tree renderer
+            SubWorkspaceTreeRenderer.render(subWorkspaces, counts, total);
         } catch (Exception e) {
             // Sub-workspace breakdown is informational -- don't fail status
         }
