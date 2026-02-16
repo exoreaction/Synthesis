@@ -3,11 +3,16 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
+import io.exoreaction.synthesis.changelog.SnapshotManager;
+import io.exoreaction.synthesis.changelog.WorkspaceSnapshot;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.tracking.FileMovementTracker;
+import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
 import io.exoreaction.synthesis.util.ProgressReporter;
@@ -135,6 +140,57 @@ public class MaintainCommand implements Callable<Integer> {
                 ScanState newState = ScanState.fromScanResult(freshScan);
                 newState.save(scanStatePath);
                 AnsiOutput.printInfo("Scan state saved.");
+
+                // --- Integration: File Movement Tracking ---
+                try {
+                    SynthesisDatabase synthDb = SynthesisDatabase.getDefault();
+                    FileTrackingDatabase trackingDb = new FileTrackingDatabase(synthDb);
+                    FileMovementTracker tracker = new FileMovementTracker(trackingDb, 7);
+
+                    // Detect intra-workspace movements using previous state's hashes
+                    int movements = tracker.detectMovementsWithHistory(
+                            previousState.getEntries(),
+                            changes.deleted(),
+                            changes.added(),
+                            workspaceRoot.toString(),
+                            workspaceRoot.toString()
+                    );
+
+                    // Resolve any pending cross-workspace deletions
+                    int resolved = tracker.resolvePendingDeletions(workspaceRoot.toString(), changes);
+
+                    // Process expired safety periods
+                    int eligible = tracker.processExpiredSafetyPeriods();
+
+                    if (movements > 0 || resolved > 0 || eligible > 0) {
+                        AnsiOutput.printInfo("Tracking: " + movements + " movements detected, "
+                                + resolved + " pending resolved, " + eligible + " cleanup-eligible");
+                    }
+                } catch (Exception e) {
+                    if (verbose) {
+                        System.err.println("  Warning: File tracking update failed: " + e.getMessage());
+                    }
+                }
+
+                // --- Integration: Auto-snapshot for changelog ---
+                try {
+                    SynthesisDatabase synthDb = SynthesisDatabase.getDefault();
+                    SnapshotManager snapshots = new SnapshotManager(synthDb);
+                    long snapshotId = snapshots.takeSnapshotFromScanResult(
+                            workspaceRoot.toString(),
+                            config.getWorkspace().getName(),
+                            freshScan, "maintain");
+
+                    // Compare with previous snapshot
+                    java.util.List<WorkspaceSnapshot> recent = snapshots.getSnapshots(workspaceRoot.toString(), 2);
+                    if (recent.size() >= 2) {
+                        snapshots.compareSnapshots(recent.get(1).id(), snapshotId);
+                    }
+                } catch (Exception e) {
+                    if (verbose) {
+                        System.err.println("  Warning: Changelog snapshot failed: " + e.getMessage());
+                    }
+                }
             }
 
             System.out.println();
