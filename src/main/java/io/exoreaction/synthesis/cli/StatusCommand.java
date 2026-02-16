@@ -127,6 +127,7 @@ public class StatusCommand implements Callable<Integer> {
             String typeBadge = switch (wsType) {
                 case SOURCE_CODE -> AnsiOutput.blue("[source]");
                 case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                case STAGING -> AnsiOutput.magenta("[stage] ");
                 case MIXED -> AnsiOutput.yellow("[mixed] ");
             };
 
@@ -570,6 +571,7 @@ public class StatusCommand implements Callable<Integer> {
                 String badge = switch (type) {
                     case SOURCE_CODE -> AnsiOutput.blue("[source]");
                     case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                    case STAGING -> AnsiOutput.magenta("[stage] ");
                     case MIXED -> AnsiOutput.yellow("[mixed] ");
                 };
                 System.out.printf("    %s  %d workspaces%n", badge, count);
@@ -605,6 +607,7 @@ public class StatusCommand implements Callable<Integer> {
                 String typeBadge = switch (ws.workspaceType) {
                     case SOURCE_CODE -> AnsiOutput.blue("[source]");
                     case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                    case STAGING -> AnsiOutput.magenta("[stage] ");
                     case MIXED -> AnsiOutput.yellow("[mixed] ");
                 };
 
@@ -870,6 +873,7 @@ public class StatusCommand implements Callable<Integer> {
             String typeBadge = switch (ws.workspaceType) {
                 case SOURCE_CODE -> AnsiOutput.blue("[source]");
                 case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                case STAGING -> AnsiOutput.magenta("[stage] ");
                 case MIXED -> AnsiOutput.yellow("[mixed] ");
             };
 

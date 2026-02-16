@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.telemetry;
 import com.slack.api.Slack;
 import com.slack.api.webhook.Payload;
 import com.slack.api.webhook.WebhookResponse;
+import io.exoreaction.synthesis.util.Version;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -41,7 +42,7 @@ import java.util.concurrent.TimeUnit;
 public class TelemetryService {
 
     /** Synthesis version string, used in telemetry events. */
-    public static final String SYNTHESIS_VERSION = "1.0.0-SNAPSHOT";
+    public static final String SYNTHESIS_VERSION = Version.getVersion();
 
     private final TelemetryConfig config;
     private final String clientUuid;

@@ -154,6 +154,7 @@ public class WhichCommand implements Callable<Integer> {
             String typeLabel = switch (ws.type()) {
                 case SOURCE_CODE -> AnsiOutput.blue("[source]");
                 case DOCUMENTS -> AnsiOutput.green("[docs]  ");
+                case STAGING -> AnsiOutput.magenta("[stage] ");
                 case MIXED -> AnsiOutput.yellow("[mixed] ");
             };
 

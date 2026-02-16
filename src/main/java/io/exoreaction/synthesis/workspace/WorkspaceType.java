@@ -9,6 +9,7 @@ package io.exoreaction.synthesis.workspace;
  * <ul>
  *   <li>{@link #SOURCE_CODE} -- Repositories containing source code (Java, JS, Python, etc.)</li>
  *   <li>{@link #DOCUMENTS} -- Knowledge bases, documentation, business files</li>
+ *   <li>{@link #STAGING} -- Incoming pipeline directories (Downloads, Screenshots) with retention</li>
  *   <li>{@link #MIXED} -- Workspaces containing both code and documents</li>
  * </ul>
  */
@@ -17,8 +18,11 @@ public enum WorkspaceType {
     /** Source code repositories (e.g., /src/exoreaction, /src/cantara). */
     SOURCE_CODE("source-code", "Source code repositories"),
 
-    /** Document-oriented workspaces (e.g., ~/Documents, ~/Downloads). */
+    /** Document-oriented workspaces (e.g., ~/Documents). */
     DOCUMENTS("documents", "Document and knowledge workspaces"),
+
+    /** Staging/incoming workspaces with retention policies (e.g., ~/Downloads, ~/Pictures). */
+    STAGING("staging", "Incoming pipeline directories"),
 
     /** Mixed workspaces containing both code and documents. */
     MIXED("mixed", "Mixed code and document workspaces");

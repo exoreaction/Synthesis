@@ -317,6 +317,7 @@ public class ListWorkspacesCommand implements Callable<Integer> {
             String typeBadge = switch (ws.workspaceType) {
                 case SOURCE_CODE -> "\033[34m[source]\033[0m";
                 case DOCUMENTS -> "\033[32m[docs]  \033[0m";
+                case STAGING -> "\033[35m[stage] \033[0m";
                 case MIXED -> "\033[33m[mixed] \033[0m";
             };
 
