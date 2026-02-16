@@ -39,6 +39,7 @@ import java.util.concurrent.Callable;
  *   synthesis maintain             Detect changes and update index
  *   synthesis export               Export index as JSON, Markdown, or AI docs
  *   synthesis status               Show workspace health
+ *   synthesis summary              Generate executive summaries at different levels
  *   synthesis org scan             Auto-discover organizational structure
  *   synthesis org list             Show companies, clients, products
  *   synthesis org classify         Classify Downloads files by organization
@@ -78,6 +79,7 @@ import java.util.concurrent.Callable;
                 MaintainCommand.class,
                 ExportCommand.class,
                 StatusCommand.class,
+                SummaryCommand.class,
                 OrgCommand.class,
                 LearnCommand.class,
                 PerspectivesCommand.class,

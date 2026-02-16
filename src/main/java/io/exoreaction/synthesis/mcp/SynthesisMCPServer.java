@@ -362,6 +362,16 @@ public class SynthesisMCPServer {
                 createExplainSchema()
         ));
 
+        // Tool: summary
+        toolsArray.add(createToolDefinition(
+                "summary",
+                "Generate executive summary of the codebase with AI-enhanced analysis. " +
+                        "Choose detail level (executive/manager/developer) and role perspective " +
+                        "(architect/security/devops/etc). Results are cached for instant retrieval. " +
+                        "Use this to quickly understand codebase health, risks, and priorities.",
+                createSummarySchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -388,6 +398,7 @@ public class SynthesisMCPServer {
                 case "ask" -> toolHandler.handleAsk(toolArgs);
                 case "enrich" -> toolHandler.handleEnrich(toolArgs);
                 case "explain" -> toolHandler.handleExplain(toolArgs);
+                case "summary" -> toolHandler.handleSummary(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -671,6 +682,76 @@ public class SynthesisMCPServer {
 
         ArrayNode required = mapper.createArrayNode();
         required.add("target");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createSummarySchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode level = mapper.createObjectNode();
+        level.put("type", "string");
+        ArrayNode levelEnum = mapper.createArrayNode();
+        levelEnum.add("executive");
+        levelEnum.add("manager");
+        levelEnum.add("developer");
+        level.set("enum", levelEnum);
+        level.put("default", "executive");
+        level.put("description", "Detail level: executive (30s overview), manager (5min briefing), developer (technical detail)");
+        properties.set("level", level);
+
+        ObjectNode perspective = mapper.createObjectNode();
+        perspective.put("type", "string");
+        ArrayNode perspectiveEnum = mapper.createArrayNode();
+        perspectiveEnum.add("general");
+        perspectiveEnum.add("executive");
+        perspectiveEnum.add("engineering_manager");
+        perspectiveEnum.add("architect");
+        perspectiveEnum.add("security");
+        perspectiveEnum.add("devops");
+        perspectiveEnum.add("product_manager");
+        perspectiveEnum.add("developer");
+        perspective.set("enum", perspectiveEnum);
+        perspective.put("default", "general");
+        perspective.put("description", "Role-based perspective for interpreting metrics");
+        properties.set("perspective", perspective);
+
+        ObjectNode format = mapper.createObjectNode();
+        format.put("type", "string");
+        ArrayNode formatEnum = mapper.createArrayNode();
+        formatEnum.add("markdown");
+        formatEnum.add("json");
+        formatEnum.add("terminal");
+        format.set("enum", formatEnum);
+        format.put("default", "markdown");
+        format.put("description", "Output format");
+        properties.set("format", format);
+
+        ObjectNode noAi = mapper.createObjectNode();
+        noAi.put("type", "boolean");
+        noAi.put("default", false);
+        noAi.put("description", "Skip AI-enhanced summary (faster, metrics-only)");
+        properties.set("noAi", noAi);
+
+        ObjectNode noCache = mapper.createObjectNode();
+        noCache.put("type", "boolean");
+        noCache.put("default", false);
+        noCache.put("description", "Skip cache and force fresh generation");
+        properties.set("noCache", noCache);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        // No required parameters - all have defaults
+        ArrayNode required = mapper.createArrayNode();
         schema.set("required", required);
 
         return schema;
