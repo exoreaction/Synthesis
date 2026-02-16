@@ -1,7 +1,9 @@
 package io.exoreaction.synthesis.org;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,10 +23,12 @@ public class Client {
     private String basePath;
     private ClientStatus status;
     private String directoryName;
+    private List<String> codebases;
     private Map<String, String> metadata;
 
     /** No-arg constructor for JSON deserialization. */
     public Client() {
+        this.codebases = new ArrayList<>();
         this.metadata = new LinkedHashMap<>();
     }
 
@@ -44,6 +48,7 @@ public class Client {
         this.basePath = basePath.toString();
         this.status = status;
         this.directoryName = directoryName;
+        this.codebases = new ArrayList<>();
         this.metadata = new LinkedHashMap<>();
     }
 
@@ -63,6 +68,11 @@ public class Client {
 
     public String getDirectoryName() { return directoryName; }
     public void setDirectoryName(String directoryName) { this.directoryName = directoryName; }
+
+    public List<String> getCodebases() { return codebases; }
+    public void setCodebases(List<String> codebases) {
+        this.codebases = codebases != null ? codebases : new ArrayList<>();
+    }
 
     public Map<String, String> getMetadata() { return metadata; }
     public void setMetadata(Map<String, String> metadata) { this.metadata = metadata; }

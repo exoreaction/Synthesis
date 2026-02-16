@@ -116,6 +116,7 @@ public class SynthesisConfig {
      */
     public static class AiConfig {
         private boolean enabled = false;
+        private String apiKey = null;  // Falls back to ANTHROPIC_API_KEY env var if null
         private String model = "claude-sonnet-4-5-20250929";
         private boolean readmeGeneration = true;
         private boolean contentSummary = false;
@@ -124,6 +125,9 @@ public class SynthesisConfig {
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
 
         public String getModel() { return model; }
         public void setModel(String model) { this.model = model; }
@@ -340,6 +344,7 @@ public class SynthesisConfig {
         private String description = "";
         private String type = "general";
         private List<String> tags = new ArrayList<>();
+        private List<String> codebases = new ArrayList<>();
         private List<String> includePatterns = null;
         private List<String> excludePatterns = null;
 
@@ -369,6 +374,12 @@ public class SynthesisConfig {
         /** Optional tags for classification and filtering. */
         public List<String> getTags() { return tags; }
         public void setTags(List<String> tags) { this.tags = tags != null ? tags : new ArrayList<>(); }
+
+        /** Optional list of source workspace names associated with this sub-workspace. */
+        public List<String> getCodebases() { return codebases; }
+        public void setCodebases(List<String> codebases) {
+            this.codebases = codebases != null ? codebases : new ArrayList<>();
+        }
 
         /**
          * Include patterns override (null = inherit from parent).

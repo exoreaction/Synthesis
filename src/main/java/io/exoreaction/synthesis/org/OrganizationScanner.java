@@ -66,8 +66,44 @@ public class OrganizationScanner {
             }
         }
 
+        // Auto-discover client-to-codebase mappings
+        resolveClientCodebases(registry.getOrganizations());
+
         registry.setLastScanTime(Instant.now());
         return registry;
+    }
+
+    /**
+     * Resolves codebase mappings for all clients and updates them in-place.
+     */
+    private void resolveClientCodebases(List<Organization> organizations) {
+        Map<String, ClientCodebaseResolver.CodebaseMapping> mappings =
+                ClientCodebaseResolver.resolveAll(organizations);
+
+        // Apply mappings to clients (with fuzzy matching)
+        for (Organization org : organizations) {
+            for (Client client : org.getClients()) {
+                String clientName = client.getName();
+
+                // Try exact match first
+                ClientCodebaseResolver.CodebaseMapping mapping = mappings.get(clientName);
+
+                // If no exact match, try fuzzy matching (client name starts with mapping key)
+                if (mapping == null) {
+                    for (Map.Entry<String, ClientCodebaseResolver.CodebaseMapping> entry : mappings.entrySet()) {
+                        String mappingKey = entry.getKey();
+                        if (clientName.startsWith(mappingKey) || mappingKey.startsWith(clientName)) {
+                            mapping = entry.getValue();
+                            break;
+                        }
+                    }
+                }
+
+                if (mapping != null) {
+                    client.setCodebases(mapping.getCodebasePaths());
+                }
+            }
+        }
     }
 
     /**
