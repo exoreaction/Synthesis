@@ -19,16 +19,18 @@ public class SubWorkspaceTreeRenderer {
         String path;
         String type;
         List<String> tags;
+        List<String> codebases;
         String description;
         long ownFileCount;      // Files directly in this sub-workspace
         long totalFileCount;    // Own + all descendants
         List<TreeNode> children = new ArrayList<>();
 
-        TreeNode(String name, String path, String type, List<String> tags, String description) {
+        TreeNode(String name, String path, String type, List<String> tags, List<String> codebases, String description) {
             this.name = name;
             this.path = path;
             this.type = type != null ? type : "general";
             this.tags = tags != null ? tags : new ArrayList<>();
+            this.codebases = codebases != null ? codebases : new ArrayList<>();
             this.description = description;
             this.ownFileCount = 0;
             this.totalFileCount = 0;
@@ -87,7 +89,7 @@ public class SubWorkspaceTreeRenderer {
         Map<String, TreeNode> nodeMap = new HashMap<>();
         for (SubWorkspaceConfig sw : subWorkspaces) {
             TreeNode node = new TreeNode(sw.getName(), sw.getPath(),
-                    sw.getType(), sw.getTags(), sw.getDescription());
+                    sw.getType(), sw.getTags(), sw.getCodebases(), sw.getDescription());
             node.ownFileCount = fileCounts.getOrDefault(sw.getName(), 0L);
             nodeMap.put(sw.getName(), node);
         }

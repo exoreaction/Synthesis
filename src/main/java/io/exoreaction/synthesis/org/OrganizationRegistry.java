@@ -238,7 +238,17 @@ public class OrganizationRegistry {
                 w.write("          \"name\": \"" + escapeJson(client.getName()) + "\",\n");
                 w.write("          \"status\": \"" + client.getStatus().name() + "\",\n");
                 w.write("          \"basePath\": \"" + escapeJson(client.getBasePath()) + "\",\n");
-                w.write("          \"directoryName\": \"" + escapeJson(client.getDirectoryName()) + "\"\n");
+                w.write("          \"directoryName\": \"" + escapeJson(client.getDirectoryName()) + "\",\n");
+
+                // Codebases array
+                w.write("          \"codebases\": [");
+                var cbIt = client.getCodebases().iterator();
+                while (cbIt.hasNext()) {
+                    w.write("\"" + escapeJson(cbIt.next()) + "\"");
+                    if (cbIt.hasNext()) w.write(", ");
+                }
+                w.write("]\n");
+
                 w.write("        }");
                 if (clientIt.hasNext()) w.write(",");
                 w.write("\n");
@@ -375,6 +385,11 @@ public class OrganizationRegistry {
 
         Client client = new Client(name, orgName, Path.of(basePath), status,
                 dirName != null ? dirName : name);
+
+        // Parse codebases array
+        List<String> codebases = extractStringArray(json, "codebases");
+        client.setCodebases(codebases);
+
         return client;
     }
 
