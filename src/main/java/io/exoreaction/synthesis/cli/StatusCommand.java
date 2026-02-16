@@ -628,6 +628,34 @@ public class StatusCommand implements Callable<Integer> {
                     System.out.printf("    %-20s %s%n", "Index size:", FileUtils.formatSize(ws.indexSize));
                 }
 
+                // Display sub-workspaces if present
+                if (ws.subWorkspaceCounts != null && !ws.subWorkspaceCounts.isEmpty()) {
+                    System.out.printf("    %-20s ", "Sub-workspaces:");
+
+                    List<Map.Entry<String, Long>> sorted = ws.subWorkspaceCounts.entrySet().stream()
+                            .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                            .toList();
+
+                    boolean first = true;
+                    int shown = 0;
+                    int maxShow = 4;
+
+                    for (Map.Entry<String, Long> entry : sorted) {
+                        if (shown >= maxShow) break;
+                        String name = entry.getKey().isEmpty() ? "(root)" : entry.getKey();
+                        long count = entry.getValue();
+                        if (!first) System.out.print(", ");
+                        System.out.print(AnsiOutput.cyan(name) + " (" + String.format("%,d", count) + ")");
+                        first = false;
+                        shown++;
+                    }
+
+                    if (sorted.size() > maxShow) {
+                        System.out.print(AnsiOutput.dim(" +" + (sorted.size() - maxShow) + " more"));
+                    }
+                    System.out.println();
+                }
+
                 System.out.printf("    %-20s %s%n", "Watch daemon:",
                         ws.watching ? AnsiOutput.success("✓ Active") : AnsiOutput.dim("✗ Not running"));
 
@@ -758,6 +786,18 @@ public class StatusCommand implements Callable<Integer> {
                     }
                 }
             }
+
+            // Get sub-workspace counts
+            try {
+                SearchIndex index = new SearchIndex(synthDir.resolve("index"));
+                Map<String, Long> counts = index.getSubWorkspaceCounts();
+                if (counts != null && !counts.isEmpty() && counts.size() > 1) {
+                    info.subWorkspaceCounts = counts;
+                }
+                index.close();
+            } catch (Exception e) {
+                // Ignore if we can't read sub-workspace info
+            }
         }
 
         // Check if watch daemon is running
@@ -877,5 +917,6 @@ public class StatusCommand implements Callable<Integer> {
         int fileCount;
         long indexSize;
         boolean watching;
+        Map<String, Long> subWorkspaceCounts = null;
     }
 }
