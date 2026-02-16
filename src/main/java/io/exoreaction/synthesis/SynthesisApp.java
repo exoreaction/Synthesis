@@ -79,6 +79,7 @@ import java.util.concurrent.Callable;
                 MaintainCommand.class,
                 ExportCommand.class,
                 StatusCommand.class,
+                DashboardCommand.class,
                 SummaryCommand.class,
                 OrgCommand.class,
                 LearnCommand.class,
