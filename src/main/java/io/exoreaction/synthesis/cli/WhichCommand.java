@@ -1,6 +1,9 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.core.SubWorkspaceResolver;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch.WorkspaceEntry;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -10,6 +13,7 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -122,6 +126,20 @@ public class WhichCommand implements Callable<Integer> {
     }
 
     private void printTable(Map<WorkspaceEntry, List<String>> results) {
+        // Build sub-workspace resolvers for each workspace
+        Map<Path, SubWorkspaceResolver> resolvers = new HashMap<>();
+        for (WorkspaceEntry ws : results.keySet()) {
+            try {
+                SynthesisConfig config = ConfigLoader.load(ws.path());
+                SubWorkspaceResolver resolver = new SubWorkspaceResolver(config);
+                if (resolver.hasSubWorkspaces()) {
+                    resolvers.put(ws.path(), resolver);
+                }
+            } catch (Exception e) {
+                // Skip -- no sub-workspace info for this workspace
+            }
+        }
+
         System.out.println();
         System.out.printf("  Found %s in %s workspace(s):%n%n",
                 AnsiOutput.bold(filename),
@@ -130,6 +148,7 @@ public class WhichCommand implements Callable<Integer> {
         for (Map.Entry<WorkspaceEntry, List<String>> entry : results.entrySet()) {
             WorkspaceEntry ws = entry.getKey();
             List<String> paths = entry.getValue();
+            SubWorkspaceResolver resolver = resolvers.get(ws.path());
 
             // Workspace name with type indicator
             String typeLabel = switch (ws.type()) {
@@ -145,11 +164,34 @@ public class WhichCommand implements Callable<Integer> {
 
             if (verbose) {
                 for (String path : paths) {
-                    System.out.println("      " + AnsiOutput.cyan(path));
+                    String subWsTag = "";
+                    if (resolver != null) {
+                        String subWs = resolver.resolve(path);
+                        if (subWs != null) {
+                            subWsTag = AnsiOutput.dim(" [" + subWs + "]");
+                        }
+                    }
+                    System.out.println("      " + AnsiOutput.cyan(path) + subWsTag);
                 }
             } else {
                 System.out.printf("      %s matching file(s)%n",
                         AnsiOutput.cyan(String.valueOf(paths.size())));
+
+                // Show sub-workspace summary if applicable
+                if (resolver != null) {
+                    Map<String, Integer> subWsCounts = new HashMap<>();
+                    for (String path : paths) {
+                        String subWs = resolver.resolve(path);
+                        String key = subWs != null ? subWs : "(root)";
+                        subWsCounts.merge(key, 1, Integer::sum);
+                    }
+                    if (subWsCounts.size() > 1 || !subWsCounts.containsKey("(root)")) {
+                        StringBuilder sb = new StringBuilder("      ");
+                        subWsCounts.forEach((name, count) ->
+                                sb.append(AnsiOutput.dim(name + ": " + count + "  ")));
+                        System.out.println(sb.toString().stripTrailing());
+                    }
+                }
             }
             System.out.println();
         }
@@ -163,6 +205,20 @@ public class WhichCommand implements Callable<Integer> {
     }
 
     private void printJson(Map<WorkspaceEntry, List<String>> results) {
+        // Build sub-workspace resolvers for each workspace
+        Map<Path, SubWorkspaceResolver> resolvers = new HashMap<>();
+        for (WorkspaceEntry ws : results.keySet()) {
+            try {
+                SynthesisConfig config = ConfigLoader.load(ws.path());
+                SubWorkspaceResolver resolver = new SubWorkspaceResolver(config);
+                if (resolver.hasSubWorkspaces()) {
+                    resolvers.put(ws.path(), resolver);
+                }
+            } catch (Exception e) {
+                // Skip
+            }
+        }
+
         System.out.println("{");
         System.out.println("  \"query\": \"" + filename + "\",");
         System.out.println("  \"pattern\": " + usePattern + ",");
@@ -172,6 +228,7 @@ public class WhichCommand implements Callable<Integer> {
         for (Map.Entry<WorkspaceEntry, List<String>> entry : results.entrySet()) {
             WorkspaceEntry ws = entry.getKey();
             List<String> paths = entry.getValue();
+            SubWorkspaceResolver resolver = resolvers.get(ws.path());
 
             System.out.println("    {");
             System.out.println("      \"workspace\": \"" + ws.name() + "\",");
@@ -181,7 +238,12 @@ public class WhichCommand implements Callable<Integer> {
             System.out.println("      \"matches\": [");
 
             for (int i = 0; i < paths.size(); i++) {
-                System.out.print("        \"" + paths.get(i) + "\"");
+                String subWs = resolver != null ? resolver.resolve(paths.get(i)) : null;
+                System.out.print("        {\"path\": \"" + paths.get(i) + "\"");
+                if (subWs != null) {
+                    System.out.print(", \"subWorkspace\": \"" + subWs + "\"");
+                }
+                System.out.print("}");
                 System.out.println(i < paths.size() - 1 ? "," : "");
             }
 

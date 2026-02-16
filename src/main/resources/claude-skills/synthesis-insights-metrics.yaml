@@ -1,0 +1,223 @@
+name: synthesis-insights-metrics
+version: 1.0.0
+description: |
+  Deep codebase analysis with actionable metrics using Synthesis.
+  Provides connectivity, complexity, quality, and architecture insights.
+
+trigger_phrases:
+  - "codebase insights"
+  - "show metrics"
+  - "code quality"
+  - "synthesis insights"
+  - "workspace metrics"
+  - "codebase analysis"
+  - "architecture metrics"
+
+instructions: |
+  # Synthesis Insights - Codebase Metrics & Analysis
+
+  **Purpose:** Deep analysis of codebase structure producing actionable insights across connectivity, complexity, quality, and architecture dimensions.
+  **Performance:** Analyzes thousands of files from the Lucene index without needing AI.
+  **Output:** Rich terminal dashboard or Markdown report.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> insights [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--repo <name>` - Scope analysis to a specific repository
+  - `--company <name>` - Scope analysis to a specific organization/company
+  - `-o, --output <file>` - Save report to file (Markdown format)
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Full workspace insights
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents insights 2>/dev/null
+  ```
+
+  ### 2. Insights for a specific organization
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents insights --company eXOReaction 2>/dev/null
+  ```
+
+  ### 3. Insights for a specific repository
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents insights --repo lib-pcb 2>/dev/null
+  ```
+
+  ### 4. Save report to file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents insights --output /tmp/insights-report.md 2>/dev/null
+  ```
+
+  ### 5. Organization-scoped report to file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents insights --company Quadim --output /tmp/quadim-insights.md 2>/dev/null
+  ```
+
+  ---
+
+  ## Report Sections
+
+  The insights report contains four main sections plus recommendations:
+
+  ### 1. Connectivity
+  - **Most referenced files** - Hub files that many others depend on (top 5)
+  - **Hub files** - Files with the most outgoing references (top 5)
+  - **Orphaned files** - Files with no incoming or outgoing references (% of codebase)
+  - **Circular dependency clusters** - Groups of files with mutual dependencies
+  - **Average refs/file** - Mean connectivity (higher = more coupled)
+  - **Total references** - Overall reference count across the codebase
+
+  ### 2. Complexity
+  - **Average file size** - Mean file size across workspace
+  - **Size distribution** - File count by size bucket (tiny, small, medium, large, huge)
+  - **Largest files** - Top 5 biggest files (potential refactoring candidates)
+  - **Deepest nesting** - Maximum directory depth (indicates structural complexity)
+  - **Largest directories** - Directories with the most files (potential for splitting)
+  - **File types** - Distribution by type (CODE, MARKDOWN, JSON, PDF, etc.)
+
+  ### 3. Quality
+  - **Documentation coverage** - % of directories that have a README file
+  - **Test ratio** - Test files to source files ratio (higher is better)
+  - **Dead code candidates** - Files that appear unused (no references, no dependents)
+  - **Hotspot files** - Files that are both large AND highly referenced (change risk)
+
+  ### 4. Architecture
+  - **Module count** - Number of distinct modules/packages detected
+  - **Layering violations** - Cases where lower layers reference higher layers
+  - **Most coupled modules** - Modules with the most cross-references (top 5)
+
+  ### 5. Warnings & Recommendations
+  - Actionable warnings about detected issues
+  - Prioritized recommendations for improvement
+
+  ---
+
+  ## Example Output
+
+  ```
+  Knowledge Graph Insights
+  ============================================================
+
+  Connectivity:
+    Most referenced: CLAUDE.md (42 incoming refs)
+                     README.md (28)
+                     PROOF-POINTS.md (19)
+    Hub files:       CLAUDE.md (35 outgoing refs)
+                     linkedin-strategy-unified.md (22)
+    Orphaned files:  847 files (11.9% of codebase)
+    Circular deps:   3 clusters detected
+    Avg refs/file:   2.4
+    Total refs:      17,083
+
+  Complexity:
+    Average file size: 12.3 KB
+    Size distribution: tiny=3201 small=2890 medium=845 large=142 huge=40
+    Largest files:
+      eXOReaction/media/transcripts/aurora.md (485 KB)
+      ...
+    Deepest nesting: 9 levels
+
+  Quality:
+    Documentation:   34% (68/200 directories with README)
+    Test ratio:      0.3:1 (120 test / 400 source)
+    Dead code:       23 candidates
+
+  Architecture:
+    Modules: 45
+    Most coupled modules:
+      eXOReaction/business (references 12 other modules)
+      ...
+
+  Recommendations:
+    * Consider adding READMEs to improve documentation coverage (currently 34%)
+    * 847 orphaned files may indicate dead code or missing cross-references
+    * 3 circular dependency clusters should be reviewed for decoupling
+  ```
+
+  ---
+
+  ## Output Formats
+
+  | Format | How | Best For |
+  |--------|-----|----------|
+  | **Terminal** | Default (no --output) | Quick review, colorized |
+  | **Markdown** | `--output report.md` | Sharing, archiving, presentations |
+
+  The Markdown format includes proper tables and sections suitable for documentation.
+
+  ---
+
+  ## Interpreting Results
+
+  **Good signs:**
+  - High documentation coverage (>60%)
+  - Test ratio > 0.5:1
+  - Low orphaned file percentage (<10%)
+  - No circular dependencies
+  - Low coupling between modules
+
+  **Warning signs:**
+  - Orphaned files > 20% (potential dead code or poor organization)
+  - Circular dependency clusters (architectural smell)
+  - Very large files (>100KB, refactoring candidates)
+  - Low documentation coverage (<25%)
+  - Test ratio < 0.1:1
+
+  ---
+
+  ## Error Handling
+
+  - **"No files in index"** - Run `synthesis scan` first to index files
+  - **"No files found for organization"** - Check organization name (case-sensitive)
+  - **"No files found for repository"** - Check repository name
+  - **"Workspace not initialized"** - Run `synthesis init` first
+
+  ---
+
+  ## Pro Tips
+
+  1. **Scope for relevance:** Use `--company` to focus on one organization instead of the entire workspace.
+
+  2. **Track over time:** Save reports periodically (`--output`) to track quality trends.
+
+  3. **Act on recommendations:** The recommendations section is prioritized - address top items first.
+
+  4. **Combine with architecture:** Use `synthesis architecture` for deeper anti-pattern detection beyond what insights provides.
+
+  5. **Hub files are important:** Files with high incoming refs are critical dependencies - treat them carefully.
+
+  6. **Orphaned files need review:** Not all orphaned files are dead code - some may be entry points or standalone tools.
+
+  7. **Hotspots = change risk:** Files that are both large and highly referenced are the riskiest to modify.
+
+  8. **Re-run after scan:** Always `synthesis scan` before `insights` to ensure the analysis uses current data.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After viewing insights:
+  - "Want to check for anti-patterns?" -> Use `synthesis-architecture-monitoring` skill
+  - "Want to search orphaned files?" -> Use `synthesis-search-workspace` skill
+  - "Want to explain a complex file?" -> Use `synthesis-explain-code` skill
+  - "Want to see relationships?" -> Use `synthesis relate <file>` (relate-dependencies skill)
+  - "Want to export the full index?" -> Use `synthesis-export-docs` skill
+
+  ---
+
+  **Last updated:** February 16, 2026

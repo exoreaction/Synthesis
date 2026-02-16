@@ -1,0 +1,191 @@
+name: synthesis-explain-code
+version: 1.0.0
+description: |
+  AI-powered code explanations using Synthesis.
+  Explain files, modules, or architectural patterns in natural language.
+
+trigger_phrases:
+  - "explain code"
+  - "what does this do"
+  - "explain file"
+  - "explain module"
+  - "explain pattern"
+  - "synthesis explain"
+  - "code explanation"
+
+instructions: |
+  # Synthesis Explain - AI-Powered Code Explanations
+
+  **Purpose:** Generate comprehensive natural-language explanations of files, modules, or architectural patterns. Uses the Synthesis index as context to ground explanations in actual workspace structure.
+  **Requires:** ANTHROPIC_API_KEY environment variable (AI-powered feature)
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> explain [options] 2>/dev/null
+  ```
+
+  ### Required (exactly one of these):
+  - `-f, --file <path>` - File to explain (absolute path, relative path, or filename)
+  - `-m, --module <path>` - Module (directory) to explain
+  - `-p, --pattern <name>` - Architectural pattern or concept to explain
+
+  ### Optional Parameters
+  - `--depth <level>` - Explanation depth: `brief`, `standard` (default), `deep`
+  - `--format <type>` - Output format: `text` (default), `json`, `markdown`
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Explain a specific Java file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file eXOReaction/clients/Elprint/src/main/java/App.java 2>/dev/null
+  ```
+
+  ### 2. Explain a module (directory)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --module eXOReaction/products/xorcery-aaa/ 2>/dev/null
+  ```
+
+  ### 3. Explain an architectural pattern
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --pattern "authentication" 2>/dev/null
+  ```
+
+  ### 4. Brief explanation (quick overview)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file config.yaml --depth brief 2>/dev/null
+  ```
+
+  ### 5. Deep explanation (detailed analysis)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file SearchIndex.java --depth deep 2>/dev/null
+  ```
+
+  ### 6. Explain a JavaScript/TypeScript file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file Quadim/clients/CatalystOne/src/App.tsx 2>/dev/null
+  ```
+
+  ### 7. JSON output (machine-readable)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file pom.xml --format json 2>/dev/null
+  ```
+
+  **JSON output format:**
+  ```json
+  {
+    "target": "pom.xml",
+    "mode": "file",
+    "explanation": "...",
+    "contextDocuments": 5,
+    "durationMs": 2340
+  }
+  ```
+
+  ### 8. Explain a configuration pattern
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --pattern "dependency injection" 2>/dev/null
+  ```
+
+  ### 9. Explain a Python file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --file scripts/batch_transcribe.py 2>/dev/null
+  ```
+
+  ### 10. Explain a test module
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents explain --module eXOReaction/clients/Elprint/src/test/ --depth deep 2>/dev/null
+  ```
+
+  ---
+
+  ## Explanation Modes
+
+  | Mode | Flag | Purpose | Best For |
+  |------|------|---------|----------|
+  | **File** | `--file` | Explain a single file | Understanding specific code |
+  | **Module** | `--module` | Explain a directory | Understanding subsystems |
+  | **Pattern** | `--pattern` | Explain a concept | Understanding architecture |
+
+  **Note:** Specify exactly one mode. The command will error if you specify none or more than one.
+
+  ---
+
+  ## Depth Levels
+
+  | Level | Flag | Description | Use When |
+  |-------|------|-------------|----------|
+  | **brief** | `--depth brief` | High-level purpose, 2-3 sentences | Quick orientation |
+  | **standard** | `--depth standard` | Structure, purpose, key components | Normal exploration |
+  | **deep** | `--depth deep` | Detailed analysis, edge cases, dependencies | Deep understanding |
+
+  ---
+
+  ## How It Works
+
+  1. **File mode:** Reads the target file, finds related files via the index, sends everything to Claude
+  2. **Module mode:** Scans the directory, reads key files, builds structural overview, sends to Claude
+  3. **Pattern mode:** Searches the index for the pattern term, gathers matching files, asks Claude to explain the pattern
+
+  All modes use workspace index context to ground the explanation in actual code structure.
+
+  ---
+
+  ## Error Handling
+
+  - **"AI not configured"** - Set `ANTHROPIC_API_KEY` environment variable
+  - **"Not available in air-gapped edition"** - AI features require network access
+  - **"File not found"** - Check the path; can be absolute, relative to workspace, or filename
+  - **"Directory not found"** - Module path must be a valid directory
+  - **"Specify one of --file, --module, or --pattern"** - Exactly one mode is required
+  - **"Specify only one"** - Do not combine modes (e.g., --file and --module together)
+
+  ---
+
+  ## Pro Tips
+
+  1. **Start with --depth brief:** Get orientation first, then use `--depth deep` for specific areas.
+
+  2. **Use --pattern for architecture:** Patterns like "authentication", "caching", "error handling" find cross-cutting concerns.
+
+  3. **Module explanations for onboarding:** Point new team members at directory-level explanations.
+
+  4. **JSON format for pipelines:** Use `--format json` to capture explanations programmatically.
+
+  5. **Combine with ask:** Use `explain` for specific files, `ask` for broader questions.
+
+  6. **File resolution:** You can use just a filename (e.g., `Login.java`) - Synthesis will try to resolve it in the workspace.
+
+  7. **Large modules:** For very large directories, the explanation focuses on key files (READMEs, main classes, configs).
+
+  8. **Re-scan first:** If files changed recently, run `synthesis scan` before explaining to ensure current content.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After explaining code:
+  - "Want to ask follow-up questions?" -> Use `synthesis-ask-workspace` skill
+  - "Want to see relationships?" -> Use `synthesis relate <filename>` (relate-dependencies skill)
+  - "Want architecture overview?" -> Use `synthesis-architecture-monitoring` skill
+  - "Want metrics about this area?" -> Use `synthesis-insights-metrics` skill
+  - "Want multiple viewpoints?" -> Use `synthesis-perspectives-analysis` skill
+
+  ---
+
+  **Last updated:** February 16, 2026

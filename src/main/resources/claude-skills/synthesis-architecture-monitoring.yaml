@@ -1,0 +1,255 @@
+name: synthesis-architecture-monitoring
+version: 1.0.0
+description: |
+  Monitor architecture quality and detect anti-patterns using Synthesis.
+  Finds god classes, circular dependencies, dead code, coupling issues, and layering violations.
+
+trigger_phrases:
+  - "check architecture"
+  - "architecture drift"
+  - "monitor quality"
+  - "synthesis architecture"
+  - "anti-patterns"
+  - "code quality check"
+  - "architecture analysis"
+
+instructions: |
+  # Synthesis Architecture - Anti-Pattern Detection & Quality Monitoring
+
+  **Purpose:** Continuous architecture intelligence that detects anti-patterns, coupling issues, circular dependencies, god classes, and quality gaps. Provides actionable alerts with severity levels.
+  **No AI required:** Works entirely from the Lucene index - fast and deterministic.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> architecture [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--severity <level>` - Minimum severity to report: `info` (default), `warning`, `error`
+  - `--category <name>` - Filter by category: `GOD_CLASS`, `CIRCULAR_DEPENDENCY`, `DEAD_CODE`, etc.
+  - `--format <type>` - Output format: `text` (default), `json`
+  - `--limit <N>` - Maximum alerts to show (default: 50)
+
+  ---
+
+  ## Alert Categories
+
+  | Category | Description | Severity |
+  |----------|-------------|----------|
+  | `GOD_CLASS` | Files that are too large and do too much | WARNING/ERROR |
+  | `CIRCULAR_DEPENDENCY` | Mutual dependencies between files/modules | WARNING/ERROR |
+  | `DEAD_CODE` | Files with no incoming references | INFO |
+  | `HIGH_COUPLING` | Modules with excessive cross-references | WARNING |
+  | `LAYERING_VIOLATION` | Lower layers depending on higher layers | WARNING |
+  | `MISSING_DOCUMENTATION` | Modules without README or docs | INFO |
+  | `GOD_DIRECTORY` | Directories with too many files | INFO/WARNING |
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Full architecture analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture 2>/dev/null
+  ```
+
+  **Example output:**
+  ```
+  Synthesis - Architecture Analysis
+
+  Found 23 alerts: 2 errors, 8 warnings, 13 info (1.2s)
+
+  GOD_CLASS (3)
+    ERROR  eXOReaction/clients/Elprint/src/main/java/MegaController.java
+           File exceeds 2000 lines (3,412 LOC) with 45 public methods
+    WARN   Quadim/platform/src/main/java/SkillService.java
+           File exceeds 1000 lines (1,245 LOC) with 28 public methods
+
+  CIRCULAR_DEPENDENCY (2)
+    WARN   eXOReaction/business/ <-> eXOReaction/marketing/
+           Bidirectional references between modules
+    WARN   Quadim/clients/ <-> Quadim/business/
+           Bidirectional references between modules
+
+  DEAD_CODE (8)
+    INFO   eXOReaction/legacy/old-api.java
+           No incoming references detected
+    ...
+
+  HIGH_COUPLING (5)
+    WARN   eXOReaction/business (references 12 other modules)
+           Consider reducing external dependencies
+    ...
+  ```
+
+  ### 2. Show only warnings and errors
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --severity warning 2>/dev/null
+  ```
+
+  ### 3. Show only errors
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --severity error 2>/dev/null
+  ```
+
+  ### 4. Filter to god classes only
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --category GOD_CLASS 2>/dev/null
+  ```
+
+  ### 5. Filter to circular dependencies
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --category CIRCULAR_DEPENDENCY 2>/dev/null
+  ```
+
+  ### 6. JSON output for CI/CD integration
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --format json 2>/dev/null
+  ```
+
+  **JSON format:**
+  ```json
+  {
+    "totalAlerts": 23,
+    "durationMs": 1200,
+    "alerts": [
+      {
+        "severity": "ERROR",
+        "category": "GOD_CLASS",
+        "filePath": "src/main/java/MegaController.java",
+        "message": "File exceeds 2000 lines (3,412 LOC)"
+      }
+    ]
+  }
+  ```
+
+  ### 7. Limit results
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --limit 10 2>/dev/null
+  ```
+
+  ### 8. Dead code detection
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --category DEAD_CODE --limit 20 2>/dev/null
+  ```
+
+  ### 9. Architecture check for a source workspace
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/src/exoreaction/Synthesis architecture 2>/dev/null
+  ```
+
+  ### 10. Coupling analysis only
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents architecture --category HIGH_COUPLING 2>/dev/null
+  ```
+
+  ---
+
+  ## Severity Levels
+
+  | Level | Meaning | Exit Code | Action |
+  |-------|---------|-----------|--------|
+  | **ERROR** | Critical architecture issue | 2 | Fix immediately |
+  | **WARNING** | Potential problem, monitor | 1 | Plan to address |
+  | **INFO** | Observation, may be intentional | 0 | Review periodically |
+
+  **Exit codes:** The command returns:
+  - `0` if only INFO alerts (or none)
+  - `1` if WARNING alerts present
+  - `2` if ERROR alerts present
+
+  This makes it suitable for CI/CD pipelines (fail build on errors).
+
+  ---
+
+  ## CI/CD Integration
+
+  ```bash
+  # In your CI pipeline:
+  synthesis architecture --severity error --format json > /tmp/arch-report.json 2>/dev/null
+  if [ $? -eq 2 ]; then
+    echo "ARCHITECTURE ERRORS DETECTED - blocking merge"
+    exit 1
+  fi
+  ```
+
+  ---
+
+  ## Interpreting Results
+
+  **GOD_CLASS alerts:**
+  - Files > 1000 lines with many public methods
+  - Split into focused classes with single responsibility
+  - Consider extraction of utility/helper classes
+
+  **CIRCULAR_DEPENDENCY alerts:**
+  - Two modules referencing each other
+  - Extract shared interface, introduce dependency inversion
+  - Use event-based communication to break cycles
+
+  **DEAD_CODE alerts:**
+  - Files with no incoming references (not imported/linked anywhere)
+  - May be entry points (main classes, scripts) - review before removing
+  - May be truly dead code - safe to archive or delete
+
+  **HIGH_COUPLING alerts:**
+  - Modules referencing too many other modules
+  - Consider introducing abstractions or facade patterns
+  - May indicate a module trying to do too much
+
+  ---
+
+  ## Error Handling
+
+  - **"Workspace not initialized"** - Run `synthesis init` then `synthesis scan`
+  - **"No files in index"** - Run `synthesis scan` first
+  - **No alerts** - Either the codebase is clean, or the workspace needs re-scanning
+
+  ---
+
+  ## Pro Tips
+
+  1. **Start broad, then filter:** Run without filters first, then use `--severity` and `--category` to focus.
+
+  2. **JSON for tracking:** Export JSON regularly to track architecture quality over time.
+
+  3. **Combine with insights:** `insights` shows metrics, `architecture` shows specific issues. Use both.
+
+  4. **CI/CD gate on errors:** Use `--severity error` in pipelines to block merges with critical issues.
+
+  5. **Dead code review:** Not all dead code is useless - entry points and scripts have no incoming refs. Review with context.
+
+  6. **Track god classes:** God classes tend to grow over time. Catch them early when they cross 500 lines.
+
+  7. **Re-scan before analysis:** Architecture analysis is only as good as the index. Run `synthesis scan` first.
+
+  8. **Compare across workspaces:** Run architecture checks on different workspaces to compare quality.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After architecture analysis:
+  - "Want to explain a problematic file?" -> Use `synthesis-explain-code` skill
+  - "Want broader metrics?" -> Use `synthesis-insights-metrics` skill
+  - "Want to understand dependencies?" -> Use `synthesis relate <file>` (relate-dependencies skill)
+  - "Want to ask about an issue?" -> Use `synthesis-ask-workspace` skill
+  - "Want to see relationships visually?" -> Use `synthesis graph` (graph-architecture skill)
+
+  ---
+
+  **Last updated:** February 16, 2026

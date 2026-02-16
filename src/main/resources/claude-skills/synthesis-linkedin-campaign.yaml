@@ -1,0 +1,423 @@
+name: synthesis-linkedin-campaign
+version: 2.0.0
+description: Execute 9-week LinkedIn campaign for Synthesis using multi-perspective strategy (data-driven)
+trigger_phrases:
+  - "synthesis linkedin post"
+  - "post about synthesis"
+  - "synthesis content"
+  - "synthesis perspective post"
+  - "next synthesis post"
+
+instructions: |
+  # Synthesis LinkedIn Campaign Executor
+
+  **Purpose:** Create LinkedIn posts for Synthesis using the 9-perspective strategy
+  **Context:** 405-605K NOK LinkedIn-attributed revenue validates approach (43% comment-to-lead conversion)
+  **Strategy:** One perspective per week, each targets different audience/network, 9-week campaign
+
+  ---
+
+  ## Campaign Overview
+
+  **9 Perspectives = 9 Different Audiences = 9x Surface Area**
+
+  | Week | Perspective | Network | Day | Expected |
+  |------|-------------|---------|-----|----------|
+  | 1 | Engineering Manager | Enterprise (SpareBank 1) | Tue | 20-30 likes, 2-4 leads |
+  | 2 | Executive | Board/Investor (IASA) | Mon | 25-40 likes, strategic convos |
+  | 3 | Architect | Norwegian Tech (JavaZone) | Wed | 30-50 likes, IASA workshop |
+  | 4 | DevOps | CI/CD Community | Tue | GitHub stars, platform teams |
+  | 5 | Security | InfoSec/Compliance | Mon | 15-25 likes, Mynder collab |
+  | 6 | Workshop Facilitator | Training Community | Tue | Conference invites |
+  | 7 | Developer | Open Source (HN, Reddit) | Tue | 50-200 HN points, 100-500 stars |
+  | 8 | Product Manager | PM Community | Wed | PM network, demo viral |
+  | 9 | Sales Enablement | Consulting Sector | Thu | Sales pros, licensing interest |
+
+  **Expected Campaign ROI:** 150-300K NOK pipeline (15-30 leads × 20% close × 50K avg)
+
+  ---
+
+  ## Post Creation Workflow
+
+  When user requests a Synthesis LinkedIn post:
+
+  ### Step 1: Identify Perspective
+  Ask: "Which perspective? (or suggest next in 9-week calendar)"
+  - Current week in campaign
+  - Recent validations (Item Consulting, SpareBank 1)
+  - Strategic timing (conferences, meetings, momentum)
+
+  ### Step 2: Select Track & Format
+  **Track 1: Educational (40%)** - Generate leads
+  - Format: Hook → Invitation → Value → Specificity → CTA
+  - Example: Workshop invitations, framework posts
+  - Best days: Tuesday-Thursday
+  - Expected: 20-30 likes, 5-15 comments, direct revenue
+
+  **Track 2A: Strategic Positioning (20%)** - Long-term positioning
+  - Format: Provocative question → Context → Implications → Open-ended conclusion
+  - Example: "Are We Ready?", AI Paradox, Three Classes
+  - Best days: Monday, Wednesday
+  - Expected: 10-15 likes, 0-3 comments, strategic reach
+
+  **Track 2B: Personal Reflection (20%)** - Relationship building
+  - Format: Experience → Feeling → Meta-reflection → Implicit invitation
+  - Example: Velocity reflection, building at 10x
+  - Best days: Thursday (peak engagement)
+  - Expected: 15-25 likes, 3-7 comments, 15-25% engagement rate
+
+  **Track 3: Technical Foundation (20%)** - Technical credibility
+  - Format: Specific problem → Technical depth → Practical patterns → Experiment frame
+  - Example: Weekend projects, case studies, deep-dives
+  - Best days: Wednesday
+  - Expected: 7-14 likes, 0-1 comments, high impressions (niche)
+
+  ### Step 3: Reference Assets
+  **Visual Assets:** `/home/totto/src/synthesis/docs/visuals/`
+  - Infographics: synthesis-overview, chaos-to-clarity, PM-knowledge-center, executive-ai-paradox, workshop
+  - PDFs: 8 NotebookLM presentations (developer-infrastructure, managing-ai-output, etc.)
+  - Usage guide: `docs/visuals/README.md`
+
+  **Perspective Docs:** `/home/totto/src/synthesis/docs/perspectives/`
+  - Link to relevant perspective guide in post
+  - Extract key metrics, quotes, frameworks from docs
+
+  **Validation Stories:**
+  - Item Consulting: Finance-led adoption, 75% commitment, "Never seen them so focused"
+  - SpareBank 1: Org-wide Claude Code rollout, Vidar presenting to team
+  - Tvimenning: 190-230K partnership, renewable energy startup
+  - lib-pcb: 8,934 files, 691/day generation rate, "needed Synthesis to manage it"
+
+  ### Step 4: Apply Proven Patterns
+  **Conservative Claims (10-30x proven):**
+  - ✅ "10-30x typical, 100x+ possible" closed Jon Petter (190K)
+  - ❌ "320x productivity" generated zero conversions
+  - Use: "92-95% reduction in retrieval time" (measured)
+
+  **Conditional Framing:**
+  - ✅ "IF this scales..." not "WHEN this scales"
+  - ✅ "Validated on 8,934 files" not "Will work for everyone"
+  - Claim only what's proven, acknowledge unknowns
+
+  **Help First, Never Pitch:**
+  - ✅ SpareBank 1: "Asked for help with refactoring" → Inbound → 100-200K opportunity
+  - ✅ Item Consulting: Educational presentation → Finance initiated purchase
+  - ❌ Direct selling = resistance
+
+  **Problem-First Framing:**
+  - Open with concrete, quantified problem audience faces
+  - Engineering Manager: "40-60% time searching = 4-6 FTE salaries wasted"
+  - Architect: "58 repos, 429 dependencies - can you see them?"
+  - Executive: "10x output, 1.5x shipping - where's the other 8.5x?"
+
+  ### Step 5: Optimize for Engagement
+
+  **Data-Driven Timing Insights (20+ posts analyzed, Feb 2026):**
+
+  **Best Days (Proven):**
+  - **Tuesday:** Educational content, enterprise audience (optimal for Track 1)
+  - **Thursday:** Personal reflection peak (25.5% engagement rate on Feb 6 post)
+  - **Wednesday:** Technical deep-dives (architect, developer perspectives)
+
+  **Worst Days (Avoid):**
+  - **Saturday:** Business audience inactive (Feb 15: 4 likes vs 15-25 expected)
+  - **Sunday:** Abstract/philosophical content fails (Feb 8: 3 likes, 0 comments)
+  - **Monday morning:** Lower visibility (catch-up mode)
+
+  **Long-Tail Growth Pattern (CRITICAL INSIGHT):**
+  Posts gain 20-100% more engagement over 2-4 weeks:
+  - Jan 23 (AI Testing): 13 → 16 likes (+23% growth, 3 weeks)
+  - Jan 27 (330x Productivity): 6 → 12 likes (+100% growth!, 2.5 weeks)
+  - Feb 12 (Synthesis Pilot): 8 → 9 likes, 2 → 4 comments (3 days)
+
+  **Implication:** Don't dismiss posts with low initial engagement. Quality content compounds.
+
+  **Proven Performance Benchmarks:**
+
+  **Track 1: Educational (Lead Generation):**
+  - Expected: 20-30 likes, 5-15 comments
+  - Best: Jan 25 Workshop (25 likes, 20 comments, 45 total engagement)
+  - Conversion: 43% comment-to-lead (industry: 2-5%)
+  - Revenue: 190-230K NOK from single post ⭐⭐⭐⭐
+
+  **Track 2A: Strategic Positioning:**
+  - Expected: 10-20 likes, 0-7 comments
+  - Best: Feb 5 "Are We Ready?" (20 likes, 7 comments, growing!)
+  - Conversion: Relationship building → delayed deals (Daniel Bentes: engaged Feb 5 → signed pilot Feb 12)
+
+  **Track 2B: Personal Reflection:**
+  - Expected: 15-25 likes, 3-7 comments
+  - Best: Feb 6 Velocity (22 likes, 5 comments, 25.5% engagement rate)
+  - Conversion: Item Consulting engaged 7 days before workshop
+
+  **Track 3: Technical Credibility:**
+  - Expected: 12-16 likes, 0-2 comments
+  - Best: Jan 23 AI Testing (16 likes, 0 comments)
+  - Conversion: Long-term credibility (no immediate revenue)
+
+  **What Works (Proven):**
+  - ✅ Conservative claims: "10-30x typical" converted deals, "320x" failed
+  - ✅ Problem-first framing: "40-60% time searching" resonates immediately
+  - ✅ Specific metrics: "92-95% reduction", "8,934 files in 31 seconds"
+  - ✅ Visual assets: Infographics get 2-3x engagement
+  - ✅ Early comment replies: Within 15 minutes (algorithm boost)
+  - ✅ Finance-led adoption stories: Item Consulting CFO initiated purchase
+
+  **What Fails (Proven):**
+  - ❌ Saturday/Sunday posts: 50-70% lower engagement
+  - ❌ Overclaiming: 320x productivity generated defensive reactions
+  - ❌ Abstract without business hook: Feb 8 Ghost in Machine (3 likes)
+  - ❌ Niche context: Feb 13 EntraOS (9 likes, 0 comments)
+
+  **Hashtags (3-5 max):**
+  - **Engineering Manager:** #EngineeringManagement #AITools #DeveloperProductivity #ClaudeCode
+  - **Executive:** #DigitalTransformation #AIStrategy #ExecutiveLeadership #CompetitiveAdvantage
+  - **Architect:** #SoftwareArchitecture #IASA #Microservices #DependencyManagement
+  - **DevOps:** #DevOps #CICD #PlatformEngineering #InfrastructureAsCode
+  - **Product Manager:** #ProductManagement #DemoPrep #OpenSource #KnowledgeManagement
+  - **Security:** #CyberSecurity #Compliance #GDPR #AIGovernance #InfoSec
+  - **Workshop:** #TechnicalTraining #WorkshopFacilitation #DeveloperEducation
+  - **Developer:** #OpenSource #DeveloperTools #SoftwareEngineering #GitHub
+  - **Sales:** #SalesEnablement #ConsultingLife #BusinessDevelopment
+
+  **Post Length:**
+  - Hook: 1 sentence (10-15 words)
+  - Body: 3-5 short paragraphs (100-200 words total)
+  - CTA: 1 sentence (specific ask)
+  - Total: 150-250 words (scannable on mobile)
+
+  **Media:**
+  - Always attach relevant infographic or PDF first slide
+  - Visual posts get 2-3x engagement vs text-only
+  - High-res preferred (6+ MB infographics are print-quality)
+
+  ### Step 6: Post-Publication Actions
+  **Immediate (0-2 hours):**
+  - Monitor for early comments
+  - Respond within 15 minutes (engagement boost)
+  - Engage with commenters (ask follow-up questions)
+
+  **First 24 hours:**
+  - Track engagement (track-linkedin-post skill)
+  - Identify qualified leads (comment intent analysis)
+  - DM high-intent commenters (within 24h while momentum fresh)
+
+  **First week:**
+  - Follow up with leads (schedule calls)
+  - Document in opportunity README if qualified
+  - Update PIPELINE-STATUS.md if hot lead
+
+  ---
+
+  ## Perspective-Specific Templates
+
+  ### 1. Engineering Manager Perspective
+
+  **Visual:** chaos-to-clarity-infographic.png + closing-ai-comprehension-gap.pdf
+  **Track:** Educational (Track 1)
+  **Day:** Tuesday
+  **Network:** Enterprise decision-makers (SpareBank 1 pattern)
+
+  **Template:**
+  ```
+  Hook: "Your developers generate code 10x faster with AI. Sprint velocity increased 1.5x. Where did the other 8.5x go?"
+
+  Problem: The bottleneck shifted. Creation → Comprehension. AI accelerated coding but did nothing for search. Your team now generates 100-500 files/week/person but navigates with the same tools they used for 10-20.
+
+  The math: 40-60% of developer time = searching for context. On a 10-person team, that's 4-6 FTE salaries spent on retrieval, not creation.
+
+  Validation: [Recent case study - SpareBank 1, Item Consulting, or other]
+
+  Solution: Engineering Manager perspective now available. 4-week adoption playbook. Success dashboard with 6 metrics. ROI: 4.1M NOK/year for 10-person team.
+
+  Open source. MIT license. 30-minute pilot (zero risk).
+
+  Link: [Synthesis Engineering Manager Guide]
+
+  Question: What percentage of your team's time is spent searching vs creating?
+
+  #EngineeringManagement #AITools #DeveloperProductivity #SpareBank1
+  ```
+
+  ### 2. Executive Perspective
+
+  **Visual:** executive-ai-paradox.png + strategic-ip-velocity-engine.pdf
+  **Track:** Strategic Positioning (Track 2A)
+  **Day:** Monday
+  **Network:** Board members, investors (IASA Chairman network)
+
+  **Template:**
+  ```
+  Title: "The AI Paradox: Why 10x Engineering Output = 1.5x Shipping Speed"
+
+  Hook: You invested in AI tools. Developer output increased 10x. Time-to-market improved 1.5x. Where's the other 8.5x?
+
+  Answer: Comprehension bottleneck. AI accelerated creation. Did nothing for search. Your team creates at AI speed, navigates at human speed.
+
+  The math: 10-person team, 40% time searching = 4 FTEs (48M NOK/year) spent on retrieval.
+
+  Strategic window: 12-18 months. Three classes emerging:
+  - Class 1 (60%): Output-Overwhelmed (15-20% AI realization)
+  - Class 2 (35%): Synthesis-Enabled (70-80% AI realization)
+  - Class 3 (5%): Synthesis-Native (90-100% AI realization)
+
+  Gap compounds. 2x shipping advantage today. Full product generation in 12 months.
+
+  Executive brief: [Link to EXECUTIVE-BRIEF.md]
+
+  Question: Which class is your organization?
+
+  #DigitalTransformation #AIStrategy #ExecutiveLeadership #CompetitiveAdvantage
+  ```
+
+  ### 3. Product Manager Perspective
+
+  **Visual:** product-manager-knowledge-center.png + product-knowledge-command-center.pdf
+  **Track:** Educational (Track 1)
+  **Day:** Wednesday
+  **Network:** PM community, dev tool enthusiasts
+
+  **Template:**
+  ```
+  Title: "Client Call in 2 Hours. Find the Demo Video."
+
+  Scenario: Prospect asks for real-time analytics demo. 30 minutes panic-searching Google Drive, Slack, Downloads. Find wrong version. Miss 40% of impressive features.
+
+  With Synthesis: `synthesis search "real-time analytics"` → 0.4 seconds
+  Results: Demo video (4:32, 1920x1080), architecture docs, performance benchmarks, related code files.
+
+  Demo prep: 3 minutes calm (vs 60-minute panic).
+
+  Problem: 2-4 hours/week per PM spent searching for product knowledge. On a 5-person product team: 1 full FTE salary on retrieval.
+
+  Solution: Product Manager perspective. Multi-format search. Demo workflows. QBR automation (2-3 hours → 10 minutes).
+
+  Open source. MIT license. Works with everything (code, docs, videos, PDFs, Figma exports).
+
+  Link: [Synthesis for Product Managers]
+
+  Question: How long did it take to find the materials for your last client demo?
+
+  #ProductManagement #DemoPrep #OpenSource #KnowledgeManagement
+  ```
+
+  ---
+
+  ## Revenue Attribution (LinkedIn Source)
+
+  **Total Attributed Revenue:** 135-175K NOK (as of Feb 15, 2026)
+
+  **Closed Deals:**
+  - Jan 25 Workshop Post → Jon Petter (Tvimenning): **40K NOK signed** ✅
+    - Total potential: 190-230K NOK (workshop + mentoring)
+    - Conversion: 43% comment-to-lead rate
+
+  **Hot Pipeline:**
+  - Feb 6 Velocity → Item Consulting: 35-75K NOK (workshop delivered Feb 13)
+  - Feb 12 Synthesis Pilot → Daniel Bentes: ~20K NOK (pilot signup)
+  - Jan 25 Workshop → Ola, Kent: ~40K NOK (warm leads)
+
+  **Conversion Funnel (Proven):**
+  - Educational Post → Comments (5-20) → Qualified Leads (30-50% of commenters) → Meetings (60-80%) → Deals (20-40%)
+  - Best performer: Jan 25 Workshop (19 comments → 7 leads → 3 qualified → 1 closed = 190-230K)
+
+  **Strategic Value:**
+  - LinkedIn = highest ROI marketing channel
+  - 43% comment-to-lead conversion (industry benchmark: 2-5%)
+  - Average revenue per post: 22-33K NOK (405-605K ÷ 20 posts)
+
+  ---
+
+  ## Tracking & Attribution
+
+  **After posting, use track-linkedin-post skill:**
+  ```
+  Use skill: track-linkedin-post
+  Provide: Post URL, perspective type, target audience
+  ```
+
+  **Creates:**
+  - Individual post tracking doc in `/home/totto/Documents/eXOReaction/marketing/linkedin/posts/`
+  - Updates LINKEDIN-POST-INDEX.md with status
+  - Tracks engagement metrics (24h, 48h, 1 week)
+  - Attributes business impact (leads, pipeline, revenue)
+
+  **Update pipeline when leads emerge:**
+  - Create opportunity README in `/home/totto/Documents/eXOReaction/clients/opportunity-[Company]/`
+  - Link back to source LinkedIn post (bidirectional attribution)
+  - Update PIPELINE-STATUS.md with weighted value
+
+  ---
+
+  ## Success Metrics (Per Post)
+
+  **Engagement Targets:**
+  - Educational (Track 1): 20-30 likes, 5-15 comments, 1-3 qualified leads
+  - Strategic (Track 2A): 10-15 likes, 0-3 comments, thought leadership positioning
+  - Personal (Track 2B): 15-25 likes, 3-7 comments, 15-25% engagement rate
+  - Technical (Track 3): 7-14 likes, 0-1 comments, high impressions (niche reach)
+
+  **Conversion Targets:**
+  - Comment-to-lead: 30-50% (43% proven on Jan 25 workshop post)
+  - Lead-to-qualified: 60-80% (filter for serious intent)
+  - Qualified-to-meeting: 50-70% (conservative claims build trust)
+  - Meeting-to-deal: 20-40% (help first, pitch never)
+
+  **Revenue Attribution:**
+  - Per post expected: 15-30K NOK (proven average: 22-33K)
+  - Campaign expected (9 weeks): 150-300K NOK pipeline
+  - Plus: Open source growth, speaking invites, enterprise validation
+
+  ---
+
+  ## Quick Reference: Next Post Decision Tree
+
+  **Q1: What's the timing?**
+  - Item Consulting workshop just happened (Feb 13) → Validation post (Track 2B, personal reflection)
+  - SpareBank 1 presentation happened (Feb 4) → Follow-up with Engineering Manager perspective
+  - New validation coming → Wait for fresh story, momentum matters
+  - No recent news → Strategic positioning or technical deep-dive
+
+  **Q2: What's the network priority?**
+  - Enterprise deals hot (SpareBank 1) → Engineering Manager or Executive perspective
+  - Open source growth needed → Developer perspective (Show HN prep)
+  - Conference season → Workshop Facilitator perspective (CFP timing)
+  - Consulting sector momentum (Item) → Sales Enablement perspective
+
+  **Q3: What's the day of week?**
+  - Monday → Strategic positioning (Executive, Security)
+  - Tuesday → Educational (Engineering Manager, Workshop, DevOps)
+  - Wednesday → Technical (Architect, Product Manager, Developer)
+  - Thursday → Personal reflection (any perspective, peak engagement)
+  - Friday → Rest (community engagement, no major posts)
+  - Weekend → Avoid (except educational exceptions)
+
+  **Q4: What's the campaign week?**
+  - Follow 9-week calendar in SYNTHESIS-ATTENTION-STRATEGY.md
+  - Each perspective gets one week spotlight
+  - Don't repeat same perspective too frequently (burns network)
+  - Rotate across different audiences for maximum reach
+
+  ---
+
+  ## Example Invocation
+
+  **User:** "Let's post about Synthesis Engineering Manager perspective"
+
+  **Response:**
+  1. Confirm timing: "Great! Tuesday is optimal for educational content. SpareBank 1 momentum is fresh. Ready to draft?"
+  2. Select track: "Track 1: Educational (lead generation). Problem → Validation → Solution → CTA."
+  3. Draft post using Engineering Manager template above
+  4. Include visual: chaos-to-clarity-infographic.png
+  5. Suggest hashtags: #EngineeringManagement #AITools #DeveloperProductivity #SpareBank1 #ClaudeCode
+  6. Post-publication: "After posting, use track-linkedin-post skill to monitor engagement and attribute leads."
+
+  ---
+
+  **Related Files:**
+  - Strategy: `/home/totto/Documents/eXOReaction/marketing/SYNTHESIS-ATTENTION-STRATEGY.md`
+  - Calendar: `/home/totto/Documents/eXOReaction/marketing/linkedin/MONTHLY-CONTENT-STRATEGY.md`
+  - Perspectives: `/home/totto/src/synthesis/docs/perspectives/`
+  - Visuals: `/home/totto/src/synthesis/docs/visuals/`
+
+  **Last Updated:** February 15, 2026 (v2.0.0 - data-driven insights from 20+ posts, 135-175K NOK attribution)

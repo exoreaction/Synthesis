@@ -67,6 +67,9 @@ public final class DocumentFields {
     /** Client identifier for client-scoped files (e.g., "SpareBank1"). */
     public static final String CLIENT = "client";
 
+    /** Sub-workspace identifier for scoped search within a workspace (e.g., "eXOReaction"). */
+    public static final String SUB_WORKSPACE = "subWorkspace";
+
     // --- Media-specific fields ---
 
     /** Media type for presentation detection: "presentation", "document", "spreadsheet", etc. */

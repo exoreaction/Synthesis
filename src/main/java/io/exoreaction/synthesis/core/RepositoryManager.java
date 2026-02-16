@@ -18,7 +18,18 @@ import java.util.stream.Collectors;
  *
  * <p>When a workspace has multiple repos, each file in the index is tagged
  * with its repository name for scoped querying.
+ *
+ * @deprecated Since v1.4.0. Use {@link SubWorkspaceResolver} with sub-workspace
+ * configuration in {@code config.yaml} instead. Repository-based partitioning
+ * is superseded by the sub-workspace architecture, which provides richer
+ * features including scoped search, staging workflows, and organizational
+ * hierarchy. Existing repos can be migrated using {@code synthesis migrate-repos}.
+ * This class will be removed in v2.0.0.
+ *
+ * @see SubWorkspaceResolver
+ * @see io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig
  */
+@Deprecated(since = "1.4.0", forRemoval = true)
 public class RepositoryManager {
 
     private static final String REPOS_FILE = "repos.json";

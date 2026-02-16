@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -191,6 +193,106 @@ public final class ConfigLoader {
         if (config.getSearch() != null && config.getSearch().getMaxResults() <= 0) {
             return Optional.of("search.maxResults must be positive");
         }
+
+        // Validate sub-workspaces
+        if (config.getSubWorkspaces() != null) {
+            for (SynthesisConfig.SubWorkspaceConfig sw : config.getSubWorkspaces()) {
+                if (sw.getName() == null || sw.getName().isBlank()) {
+                    return Optional.of("Sub-workspace has empty name");
+                }
+                if (sw.getPath() == null || sw.getPath().isBlank()) {
+                    return Optional.of("Sub-workspace '" + sw.getName() + "' has empty path");
+                }
+            }
+        }
+
         return Optional.empty();
+    }
+
+    /**
+     * Resolves the effective scan config for a sub-workspace by merging with parent config.
+     *
+     * <p>Inheritance rules:
+     * <ul>
+     *   <li>includePatterns: sub-workspace overrides parent if set, otherwise inherits</li>
+     *   <li>excludePatterns: sub-workspace patterns are ADDED to parent patterns</li>
+     *   <li>All other scan settings: inherited from parent (not overrideable per sub-workspace)</li>
+     * </ul>
+     *
+     * @param parentScan the parent workspace's scan configuration
+     * @param subWorkspace the sub-workspace configuration
+     * @return effective scan config with inheritance applied
+     */
+    public static SynthesisConfig.ScanConfig resolveSubWorkspaceScanConfig(
+            SynthesisConfig.ScanConfig parentScan,
+            SynthesisConfig.SubWorkspaceConfig subWorkspace) {
+
+        SynthesisConfig.ScanConfig resolved = new SynthesisConfig.ScanConfig();
+
+        // Include patterns: override if set, otherwise inherit
+        if (subWorkspace.getIncludePatterns() != null && !subWorkspace.getIncludePatterns().isEmpty()) {
+            resolved.setIncludePatterns(subWorkspace.getIncludePatterns());
+        } else {
+            resolved.setIncludePatterns(parentScan.getIncludePatterns());
+        }
+
+        // Exclude patterns: merge (add sub-workspace patterns to parent patterns)
+        List<String> mergedExcludes = new ArrayList<>(parentScan.getExcludePatterns());
+        if (subWorkspace.getExcludePatterns() != null) {
+            for (String pattern : subWorkspace.getExcludePatterns()) {
+                if (!mergedExcludes.contains(pattern)) {
+                    mergedExcludes.add(pattern);
+                }
+            }
+        }
+        resolved.setExcludePatterns(mergedExcludes);
+
+        // Other settings: inherit from parent
+        resolved.setComputeHashes(parentScan.isComputeHashes());
+        resolved.setMaxFileSizeBytes(parentScan.getMaxFileSizeBytes());
+
+        return resolved;
+    }
+
+    /**
+     * Resolves which sub-workspace a file belongs to based on its relative path.
+     *
+     * <p>Matching algorithm:
+     * <ol>
+     *   <li>Check each sub-workspace's path prefix against the file's relative path</li>
+     *   <li>Use the longest matching prefix (most specific match wins)</li>
+     *   <li>Return null if no sub-workspace matches (file belongs to root workspace)</li>
+     * </ol>
+     *
+     * @param relativePath the file's path relative to the workspace root
+     * @param subWorkspaces the list of configured sub-workspaces
+     * @return the matching sub-workspace name, or null if no match
+     */
+    public static String resolveSubWorkspace(String relativePath,
+                                               List<SynthesisConfig.SubWorkspaceConfig> subWorkspaces) {
+        if (subWorkspaces == null || subWorkspaces.isEmpty() || relativePath == null) {
+            return null;
+        }
+
+        String bestMatch = null;
+        int bestMatchLength = 0;
+
+        for (SynthesisConfig.SubWorkspaceConfig sw : subWorkspaces) {
+            String prefix = sw.getPath();
+            if (prefix == null || prefix.isEmpty()) continue;
+
+            // Normalize the prefix (ensure it ends with / for directory matching)
+            String normalizedPrefix = prefix.endsWith("/") ? prefix : prefix + "/";
+
+            // Check if the relative path starts with this prefix
+            if (relativePath.startsWith(normalizedPrefix) || relativePath.equals(prefix)) {
+                if (normalizedPrefix.length() > bestMatchLength) {
+                    bestMatchLength = normalizedPrefix.length();
+                    bestMatch = sw.getName();
+                }
+            }
+        }
+
+        return bestMatch;
     }
 }

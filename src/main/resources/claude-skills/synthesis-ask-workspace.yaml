@@ -1,0 +1,188 @@
+name: synthesis-ask-workspace
+version: 1.0.0
+description: |
+  AI-powered Q&A about workspace content using Synthesis.
+  Ask natural language questions and get answers grounded in actual indexed files.
+
+trigger_phrases:
+  - "ask synthesis"
+  - "question about codebase"
+  - "ask workspace"
+  - "ask about files"
+  - "what does the workspace"
+  - "synthesis ask"
+  - "AI question workspace"
+
+instructions: |
+  # Synthesis Ask - AI-Powered Workspace Q&A
+
+  **Purpose:** Ask natural language questions about your workspace and get AI-generated answers grounded in actual indexed files with citations.
+  **Requires:** ANTHROPIC_API_KEY environment variable and `ai.enabled=true` in `.synthesis/config.yaml`
+  **Model:** claude-sonnet-4-5-20250929 (configurable)
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> ask "<question>" [options] 2>/dev/null
+  ```
+
+  ### Parameters
+  - `<question>` - Natural language question about the workspace (positional, required unless --interactive)
+  - `-c, --context <N>` - Number of files to include as context (default: 8)
+  - `-v, --verbose` - Show which files were used as context and their relevance scores
+  - `--max-tokens <N>` - Maximum tokens in AI response (default: 2048)
+  - `-i, --interactive` - Start interactive conversation mode (multi-turn Q&A)
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Ask about architecture
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "What authentication methods are used?" 2>/dev/null
+  ```
+
+  ### 2. Ask about specific patterns
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "Explain the dependency injection approach" 2>/dev/null
+  ```
+
+  ### 3. Ask with more context (complex questions)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "How does the pipeline work end to end?" --context 15 2>/dev/null
+  ```
+
+  ### 4. Ask with verbose output (see which files informed the answer)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "Where is error handling implemented?" --verbose 2>/dev/null
+  ```
+
+  ### 5. Ask about business context
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "What clients does eXOReaction work with?" 2>/dev/null
+  ```
+
+  ### 6. Ask about testing strategy
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "What testing frameworks and strategies are used?" 2>/dev/null
+  ```
+
+  ### 7. Ask with longer AI response
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "Give a comprehensive overview of the project architecture" --max-tokens 4096 2>/dev/null
+  ```
+
+  ### 8. Start interactive conversation mode
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask --interactive 2>/dev/null
+  ```
+
+  **Interactive commands:**
+  - `/help` - Show available commands
+  - `/exit` or `/quit` - Exit interactive mode
+  - `/clear` - Clear conversation history
+  - `/history` - Show conversation history
+  - `Ctrl+D` - Exit
+
+  ### 9. Ask about a specific area
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "What is the Quadim SaaS platform?" --context 10 2>/dev/null
+  ```
+
+  ### 10. Ask about configuration
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents ask "What configuration files exist and what do they control?" 2>/dev/null
+  ```
+
+  ---
+
+  ## How It Works
+
+  1. Synthesis searches the workspace index for files relevant to your question
+  2. It reads the content of the top N matching files (default: 8)
+  3. Builds a context prompt with file paths, languages, and content previews
+  4. Sends to Claude with your question for a grounded answer
+  5. Returns the answer with file citations
+
+  **Interactive mode** additionally:
+  - Maintains conversation history (last 10 Q&A pairs)
+  - Includes previous Q&A as context for follow-up questions
+  - Supports multi-turn exploration of complex topics
+
+  ---
+
+  ## Perspectives Suggestion
+
+  For complex or ambiguous questions, `ask` will suggest using the `perspectives` command:
+  ```
+  This question might benefit from multiple perspectives. Try:
+  synthesis perspectives 'Should we migrate to microservices?'
+  ```
+
+  This triggers when the question involves trade-offs, comparisons, or architectural decisions.
+
+  ---
+
+  ## Error Handling
+
+  - **"AI is not configured"** - Set `ANTHROPIC_API_KEY` environment variable and ensure `ai.enabled=true` in config
+  - **"No relevant files found"** - Run `synthesis scan` to update the index, or rephrase the question
+  - **"Question is required"** - Provide a question in quotes, or use `--interactive` for conversation mode
+  - **"Workspace not initialized"** - Run `synthesis init` then `synthesis scan` first
+  - **SLF4J warnings on stderr** - Normal, suppress with `2>/dev/null`
+
+  ---
+
+  ## Pro Tips
+
+  1. **Start broad, then narrow:** Ask "What does this project do?" first, then specific follow-ups.
+
+  2. **Use --verbose to validate:** The `--verbose` flag shows which files were used, helping you judge answer quality.
+
+  3. **Increase context for complex questions:** Use `--context 15` or `--context 20` for questions spanning many files.
+
+  4. **Interactive mode for exploration:** Use `--interactive` when you have multiple related questions - it keeps conversation context.
+
+  5. **Combine with search:** If `ask` gives a partial answer, use `synthesis search` to find specific files, then ask again with more context.
+
+  6. **Complex questions -> perspectives:** For "should we..." or "what are the trade-offs..." questions, use `synthesis perspectives` instead.
+
+  7. **Ask about what you see:** After `synthesis search` or `synthesis insights`, ask follow-up questions about specific findings.
+
+  8. **The answer cites files:** Look for file paths in the response - you can then read those files directly for more detail.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After asking questions:
+  - "Want multiple viewpoints?" -> Use `synthesis-perspectives-analysis` skill
+  - "Want to see the files mentioned?" -> Use Read tool on cited file paths
+  - "Want deeper code explanation?" -> Use `synthesis-explain-code` skill
+  - "Want to search for more?" -> Use `synthesis-search-workspace` skill
+  - "Want metrics about the codebase?" -> Use `synthesis-insights-metrics` skill
+
+  ---
+
+  ## Available Workspaces
+
+  | Workspace | Path | Files |
+  |-----------|------|-------|
+  | Documents | `/home/totto/Documents` | 7,118 |
+  | Pictures | `/home/totto/Pictures` | 572 |
+  | Downloads | `/home/totto/Downloads` | 86 |
+
+  **Last updated:** February 16, 2026

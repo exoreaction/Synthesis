@@ -129,13 +129,16 @@ public class SynthesisToolHandler {
             fileType = null;
         }
 
+        String subWorkspace = params.has("subWorkspace") && !params.get("subWorkspace").isNull()
+                ? params.get("subWorkspace").asText() : null;
+
         int limit = params.has("limit") ? params.get("limit").asInt(20) : 20;
         if (limit < 1) limit = 1;
         if (limit > 200) limit = 200;
 
         // Multi-workspace search
         if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
-            return handleMultiWorkspaceSearch(query, fileType, limit, startTime);
+            return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, startTime);
         }
 
         // Single workspace search (original behavior)
@@ -143,7 +146,13 @@ public class SynthesisToolHandler {
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
         try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
-            List<SearchResult> results = index.search(query, fileType, limit);
+            List<SearchResult> results;
+            if (subWorkspace != null && !subWorkspace.isBlank()) {
+                results = index.searchWithSubWorkspace(query, fileType, null,
+                        null, null, subWorkspace, limit);
+            } else {
+                results = index.search(query, fileType, limit);
+            }
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
             // Record metrics
@@ -166,13 +175,19 @@ public class SynthesisToolHandler {
     }
 
     /**
-     * Performs search across all configured workspaces.
+     * Performs search across all configured workspaces, with optional sub-workspace scoping.
      */
     private ObjectNode handleMultiWorkspaceSearch(String query, String fileType,
+                                                    String subWorkspace,
                                                     int limit, long startTime) throws McpToolException {
         try {
             MultiWorkspaceSearch multiSearch = new MultiWorkspaceSearch(allWorkspaces);
-            MultiWorkspaceSearch.MultiSearchResult multiResult = multiSearch.search(query, fileType, limit);
+            MultiWorkspaceSearch.MultiSearchResult multiResult;
+            if (subWorkspace != null && !subWorkspace.isBlank()) {
+                multiResult = multiSearch.searchWithSubWorkspace(query, fileType, subWorkspace, limit);
+            } else {
+                multiResult = multiSearch.search(query, fileType, limit);
+            }
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
             ObjectNode response = mapper.createObjectNode();
@@ -259,6 +274,9 @@ public class SynthesisToolHandler {
         }
         if (result.repository() != null) {
             metadata.put("repository", result.repository());
+        }
+        if (result.subWorkspace() != null) {
+            metadata.put("subWorkspace", result.subWorkspace());
         }
         item.set("metadata", metadata);
 

@@ -1,0 +1,225 @@
+name: synthesis-graph-architecture
+version: 1.0.0
+description: |
+  Generate visual architecture diagrams from a Synthesis workspace using Mermaid, DOT, or image formats.
+  Supports module dependency graphs, cross-repo graphs, and file-level relationship graphs.
+
+trigger_phrases:
+  - "synthesis graph"
+  - "architecture diagram"
+  - "generate diagram"
+  - "dependency diagram"
+  - "mermaid diagram"
+  - "visualize architecture"
+  - "module dependencies"
+  - "cross-repo dependencies"
+  - "show architecture"
+  - "generate architecture graph"
+
+instructions: |
+  # Synthesis Graph Architecture
+
+  **Purpose:** Generate visual architecture diagrams from indexed workspace data.
+  **Formats:** Mermaid (recommended for markdown/GitHub), DOT (Graphviz), PNG, SVG.
+  **Workspace:** `/home/totto/Documents` (7,117 documents indexed)
+
+  ---
+
+  ## How to Use
+
+  Run the Synthesis CLI graph command via Bash tool:
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph [options] 2>/dev/null
+  ```
+
+  **Important:** Always add `2>/dev/null` to suppress SLF4J and pilot approval stderr noise.
+
+  ---
+
+  ## Command Syntax
+
+  ```
+  synthesis -d <workspace> graph [<targetFile>] [--modules] [--cross-repo] [--all]
+            [--depth N] [--format FORMAT] [--output FILE] [--repo NAME]
+  ```
+
+  ### Graph Modes (pick one)
+  - `<targetFile>` - Graph relationships for a specific file
+  - `--modules` - Generate module/directory dependency graph (recommended for overview)
+  - `--cross-repo` - Generate cross-repository dependency graph
+  - `--all` - Include all files (warning: may be large for big workspaces)
+
+  ### Optional Parameters
+  - `--depth N` - How many levels to include (default: 1)
+  - `--format FORMAT` or `-f FORMAT` - Output format: `mermaid` (default), `dot`, `png`, `svg`
+  - `--output FILE` or `-o FILE` - Output file path (default: auto-generated)
+  - `--repo NAME` - Scope to a specific repository
+
+  ---
+
+  ## Common Usage Patterns
+
+  ### 1. Module dependency overview (best for presentations)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --modules --format mermaid 2>/dev/null
+  ```
+
+  ### 2. Cross-repository dependencies
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --cross-repo --format mermaid 2>/dev/null
+  ```
+
+  ### 3. Graph for a specific file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph "CLAUDE.md" --depth 2 --format mermaid 2>/dev/null
+  ```
+
+  ### 4. Full architecture graph (may be large)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --all --format mermaid 2>/dev/null
+  ```
+
+  ### 5. Scoped to a specific repository
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --modules --repo eXOReaction --format mermaid 2>/dev/null
+  ```
+
+  ### 6. Save to file (PNG/SVG for slides)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --modules --format png --output /tmp/architecture.png 2>/dev/null
+  ```
+
+  ### 7. DOT format for Graphviz processing
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents graph --modules --format dot 2>/dev/null
+  ```
+
+  ---
+
+  ## Mermaid Output Usage
+
+  When using `--format mermaid`, the output is valid Mermaid syntax. Embed it in markdown:
+
+  ````markdown
+  ```mermaid
+  graph TD
+    A[Module A] --> B[Module B]
+    A --> C[Module C]
+    B --> D[Shared Library]
+  ```
+  ````
+
+  **Rendering options:**
+  - GitHub: Automatically renders Mermaid in markdown files and PRs
+  - VS Code: Use Mermaid preview extension
+  - Online: Paste into https://mermaid.live for interactive editing
+  - Export: Use Mermaid CLI (`mmdc`) for PNG/SVG export
+
+  ---
+
+  ## Graph Types Explained
+
+  ### Module Graph (`--modules`)
+  - Shows directory-level dependencies
+  - Best for: Architecture overview, presentations, onboarding
+  - Scale: Manageable even for large workspaces (directories, not files)
+  - Example nodes: `eXOReaction/`, `Quadim/`, `Cantara/`, `eXOReaction/business/`
+
+  ### Cross-Repo Graph (`--cross-repo`)
+  - Shows dependencies between repositories
+  - Best for: Multi-repo architecture, understanding coupling
+  - Validated: 58 repos, 429 dependencies in <31 seconds
+  - Example: Quadim depends on Cantara/Xorcery framework
+
+  ### File Graph (`<targetFile>`)
+  - Shows relationships for a single file with depth control
+  - Best for: Impact analysis, understanding a specific component
+  - Use with `--depth 2` or `--depth 3` for broader context
+
+  ### Full Graph (`--all`)
+  - Includes all files and relationships
+  - Warning: Can be very large (7,000+ nodes) - use with caution
+  - Best for: Small focused workspaces or with `--repo` filter
+
+  ---
+
+  ## Interpreting Graph Output
+
+  **Mermaid graph elements:**
+  - `-->` - Dependency direction (A depends on B)
+  - `[Rectangle]` - Module or directory
+  - `([Stadium])` - File or document
+  - `{Diamond}` - Decision point or key dependency
+  - Colors indicate: blue=code, green=docs, orange=config, gray=other
+
+  **Node labels include:**
+  - Module/directory name
+  - File count (for module graphs)
+  - Key file types
+
+  ---
+
+  ## Error Handling
+
+  - **"No relationships found"** - Workspace may need re-scanning. Run `synthesis -d /home/totto/Documents scan`
+  - **"File not found"** - Check the file path. Use `synthesis search` to find it first.
+  - **Graph too large** - Add `--repo` filter or use `--modules` instead of `--all`
+  - **PNG/SVG generation fails** - Graphviz may not be installed. Use `--format mermaid` instead.
+  - **SLF4J warnings on stderr** - Normal, suppress with `2>/dev/null`
+  - **Pilot approval warning** - Cosmetic only, commands execute normally
+
+  ---
+
+  ## Follow-up Suggestions
+
+  After generating a graph, suggest these related actions:
+  - "Want to explore a specific module's dependencies?" -> Re-run with `--repo <name>`
+  - "Want to see file-level detail?" -> Use `synthesis-relate-dependencies` skill
+  - "Want to find specific files in a module?" -> Use `synthesis-search-workspace` skill
+  - "Want to save this as an image?" -> Re-run with `--format png --output /tmp/graph.png`
+  - "Want to embed in documentation?" -> Wrap Mermaid output in a fenced code block
+
+  ---
+
+  ## Workshop Demo Script
+
+  For live demos (e.g., Item Consulting workshop):
+
+  1. **Show module overview** (10 seconds):
+     ```bash
+     synthesis -d /home/totto/Documents graph --modules --format mermaid 2>/dev/null
+     ```
+     "Here's your entire architecture at a glance."
+
+  2. **Drill into a module** (10 seconds):
+     ```bash
+     synthesis -d /home/totto/Documents graph "CLAUDE.md" --depth 2 --format mermaid 2>/dev/null
+     ```
+     "Now let's see what this key file connects to."
+
+  3. **Cross-repo dependencies** (10 seconds):
+     ```bash
+     synthesis -d /home/totto/Documents graph --cross-repo --format mermaid 2>/dev/null
+     ```
+     "And here's how your repositories depend on each other."
+
+  Total demo time: 30 seconds for three different architecture views.
+
+  ---
+
+  **Key Business Value:**
+  - Architecture documentation that stays current (regenerate anytime)
+  - Onboarding: New developers see the architecture in 30 seconds
+  - Technical debt: Visualize coupling, identify refactoring targets
+  - Presentations: Generate diagrams for slides, proposals, reviews
+
+  **Last indexed:** February 15, 2026

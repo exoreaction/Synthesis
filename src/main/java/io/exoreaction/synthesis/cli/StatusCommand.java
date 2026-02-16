@@ -220,6 +220,11 @@ public class StatusCommand implements Callable<Integer> {
             if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
                 try (SearchIndex index = new SearchIndex(indexPath2)) {
                     showMediaStats(index);
+
+                    // Sub-workspace breakdown
+                    if (config.getSubWorkspaces() != null && !config.getSubWorkspaces().isEmpty()) {
+                        showSubWorkspaceBreakdown(index);
+                    }
                 } catch (Exception ignored) {
                     // Media stats are informational -- don't fail status
                 }
@@ -357,6 +362,42 @@ public class StatusCommand implements Callable<Integer> {
                 }
                 System.out.println();
             }
+        }
+    }
+
+    /**
+     * Shows sub-workspace file count breakdown.
+     */
+    private void showSubWorkspaceBreakdown(SearchIndex index) {
+        try {
+            Map<String, Long> counts = index.getSubWorkspaceCounts();
+            if (counts.isEmpty()) {
+                return;
+            }
+
+            long total = counts.values().stream().mapToLong(Long::longValue).sum();
+            if (total == 0) {
+                return;
+            }
+
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Sub-workspace Breakdown:"));
+
+            counts.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .forEach(entry -> {
+                        String name = entry.getKey();
+                        long count = entry.getValue();
+                        double pct = (count * 100.0) / total;
+
+                        String displayName = (name == null || name.isEmpty()) ? "(root)" : name;
+                        String pctStr = pct < 1.0 ? "<1" : String.valueOf(Math.round(pct));
+
+                        System.out.printf("    %-22s %,6d files (%s%%)%n",
+                                AnsiOutput.cyan(displayName), count, pctStr);
+                    });
+        } catch (Exception e) {
+            // Sub-workspace breakdown is informational -- don't fail status
         }
     }
 

@@ -96,6 +96,19 @@ public class SearchCommand implements Callable<Integer> {
     private List<String> workspaceNames;
 
     @Option(
+            names = {"--scope"},
+            description = "Scope search to a specific sub-workspace (e.g., --scope eXOReaction)"
+    )
+    private String scope;
+
+    @Option(
+            names = {"--aggregate"},
+            description = "Show results aggregated by sub-workspace",
+            defaultValue = "false"
+    )
+    private boolean aggregate;
+
+    @Option(
             names = {"--semantic"},
             description = "Use semantic search (embedding-based) instead of keyword search",
             defaultValue = "false"
@@ -142,11 +155,21 @@ public class SearchCommand implements Callable<Integer> {
             // Keyword search
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 List<SearchResult> results;
-                if (mediaType != null) {
-                    results = index.searchWithMediaType(query, fileType, repo, mediaType,
-                            company, client, limit);
-                } else if (company != null || client != null) {
-                    results = index.search(query, fileType, repo, company, client, limit);
+                if (scope != null || mediaType != null || company != null || client != null) {
+                    // Use the most comprehensive search method with sub-workspace support
+                    if (mediaType != null) {
+                        results = index.searchWithMediaType(query, fileType, repo, mediaType,
+                                company, client, limit);
+                        // Filter by scope post-query if needed
+                        if (scope != null) {
+                            results = results.stream()
+                                    .filter(r -> scope.equals(r.subWorkspace()))
+                                    .toList();
+                        }
+                    } else {
+                        results = index.searchWithSubWorkspace(query, fileType, repo,
+                                company, client, scope, limit);
+                    }
                 } else {
                     results = index.search(query, fileType, repo, limit);
                 }
@@ -157,17 +180,28 @@ public class SearchCommand implements Callable<Integer> {
                     if (fileType != null) {
                         System.out.println("  (filtered by type: " + fileType + ")");
                     }
+                    if (scope != null) {
+                        System.out.println("  (scoped to sub-workspace: " + scope + ")");
+                    }
                     System.out.println();
                     System.out.println("  Tips:");
                     System.out.println("    - Try broader search terms");
                     System.out.println("    - Use wildcards: " + AnsiOutput.cyan("test*"));
                     System.out.println("    - Remove type filter");
+                    if (scope != null) {
+                        System.out.println("    - Remove --scope to search all sub-workspaces");
+                    }
                     System.out.println("    - Run " + AnsiOutput.cyan("synthesis scan") + " if index is stale");
                     System.out.println();
                     return 0;
                 }
 
-                printResults(results, query);
+                // Aggregate by sub-workspace if requested
+                if (aggregate) {
+                    printAggregatedResults(results, query);
+                } else {
+                    printResults(results, query);
+                }
             }
 
             return 0;
@@ -199,7 +233,12 @@ public class SearchCommand implements Callable<Integer> {
         }
 
         MultiWorkspaceSearch multiSearch = new MultiWorkspaceSearch(workspacePaths);
-        MultiSearchResult result = multiSearch.search(query, fileType, limit);
+        MultiSearchResult result;
+        if (scope != null && !scope.isBlank()) {
+            result = multiSearch.searchWithSubWorkspace(query, fileType, scope, limit);
+        } else {
+            result = multiSearch.search(query, fileType, limit);
+        }
 
         // Print results grouped by workspace
         System.out.println();
@@ -433,6 +472,72 @@ public class SearchCommand implements Callable<Integer> {
         } catch (Exception e) {
             AnsiOutput.printError("Semantic search failed: " + e.getMessage());
             return 1;
+        }
+    }
+
+    /**
+     * Prints search results aggregated by sub-workspace.
+     *
+     * <p>Groups results by their sub-workspace tag and displays each group
+     * with a header showing the sub-workspace name and result count.
+     * Files without a sub-workspace are grouped under "(root workspace)".
+     */
+    private void printAggregatedResults(List<SearchResult> results, String query) {
+        // Group results by sub-workspace
+        Map<String, List<SearchResult>> grouped = new LinkedHashMap<>();
+        for (SearchResult result : results) {
+            String subWs = result.subWorkspace();
+            String groupKey = (subWs != null && !subWs.isEmpty()) ? subWs : "(root workspace)";
+            grouped.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(result);
+        }
+
+        System.out.println();
+        System.out.printf("  %s results for: %s  %s%n%n",
+                AnsiOutput.bold(String.valueOf(results.size())),
+                AnsiOutput.bold(query),
+                AnsiOutput.dim("(" + grouped.size() + " sub-workspace"
+                        + (grouped.size() != 1 ? "s" : "") + ")"));
+
+        for (Map.Entry<String, List<SearchResult>> entry : grouped.entrySet()) {
+            String groupName = entry.getKey();
+            List<SearchResult> groupResults = entry.getValue();
+
+            // Sub-workspace header
+            System.out.printf("  %s  %s results%n",
+                    AnsiOutput.bold(groupName),
+                    AnsiOutput.cyan(String.valueOf(groupResults.size())));
+
+            for (int i = 0; i < groupResults.size(); i++) {
+                SearchResult result = groupResults.get(i);
+
+                String typeColor = colorForType(result.fileType());
+                System.out.printf("    %s %s %s%n",
+                        AnsiOutput.dim(String.format("%2d.", i + 1)),
+                        typeColor,
+                        AnsiOutput.bold(result.relativePath()));
+
+                if (!result.summary().isEmpty()) {
+                    String summaryText = result.summary();
+                    if (summaryText.length() > 100) {
+                        summaryText = summaryText.substring(0, 100) + "...";
+                    }
+                    System.out.printf("       %s%n", AnsiOutput.dim(summaryText));
+                }
+
+                StringBuilder meta = new StringBuilder();
+                meta.append(FileUtils.formatSize(result.sizeBytes()));
+                if (result.language() != null) {
+                    meta.append(" | ").append(result.language());
+                }
+                if (result.fileType() != null) {
+                    meta.append(" | ").append(result.fileType());
+                }
+                if (verbose) {
+                    meta.append(String.format(" | score: %.2f", result.score()));
+                }
+                System.out.printf("       %s%n", AnsiOutput.dim(meta.toString()));
+            }
+            System.out.println();
         }
     }
 

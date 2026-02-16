@@ -129,4 +129,27 @@ public class FileIndexer {
 
         return doc;
     }
+
+    /**
+     * Creates a Lucene Document with full organizational context and sub-workspace tagging.
+     *
+     * @param metadata     file metadata
+     * @param analysis     analysis results
+     * @param repository   optional repository name
+     * @param organization optional organization name (e.g., "eXOReaction")
+     * @param client       optional client name (e.g., "SpareBank1")
+     * @param subWorkspace optional sub-workspace name (e.g., "eXOReaction", "Quadim")
+     */
+    public Document createDocument(FileMetadata metadata, AnalysisResult analysis,
+                                    String repository, String organization, String client,
+                                    String subWorkspace) {
+        Document doc = createDocument(metadata, analysis, repository, organization, client);
+
+        // Sub-workspace field
+        if (subWorkspace != null && !subWorkspace.isEmpty()) {
+            doc.add(new StringField(DocumentFields.SUB_WORKSPACE, subWorkspace, Field.Store.YES));
+        }
+
+        return doc;
+    }
 }

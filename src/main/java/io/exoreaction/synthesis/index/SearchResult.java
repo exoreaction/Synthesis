@@ -16,6 +16,7 @@ import java.nio.file.Path;
  * @param structure    structural description
  * @param sizeBytes    file size
  * @param repository   repository identifier (may be null for single-repo workspaces)
+ * @param subWorkspace sub-workspace identifier (may be null)
  */
 public record SearchResult(
         Path path,
@@ -28,7 +29,8 @@ public record SearchResult(
         String headings,
         String structure,
         long sizeBytes,
-        String repository
+        String repository,
+        String subWorkspace
 ) {
     /**
      * Backward-compatible constructor for existing code that doesn't provide repository.
@@ -37,6 +39,16 @@ public record SearchResult(
                         String fileType, String language, String summary, String headings,
                         String structure, long sizeBytes) {
         this(path, relativePath, score, fileName, fileType, language,
-             summary, headings, structure, sizeBytes, null);
+             summary, headings, structure, sizeBytes, null, null);
+    }
+
+    /**
+     * Backward-compatible constructor for existing code that provides repository but not subWorkspace.
+     */
+    public SearchResult(Path path, String relativePath, float score, String fileName,
+                        String fileType, String language, String summary, String headings,
+                        String structure, long sizeBytes, String repository) {
+        this(path, relativePath, score, fileName, fileType, language,
+             summary, headings, structure, sizeBytes, repository, null);
     }
 }
