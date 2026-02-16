@@ -21,6 +21,8 @@ public class SynthesisConfig {
     private SearchConfig search = new SearchConfig();
     private AiConfig ai = new AiConfig();
     private ScanConfig scan = new ScanConfig();
+    private TrackingConfig tracking = new TrackingConfig();
+    private ChangelogConfig changelog = new ChangelogConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -33,6 +35,12 @@ public class SynthesisConfig {
 
     public ScanConfig getScan() { return scan; }
     public void setScan(ScanConfig scan) { this.scan = scan; }
+
+    public TrackingConfig getTracking() { return tracking; }
+    public void setTracking(TrackingConfig tracking) { this.tracking = tracking; }
+
+    public ChangelogConfig getChangelog() { return changelog; }
+    public void setChangelog(ChangelogConfig changelog) { this.changelog = changelog; }
 
     /**
      * Workspace identity and structure configuration.
@@ -182,5 +190,81 @@ public class SynthesisConfig {
 
         public long getMaxFileSizeBytes() { return maxFileSizeBytes; }
         public void setMaxFileSizeBytes(long maxFileSizeBytes) { this.maxFileSizeBytes = maxFileSizeBytes; }
+    }
+
+    /**
+     * File movement tracking configuration (v1.3.0+).
+     */
+    public static class TrackingConfig {
+        private boolean enabled = true;
+        private int safetyPeriodDays = 7;
+        private boolean autoDetect = true;
+        private long watchCorrelationWindowMs = 60000;
+        private int retentionDays = 90;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public int getSafetyPeriodDays() { return safetyPeriodDays; }
+        public void setSafetyPeriodDays(int safetyPeriodDays) { this.safetyPeriodDays = safetyPeriodDays; }
+
+        public boolean isAutoDetect() { return autoDetect; }
+        public void setAutoDetect(boolean autoDetect) { this.autoDetect = autoDetect; }
+
+        public long getWatchCorrelationWindowMs() { return watchCorrelationWindowMs; }
+        public void setWatchCorrelationWindowMs(long watchCorrelationWindowMs) {
+            this.watchCorrelationWindowMs = watchCorrelationWindowMs;
+        }
+
+        public int getRetentionDays() { return retentionDays; }
+        public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
+    }
+
+    /**
+     * Cross-workspace change reporting configuration (v1.3.0+).
+     */
+    public static class ChangelogConfig {
+        private boolean enabled = true;
+        private boolean autoSnapshot = true;
+        private int snapshotIntervalHours = 6;
+        private int retentionDays = 90;
+        private SignificanceConfig significance = new SignificanceConfig();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public boolean isAutoSnapshot() { return autoSnapshot; }
+        public void setAutoSnapshot(boolean autoSnapshot) { this.autoSnapshot = autoSnapshot; }
+
+        public int getSnapshotIntervalHours() { return snapshotIntervalHours; }
+        public void setSnapshotIntervalHours(int snapshotIntervalHours) {
+            this.snapshotIntervalHours = snapshotIntervalHours;
+        }
+
+        public int getRetentionDays() { return retentionDays; }
+        public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
+
+        public SignificanceConfig getSignificance() { return significance; }
+        public void setSignificance(SignificanceConfig significance) { this.significance = significance; }
+
+        /**
+         * Significance classification configuration.
+         */
+        public static class SignificanceConfig {
+            private List<String> noisePaths = List.of();
+            private List<String> criticalPaths = List.of();
+            private int massDeleteThreshold = 10;
+
+            public List<String> getNoisePaths() { return noisePaths; }
+            public void setNoisePaths(List<String> noisePaths) { this.noisePaths = noisePaths; }
+
+            public List<String> getCriticalPaths() { return criticalPaths; }
+            public void setCriticalPaths(List<String> criticalPaths) { this.criticalPaths = criticalPaths; }
+
+            public int getMassDeleteThreshold() { return massDeleteThreshold; }
+            public void setMassDeleteThreshold(int massDeleteThreshold) {
+                this.massDeleteThreshold = massDeleteThreshold;
+            }
+        }
     }
 }
