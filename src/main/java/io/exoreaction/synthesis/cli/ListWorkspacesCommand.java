@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
+import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
 import io.exoreaction.synthesis.workspace.WorkspaceType;
 import picocli.CommandLine.Command;
@@ -112,15 +113,13 @@ public class ListWorkspacesCommand implements Callable<Integer> {
 
     private List<WorkspaceInfo> discoverWorkspaces() throws IOException {
         List<WorkspaceInfo> workspaces = new ArrayList<>();
-        Set<Path> searchPaths = new LinkedHashSet<>();
         Set<Path> seen = new HashSet<>();
 
-        // Common workspace locations
-        String homeDir = System.getProperty("user.home");
-        searchPaths.add(Paths.get(homeDir, "Documents"));
-        searchPaths.add(Paths.get(homeDir, "Downloads"));
-        searchPaths.add(Paths.get("/src"));
-        searchPaths.add(Paths.get(homeDir, "src"));
+        // Load workspace discovery configuration
+        WorkspaceDiscoveryConfig config = WorkspaceDiscoveryConfig.load();
+        List<Path> searchPaths = new ArrayList<>(config.getSearchPaths());
+
+        // Also check current directory
         searchPaths.add(Paths.get(".").toAbsolutePath().normalize());
 
         // Check for workspaces in these locations

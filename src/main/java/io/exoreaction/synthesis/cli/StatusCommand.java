@@ -9,6 +9,7 @@ import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsDatabase;
+import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryConfig;
@@ -675,15 +676,11 @@ public class StatusCommand implements Callable<Integer> {
 
     private List<WorkspaceStatusInfo> discoverAllWorkspacesForStatus() throws IOException {
         List<WorkspaceStatusInfo> workspaces = new ArrayList<>();
-        Set<Path> searchPaths = new LinkedHashSet<>();
         Set<Path> seen = new HashSet<>();
 
-        // Common workspace locations
-        String homeDir = System.getProperty("user.home");
-        searchPaths.add(Paths.get(homeDir, "Documents"));
-        searchPaths.add(Paths.get(homeDir, "Downloads"));
-        searchPaths.add(Paths.get("/src"));
-        searchPaths.add(Paths.get(homeDir, "src"));
+        // Load workspace discovery configuration
+        WorkspaceDiscoveryConfig config = WorkspaceDiscoveryConfig.load();
+        List<Path> searchPaths = config.getSearchPaths();
 
         // Check for workspaces in these locations
         for (Path searchPath : searchPaths) {

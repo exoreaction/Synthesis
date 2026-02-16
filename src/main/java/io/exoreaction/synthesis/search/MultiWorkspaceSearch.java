@@ -220,19 +220,17 @@ public class MultiWorkspaceSearch {
     /**
      * Discovers all initialized Synthesis workspaces on the system.
      *
+     * <p>Search paths are loaded from ~/.synthesis/config/workspace-discovery.yaml
+     * or fall back to default paths if not found.
+     *
      * @return list of workspace paths
      */
     public static List<Path> discoverAllWorkspaces() {
         List<Path> discovered = new ArrayList<>();
         Set<Path> seen = new HashSet<>();
 
-        String homeDir = System.getProperty("user.home");
-        List<Path> searchPaths = List.of(
-                Path.of(homeDir, "Documents"),
-                Path.of(homeDir, "Downloads"),
-                Path.of("/src"),
-                Path.of(homeDir, "src")
-        );
+        WorkspaceDiscoveryConfig config = WorkspaceDiscoveryConfig.load();
+        List<Path> searchPaths = config.getSearchPaths();
 
         for (Path searchPath : searchPaths) {
             if (!Files.exists(searchPath)) continue;
@@ -243,7 +241,7 @@ public class MultiWorkspaceSearch {
                 if (seen.add(abs)) discovered.add(abs);
             }
 
-            // One level deep
+            // One level deep (or deeper based on config)
             if (Files.isDirectory(searchPath)) {
                 try (Stream<Path> entries = Files.list(searchPath)) {
                     entries.filter(Files::isDirectory)
