@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -225,7 +226,7 @@ public class StatusCommand implements Callable<Integer> {
 
                     // Sub-workspace breakdown
                     if (config.getSubWorkspaces() != null && !config.getSubWorkspaces().isEmpty()) {
-                        showSubWorkspaceBreakdown(index);
+                        showSubWorkspaceBreakdown(index, config.getSubWorkspaces());
                     }
                 } catch (Exception ignored) {
                     // Media stats are informational -- don't fail status
@@ -235,7 +236,7 @@ public class StatusCommand implements Callable<Integer> {
             // Watch daemon status
             System.out.println();
             System.out.println("  " + AnsiOutput.bold("Real-time Monitoring:"));
-            boolean watchDaemonRunning = isWatchDaemonRunning(config.getWorkspace().getName());
+            boolean watchDaemonRunning = isWatchDaemonRunning(workspaceRoot);
             System.out.printf("    %-15s %s%n", "Watch daemon:",
                     watchDaemonRunning
                         ? AnsiOutput.success("✓ Active")
@@ -370,7 +371,7 @@ public class StatusCommand implements Callable<Integer> {
     /**
      * Shows sub-workspace file count breakdown.
      */
-    private void showSubWorkspaceBreakdown(SearchIndex index) {
+    private void showSubWorkspaceBreakdown(SearchIndex index, List<SubWorkspaceConfig> subWorkspaces) {
         try {
             Map<String, Long> counts = index.getSubWorkspaceCounts();
             if (counts.isEmpty()) {
@@ -382,22 +383,8 @@ public class StatusCommand implements Callable<Integer> {
                 return;
             }
 
-            System.out.println();
-            System.out.println("  " + AnsiOutput.bold("Sub-workspace Breakdown:"));
-
-            counts.entrySet().stream()
-                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                    .forEach(entry -> {
-                        String name = entry.getKey();
-                        long count = entry.getValue();
-                        double pct = (count * 100.0) / total;
-
-                        String displayName = (name == null || name.isEmpty()) ? "(root)" : name;
-                        String pctStr = pct < 1.0 ? "<1" : String.valueOf(Math.round(pct));
-
-                        System.out.printf("    %-22s %,6d files (%s%%)%n",
-                                AnsiOutput.cyan(displayName), count, pctStr);
-                    });
+            // Use the new tree renderer
+            SubWorkspaceTreeRenderer.render(subWorkspaces, counts, total);
         } catch (Exception e) {
             // Sub-workspace breakdown is informational -- don't fail status
         }
@@ -437,19 +424,19 @@ public class StatusCommand implements Callable<Integer> {
 
     /**
      * Checks if watch daemon is running for this workspace.
+     * Derives service name from workspace path basename.
      */
-    private boolean isWatchDaemonRunning(String workspaceName) {
+    private boolean isWatchDaemonRunning(Path workspacePath) {
         try {
-            // Normalize workspace name for service name
-            String normalized = workspaceName
-                    .toLowerCase()
-                    .replaceAll("[^a-z0-9]", "")
-                    .replaceAll("\"", "");
+            // Derive service name from workspace path basename
+            String basename = workspacePath.getFileName() != null
+                    ? workspacePath.getFileName().toString().toLowerCase()
+                    : "unknown";
 
-            // Try common service name patterns
+            // Try service name patterns
             String[] servicePatterns = {
-                "synthesis-watch-" + normalized + ".service",
-                "synthesis-watch-" + workspaceName.toLowerCase() + ".service"
+                "synthesis-watch-" + basename + ".service",
+                "synthesis-watch-" + basename.replaceAll("[^a-z0-9]", "") + ".service"
             };
 
             for (String serviceName : servicePatterns) {
@@ -801,7 +788,7 @@ public class StatusCommand implements Callable<Integer> {
         }
 
         // Check if watch daemon is running
-        info.watching = isWatchDaemonRunning(info.name);
+        info.watching = isWatchDaemonRunning(workspacePath);
 
         return info;
     }

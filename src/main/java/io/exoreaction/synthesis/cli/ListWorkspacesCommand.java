@@ -262,19 +262,26 @@ public class ListWorkspacesCommand implements Callable<Integer> {
         }
 
         // Check if watch daemon is running
-        info.watching = isWatchDaemonRunning(info.name);
+        info.watching = isWatchDaemonRunning(workspacePath);
 
         return info;
     }
 
-    private boolean isWatchDaemonRunning(String workspaceName) {
+    /**
+     * Checks if watch daemon is running for this workspace.
+     * Derives service name from workspace path basename.
+     */
+    private boolean isWatchDaemonRunning(Path workspacePath) {
         try {
-            // Try common service name patterns
+            // Derive service name from workspace path basename
+            String basename = workspacePath.getFileName() != null
+                    ? workspacePath.getFileName().toString().toLowerCase()
+                    : "unknown";
+
+            // Try service name patterns
             String[] servicePatterns = {
-                "synthesis-watch-" + workspaceName.toLowerCase() + ".service",
-                "synthesis-watch-" + workspaceName.toLowerCase().replaceAll("[^a-z0-9]", "") + ".service",
-                "synthesis-watch-documents.service",  // Special case for "Totto's Knowledge Base"
-                "synthesis-watch-downloads.service"
+                "synthesis-watch-" + basename + ".service",
+                "synthesis-watch-" + basename.replaceAll("[^a-z0-9]", "") + ".service"
             };
 
             for (String serviceName : servicePatterns) {
