@@ -1,12 +1,17 @@
 package io.exoreaction.synthesis.config;
 
+import io.exoreaction.synthesis.core.Ecosystem;
+import io.exoreaction.synthesis.core.EcosystemDetector;
+import io.exoreaction.synthesis.core.SmartExclusions;
 import io.exoreaction.synthesis.workspace.WorkspaceMetadata;
 import io.exoreaction.synthesis.workspace.WorkspaceType;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Root configuration for a Synthesis workspace.
@@ -180,13 +185,8 @@ public class SynthesisConfig {
                 "**/*.mp4", "**/*.avi", "**/*.mov", "**/*.mkv", "**/*.webm",
                 "**/*.mp3", "**/*.wav", "**/*.flac", "**/*.ogg", "**/*.aac"
         );
-        private List<String> excludePatterns = List.of(
-                "**/node_modules/**", "**/.git/**", "**/target/**",
-                "**/build/**", "**/.gradle/**", "**/__pycache__/**",
-                "**/.venv/**", "**/venv/**", "**/.idea/**",
-                "**/.vscode/**", "**/.synthesis/**",
-                "**/dist/**", "**/out/**"
-        );
+        private List<String> excludePatterns = List.of();
+        private boolean useSmartDefaults = true;
         private boolean computeHashes = true;
         private long maxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
 
@@ -196,11 +196,43 @@ public class SynthesisConfig {
         public List<String> getExcludePatterns() { return excludePatterns; }
         public void setExcludePatterns(List<String> excludePatterns) { this.excludePatterns = excludePatterns; }
 
+        public boolean isUseSmartDefaults() { return useSmartDefaults; }
+        public void setUseSmartDefaults(boolean useSmartDefaults) { this.useSmartDefaults = useSmartDefaults; }
+
         public boolean isComputeHashes() { return computeHashes; }
         public void setComputeHashes(boolean computeHashes) { this.computeHashes = computeHashes; }
 
         public long getMaxFileSizeBytes() { return maxFileSizeBytes; }
         public void setMaxFileSizeBytes(long maxFileSizeBytes) { this.maxFileSizeBytes = maxFileSizeBytes; }
+
+        /**
+         * Returns the effective exclude patterns to use for scanning.
+         * If useSmartDefaults is true, merges universal patterns, ecosystem-specific patterns,
+         * and user-specified patterns. Otherwise, returns only user-specified patterns.
+         *
+         * @param workspaceRoot the workspace root directory for ecosystem detection
+         * @return list of effective exclude patterns
+         */
+        public List<String> getEffectiveExcludePatterns(Path workspaceRoot) {
+            if (!useSmartDefaults) {
+                return excludePatterns;
+            }
+
+            // Merge: UNIVERSAL + ecosystem patterns + user patterns
+            Set<String> merged = new HashSet<>();
+            merged.addAll(SmartExclusions.UNIVERSAL);
+
+            // Add ecosystem-specific patterns
+            Set<Ecosystem> ecosystems = EcosystemDetector.detect(workspaceRoot);
+            for (Ecosystem ecosystem : ecosystems) {
+                merged.addAll(ecosystem.getExclusionPatterns());
+            }
+
+            // Add user-specified patterns
+            merged.addAll(excludePatterns);
+
+            return new ArrayList<>(merged);
+        }
     }
 
     /**
