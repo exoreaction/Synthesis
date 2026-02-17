@@ -186,6 +186,86 @@ public class ReportEngine {
     }
 
     /**
+     * Generates a report for a specific named entity (product or client).
+     *
+     * <p>2-pass analysis:
+     * <ol>
+     *   <li>Evidence pass: extract and structure all relevant facts</li>
+     *   <li>Synthesis pass: interpret evidence, produce actionable report</li>
+     * </ol>
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param target        the report target audience
+     * @param topic         PRODUCT or CLIENT
+     * @param entityName    the product or client name (e.g., "Synthesis", "Mynder")
+     * @param period        the coverage period (1w, 2w, 1m)
+     * @param verbose       whether to print progress to stderr
+     * @return the report result
+     */
+    public ReportResult generateForEntity(Path workspaceRoot, ReportTarget target,
+                                           ReportTopic topic, String entityName,
+                                           String period, boolean verbose) {
+        long startTime = System.currentTimeMillis();
+        String entityType = topic == ReportTopic.CLIENT ? "client" : "product";
+
+        // Step 1: Discover entity documents
+        EntityDocumentFinder entityFinder = new EntityDocumentFinder();
+        List<ReportDocument> documents = topic == ReportTopic.CLIENT
+                ? entityFinder.discoverForClient(workspaceRoot, entityName)
+                : entityFinder.discoverForProduct(workspaceRoot, entityName);
+
+        if (verbose) {
+            System.err.println("  Entity: " + entityName + " (" + entityType + ")");
+            System.err.println("  Discovered " + documents.size() + " relevant documents:");
+            for (ReportDocument doc : documents) {
+                System.err.println("    " + doc.briefDescription());
+            }
+        }
+
+        if (documents.isEmpty()) {
+            String emptyReport = "No documents found for " + entityType + " \"" + entityName + "\". " +
+                    "Check that the name matches a directory or file in the workspace. " +
+                    "Expected locations: eXOReaction/clients/, eXOReaction/products/, /src/exoreaction/.";
+            return ReportResult.fromGeneration(
+                    target, topic, documents, emptyReport, getModel(), 0,
+                    System.currentTimeMillis() - startTime, period);
+        }
+
+        int totalTokens = 0;
+
+        // Pass 1: Evidence collection
+        if (verbose) System.err.print("  Running evidence pass...");
+        String evidenceResult = client.generate(
+                ReportPrompts.entityEvidencePass(entityName, entityType, documents),
+                maxTokensPerPass);
+        totalTokens += ResearchPassResult.estimateTokens(evidenceResult);
+        if (verbose) System.err.println(" done");
+
+        // Pass 2: Synthesis and recommendations
+        if (verbose) System.err.print("  Running synthesis pass...");
+        int synthesisTokens = Math.min(maxTokensPerPass, 8000);
+        String reportContent = client.generate(
+                ReportPrompts.entitySynthesisPass(entityName, entityType, evidenceResult, target),
+                synthesisTokens);
+        totalTokens += ResearchPassResult.estimateTokens(reportContent);
+        if (verbose) System.err.println(" done");
+
+        long generationTime = System.currentTimeMillis() - startTime;
+
+        ReportResult result = ReportResult.fromGeneration(
+                target, topic, documents, reportContent, getModel(),
+                totalTokens, generationTime, period);
+
+        if (verbose) {
+            System.err.println("  Total: " + result.totalTokenCount() + " tokens, " +
+                    String.format("$%.4f", result.estimatedCostUsd()) + " estimated cost, " +
+                    generationTime + "ms");
+        }
+
+        return result;
+    }
+
+    /**
      * Estimates the cost of generating a report without running AI.
      *
      * @param workspaceRoot the workspace root directory

@@ -34,6 +34,10 @@ import java.util.concurrent.Callable;
  *   synthesis report --topic activities                 # Recent activities summary
  *   synthesis report --topic executive                  # Full executive update
  *   synthesis report --topic decisions                  # Critical decisions needed
+ *   synthesis report --product Synthesis                # Product status report (business + dev status)
+ *   synthesis report --product lib-pcb                  # Product status for lib-pcb
+ *   synthesis report --client Elprint                   # Client relationship health report
+ *   synthesis report --client Mynder                    # Client/opportunity status (finds opportunity-Mynder)
  *   synthesis report --target ceo                       # CEO format (default)
  *   synthesis report --target board                     # Board format
  *   synthesis report --target investor                  # Investor format
@@ -104,6 +108,18 @@ public class ReportCommand implements Callable<Integer> {
     private boolean cacheClear = false;
 
     @Option(
+            names = {"--product"},
+            description = "Generate a product status report for a named product (e.g., Synthesis, lib-pcb)"
+    )
+    private String product;
+
+    @Option(
+            names = {"--client"},
+            description = "Generate a client status report for a named client (e.g., Elprint, Mynder)"
+    )
+    private String client;
+
+    @Option(
             names = {"--verbose", "-v"},
             description = "Print progress information to stderr during generation"
     )
@@ -135,6 +151,12 @@ public class ReportCommand implements Callable<Integer> {
                 return clearCache(workspaceRoot);
             }
 
+            // Validate mutual exclusivity of --product and --client
+            if (product != null && client != null) {
+                AnsiOutput.printError("Cannot use --product and --client together. Choose one.");
+                return 1;
+            }
+
             // Parse target and topic
             ReportTarget reportTarget;
             try {
@@ -143,7 +165,19 @@ public class ReportCommand implements Callable<Integer> {
                 AnsiOutput.printError(e.getMessage());
                 return 1;
             }
-            ReportTopic reportTopic = ReportTopic.fromString(topic);
+
+            // Entity mode overrides topic
+            ReportTopic reportTopic;
+            String entityName = null;
+            if (product != null) {
+                reportTopic = ReportTopic.PRODUCT;
+                entityName = product;
+            } else if (client != null) {
+                reportTopic = ReportTopic.CLIENT;
+                entityName = client;
+            } else {
+                reportTopic = ReportTopic.fromString(topic);
+            }
 
             // Validate period
             if (!isValidPeriod(period)) {
@@ -166,9 +200,15 @@ public class ReportCommand implements Callable<Integer> {
 
             // Cost estimate mode
             if (estimate) {
-                // Show which documents will be used
-                BusinessDocumentFinder estimateFinder = new BusinessDocumentFinder();
-                List<ReportDocument> estimateDocs = estimateFinder.discover(workspaceRoot, reportTopic);
+                List<ReportDocument> estimateDocs;
+                if (entityName != null) {
+                    EntityDocumentFinder ef = new EntityDocumentFinder();
+                    estimateDocs = reportTopic == ReportTopic.CLIENT
+                            ? ef.discoverForClient(workspaceRoot, entityName)
+                            : ef.discoverForProduct(workspaceRoot, entityName);
+                } else {
+                    estimateDocs = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic);
+                }
                 if (!estimateDocs.isEmpty()) {
                     System.err.println("  Documents that will be analyzed:");
                     for (ReportDocument doc : estimateDocs) {
@@ -186,9 +226,17 @@ public class ReportCommand implements Callable<Integer> {
             }
 
             // Discover documents for fingerprinting
-            BusinessDocumentFinder finder = new BusinessDocumentFinder();
-            List<ReportDocument> documents = finder.discover(workspaceRoot, reportTopic);
-            String documentFingerprint = BusinessDocumentFinder.generateFingerprint(documents);
+            List<ReportDocument> documents;
+            String documentFingerprint;
+            if (entityName != null) {
+                EntityDocumentFinder ef = new EntityDocumentFinder();
+                documents = reportTopic == ReportTopic.CLIENT
+                        ? ef.discoverForClient(workspaceRoot, entityName)
+                        : ef.discoverForProduct(workspaceRoot, entityName);
+            } else {
+                documents = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic);
+            }
+            documentFingerprint = BusinessDocumentFinder.generateFingerprint(documents);
 
             ReportResult result = null;
 
@@ -218,11 +266,20 @@ public class ReportCommand implements Callable<Integer> {
                 if (verbose || outputFile == null) {
                     System.err.println("  Generating business report...");
                     System.err.println("  Target: " + reportTarget.displayName());
-                    System.err.println("  Topic:  " + reportTopic.displayName());
+                    if (entityName != null) {
+                        System.err.println("  Entity: " + entityName + " (" + reportTopic.displayName() + ")");
+                    } else {
+                        System.err.println("  Topic:  " + reportTopic.displayName());
+                    }
                     System.err.println("  Period: " + ReportRenderer.formatPeriod(period));
                 }
 
-                result = engine.generate(workspaceRoot, reportTarget, reportTopic, period, verbose);
+                if (entityName != null) {
+                    result = engine.generateForEntity(workspaceRoot, reportTarget, reportTopic,
+                            entityName, period, verbose);
+                } else {
+                    result = engine.generate(workspaceRoot, reportTarget, reportTopic, period, verbose);
+                }
 
                 // Store in cache
                 if (!noCache) {
