@@ -71,6 +71,30 @@ public class ClaudeClient {
     }
 
     /**
+     * Creates a ClaudeClient using only the API key, bypassing the enabled flag.
+     *
+     * <p>Useful for commands that need AI even when ai.enabled=false in config,
+     * as long as the API key is present in the environment or credential store.
+     *
+     * @param model the model to use (e.g., "claude-haiku-4-5-20251001")
+     * @return the client, or empty if no API key is available
+     */
+    public static Optional<ClaudeClient> createIfApiKeyAvailable(String model) {
+        String apiKey = resolveApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            AnthropicClient client = AnthropicOkHttpClient.builder()
+                    .apiKey(apiKey)
+                    .build();
+            return Optional.of(new ClaudeClient(client, model));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Resolves the Anthropic API key using the following priority order:
      * <ol>
      *   <li>ANTHROPIC_API_KEY environment variable</li>

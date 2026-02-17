@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
@@ -22,14 +23,21 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -52,12 +60,13 @@ import java.util.stream.Stream;
  */
 @Command(
         name = "staging",
-        description = "Manage staging sub-workspace files (ingest, promote, route, expire)",
+        description = "Manage staging sub-workspace files (ingest, promote, route, rename, expire)",
         mixinStandardHelpOptions = true,
         subcommands = {
                 StagingCommand.ListSub.class,
                 StagingCommand.PromoteSub.class,
                 StagingCommand.RouteSub.class,
+                StagingCommand.RenameSub.class,
                 StagingCommand.IngestSub.class,
                 StagingCommand.ExpireSub.class,
                 StagingCommand.StatsSub.class
@@ -77,6 +86,7 @@ public class StagingCommand implements Callable<Integer> {
         System.out.println("    list      List staged files");
         System.out.println("    promote   Promote a file to a permanent sub-workspace");
         System.out.println("    route     Route files to permanent destinations using config rules");
+        System.out.println("    rename    Rename files to descriptive names using companion AI descriptions");
         System.out.println("    ingest    Scan staging areas and register new files");
         System.out.println("    expire    Process expired files");
         System.out.println("    stats     Show staging statistics");
@@ -499,6 +509,299 @@ public class StagingCommand implements Callable<Integer> {
                 AnsiOutput.printError("Routing failed: " + e.getMessage());
                 return 1;
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: rename
+    // -----------------------------------------------------------------------
+
+    /**
+     * Renames files to descriptive names using AI descriptions from companion files.
+     *
+     * <p>Reads each file's {@code .synthesis.md} companion and either uses a heuristic
+     * to extract a meaningful name from the AI description, or (with {@code --ai}) calls
+     * Claude to generate one.
+     *
+     * <p>Both the binary file and its companion are renamed atomically. The
+     * {@code companion_for:} header in the companion is updated to match.
+     *
+     * <p>Usage:
+     * <pre>
+     *   synthesis staging rename --dir /path/to/visuals --pattern "unnamed*.png" --dry-run
+     *   synthesis staging rename --dir /path/to/visuals --pattern "unnamed*.png" --ai
+     * </pre>
+     */
+    @Command(name = "rename",
+            description = "Rename files to descriptive names using companion AI descriptions",
+            mixinStandardHelpOptions = true)
+    static class RenameSub implements Callable<Integer> {
+
+        @ParentCommand
+        private StagingCommand parent;
+
+        @Option(names = {"--dir"}, required = true,
+                description = "Directory containing files to rename")
+        private Path targetDir;
+
+        @Option(names = {"--pattern"}, description = "Glob pattern for files to rename",
+                defaultValue = "unnamed*.png")
+        private String pattern;
+
+        @Option(names = {"--ai"}, description = "Use Claude to generate names (better quality, uses API)",
+                defaultValue = "false")
+        private boolean useAi;
+
+        @Option(names = {"--dry-run"}, description = "Show proposed renames without acting",
+                defaultValue = "false")
+        private boolean dryRun;
+
+        @Option(names = {"-v", "--verbose"}, defaultValue = "false")
+        private boolean verbose;
+
+        /** Generic keywords to skip when building a name from companion Keywords: line. */
+        private static final Set<String> GENERIC_KEYWORDS = Set.of(
+                "infographic", "diagram", "chart", "image", "png", "jpg", "jpeg",
+                "pdf", "visualization", "figure", "screenshot", "slide", "business diagram",
+                "workflow diagram", "notebooklm", "presentation"
+        );
+
+        @Override
+        public Integer call() {
+            try {
+                if (!Files.isDirectory(targetDir)) {
+                    AnsiOutput.printError("Not a directory: " + targetDir);
+                    return 1;
+                }
+
+                PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+                List<Path> candidates = new ArrayList<>();
+                try (Stream<Path> stream = Files.list(targetDir)) {
+                    stream.filter(p -> matcher.matches(p.getFileName()))
+                          .filter(Files::isRegularFile)
+                          .sorted()
+                          .forEach(candidates::add);
+                }
+
+                List<Path> withCompanions = candidates.stream()
+                        .filter(p -> Files.exists(Path.of(p + ".synthesis.md")))
+                        .toList();
+
+                if (withCompanions.isEmpty()) {
+                    if (candidates.isEmpty()) {
+                        System.out.println("  No files matching '" + pattern + "' in " + targetDir);
+                    } else {
+                        AnsiOutput.printWarning(candidates.size() + " file(s) matched but none have"
+                                + " companion .synthesis.md files.");
+                        AnsiOutput.printInfo("Run 'synthesis enrich --type image' first.");
+                    }
+                    return 0;
+                }
+
+                // Optionally initialize Claude client for AI-assisted naming
+                Optional<ClaudeClient> claude = Optional.empty();
+                if (useAi) {
+                    claude = ClaudeClient.createIfApiKeyAvailable("claude-haiku-4-5-20251001");
+                    if (claude.isEmpty()) {
+                        AnsiOutput.printWarning("No API key found — falling back to heuristic naming.");
+                    }
+                }
+
+                System.out.println();
+                if (dryRun) {
+                    AnsiOutput.printHeader("Rename Preview (dry-run)");
+                } else {
+                    AnsiOutput.printHeader("Renaming Files");
+                }
+                System.out.println();
+
+                int renamed = 0, skipped = 0, errors = 0;
+                Set<String> usedNames = new HashSet<>();
+
+                for (Path file : withCompanions) {
+                    Path companionFile = Path.of(file + ".synthesis.md");
+                    String ext = getExt(file.getFileName().toString());
+                    String companionContent = Files.readString(companionFile);
+
+                    String newBaseName;
+                    if (useAi && claude.isPresent()) {
+                        newBaseName = generateNameWithClaude(claude.get(), companionContent);
+                    } else {
+                        newBaseName = generateNameHeuristic(companionContent);
+                    }
+
+                    if (newBaseName == null || newBaseName.isBlank()) {
+                        if (verbose) {
+                            AnsiOutput.printWarning("Could not generate name for: "
+                                    + file.getFileName());
+                        }
+                        skipped++;
+                        continue;
+                    }
+
+                    // Ensure uniqueness
+                    newBaseName = uniquify(newBaseName, usedNames);
+                    String newFileName = newBaseName + ext;
+                    Path newFilePath = targetDir.resolve(newFileName);
+                    Path newCompanionPath = targetDir.resolve(newFileName + ".synthesis.md");
+
+                    if (dryRun) {
+                        System.out.printf("  %s %s%n", AnsiOutput.dim("→"),
+                                AnsiOutput.bold(file.getFileName().toString()));
+                        System.out.printf("    %s%n", AnsiOutput.cyan(newFileName));
+                        System.out.println();
+                        usedNames.add(newBaseName);
+                        renamed++;
+                    } else {
+                        try {
+                            // Update companion_for: and # header before renaming
+                            String updated = updateCompanionHeader(companionContent, newFileName);
+                            Files.writeString(companionFile, updated);
+
+                            Files.move(file, newFilePath, StandardCopyOption.REPLACE_EXISTING);
+                            Files.move(companionFile, newCompanionPath,
+                                    StandardCopyOption.REPLACE_EXISTING);
+
+                            usedNames.add(newBaseName);
+                            System.out.printf("  %s %s → %s%n",
+                                    AnsiOutput.green("✓"),
+                                    AnsiOutput.dim(file.getFileName().toString()),
+                                    AnsiOutput.cyan(newFileName));
+                            renamed++;
+                        } catch (Exception e) {
+                            AnsiOutput.printError("Failed to rename " + file.getFileName()
+                                    + ": " + e.getMessage());
+                            errors++;
+                        }
+                    }
+                }
+
+                System.out.println();
+                if (dryRun) {
+                    System.out.printf("  Would rename: %s  |  Would skip: %s%n",
+                            AnsiOutput.green(String.valueOf(renamed)),
+                            AnsiOutput.yellow(String.valueOf(skipped)));
+                } else {
+                    System.out.printf("  Renamed: %s  |  Skipped: %s%s%n",
+                            AnsiOutput.green(String.valueOf(renamed)),
+                            AnsiOutput.yellow(String.valueOf(skipped)),
+                            errors > 0 ? "  |  Errors: " + AnsiOutput.red(String.valueOf(errors)) : "");
+                    if (renamed > 0) {
+                        System.out.println();
+                        System.out.println("  " + AnsiOutput.dim("Run 'synthesis scan' to update the index."));
+                    }
+                }
+                System.out.println();
+                return errors > 0 ? 1 : 0;
+
+            } catch (Exception e) {
+                AnsiOutput.printError("Rename failed: " + e.getMessage());
+                return 1;
+            }
+        }
+
+        /** Asks Claude to generate a 3-5 word kebab-case filename from the companion content. */
+        private String generateNameWithClaude(ClaudeClient claude, String companionContent) {
+            String prompt = """
+                    Based on this companion file describing an image or document, generate a concise descriptive \
+                    filename in kebab-case (3-5 words, no extension, no underscores).
+                    The name must capture the PRIMARY subject of the content — what it is ABOUT, not that it's an \
+                    "infographic" or "diagram".
+
+                    Companion file:
+                    ---
+                    %s
+                    ---
+
+                    Respond with ONLY the kebab-case filename. No explanation, no quotes, no extension.
+                    Examples of good names: quadim-knowledge-graph-ecosystem, synthesis-cross-company-platform, \
+                    eXOReaction-lib-pcb-achievement, nordic-energy-skill-evolution, team-management-llm-approach
+                    """.formatted(companionContent);
+            try {
+                String result = claude.generate(prompt, 32).trim()
+                        .toLowerCase()
+                        .replaceAll("[^a-z0-9-]", "-")
+                        .replaceAll("-+", "-")
+                        .replaceAll("^-|-$", "");
+                return result.isBlank() ? null : result;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        /** Heuristic: extracts meaningful keywords from the companion file's AI Description section. */
+        private String generateNameHeuristic(String companionContent) {
+            // Look for "Keywords: ..." line inside the ## AI Description section
+            Pattern aiSection = Pattern.compile(
+                    "## AI Description.*?Keywords:\\s*([^\n]+)", Pattern.DOTALL);
+            Matcher km = aiSection.matcher(companionContent);
+            if (km.find()) {
+                String keywordLine = km.group(1).trim();
+                List<String> meaningful = Arrays.stream(keywordLine.split(","))
+                        .map(String::trim)
+                        .filter(k -> !k.isBlank())
+                        .filter(k -> !GENERIC_KEYWORDS.contains(k.toLowerCase()))
+                        .toList();
+                if (!meaningful.isEmpty()) {
+                    String joined = String.join(" ", meaningful.subList(0, Math.min(3, meaningful.size())));
+                    return toKebab(joined);
+                }
+            }
+
+            // Fall back: extract subject after "illustrating", "depicting", etc. in AI Description
+            Pattern descSection = Pattern.compile(
+                    "## AI Description\\s*\r?\n(.+?)(?:\r?\n##|$)", Pattern.DOTALL);
+            Matcher dm = descSection.matcher(companionContent);
+            if (dm.find()) {
+                String desc = dm.group(1);
+                Pattern subjectPat = Pattern.compile(
+                        "(?:illustrating|depicting|showing|presenting|describing)\\s+"
+                                + "(?:the\\s+|an?\\s+|)?['\"]?([A-Z][^,\\.]{4,40}?)['\"]?"
+                                + "(?:,|\\.|\\s+(?:with|featuring|that|which|using))");
+                Matcher sm = subjectPat.matcher(desc);
+                if (sm.find()) {
+                    return toKebab(sm.group(1).trim());
+                }
+            }
+
+            return null;
+        }
+
+        private String toKebab(String text) {
+            return text.toLowerCase()
+                    .replaceAll("[^a-z0-9\\s-]", " ")
+                    .trim()
+                    .replaceAll("\\s+", "-")
+                    .replaceAll("-+", "-")
+                    .replaceAll("^-|-$", "");
+        }
+
+        private String uniquify(String name, Set<String> used) {
+            if (name.length() > 60) {
+                name = name.substring(0, 60);
+                int lastDash = name.lastIndexOf('-');
+                if (lastDash > 20) name = name.substring(0, lastDash);
+            }
+            if (!used.contains(name)) return name;
+            for (int i = 2; i < 100; i++) {
+                String candidate = name + "-" + i;
+                if (!used.contains(candidate)) return candidate;
+            }
+            return name + "-" + System.currentTimeMillis();
+        }
+
+        private String updateCompanionHeader(String content, String newFileName) {
+            // Update # header (first line)
+            content = content.replaceFirst("(?m)^# .+$", "# " + newFileName);
+            // Update companion_for: in YAML block
+            content = content.replaceFirst("(?m)^companion_for: .+$",
+                    "companion_for: " + newFileName);
+            return content;
+        }
+
+        private String getExt(String filename) {
+            int dot = filename.lastIndexOf('.');
+            return dot >= 0 ? filename.substring(dot) : "";
         }
     }
 
