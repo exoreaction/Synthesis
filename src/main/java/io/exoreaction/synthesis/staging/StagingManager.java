@@ -275,6 +275,67 @@ public class StagingManager {
     }
 
     /**
+     * Routes a staged file to an absolute destination path outside the workspace.
+     *
+     * <p>Unlike {@link #promote}, which moves files to sub-workspaces within the same
+     * workspace, this method moves the file to any absolute path on the filesystem.
+     * Companion files (*.synthesis.md) are also moved if present and copyCompanions is true.
+     *
+     * @param stagedFile         the file to route
+     * @param absoluteDestination absolute path of the destination file (including filename)
+     * @param copyCompanions     whether to also move the companion .synthesis.md file
+     * @return true if routing succeeded
+     */
+    public boolean routeTo(StagedFile stagedFile, Path absoluteDestination,
+                           boolean copyCompanions) throws SQLException, IOException {
+        Path sourcePath = workspaceRoot.resolve(stagedFile.relativePath());
+
+        if (!Files.exists(sourcePath)) {
+            LOG.warning("Staged file not found: " + sourcePath);
+            return false;
+        }
+
+        // Create destination directory
+        Files.createDirectories(absoluteDestination.getParent());
+
+        // Move the main file
+        Files.move(sourcePath, absoluteDestination, StandardCopyOption.REPLACE_EXISTING);
+
+        // Move companion file if it exists
+        if (copyCompanions) {
+            Path companionSource = Path.of(sourcePath + ".synthesis.md");
+            if (Files.exists(companionSource)) {
+                Path companionDest = Path.of(absoluteDestination + ".synthesis.md");
+                Files.move(companionSource, companionDest, StandardCopyOption.REPLACE_EXISTING);
+                LOG.info("Moved companion: " + companionSource.getFileName());
+            }
+        }
+
+        // Update database
+        Connection conn = database.getConnection();
+        synchronized (database) {
+            String sql = """
+                UPDATE staging_files SET
+                    status = 'promoted',
+                    promoted_at = ?,
+                    promoted_to = ?
+                WHERE workspace_path = ? AND relative_path = ?
+                """;
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, Instant.now().getEpochSecond());
+                ps.setString(2, "routed:" + absoluteDestination);
+                ps.setString(3, workspacePath);
+                ps.setString(4, stagedFile.relativePath());
+                ps.executeUpdate();
+            }
+        }
+
+        LOG.info("Routed: " + stagedFile.relativePath() + " -> " + absoluteDestination);
+        return true;
+    }
+
+    /**
      * Lists all staged files matching the given status filter.
      *
      * @param statusFilter optional status filter (null = all)

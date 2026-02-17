@@ -31,6 +31,7 @@ public class SynthesisConfig {
     private ChangelogConfig changelog = new ChangelogConfig();
     private List<SubWorkspaceConfig> subWorkspaces = new ArrayList<>();
     private StagingConfig staging = new StagingConfig();
+    private RoutingConfig routing = new RoutingConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -57,6 +58,9 @@ public class SynthesisConfig {
 
     public StagingConfig getStaging() { return staging; }
     public void setStaging(StagingConfig staging) { this.staging = staging; }
+
+    public RoutingConfig getRouting() { return routing; }
+    public void setRouting(RoutingConfig routing) { this.routing = routing != null ? routing : new RoutingConfig(); }
 
     /**
      * Workspace identity and structure configuration.
@@ -448,5 +452,59 @@ public class SynthesisConfig {
         /** Whether to automatically delete files that exceed retentionDays. */
         public boolean isCleanupExpired() { return cleanupExpired; }
         public void setCleanupExpired(boolean cleanupExpired) { this.cleanupExpired = cleanupExpired; }
+    }
+
+    /**
+     * Configuration for routing staged files to permanent destinations (v1.9.0+).
+     *
+     * <p>Routing rules define glob patterns matched against filenames.
+     * The first matching rule wins. Files with no match are left pending.
+     *
+     * <p>Example YAML:
+     * <pre>
+     * routing:
+     *   copyCompanions: true
+     *   rules:
+     *     - name: "Synthesis perspectives"
+     *       patterns: ["Synthesis_*.pdf", "Engineering_*.pdf"]
+     *       destination: "/src/exoreaction/Synthesis/docs/visuals"
+     *     - name: "Quadim materials"
+     *       patterns: ["Quadim_*.pdf"]
+     *       destination: "/home/totto/Documents/Quadim/media/presentations"
+     * </pre>
+     */
+    public static class RoutingConfig {
+        private boolean copyCompanions = true;
+        private List<RoutingRule> rules = new ArrayList<>();
+
+        /** Whether to also move companion .synthesis.md files alongside routed files. */
+        public boolean isCopyCompanions() { return copyCompanions; }
+        public void setCopyCompanions(boolean copyCompanions) { this.copyCompanions = copyCompanions; }
+
+        public List<RoutingRule> getRules() { return rules; }
+        public void setRules(List<RoutingRule> rules) { this.rules = rules != null ? rules : new ArrayList<>(); }
+
+        public boolean hasRules() { return !rules.isEmpty(); }
+    }
+
+    /**
+     * A single routing rule that maps filename glob patterns to a destination directory.
+     */
+    public static class RoutingRule {
+        private String name = "";
+        private List<String> patterns = new ArrayList<>();
+        private String destination = "";
+
+        /** Human-readable name for this rule (shown in route output). */
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        /** Glob patterns matched against the file's basename (e.g., "Synthesis_*.pdf"). */
+        public List<String> getPatterns() { return patterns; }
+        public void setPatterns(List<String> patterns) { this.patterns = patterns != null ? patterns : new ArrayList<>(); }
+
+        /** Absolute path to the destination directory. */
+        public String getDestination() { return destination; }
+        public void setDestination(String destination) { this.destination = destination; }
     }
 }

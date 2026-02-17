@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
@@ -17,13 +18,16 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -48,11 +52,12 @@ import java.util.stream.Stream;
  */
 @Command(
         name = "staging",
-        description = "Manage staging sub-workspace files (ingest, promote, expire)",
+        description = "Manage staging sub-workspace files (ingest, promote, route, expire)",
         mixinStandardHelpOptions = true,
         subcommands = {
                 StagingCommand.ListSub.class,
                 StagingCommand.PromoteSub.class,
+                StagingCommand.RouteSub.class,
                 StagingCommand.IngestSub.class,
                 StagingCommand.ExpireSub.class,
                 StagingCommand.StatsSub.class
@@ -71,6 +76,7 @@ public class StagingCommand implements Callable<Integer> {
         System.out.println("  Subcommands:");
         System.out.println("    list      List staged files");
         System.out.println("    promote   Promote a file to a permanent sub-workspace");
+        System.out.println("    route     Route files to permanent destinations using config rules");
         System.out.println("    ingest    Scan staging areas and register new files");
         System.out.println("    expire    Process expired files");
         System.out.println("    stats     Show staging statistics");
@@ -293,6 +299,204 @@ public class StagingCommand implements Callable<Integer> {
                 return 0;
             } catch (Exception e) {
                 AnsiOutput.printError("Promotion failed: " + e.getMessage());
+                return 1;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: route
+    // -----------------------------------------------------------------------
+
+    /**
+     * Routes staged files to permanent destinations using config-defined rules.
+     *
+     * <p>Rules are defined in the workspace config.yaml under {@code routing.rules}.
+     * Each rule has glob {@code patterns} matched against the file's basename,
+     * and a {@code destination} absolute directory path.
+     *
+     * <p>The first matching rule wins. Files with no match are left pending.
+     * Companion {@code .synthesis.md} files are moved alongside the main file
+     * when {@code routing.copyCompanions: true} (default).
+     */
+    @Command(name = "route", description = "Route staged files to permanent destinations using config rules",
+            mixinStandardHelpOptions = true)
+    static class RouteSub implements Callable<Integer> {
+
+        @ParentCommand
+        private StagingCommand parent;
+
+        @Option(names = {"--dry-run"}, description = "Show what would be routed without moving files",
+                defaultValue = "false")
+        private boolean dryRun;
+
+        @Option(names = {"-v", "--verbose"}, description = "Show per-file detail",
+                defaultValue = "false")
+        private boolean verbose;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+
+                if (!config.getStaging().isEnabled()) {
+                    AnsiOutput.printWarning("Staging is not enabled. Add 'staging: { enabled: true }'"
+                            + " to your config.yaml.");
+                    return 0;
+                }
+
+                if (!config.getRouting().hasRules()) {
+                    AnsiOutput.printWarning("No routing rules defined. Add 'routing.rules' to your config.yaml.");
+                    System.out.println();
+                    System.out.println("  Example:");
+                    System.out.println("    routing:");
+                    System.out.println("      rules:");
+                    System.out.println("        - name: \"Synthesis docs\"");
+                    System.out.println("          patterns: [\"Synthesis_*.pdf\"]");
+                    System.out.println("          destination: \"/path/to/destination\"");
+                    System.out.println();
+                    return 0;
+                }
+
+                // Build PathMatchers for each rule
+                List<RoutingRule> rules = config.getRouting().getRules();
+                List<List<PathMatcher>> ruleMatchers = new ArrayList<>();
+                for (RoutingRule rule : rules) {
+                    List<PathMatcher> matchers = new ArrayList<>();
+                    for (String pattern : rule.getPatterns()) {
+                        matchers.add(FileSystems.getDefault().getPathMatcher("glob:" + pattern));
+                    }
+                    ruleMatchers.add(matchers);
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                StagingManager staging = new StagingManager(db, config.getStaging(), workspaceRoot);
+                List<StagedFile> pending = staging.list("pending");
+                boolean copyCompanions = config.getRouting().isCopyCompanions();
+
+                if (pending.isEmpty()) {
+                    System.out.println();
+                    System.out.println("  No pending staged files to route.");
+                    System.out.println();
+                    return 0;
+                }
+
+                System.out.println();
+                if (dryRun) {
+                    AnsiOutput.printHeader("Route Preview (dry-run)");
+                } else {
+                    AnsiOutput.printHeader("Routing Staged Files");
+                }
+                System.out.println();
+
+                int routed = 0;
+                int skipped = 0;
+                int errors = 0;
+                List<String> unmatched = new ArrayList<>();
+
+                for (StagedFile file : pending) {
+                    // Skip internal staging files
+                    String relPath = file.relativePath();
+                    if (relPath.startsWith(".synthesis/")) {
+                        continue;
+                    }
+
+                    String basename = Path.of(relPath).getFileName().toString();
+                    Path basenameAsPath = Path.of(basename);
+
+                    // Find first matching rule
+                    RoutingRule matchedRule = null;
+                    for (int i = 0; i < rules.size(); i++) {
+                        List<PathMatcher> matchers = ruleMatchers.get(i);
+                        for (PathMatcher matcher : matchers) {
+                            if (matcher.matches(basenameAsPath)) {
+                                matchedRule = rules.get(i);
+                                break;
+                            }
+                        }
+                        if (matchedRule != null) break;
+                    }
+
+                    if (matchedRule == null) {
+                        unmatched.add(basename);
+                        skipped++;
+                        continue;
+                    }
+
+                    // Compute absolute destination path
+                    Path destDir = Path.of(matchedRule.getDestination());
+                    Path destFile = destDir.resolve(basename);
+
+                    if (dryRun) {
+                        System.out.printf("  %s %s%n",
+                                AnsiOutput.green("→"),
+                                AnsiOutput.bold(basename));
+                        System.out.printf("     rule: %s%n", AnsiOutput.dim(matchedRule.getName()));
+                        System.out.printf("     dest: %s%n", AnsiOutput.cyan(destFile.toString()));
+                        // Check for companion
+                        Path companionPath = workspaceRoot.resolve(relPath + ".synthesis.md");
+                        if (copyCompanions && Files.exists(companionPath)) {
+                            System.out.printf("     companion: %s%n",
+                                    AnsiOutput.dim(basename + ".synthesis.md → will be moved"));
+                        }
+                        System.out.println();
+                        routed++;
+                    } else {
+                        try {
+                            boolean success = staging.routeTo(file, destFile, copyCompanions);
+                            if (success) {
+                                routed++;
+                                if (verbose) {
+                                    System.out.printf("  %s %s → %s%n",
+                                            AnsiOutput.green("✓"),
+                                            AnsiOutput.bold(basename),
+                                            AnsiOutput.dim(destFile.toString()));
+                                } else {
+                                    System.out.printf("  %s %s%n",
+                                            AnsiOutput.green("✓"),
+                                            basename);
+                                }
+                            } else {
+                                errors++;
+                                AnsiOutput.printError("Failed to route: " + basename);
+                            }
+                        } catch (Exception e) {
+                            errors++;
+                            AnsiOutput.printError("Error routing " + basename + ": " + e.getMessage());
+                        }
+                    }
+                }
+
+                System.out.println();
+                if (dryRun) {
+                    System.out.printf("  Would route: %s  |  No match: %s%n",
+                            AnsiOutput.green(String.valueOf(routed)),
+                            AnsiOutput.yellow(String.valueOf(skipped)));
+                } else {
+                    System.out.printf("  Routed: %s  |  No match: %s%s%n",
+                            AnsiOutput.green(String.valueOf(routed)),
+                            AnsiOutput.yellow(String.valueOf(skipped)),
+                            errors > 0 ? "  |  Errors: " + AnsiOutput.red(String.valueOf(errors)) : "");
+                }
+
+                if (!unmatched.isEmpty() && verbose) {
+                    System.out.println();
+                    System.out.println("  Unmatched files (no routing rule):");
+                    for (String name : unmatched) {
+                        System.out.println("    " + AnsiOutput.dim(name));
+                    }
+                }
+
+                System.out.println();
+                if (!dryRun && routed > 0) {
+                    System.out.println("  " + AnsiOutput.dim("Run 'synthesis scan' to update the index."));
+                    System.out.println();
+                }
+
+                return errors > 0 ? 1 : 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Routing failed: " + e.getMessage());
                 return 1;
             }
         }
