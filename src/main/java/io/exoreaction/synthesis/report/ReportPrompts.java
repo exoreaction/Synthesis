@@ -245,6 +245,135 @@ public class ReportPrompts {
     }
 
     /**
+     * Generates the evidence collection prompt for an entity (product or client).
+     * Pass 1 of 2: gather and structure all relevant evidence from documents.
+     *
+     * @param entityName the product or client name
+     * @param entityType "product" or "client"
+     * @param docs       discovered entity documents
+     * @return the prompt string
+     */
+    public static String entityEvidencePass(String entityName, String entityType,
+                                             List<ReportDocument> docs) {
+        String docContent = formatDocuments(docs);
+
+        return """
+                You are a business analyst gathering evidence about %s "%s".
+
+                DOCUMENTS:
+                %s
+
+                INSTRUCTIONS:
+                Extract and structure all factual information about "%s" from these documents.
+                Do NOT interpret or recommend yet — only gather evidence.
+
+                Organize what you find under these headings:
+
+                **Status & Pipeline**
+                - Current deal status, contract value, probability
+                - Recent wins, signed contracts, milestones
+                - Pending decisions or blockers
+
+                **Recent Activity**
+                - Meetings, calls, demos, presentations
+                - Communications, follow-ups, commitments made
+                - Deliverables completed or in progress
+
+                **Development / Delivery**
+                - Technical achievements, product releases, versions
+                - Work in progress, roadmap items mentioned
+                - Issues, bugs, or technical risks noted
+
+                **Relationship / Context**
+                - Key contacts, champions, decision-makers
+                - Company background, sector, size
+                - Any concerns, complaints, or positive signals
+
+                **Financial**
+                - Revenue, invoices, contracts, rates
+                - Outstanding amounts, payment status
+                - Future revenue potential
+
+                List only what is explicitly stated in the documents.
+                If a section has no information, write "No information found."
+                """.formatted(entityType, entityName, docContent, entityName);
+    }
+
+    /**
+     * Generates the synthesis prompt for an entity report.
+     * Pass 2 of 2: interpret evidence and produce actionable report.
+     *
+     * @param entityName      the product or client name
+     * @param entityType      "product" or "client"
+     * @param evidenceSummary output from entityEvidencePass
+     * @param target          report target audience
+     * @return the prompt string
+     */
+    public static String entitySynthesisPass(String entityName, String entityType,
+                                              String evidenceSummary, ReportTarget target) {
+        String targetInstructions = getTargetInstructions(target);
+
+        String focusInstructions = "client".equals(entityType) ? """
+                FOCUS FOR CLIENT REPORT:
+                - What is the current health of this client relationship?
+                - Are there signs of future issues we should address NOW?
+                - What actions would strengthen this relationship or protect the revenue?
+                - Are there upsell or expansion opportunities being missed?
+                - What would happen if we did nothing for the next 30 days?
+                """ : """
+                FOCUS FOR PRODUCT REPORT:
+                - What is the current business status of this product?
+                - What are the most important actionable items right now?
+                - What are the latest developments (technical and commercial)?
+                - What risks or blockers need attention?
+                - What opportunities are we positioned to capture?
+                """;
+
+        return """
+                You are a senior business advisor producing an entity report for %s "%s".
+
+                EVIDENCE GATHERED:
+                %s
+
+                %s
+
+                %s
+
+                INSTRUCTIONS:
+                Synthesize the evidence into a concise, actionable report with these sections:
+
+                ## %s Status Report
+
+                ### Executive Summary
+                2-3 sentence snapshot: current status, biggest opportunity/risk, top action needed.
+
+                ### Current Status
+                Where things stand right now. Key facts, numbers, dates.
+
+                ### Latest Developments
+                Most recent activity, changes, or milestones (last 2-4 weeks).
+
+                ### Actionable Items
+                Prioritized list of what needs to happen. For each item:
+                - What: specific action
+                - Why: impact if done / risk if not done
+                - By when: recommended deadline
+                - Owner: who should act
+
+                ### Risks & Signals
+                Early warning signs, relationship health indicators, financial risks.
+                What would you watch for in the next 30 days?
+
+                ### Opportunities
+                Upside potential. Expansion, upsell, network effects, strategic leverage.
+
+                Format as clean, scannable markdown. Lead with facts, not narratives.
+                Use bold for key numbers, names, and deadlines.
+                """.formatted(entityType, entityName, evidenceSummary,
+                focusInstructions, targetInstructions, entityName);
+    }
+
+    /**
      * Returns target-specific formatting instructions.
      */
     private static String getTargetInstructions(ReportTarget target) {

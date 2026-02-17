@@ -18,7 +18,9 @@ public enum ReportTopic {
     PIPELINE("pipeline", "Pipeline Status"),
     ACTIVITIES("activities", "Recent Activities"),
     EXECUTIVE("executive", "Full Executive Update"),
-    DECISIONS("decisions", "Critical Decisions");
+    DECISIONS("decisions", "Critical Decisions"),
+    PRODUCT("product", "Product Status Report"),
+    CLIENT("client", "Client Status Report");
 
     private final String cliValue;
     private final String displayName;
