@@ -721,6 +721,66 @@ STUB_EOF
 fi
 
 # ---------------------------------------------------------------------------
+# Step 7b: Install exo Executive Script
+# ---------------------------------------------------------------------------
+step "Installing exo executive script..."
+
+EXO_SCRIPT_INSTALLED=false
+
+# Determine user bin dir
+USER_BIN_DIR="${HOME}/bin"
+mkdir -p "$USER_BIN_DIR"
+
+# Try: copy from same directory as this install script
+if [ -f "$SCRIPT_DIR/exo" ]; then
+    cp "$SCRIPT_DIR/exo" "$USER_BIN_DIR/exo"
+    chmod +x "$USER_BIN_DIR/exo"
+    EXO_SCRIPT_INSTALLED=true
+    info "Copied exo from source"
+fi
+
+# Try: copy from source dir
+if [ "$EXO_SCRIPT_INSTALLED" = false ] && [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/bin/exo" ]; then
+    cp "$SOURCE_DIR/bin/exo" "$USER_BIN_DIR/exo"
+    chmod +x "$USER_BIN_DIR/exo"
+    EXO_SCRIPT_INSTALLED=true
+    info "Copied exo from source directory"
+fi
+
+# Try: download from GitHub
+if [ "$EXO_SCRIPT_INSTALLED" = false ]; then
+    if download_file "${GITHUB_RAW}/bin/exo" "$USER_BIN_DIR/exo" 2>/dev/null; then
+        chmod +x "$USER_BIN_DIR/exo"
+        EXO_SCRIPT_INSTALLED=true
+        info "Downloaded exo from GitHub"
+    fi
+fi
+
+if [ "$EXO_SCRIPT_INSTALLED" = true ]; then
+    detail "Installed exo executive command to $USER_BIN_DIR/exo"
+    detail "Usage: exo               → interactive dashboard"
+    detail "       exo report        → weekly CEO briefing"
+    detail "       exo client NAME   → client status report"
+else
+    warn "Could not install exo script (optional, for executive reporting)"
+    detail "Download manually: https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/exo"
+fi
+
+# Ensure ~/bin is in PATH
+PATH_LINE_BIN='export PATH="$HOME/bin:$PATH"'
+BIN_MARKER="# User local bin"
+if [ -f "$SHELL_RC" ] && grep -q "$USER_BIN_DIR" "$SHELL_RC" 2>/dev/null; then
+    true  # Already in PATH
+else
+    {
+        echo ""
+        echo "$BIN_MARKER"
+        echo "$PATH_LINE_BIN"
+    } >> "$SHELL_RC"
+    export PATH="$USER_BIN_DIR:$PATH"
+fi
+
+# ---------------------------------------------------------------------------
 # Step 8: Save Metadata
 # ---------------------------------------------------------------------------
 step "Saving installation metadata..."
