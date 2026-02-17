@@ -1,225 +1,297 @@
 # Synthesis for Architects
 
-**You manage 58 repositories with 429 cross-dependencies. Can you see them all right now?**
-
-**📊 Visual Summary:** [Full Presentation](../visuals/engineering-omniscience-synthesis.pdf)
+**58 repositories. 429 cross-dependencies. Mapped in 2.3 seconds. Can your current tooling do that?**
 
 ---
 
 ## The Architecture Visibility Problem
 
-AI-augmented teams generate code across repositories faster than architecture governance can track. Your architecture diagrams were drawn 6 months ago. Since then, AI has helped your team create thousands of files across dozens of repos. The actual dependency graph has drifted from the documented one.
+AI-augmented teams generate code across repositories faster than architecture governance can track. Your architecture diagrams were drawn months ago. The actual dependency graph has drifted from the documented one, and you cannot see the drift without manual effort.
 
-**What architects need but currently lack:**
+**What architects need but typically lack:**
 
-| Need | Traditional Tool | Limitation |
+| Need | Traditional tool | Limitation |
 |------|-----------------|------------|
 | Cross-repo dependency map | Manual Confluence diagram | Stale within weeks |
 | Impact analysis | IDE "Find Usages" | Single project only |
-| Architecture drift detection | Manual review | Quarterly at best |
-| Organizational structure mapping | Spreadsheets | Never current |
-| Multi-format search | grep + Google Drive + Slack | Fragmented, slow |
+| Architecture drift detection | Manual quarterly review | Always behind |
+| Anti-pattern detection | Code review (human) | Inconsistent, slow |
+| Multi-format search | grep + Drive + Slack | Fragmented |
 
-**The core problem:** Your architecture decisions require understanding the *actual* dependency graph. But the actual graph lives in code across N repositories, and no single tool shows it.
-
----
-
-## Synthesis as Architecture Intelligence
-
-Synthesis indexes your entire codebase -- all repositories, all file types -- and builds a queryable knowledge graph with bi-directional relationship tracking.
-
-### Capability 1: Module Dependency Graphs
-
-Generate a high-level architecture view of your entire codebase automatically.
-
-**Real example** (Cantara codebase, 58 repositories, validated Feb 14, 2026):
-
-```mermaid
-graph LR
-    xorcery[xorcery<br/>1,274 files] --> neo4j[xorcery-neo4j]
-    xorcery --> eventstore[xorcery-eventstore]
-    xorcery --> kurrent[xorcery-kurrent]
-    whydah[whydah<br/>12 repos] --> security[whydah-security]
-    whydah --> identity[whydah-identity]
-    lib_ec[lib-electronic-components<br/>641 files] -.-> xorcery
-    style xorcery fill:#f96,stroke:#333,stroke-width:3px
-    style whydah fill:#69f,stroke:#333,stroke-width:2px
-```
-
-**What this reveals:**
-- **Hub nodes:** Xorcery is the core framework (highest centrality) -- changing it has maximum blast radius
-- **Clusters:** Whydah is a tightly coupled ecosystem (12 interconnected repos) -- treat as a unit for versioning
-- **Isolated modules:** lib-electronic-components has minimal dependencies -- safe to modify independently
-
-**Performance:** 58 nodes, 429 edges generated in 2.3 seconds.
-
-### Capability 2: File-Level Impact Analysis
-
-Before any architectural change, see exactly what depends on the component you are modifying.
-
-**Real example** (Projection.java in Cantara codebase):
-
-```mermaid
-graph TD
-    Projection[Projection.java] --> Config[Configuration.java]
-    Projection --> EventStore[EventStoreService.java]
-    Projection --> Stream[StreamObserver.java]
-    Projection --> Neo4j[Neo4jProjection.java]
-    Projection --> Kurrent[KurrentProjection.java]
-
-    Test1[ProjectionTest.java] --> Projection
-    Test2[EventStoreProjectionsTest.java] --> Projection
-    Service1[EventStoreProjectionsService.java] --> Projection
-    Service2[Neo4jProjectionsService.java] --> Projection
-    Examples["24 more files..."] --> Projection
-
-    style Projection fill:#f96,stroke:#333,stroke-width:3px
-    style Service1 fill:#f66,stroke:#333
-    style Service2 fill:#f66,stroke:#333
-```
-
-**Impact summary:**
-- 5 outgoing dependencies (what Projection.java uses)
-- 28 incoming references (what uses Projection.java)
-- **Blast radius:** 28 files across 4 categories (services, tests, examples, integrations)
-
-**Architectural decision support:** Before refactoring Projection.java, you know the exact scope. No surprises.
-
-### Capability 3: Cross-Repository Dependency Mapping
-
-For microservice architectures, see how services depend on each other across repository boundaries.
-
-```mermaid
-graph TB
-    subgraph "Xorcery Ecosystem"
-        core[xorcery-core] --> config[xorcery-configuration]
-        core --> reactor[xorcery-reactivestreams]
-        es[xorcery-eventstore] --> core
-        neo[xorcery-neo4j] --> core
-        neo --> es
-    end
-    subgraph "Whydah Ecosystem"
-        wh_core[whydah-core] --> wh_security[whydah-security]
-        wh_identity[whydah-identity] --> wh_core
-    end
-    subgraph "Independent"
-        lib_pcb[lib-pcb]
-        lib_ec[lib-electronic-components]
-    end
-
-    style core fill:#f96,stroke:#333,stroke-width:3px
-    style wh_core fill:#69f,stroke:#333,stroke-width:2px
-```
-
-**Architectural insights from real data:**
-- Xorcery-core is the foundational dependency -- version changes here ripple everywhere
-- Whydah and Xorcery are loosely coupled ecosystems -- can evolve independently
-- lib-pcb and lib-electronic-components are fully independent -- no cross-contamination risk
-
-### Capability 4: Organizational Intelligence
-
-Map not just code structure but organizational structure across your file system.
-
-Synthesis auto-discovers:
-- **Companies** from directory patterns (README.md, business/, clients/, products/)
-- **Clients** with status detection (active, past, opportunity/prospect)
-- **Products** and their relationships to codebases
-- **Corporate hierarchy** (parent companies, subsidiaries)
-
-Then enables organization-scoped search: filter results by company, client, or product.
+Synthesis solves these by indexing all repositories together and building a queryable knowledge graph with bi-directional relationship tracking.
 
 ---
 
-## Integration Patterns for Architecture Governance
+## Dependency Analysis
 
-### Pattern 1: Architecture Decision Records + Synthesis
+### Module-Level Architecture Graph
 
-**Before deciding:** Search for all files affected by the proposed change.
+```bash
+synthesis graph --modules --format mermaid
+```
 
-**Workflow:** Architect proposes changing the authentication module. Before writing the ADR, run a search and relate to quantify the impact. The ADR now includes concrete data: "This change affects 28 files across 4 services, 12 tests, and 12 examples."
+Generates a high-level architecture view from your actual code. Not from documentation that may be stale, but from the current state of imports and references.
 
-**Value:** ADRs backed by data, not estimates.
+**Real example (Cantara codebase, 58 repositories, validated February 2026):**
+- 58 nodes (repositories), 429 edges (dependencies)
+- Generated in 2.3 seconds
+- Hub nodes identified automatically by centrality
+- Clusters visible (tightly coupled groups of repos)
+
+### File-Level Impact Analysis
+
+Before any architectural change, see exactly what depends on the component you plan to modify:
+
+```bash
+synthesis relate src/core/Projection.java
+```
+
+Output shows:
+- **Outgoing (5 files):** What Projection.java depends on (Configuration, EventStoreService, etc.)
+- **Incoming (28 files):** What depends on Projection.java (services, tests, examples, integrations)
+- **Blast radius:** 28 files across 4 categories
+
+```bash
+synthesis relate src/core/Projection.java --mermaid    # Mermaid diagram
+synthesis relate src/core/Projection.java --depth 2     # Follow 2 levels deep
+```
+
+### Cross-Repository Dependency Mapping
+
+```bash
+synthesis cross-repo-deps
+```
+
+Maps dependencies between repositories. For microservice architectures, this reveals:
+- Which repos depend on which others
+- Dependency direction and weight (number of references)
+- Isolated modules (safe to modify independently)
+- Hub modules (high blast radius, require extra care)
+
+---
+
+## Architecture Intelligence
+
+### Anti-Pattern Detection
+
+```bash
+synthesis architecture
+```
+
+Automatically detects structural issues:
+
+| Category | Detection | Severity |
+|----------|----------|----------|
+| God classes | Files >1,000 lines (warning), >2,000 (error) | WARNING/ERROR |
+| Circular dependencies | Import chains that loop back | ERROR |
+| Dead code | Files with zero incoming references | INFO |
+| Missing documentation | Code directories without README | WARNING |
+| Test coverage gaps | Source files without test counterparts | WARNING |
+| High coupling | Files with excessive incoming references | WARNING |
+| Feature envy | Files referencing another module more than their own | INFO |
+
+Filter by severity or category:
+
+```bash
+synthesis architecture --severity warning      # Only warnings and errors
+synthesis architecture --category GOD_CLASS    # Only god class issues
+synthesis architecture --format json           # Machine-readable output
+```
+
+### Deep Research Reports
+
+For comprehensive architectural analysis:
+
+```bash
+synthesis research --topic architecture
+```
+
+Runs a multi-pass AI analysis covering:
+1. **Architecture pass:** Structure, layering, coupling, cohesion
+2. **Dependencies pass:** External dependencies, version risks, upgrade paths
+3. **Quality pass:** Code quality patterns, consistency, maintainability
+4. **Security pass:** Security patterns, vulnerability surface, credential handling
+5. **Evolution pass:** Technical debt trajectory, complexity trends
+6. **Synthesis pass:** Combines all findings into a coherent report
+
+Each pass examines your codebase from a different angle using your indexed content as context.
+
+**Run specific passes:**
+
+```bash
+synthesis research --passes architecture,security,synthesis
+synthesis research --topic security         # Security pass + synthesis only
+synthesis research --topic dependencies     # Dependencies pass + synthesis only
+```
+
+**Cost preview (no API call):**
+
+```bash
+synthesis research --estimate
+```
+
+**Output targets:**
+
+```bash
+synthesis research --target chatgpt                    # Markdown report (default)
+synthesis research --target notebooklm-infographic     # Data for NotebookLM infographic
+synthesis research --target notebooklm-presentation    # Chapter-based narrative
+synthesis research --output arch-report.md             # Save to file
+```
+
+**Caching:** Results are cached. Same analysis on unchanged code returns instantly. Force fresh: `--no-cache`.
+
+---
+
+## Architecture Governance Patterns
+
+### Pattern 1: ADR-Backed Impact Analysis
+
+Before writing an Architecture Decision Record, quantify the impact:
+
+```bash
+synthesis relate src/auth/AuthService.java
+synthesis cross-repo-deps | grep auth
+```
+
+Your ADR now includes concrete data: "This change affects 28 files across 4 services, 12 tests, and 12 examples." Not estimates -- measured dependencies.
 
 ### Pattern 2: Refactoring Safety Net
 
-**Before refactoring:** Generate the blast radius for every file being changed.
+Require `relate` output attached to PRs for shared components:
 
-**Workflow:** Developer wants to refactor a shared service. Architect requires `relate` output attached to the PR. Reviewer can verify: "All 28 dependent files were updated. None missed."
+```bash
+synthesis relate src/shared/EventBus.java > impact-analysis.md
+```
 
-**Value:** Zero-surprise refactoring. Dependency bugs caught before merge, not in production.
+Reviewers verify: "All 28 dependent files were updated. None missed."
 
-### Pattern 3: Onboarding via Generated Architecture
+### Pattern 3: Architecture Drift Detection
 
-**For new team members:** Generate an architecture overview automatically from the actual code.
+Generate architecture graphs quarterly and diff them:
 
-Instead of maintaining stale Confluence pages, generate a fresh architecture graph at any time. The graph reflects the code as it exists today, not as it was documented 6 months ago.
+```bash
+synthesis graph --modules --format mermaid > architecture-Q1-2026.md
+# Next quarter:
+synthesis graph --modules --format mermaid > architecture-Q2-2026.md
+diff architecture-Q1-2026.md architecture-Q2-2026.md
+```
 
-**Value:** Architecture documentation that is never stale because it is generated, not maintained.
-
-### Pattern 4: Architecture Drift Detection
-
-**Quarterly:** Generate the module graph and diff against the previous quarter.
-
-**Questions to answer:**
+Questions the diff answers:
 - Is complexity increasing? (more nodes, more edges)
 - Are we reducing coupling? (fewer cross-module edges)
-- Are new modules properly integrated? (connected appropriately)
 - Did unexpected dependencies appear? (architecture violations)
+- Are new modules properly integrated?
 
-**Value:** Quantitative architecture health tracking over time.
+### Pattern 4: Generated Architecture Documentation
+
+Instead of maintaining architecture diagrams manually:
+
+```bash
+synthesis graph --modules --format mermaid > docs/architecture.md
+```
+
+Run this weekly or in CI. Architecture documentation that is generated from code is never stale.
+
+### Pattern 5: Multi-Perspective Architecture Review
+
+For significant architectural decisions:
+
+```bash
+synthesis perspectives "should we migrate from monolith to microservices?"
+synthesis perspectives "is event sourcing appropriate for our use case?"
+synthesis perspectives "should we adopt gRPC for internal service communication?"
+```
+
+Generates analysis from multiple viewpoints (pragmatist, purist, risk analyst, performance engineer, etc.), grounded in your actual codebase structure and dependencies.
+
+---
+
+## Visual Dependency Graphs
+
+### Graph Types
+
+```bash
+# Module-level (recommended starting point)
+synthesis graph --modules --format mermaid
+
+# File-level (centered on a specific file)
+synthesis graph src/auth/AuthService.java --depth 2 --format mermaid
+
+# Cross-repository
+synthesis graph --cross-repo --format png --output repo-deps.png
+```
+
+### Output Formats
+
+| Format | Use case | Requirements |
+|--------|----------|-------------|
+| `mermaid` | GitHub, GitLab, markdown docs | None |
+| `png` | Presentations, reports | Graphviz installed |
+| `svg` | Scalable diagrams, web embedding | Graphviz installed |
+| `dot` | Processing with external tools | None |
+
+### Interpretation
+
+When reading a generated graph:
+- **Hub nodes** (many connections) = high centrality, high risk on change
+- **Clusters** (groups of tightly connected nodes) = treat as a unit for versioning
+- **Isolated nodes** (few connections) = safe to modify independently
+- **Bidirectional edges** = potential circular dependency, investigate
 
 ---
 
 ## Technical Architecture of Synthesis
 
-Architects want to know the tool is well-built before trusting it with their codebase analysis.
+For architects evaluating the tool itself:
 
 **Core stack:**
 - **Indexing:** Apache Lucene (full-text search, relevance ranking)
-- **Analysis:** Language-specific parsers for Java, Python, JS/TS, Go, Rust, Kotlin, Ruby, C/C++, Markdown, YAML
-- **Relationships:** Bi-directional detection via import/reference parsing, computed incoming edges
-- **Graphs:** GraphBuilder/GraphRenderer with Mermaid, PNG, SVG, DOT output
-- **Media:** Bundled ffprobe for video metadata, Apache PDFBox for PDF text extraction
-- **Storage:** Local `.synthesis/` directory, 2-5% overhead relative to indexed content
+- **Database:** SQLite (metadata, relationships, caching)
+- **Analysis:** Language-specific parsers for Java, Python, JS/TS, Go, Rust, Kotlin, C/C++, and more
+- **Relationships:** Bi-directional detection via import/reference parsing
+- **Graphs:** Mermaid, PNG (Graphviz), SVG, DOT output
+- **Media:** Bundled ffprobe for video metadata, PDFBox for PDF extraction
+- **Storage:** Local `.synthesis/` per workspace, 2-3% overhead
 
-**Performance characteristics:**
+**Performance (measured, February 2026):**
 
-| Metric | Measured Value | Industry Baseline |
-|--------|---------------|-------------------|
-| Indexing throughput | 258-300 files/sec | 50-150 files/sec |
-| Index overhead | 2.7% | 10-20% |
-| Search response | <1 sec (10,000 files) | 2-5 sec |
-| Graph generation | 2.3 sec (58 nodes, 429 edges) | 10-30 sec |
-| Incremental scan | 156-345 ms (1,000 files) | 2-5 sec |
+| Metric | Value |
+|--------|-------|
+| Indexing throughput | 258-300 files/sec |
+| Index overhead | 2.7% of content size |
+| Search response | <1 second (10,000+ files) |
+| Graph generation | 2.3 sec (58 nodes, 429 edges) |
+| Incremental scan | 156-345 ms (1,000 files) |
 
-**Security model:** All processing is local. Core features require no network access. AI features (optional) require explicit opt-in and an Anthropic API key; only selected files are sent to the API.
-
----
-
-## Getting Started for Architecture Teams
-
-**Step 1: Index your entire codebase (31 seconds for 7,990 files)**
-
-One developer installs Synthesis and points it at your codebase root. All repositories under that root are indexed together.
-
-**Step 2: Generate your first architecture graph**
-
-Module-level dependency graph in Mermaid format. Embed it in your architecture documentation, wiki, or ADR template.
-
-**Step 3: Share with your team**
-
-The graph is a Mermaid markdown snippet -- paste it into any markdown-rendering tool (GitHub, GitLab, Confluence, Notion). Or export as SVG/PNG for presentations.
-
-**Step 4: Integrate into your governance process**
-
-Add `relate` output to PR requirements for shared components. Generate fresh architecture graphs quarterly. Diff them to detect drift.
-
-**Total time to first architecture graph: under 5 minutes.**
+**Security model:** All processing is local. Core features require no network access. AI features (optional) require explicit opt-in and send only selected content to the Claude API.
 
 ---
 
-**Related documentation:**
-- **For developers on your team:** [Quick Start](../guides/QUICK-START.md) (5 min) | [Full User Guide](../guides/USER-GUIDE.md)
-- **For your engineering managers:** [Manager Guide](./ENGINEERING-MANAGER.md) -- team adoption playbook and metrics
-- **For executive justification:** [Executive Brief](./EXECUTIVE-BRIEF.md)
-- **Full command reference:** [Project README](../../README.md)
+## Quick Reference
+
+```
+synthesis relate <file>                     # Bi-directional dependencies
+synthesis relate <file> --mermaid           # As Mermaid diagram
+synthesis relate <file> --depth 2           # Follow 2 levels
+synthesis graph --modules --format mermaid  # Module architecture
+synthesis graph <file> --depth 2            # File-centered graph
+synthesis graph --cross-repo                # Cross-repo dependencies
+synthesis cross-repo-deps                   # Cross-repo summary
+synthesis architecture                      # Anti-pattern detection
+synthesis architecture --severity warning   # Warnings and errors only
+synthesis architecture --format json        # Machine-readable output
+synthesis research --topic architecture     # Deep AI analysis
+synthesis research --passes architecture,security,synthesis
+synthesis research --estimate               # Cost preview
+synthesis insights                          # Codebase health metrics
+synthesis perspectives "question"           # Multi-angle analysis
+```
+
+---
+
+**Related guides:**
+- [Developer Guide](./DEVELOPER.md) -- for your team members
+- [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- team adoption and metrics
+- [DevOps Guide](./DEVOPS.md) -- CI/CD integration
+- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference

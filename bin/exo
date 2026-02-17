@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# eXOReaction Executive Command
+#
+# Smart executive tool that wraps Synthesis dashboard and report commands.
+# Provides a simplified interface for executives and CEOs using Synthesis.
+#
+# Usage:
+#   exo                    → interactive dashboard
+#   exo report             → weekly CEO briefing
+#   exo decisions          → critical decisions needed
+#   exo pipeline           → pipeline status
+#   exo activities         → recent activities summary
+#   exo client <name>      → client status report
+#   exo product <name>     → product status report
+#   exo <name>             → smart: tries client, then product
+#
+# Setup:
+#   Ensure ~/bin is in your PATH (added by Synthesis installer)
+#   Set SYNTHESIS_WORKSPACE to your business documents directory (default: ~/Documents)
+#
+# Copyright (c) 2026 eXOReaction AS. All rights reserved.
+
+WORKSPACE="${SYNTHESIS_WORKSPACE:-$HOME/Documents}"
+
+case "${1:-}" in
+  "")         exec synthesis dashboard ;;
+  report)     exec synthesis report -d "$WORKSPACE" -v "${@:2}" ;;
+  decisions)  exec synthesis report -d "$WORKSPACE" --topic decisions -v ;;
+  pipeline)   exec synthesis report -d "$WORKSPACE" --topic pipeline -v ;;
+  activities) exec synthesis report -d "$WORKSPACE" --topic activities -v ;;
+  client)     exec synthesis report -d "$WORKSPACE" --client "$2" -v ;;
+  product)    exec synthesis report -d "$WORKSPACE" --product "$2" -v ;;
+  *)          # Smart mode: unknown arg, try as client first then product
+              exec synthesis report -d "$WORKSPACE" --client "$1" -v ;;
+esac

@@ -1,329 +1,298 @@
 # Synthesis for Product Managers
 
-**You manage a product with 200 features across 8,000 files. Can you find the demo video for feature X?**
-
-**📊 Visual Summary:** [Product Manager Knowledge Center Infographic](../visuals/product-manager-knowledge-center.png) | [Full Presentation](../visuals/product-knowledge-command-center.pdf)
+**Your product spans 8,000 files across code, docs, demos, and sales materials. Find any of them in under a second.**
 
 ---
 
-## The Product Knowledge Problem
+## What This Gives You
 
-Your product has evolved over 3 years. You have demos, documentation, sales materials, feature specs, and code scattered across repositories, Google Drive, Confluence, and Slack. When a prospect asks "Can you show me how feature X works?", you spend 30 minutes searching instead of 30 seconds answering.
+Product managers spend 2-4 hours per week searching for product knowledge: demo videos, sales decks, feature docs, architecture diagrams, customer case studies. Synthesis indexes all of it and makes it instantly searchable.
 
-**What product managers need but can't find:**
-
-| Asset Type | Where It Lives | Time to Find | Why It Matters |
-|-----------|----------------|--------------|----------------|
-| Feature demo videos | Google Drive, local downloads, Slack | 5-20 min | Sales calls, customer onboarding |
-| Sales presentations | Multiple versions, outdated copies | 10-30 min | Pitch decks, proposals |
-| Feature documentation | Confluence, README files, wiki | 15-45 min | Customer support, training |
-| Architecture diagrams | Someone's laptop, stale Confluence | 20-60 min | Technical sales, partnerships |
-| Competitive analyses | Email attachments, Google Docs | 10-30 min | Positioning, roadmap decisions |
-
-**The cost:** 2-4 hours per week per PM spent searching for product knowledge. On a 5-person product team, that's 10-20 hours per week = 1 full-time person's salary spent on retrieval.
+But Synthesis v1.8.0 goes further. The `report` command generates structured business reports from your workspace documents. The `upcoming` command tracks events and deadlines. The `org` command maps your organizational structure.
 
 ---
 
-## Synthesis as Your Product Knowledge Base
+## Business Reports
 
-Synthesis indexes everything related to your product -- code, docs, videos, PDFs, presentations -- and makes it instantly searchable in one place.
-
-### Capability 1: Multi-Format Product Search
-
-**One search finds everything across all formats:**
+### Product Status Reports
 
 ```bash
-# Find all materials about "authentication" feature
-synthesis search "authentication"
-
-# Results (60 files in 0.4 seconds):
-# - Code: AuthService.java, LoginController.java (15 files)
-# - Docs: authentication-guide.md, security-overview.md (12 files)
-# - Videos: auth-demo-v2.mp4, login-flow-walkthrough.mp4 (4 videos)
-# - PDFs: Authentication Whitepaper, Security Architecture (10 PDFs)
-# - Presentations: Customer Auth Demo.pptx (8 presentations)
-# - Config: auth-config.yaml, oauth-settings.json (6 files)
+synthesis report --product Synthesis
+synthesis report --product lib-pcb
 ```
 
-**What this replaces:**
-- Searching Google Drive
-- Searching Confluence
-- Asking in Slack "where is that demo?"
-- Checking email attachments
-- Searching local Downloads folder
+Generates a report on a specific product's status: recent development activity, open items, roadmap progress, and client-facing status.
 
-**All replaced by one command, one second.**
-
-### Capability 2: Demo Preparation in Minutes
-
-**Scenario:** Client call in 2 hours. They want to see your "real-time analytics" feature.
-
-**Before Synthesis (30-60 min panic mode):**
-1. Search Google Drive for "analytics" (finds 200 files, wrong versions)
-2. Check Slack for "analytics demo" (finds conversation, no link)
-3. Ask team "where's the analytics demo?" (nobody responds, in meetings)
-4. Cobble together partial demo from memory
-5. Miss 40% of impressive features
-
-**With Synthesis (3 minutes calm mode):**
+### Client Health Reports
 
 ```bash
-# Find everything about real-time analytics
+synthesis report --client Mynder
+synthesis report --client Elprint
+synthesis report --client SpareBank1
+```
+
+Generates a report on a specific client relationship. Synthesis discovers the client's opportunity directory, README files, activity logs, and contracts, then summarizes the current state.
+
+### Pipeline Reports
+
+```bash
+synthesis report --topic pipeline
+```
+
+Summarizes your sales pipeline from indexed business documents.
+
+### Weekly Executive Update
+
+```bash
+synthesis report --topic weekly
+synthesis report --topic executive
+```
+
+Full executive update covering business highlights, pipeline, client activity, and decisions needed.
+
+### Decisions Needed
+
+```bash
+synthesis report --topic decisions
+```
+
+Surfaces items requiring action: contract approvals, strategic choices, deadline-driven decisions.
+
+### Report Options
+
+| Option | Purpose | Values |
+|--------|---------|--------|
+| `--target` | Audience format | `ceo` (default), `board`, `investor` |
+| `--period` | Coverage period | `1w` (default), `2w`, `1m` |
+| `--output <file>` | Save to file | Any path |
+| `--estimate` | Cost preview (no AI call) | Flag |
+| `--no-cache` | Force fresh generation | Flag |
+
+### Cost Awareness
+
+Reports use AI and have a small cost (approximately $0.02-0.08 per report). Preview before generating:
+
+```bash
+synthesis report --topic pipeline --estimate
+```
+
+Shows which documents will be analyzed, estimated token count, and cost.
+
+---
+
+## Tracking Events and Deadlines
+
+```bash
+synthesis upcoming -d ~/Documents
+```
+
+Reads `UPCOMING.md` from your workspace and displays:
+- **Confirmed events** with dates
+- **Overdue items** (past-due, not marked done)
+- **Pipeline actions** (assigned to owners)
+- **Content calendar** items
+
+### Options
+
+```bash
+synthesis upcoming --days 14          # Next 14 days only
+synthesis upcoming --all              # Show all items
+synthesis upcoming --overdue          # Show past-due items
+synthesis upcoming --actions          # Include actions from indexed opportunity docs
+synthesis upcoming --format markdown  # Output as markdown
+```
+
+### UPCOMING.md Format
+
+Create `UPCOMING.md` in your workspace root:
+
+```markdown
+# Upcoming
+
+## Events
+- 2026-03-01  JavaZone CFP deadline  [confirmed]
+- 2026-03-15  Client workshop (SpareBank 1)  [confirmed]
+- 2026-04-01  NDC Oslo submission deadline
+
+## Content
+- 2026-02-20  LinkedIn post: Synthesis launch  [recommended]
+- TBD  Conference talk proposal draft
+
+## Actions
+- [ ] Mynder: Schedule follow-up meeting
+- [ ] SpareBank 1: Send proposal draft
+- [ ] Internal: Update sales deck
+```
+
+Synthesis parses dated items, TBD items, action items (with owners), and done items (`[x]` or `[done]`).
+
+---
+
+## Multi-Format Product Search
+
+Search across all product materials in one command:
+
+```bash
 synthesis search "real-time analytics"
-
-# Results:
-# - VIDEO: real-time-analytics-demo.mp4 (4 min 32 sec, 1920x1080)
-# - CODE: AnalyticsEngine.java, RealtimeProcessor.java
-# - DOCS: analytics-architecture.md, performance-benchmarks.md
-# - PDF: Analytics Product Brief, Customer Case Study
 ```
 
-**Demo prep (15 minutes):**
-1. Watch the 4-minute demo video (found in 10 seconds)
-2. Review performance benchmarks doc (found in 10 seconds)
-3. Open AnalyticsEngine.java in IDE (found in 10 seconds)
-4. Practice walkthrough using these materials
+Returns results across all file types:
+- **Code:** AnalyticsEngine.java, RealtimeProcessor.java
+- **Docs:** analytics-architecture.md, performance-benchmarks.md
+- **Videos:** real-time-analytics-demo.mp4 (with duration, resolution)
+- **PDFs:** Analytics Product Brief (with page count)
+- **Config:** analytics-config.yaml
 
-**Meeting (confident, comprehensive):**
-- Show the demo video (professional, polished)
-- Walk through code (technical credibility)
-- Reference benchmarks (data-backed claims)
-- Answer "what else can it do?" → show relate output for related features
+### Demo Preparation
 
-**Client impression:** "You're incredibly organized and prepared."
-
-### Capability 3: Feature Relationship Mapping
-
-**Understand which features depend on each other:**
+Client call in 2 hours. Need to show your "authentication" feature:
 
 ```bash
-# What features use the analytics engine?
-synthesis relate "AnalyticsEngine.java"
-
-# Results show 23 connections:
-# - Dashboard feature (incoming: DashboardService.java)
-# - Reporting feature (incoming: ReportGenerator.java)
-# - Alerts feature (incoming: AlertProcessor.java)
-# - 8 customer dashboards (custom implementations)
-# - 12 test files (verification)
+synthesis search "authentication demo"
+synthesis search "authentication"
+synthesis relate src/auth/AuthService.java    # What connects to it
 ```
 
-**Use case:** Customer asks "If we buy analytics, what else does that enable?" You have an instant answer: Dashboard, Reporting, and Alerts all build on Analytics. This is an upsell opportunity.
-
-### Capability 4: Content Organization & Audit
-
-**Find all product materials for quarterly review:**
-
-```bash
-# Find all demo videos
-synthesis search "video" | grep "demo"
-
-# Find all sales presentations
-synthesis search "presentation" | grep -E "sales|pitch|proposal"
-
-# Find all competitive analyses
-synthesis search "vs competitor"
-
-# Find all roadmap documents
-synthesis search "roadmap"
-```
-
-**Result:** Complete content audit in 5 minutes (vs 2-4 hours manually searching drives/folders).
-
-**What to do with results:**
-- Identify outdated materials (last modified 12+ months ago)
-- Find duplicate content (3 versions of the same deck)
-- Discover orphaned assets (no one knows they exist)
+All materials found in seconds. Watch the demo video, review the docs, open the code. Prepared in 15 minutes instead of scrambling for an hour.
 
 ---
 
-## Real-World Product Management Workflows
+## Organizational Intelligence
 
-### Workflow 1: Quarterly Business Review Prep
+### Discover Your Organization
 
-**Task:** Prepare QBR deck showing product progress.
-
-**Step 1: Find all feature demos from Q1**
 ```bash
-synthesis search "demo" --created-after 2026-01-01 --created-before 2026-03-31
-# Returns: 8 demo videos, 4 feature walkthroughs
+synthesis org scan
 ```
 
-**Step 2: Find architecture updates**
+Auto-discovers organizational structure from your workspace: companies, clients, products, status (active, past, prospect).
+
+### View Structure
+
 ```bash
-synthesis graph --modules --format mermaid > architecture-Q1-2026.md
-# Auto-generated architecture diagram showing current state
+synthesis org list
 ```
 
-**Step 3: Find customer case studies**
+Shows the discovered hierarchy: companies, their clients, products, and current status.
+
+### Classify Content
+
 ```bash
-synthesis search "case study"
-# Returns: 5 customer success stories (PDF)
+synthesis org classify
 ```
 
-**Time saved:** 2-3 hours → 10 minutes
-
-### Workflow 2: Competitive Positioning Update
-
-**Task:** Update competitive positioning after competitor launches new feature.
-
-**Step 1: Find all existing competitive materials**
-```bash
-synthesis search "competitor X"
-# Returns: 12 competitive analyses, 3 battle cards, 2 presentations
-```
-
-**Step 2: Find our equivalent features**
-```bash
-synthesis search "feature name"
-# Returns: Code, docs, demos for our version
-```
-
-**Step 3: Update battle card with latest comparisons**
-- Use Synthesis results to populate "Our Approach" column
-- Reference demo videos for proof points
-- Link to performance benchmarks
-
-**Time saved:** 3-4 hours → 30 minutes
-
-### Workflow 3: Customer Onboarding Content Curation
-
-**Task:** New customer signed. Need onboarding package.
-
-**Step 1: Find all getting-started materials**
-```bash
-synthesis search "getting started" OR "onboarding" OR "quick start"
-# Returns: 15 documents across code, docs, videos
-```
-
-**Step 2: Find feature-specific tutorials**
-```bash
-synthesis search "tutorial" OR "how-to" OR "walkthrough"
-# Returns: 23 tutorials (videos, markdown guides)
-```
-
-**Step 3: Generate architecture overview**
-```bash
-synthesis export --onboarding > customer-architecture-overview.md
-# Auto-generated overview perfect for new customers
-```
-
-**Result:** Comprehensive onboarding package in 15 minutes (vs 2-3 hours manually gathering materials).
-
-### Workflow 4: Feature Adoption Analysis
-
-**Task:** Understand which features are well-documented vs under-documented.
-
-**Step 1: List all features**
-```bash
-# Assuming features are in feature/ directories
-synthesis graph --modules
-# Shows all feature modules
-```
-
-**Step 2: Check documentation coverage**
-```bash
-for feature in $(list_features); do
-  docs=$(synthesis search "$feature" --type markdown | wc -l)
-  demos=$(synthesis search "$feature" --type video | wc -l)
-  echo "$feature: $docs docs, $demos demos"
-done
-```
-
-**Step 3: Identify gaps**
-```bash
-# Features with <2 docs and 0 demos = under-documented
-# Features with 5+ docs and 2+ demos = well-documented
-```
-
-**Action:** Prioritize content creation for under-documented features.
+Classifies files by organization -- useful for understanding where content belongs.
 
 ---
 
-## Integration with Product Tools
+## Content Management
 
-### Integration 1: Confluence/Notion/Wiki
+### Make Binary Files Searchable
 
-**Problem:** Confluence becomes stale, links break, duplicates proliferate.
+PDFs, videos, and images are not text-searchable by default. Synthesis creates companion files:
 
-**Solution:** Use Synthesis as source of truth, update Confluence quarterly.
-
-**Workflow:**
 ```bash
-# Generate fresh architecture diagram
-synthesis graph --modules --format mermaid > architecture.md
-
-# Find all feature documentation
-synthesis search "feature" --type markdown > feature-inventory.txt
-
-# Upload to Confluence
-# Use Synthesis results as canonical index, Confluence as presentation layer
+synthesis enrich                  # Generate companions for all binary assets
+synthesis enrich --type video     # Only for videos
+synthesis enrich --level ai       # Rich AI descriptions (requires API key)
+synthesis enrich --stats          # Coverage statistics
+synthesis scan                    # Re-scan to index new companions
 ```
 
-**Benefit:** Confluence stays current because regeneration is easy (vs manual maintenance).
+After enrichment, `synthesis search "product demo"` finds your demo video by its description, not just its filename.
 
-### Integration 2: Sales CRM (Salesforce, HubSpot)
+### Export Index
 
-**Problem:** Sales team asks for demo materials, PM scrambles to find them.
-
-**Solution:** Pre-populate CRM with Synthesis-indexed assets.
-
-**Workflow:**
 ```bash
-# Find all sales-ready materials
-synthesis search "sales" OR "demo" OR "presentation"
-
-# Export asset inventory
-synthesis export --format csv > sales-assets.csv
-
-# Import to CRM as attachment library
+synthesis export                            # Export as default format
+synthesis export --format json              # JSON export
+synthesis export --format markdown          # Markdown export
 ```
 
-**Benefit:** Sales has instant access to all product materials.
+Useful for sharing an inventory of product materials with sales or marketing teams.
 
-### Integration 3: Product Analytics
+### Extract Slides
 
-**Problem:** You track feature usage in code but don't connect it to documentation/marketing.
+```bash
+synthesis extract-slides presentation.pdf
+```
 
-**Solution:** Cross-reference analytics data with Synthesis content inventory.
-
-**Example:**
-- Analytics shows "Feature X has 80% adoption"
-- Synthesis shows "Feature X has 8 demo videos, 12 docs, 3 case studies"
-- Conclusion: Well-documented features have higher adoption
-- Action: Invest in docs for low-adoption features
+Extracts individual slides from a PDF presentation as PNG images. Useful for creating thumbnails, social media posts, or product screenshots.
 
 ---
 
-## Metrics for Product Managers
+## Feature Relationship Mapping
 
-**Track these to measure Synthesis value:**
+Understand which features depend on each other:
 
-| Metric | Before Synthesis | After Synthesis | Measurement |
-|--------|------------------|-----------------|-------------|
-| **Time to find demo** | 5-20 min | 10-30 sec | Weekly survey: "How long to find last demo?" |
-| **Content discovery completeness** | 60-70% | 95%+ | Audit: Did you find all materials? |
-| **Demo prep time** | 30-60 min | 3-10 min | Time from "client call scheduled" to "ready to present" |
-| **Content reuse rate** | 20% (most assets forgotten) | 70% (assets discoverable) | Track asset usage across quarters |
+```bash
+synthesis relate src/analytics/AnalyticsEngine.java
+```
 
----
+Results show incoming references -- other features that depend on Analytics:
+- Dashboard (DashboardService.java)
+- Reporting (ReportGenerator.java)
+- Alerts (AlertProcessor.java)
 
-## Your Next Step
-
-**Pick your most painful product knowledge problem:**
-
-**Option 1:** "I can never find our demo videos" → Index your Google Drive + local Downloads, search for "video", bookmark results
-
-**Option 2:** "Customer asks about feature X, I scramble for materials" → Create feature inventory via Synthesis search, save as reference
-
-**Option 3:** "QBR prep takes 4 hours every quarter" → Try Synthesis for next QBR prep, measure time savings
-
-**Start with one workflow. Prove the value. Then expand.**
+When a client asks "If we buy Analytics, what else does that enable?" you have a concrete answer: Dashboard, Reporting, and Alerts all build on Analytics.
 
 ---
 
-**Related documentation:**
-- **For your developers:** [Quick Start](../guides/QUICK-START.md) -- they need to install it first
-- **For your architects:** [Architecture Guide](./ARCHITECT.md) -- auto-generated architecture diagrams
-- **For your engineering manager:** [Manager Guide](./ENGINEERING-MANAGER.md) -- team adoption metrics
-- **For technical details:** [User Guide](../guides/USER-GUIDE.md) -- all commands explained
+## Content Audit Workflow
+
+Find all product materials for a quarterly review:
+
+```bash
+synthesis search "demo"                     # All demo materials
+synthesis search "presentation"              # All presentations
+synthesis search "case study"                # Customer success stories
+synthesis search "roadmap"                   # Roadmap documents
+synthesis search "competitor"                # Competitive analysis
+```
+
+Complete content audit in 5 minutes instead of 2-4 hours manually searching folders and drives.
+
+---
+
+## Research Reports for Product Strategy
+
+For deeper analysis:
+
+```bash
+synthesis research --topic quality           # Code quality analysis
+synthesis research --topic evolution         # Technical evolution trends
+synthesis research --output product-health.md
+```
+
+Useful for quarterly product reviews, technical debt prioritization, and roadmap planning.
+
+---
+
+## Quick Reference
+
+```
+synthesis report --product <name>           # Product status report
+synthesis report --client <name>            # Client health report
+synthesis report --topic pipeline           # Pipeline status
+synthesis report --topic decisions          # Decisions needed
+synthesis report --topic weekly             # Weekly executive update
+synthesis report --estimate                 # Cost preview
+synthesis upcoming                          # Events and deadlines
+synthesis upcoming --actions                # Include scanned actions
+synthesis search "query"                    # Multi-format search
+synthesis org scan                          # Discover organization
+synthesis org list                          # View organization
+synthesis enrich                            # Make binary files searchable
+synthesis export                            # Export index
+synthesis extract-slides <pdf>              # Extract slides as PNG
+synthesis relate <file>                     # Feature dependency map
+synthesis research --topic quality          # Deep quality analysis
+```
+
+---
+
+**Related guides:**
+- [Executive Guide](./EXECUTIVE.md) -- for CEO-level reporting
+- [Developer Guide](./DEVELOPER.md) -- for your engineering team
+- [Workshop Facilitator Guide](./WORKSHOP-FACILITATOR.md) -- running product demos
+- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference

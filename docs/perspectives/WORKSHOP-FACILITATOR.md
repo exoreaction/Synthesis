@@ -1,40 +1,41 @@
 # Synthesis Workshop Facilitator Guide
 
-**You're leading a workshop to teach developers Synthesis in 2-4 hours. This guide ensures they leave with working knowledge.**
-
-**📊 Visual Summary:** [Workshop Mastering AI Output Infographic](../visuals/workshop-mastering-ai-output.png)
+**You are teaching developers how to manage AI-generated output. This guide ensures they leave with working knowledge and Synthesis running on their own projects.**
 
 ---
 
 ## Workshop Overview
 
-**Target audience:** Developers, technical leads, architects
-**Duration options:** 2 hours (half-day), 4 hours (full-day), or 6-8 hours (deep-dive)
-**Group size:** 8-30 participants (ideal: 12-16)
-**Prerequisites:** Laptop with Java 17+, access to a codebase
+| Element | Details |
+|---------|---------|
+| **Audience** | Developers, technical leads, architects |
+| **Duration** | 2 hours (compact), 4 hours (standard), 6-8 hours (deep-dive) |
+| **Group size** | 8-30 participants (ideal: 12-16) |
+| **Prerequisites** | Laptop with Java 17+, access to a codebase |
+| **Version** | Synthesis 1.8.0 |
 
 **Learning outcomes:**
-1. Understand the AI output explosion problem
-2. Install and configure Synthesis
-3. Index a real codebase (their own or a sample)
-4. Search, relate, and graph effectively
-5. Leave with Synthesis running on their primary project
+1. Understand the comprehension bottleneck (AI output explosion)
+2. Install and configure Synthesis (including credentials)
+3. Index a real codebase and search it
+4. Map dependencies with `relate` and `graph`
+5. Use AI features: `ask`, `explain`, `research`
+6. Leave with Synthesis running on their primary project
 
 ---
 
-## Pre-Workshop Setup (1 Week Before)
+## Pre-Workshop Setup (Send 1 Week Before)
 
-### Send to Attendees
+### Attendee Email
 
-**Email subject:** "Synthesis Workshop Prep - 15 Minutes Required"
+Subject: "Workshop Prep -- 15 Minutes Required"
 
-**Email body:**
 ```
 Hi [Name],
 
-Looking forward to the Synthesis workshop on [Date]!
+Looking forward to the Synthesis workshop on [Date].
 
-Please complete these 3 steps BEFORE the workshop (15 minutes):
+Please complete these steps BEFORE the workshop (15 minutes):
 
 1. VERIFY JAVA 17+
    Run: java -version
@@ -42,450 +43,371 @@ Please complete these 3 steps BEFORE the workshop (15 minutes):
 
 2. INSTALL SYNTHESIS
    Linux/Mac: curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash
-   Windows: See attachment install-windows.txt
+   Verify: synthesis --version (should show 1.8.0 or later)
 
-3. VERIFY INSTALLATION
-   Run: synthesis --version
-   You should see: "Synthesis 1.0.3-SNAPSHOT" (or later)
+3. OPTIONAL: GET AN API KEY
+   If you have an Anthropic API key, bring it. We will use AI features during the workshop.
+   No key? No problem -- core features work without one.
+
+4. BRING A CODEBASE
+   Any project you work on (Git repo preferred). If you do not have one,
+   we will provide a sample project.
 
 If you hit any issues, reply to this email or arrive 15 minutes early.
 
-Bring:
-- Your laptop
-- Access to a codebase you work on (optional but recommended)
-
 See you on [Date]!
-[Your name]
 ```
 
-### Prepare Materials
+### Facilitator Checklist
 
-**Required:**
-- [ ] Projector/screen for live demos
-- [ ] Sample codebase (for attendees without their own)
-- [ ] USB drives with Synthesis JAR (for offline install if needed)
-- [ ] Handout: Quick reference card (synthesis commands cheat sheet)
-- [ ] Workshop feedback form (Google Form or paper)
+**One week before:**
+- [ ] Send attendee email
+- [ ] Prepare sample codebase (for attendees without their own)
+- [ ] Test all demos on your laptop
+- [ ] Prepare USB drives with synthesis.jar (offline backup)
+- [ ] Print command reference cards
 
-**Nice to have:**
-- [ ] Video recording setup (workshop can become training material)
-- [ ] Slack/Discord channel for Q&A during exercises
-- [ ] Mermaid rendering tool (mermaid.live or VSCode plugin)
+**Day before:**
+- [ ] Test projector/screen
+- [ ] Verify internet access (for API features and mermaid.live)
+- [ ] Charge laptop, bring power adapter
+
+**Day of (arrive 30 minutes early):**
+- [ ] Test projector
+- [ ] Help early arrivals with installation
+- [ ] Open mermaid.live in browser tab (for graph demos)
 
 ---
 
-## Workshop Structure: 2-Hour Version
+## 5-Minute Demo Script (For Presentations)
 
-**Recommended for:** Corporate lunch-and-learn, team training
+Use this script when you have 5 minutes to show Synthesis. Works for conference talks, sales meetings, or workshop introductions.
 
-### Module 1: The Problem (15 minutes)
+### Setup (Before the Demo)
 
-**Opening hook (5 minutes):**
+Have a workspace already initialized and scanned. Use a codebase with at least 500 files.
 
-*"Quick poll: How many of you have spent more than 5 minutes in the last week searching for a file, trying to remember where something is, or asking a teammate 'where is the code for X?'"*
+### Script
 
-[Most hands go up]
+**[0:00] The problem (30 seconds)**
 
-*"That's the comprehension bottleneck. AI made you 10x faster at generating code. Did it make you 10x faster at finding code?"*
+"Quick question: How many of you spent more than 5 minutes this week searching for a file? Looking for where something is implemented?"
 
-**The AI paradox (5 minutes):**
+[Hands go up]
 
-Show slide/diagram:
-```
-Creation Speed: ████████████████████ (10x)
-Search Speed:   ██                   (1x, unchanged)
-Shipping Speed: ███                  (1.5x realized)
+"AI tools made you 10x faster at writing code. Did they make you 10x faster at finding code? That gap is what we are solving."
 
-THE GAP = WASTED AI INVESTMENT
-```
+**[0:30] Search (60 seconds)**
 
-**Key points:**
-- AI output explosion: 100-500 files/week/person (vs 10-20 before)
-- 40-60% of time spent searching (measured)
-- Your IDE only sees one project. You work across 10+.
-
-**The solution preview (5 minutes):**
-
-*"Synthesis is knowledge infrastructure. It indexes everything you create—code, docs, videos, PDFs—and makes it searchable in seconds with relationship tracking."*
-
-Show live:
 ```bash
 synthesis search "authentication"
-# Returns: code, docs, configs, all formats in <1 second
 ```
 
-**Transition:** *"Let's install it and try it on your code."*
+"One command. Sub-second. Finds code, docs, config, even videos. Across every file type."
 
----
+Show the results. Point out the variety: Java files, markdown docs, YAML config, PDFs.
 
-### Module 2: Hands-On Installation (20 minutes)
-
-**Verify pre-work (5 minutes):**
-
-*"Who has Synthesis installed and verified?"*
-- If 80%+ → proceed
-- If <80% → quick troubleshooting session (have TAs help stragglers)
-
-**Initialize workspace (5 minutes):**
-
-*"Everyone, pick a codebase on your laptop. Navigate to it and run:"*
+**[1:30] Dependencies (60 seconds)**
 
 ```bash
-cd ~/your-project
-synthesis init
+synthesis relate src/auth/AuthService.java
 ```
 
-**Expected output:**
-```
-✓ Workspace initialized: /home/you/your-project
-ℹ Config: .synthesis/config.yaml
-ℹ Index:  .synthesis/index
-```
+"Before you change anything, see what depends on it. These 8 incoming references are your blast radius. Change AuthService without updating these and something breaks."
 
-*"Raise your hand when you see the checkmark."*
-
-**First scan (10 minutes):**
-
-*"Now index your codebase:"*
-
-```bash
-synthesis scan
-```
-
-**Walk around the room:**
-- Check that scans are running
-- Help anyone stuck on errors
-- Note scan times and file counts (ask 2-3 people to share)
-
-**Debrief (2 minutes):**
-- *"How many files did you index?"* (collect numbers: 200, 1,500, 8,000)
-- *"How long did it take?"* (collect times: 2s, 8s, 31s)
-- *"That's 200-300 files/second. Your entire codebase is now searchable."*
-
----
-
-### Module 3: Search Everything (25 minutes)
-
-**Basic search (10 minutes):**
-
-*"Try this: Search for something you know exists in your codebase."*
-
-```bash
-synthesis search "your keyword"
-```
-
-**Live demo on projector:**
-```bash
-synthesis search "authentication"
-# Show results across multiple file types
-```
-
-**Key points:**
-- Works across all file types (code, docs, config, media)
-- Relevance ranked (most relevant first)
-- Sub-second even on large codebases
-
-**Exercise (10 minutes):**
-
-*"Try these searches on your own code:"*
-
-1. Search for a feature you work on
-2. Search for "TODO" (find all technical debt)
-3. Search for "@Deprecated" (find all deprecated code)
-4. Search for a config setting
-
-*"What did you find that surprised you?"*
-
-[Collect 2-3 stories from attendees]
-
-**Multi-word search (5 minutes):**
-
-*"Synthesis handles multi-word queries:"*
-
-```bash
-synthesis search "user authentication service"
-# Finds files containing all three words
-```
-
-**Exercise:**
-*"Search for a two or three-word phrase specific to your domain."*
-
----
-
-### Module 4: Relationships & Impact (30 minutes)
-
-**The refactoring problem (5 minutes):**
-
-*"Quiz: You need to refactor AuthService.java. What breaks if you change it?"*
-
-[Attendees guess: "The login flow?" "The API?" "Everything?"]
-
-*"Let's find out exactly:"*
-
-```bash
-synthesis relate "AuthService.java"
-```
-
-**Live demo (10 minutes):**
-
-Show `relate` output on projector:
-```
-Relationships for: src/main/java/com/example/AuthService.java
-
-Imports/References (outgoing): 5 files
-  → UserRepository.java
-  → TokenService.java
-  → PasswordEncoder.java
-  → Configuration.java
-  → Logger.java
-
-Referenced by (incoming): 8 files
-  ← AuthController.java
-  ← LoginService.java
-  ← RegistrationService.java
-  ← AuthServiceTest.java
-  ← IntegrationTest.java
-  ← SecurityConfig.java
-  ← AdminService.java
-  ← AuditService.java
-
-Total connections: 13
-```
-
-**Key insight:**
-*"The 'Referenced by' section is your blast radius. These 8 files break if you change AuthService without updating them. Now you know exactly what to test."*
-
-**Exercise (15 minutes):**
-
-*"Pick a file in your codebase that you think is important. Run relate on it:"*
-
-```bash
-synthesis relate "YourFile.java"
-```
-
-*"Questions to answer:"*
-1. How many files import/reference this file? (incoming)
-2. How many files does this file depend on? (outgoing)
-3. Were you surprised by any of the connections?
-
-**Debrief:**
-- *"Who found a file with 20+ incoming references?"* → *"That's a critical file. Extra care when changing it."*
-- *"Who found a file with 0 incoming references?"* → *"That might be dead code."*
-
----
-
-### Module 5: Visual Knowledge Graphs (20 minutes)
-
-**The architecture question (5 minutes):**
-
-*"Pop quiz: Draw your system architecture on the whiteboard. You have 60 seconds."*
-
-[Attendees struggle, draw conflicting diagrams, realize they don't know]
-
-*"Let's generate it automatically:"*
+**[2:30] Architecture (60 seconds)**
 
 ```bash
 synthesis graph --modules --format mermaid
 ```
 
-**Live demo (10 minutes):**
+Paste into mermaid.live or show pre-rendered image.
 
-Generate module graph on projector, paste into mermaid.live, show result.
+"Auto-generated from your actual code. Not from a Confluence page someone drew 6 months ago. This updates every time you scan."
 
-**Key points:**
-- Auto-generated from actual code (not stale Confluence)
-- Updates whenever you re-scan
-- Multiple formats (Mermaid, PNG, SVG, DOT)
+**[3:30] AI explanation (60 seconds)**
 
-**Exercise (5 minutes):**
+```bash
+synthesis ask "how does authentication work in this project?"
+```
 
-*"Generate your architecture graph:"*
+"Natural language question. Synthesis reads your indexed files and gives you a grounded answer, referencing specific files."
+
+**[4:30] Wrap (30 seconds)**
+
+"That was search, dependencies, architecture, and AI explanation. All in under 5 minutes. Synthesis is open source, runs locally, and indexes 200-300 files per second. Install it, scan your project, and search. You will find things in 10 seconds that used to take 10 minutes."
+
+---
+
+## 2-Hour Workshop Structure
+
+### Module 1: The Problem (15 min)
+
+**Opening poll (5 min):**
+"How many of you have spent more than 5 minutes in the last week searching for a file?"
+
+**The AI paradox (5 min):**
+- Creation speed: 10x (AI tools)
+- Search speed: 1x (unchanged)
+- Shipping speed: 1.5x (realized)
+- The gap = wasted AI investment
+
+**Solution preview (5 min):**
+Live demo: `synthesis search "authentication"` -- show multi-format results in under 1 second.
+
+### Module 2: Installation and First Scan (20 min)
+
+**Verify installs (5 min):**
+"Who has Synthesis installed? Show of hands."
+- 80%+: proceed
+- <80%: quick troubleshooting (have TAs help)
+
+**Initialize and scan (10 min):**
+
+```bash
+cd ~/your-project
+synthesis init
+synthesis scan
+```
+
+Walk around. Check that scans complete. Collect numbers: "How many files? How long?"
+
+**Optional: Store API key (5 min):**
+
+```bash
+synthesis credentials set ANTHROPIC_API_KEY sk-ant-...
+synthesis credentials status
+```
+
+For attendees who have keys. Others skip this and use non-AI features.
+
+### Module 3: Search (25 min)
+
+**Basic search (10 min):**
+
+Everyone searches their own codebase:
+
+```bash
+synthesis search "your keyword here"
+```
+
+Facilitator demo on projector: show results across multiple file types.
+
+**Guided exercises (10 min):**
+
+1. Search for a feature you work on
+2. Search for "TODO" (find technical debt)
+3. Search for a config setting
+4. Search for "@Deprecated"
+
+**Debrief (5 min):**
+"What did you find that surprised you?"
+
+### Module 4: Relationships and Impact (30 min)
+
+**The refactoring question (5 min):**
+"You need to change AuthService.java. What breaks?"
+
+**Live demo (10 min):**
+
+```bash
+synthesis relate "AuthService.java"
+```
+
+Walk through outgoing (what it uses) and incoming (what uses it). The incoming list = blast radius.
+
+**Exercise (15 min):**
+
+"Pick an important file in your codebase. Run `relate` on it."
+
+Questions to answer:
+1. How many incoming references?
+2. Were you surprised by any connections?
+3. Would you have known about all of these before today?
+
+### Module 5: Architecture Graphs (20 min)
+
+**The whiteboard challenge (5 min):**
+"Draw your system architecture. You have 60 seconds."
+
+[Attendees struggle, realize they do not fully know]
+
+**Auto-generated graph (10 min):**
+
+```bash
+synthesis graph --modules --format mermaid
+```
+
+Paste into mermaid.live. Show the result. Compare to the whiteboard attempts.
+
+**Exercise (5 min):**
 
 ```bash
 synthesis graph --modules --format mermaid > architecture.md
 ```
 
-*"Open architecture.md in an editor. Paste the Mermaid code into mermaid.live or your IDE Mermaid plugin."*
+"Open the file. What did you learn about your architecture?"
 
-*"What did you learn about your architecture?"*
+### Module 6: AI Features (Optional, 10 min)
 
-[Collect insights: "I didn't know module X depended on Y", "We have a circular dependency!", etc.]
-
----
-
-### Module 6: Daily Workflow & Next Steps (10 minutes)
-
-**The morning habit (3 minutes):**
-
-*"Make this a habit: Before you start work, run a scan."*
+For attendees with API keys:
 
 ```bash
-synthesis scan  # 1-5 seconds, keeps index fresh
+synthesis ask "how does authentication work?"
+synthesis explain src/auth/AuthService.java
 ```
 
-*"Throughout the day: Search before building."*
-- Before writing new code: `synthesis search "existing pattern"`
-- Before refactoring: `synthesis relate "file I'm changing"`
-- Before deploying: `synthesis graph --modules` (check for unexpected changes)
+For all attendees:
 
-**Integration ideas (5 minutes):**
+```bash
+synthesis insights                    # No AI required
+synthesis architecture                # No AI required
+```
 
-*"How to make this stick:"*
+### Module 7: Wrap-Up (10 min)
 
-1. **Shell alias:** `alias syn='synthesis'` (type less)
-2. **Git hook:** Auto-scan after every commit (see DevOps guide)
-3. **Team norm:** Require `relate` output in PRs for shared services
-4. **Morning standup:** "What did you find with Synthesis yesterday?"
+**Recap:**
+1. Search across all file types in under a second
+2. Map dependencies before changing anything
+3. Auto-generate architecture diagrams
+4. AI-powered explanations and analysis
 
-**Resources (2 minutes):**
+**Daily workflow:**
+- Morning: `synthesis scan` (5 seconds)
+- Throughout day: `synthesis search` before building
+- Before refactoring: `synthesis relate`
+- Weekly: `synthesis architecture` + `synthesis insights`
 
-*"Where to learn more:"*
-- Quick Start: [link]
-- Full User Guide: [link]
-- All commands: `synthesis --help`
-
----
-
-### Closing & Feedback (10 minutes)
-
-**Recap (5 minutes):**
-
-*"What you learned today:"*
-1. ✅ The comprehension bottleneck (AI paradox)
-2. ✅ Install and configure Synthesis
-3. ✅ Search across all file types
-4. ✅ Map dependencies with relate
-5. ✅ Generate architecture graphs
-
-*"Your homework:"*
+**Homework:**
 - [ ] Keep Synthesis installed
 - [ ] Scan your codebase daily this week
-- [ ] Search instead of grep
-- [ ] Share one interesting finding with your team
-
-**Feedback (5 minutes):**
-
-*"Please fill out the feedback form: [link or paper form]"*
-
-**Questions:**
-1. What was most valuable? (1-5)
-2. What was least clear?
-3. Will you use Synthesis after today? (Yes/No/Maybe)
-4. What feature do you want to learn more about?
+- [ ] Use `search` instead of grep
+- [ ] Share one finding with your team
 
 ---
 
-## Workshop Structure: 4-Hour Version
+## 4-Hour Workshop: Additional Modules
 
-**Recommended for:** Team training, conference workshop
+### Module 8: Advanced Features (30 min)
 
-**Additions to 2-hour version:**
+**Multi-workspace search:**
 
-### Module 7: Advanced Features (30 minutes)
+```bash
+synthesis search --all "authentication"    # Search all workspaces
+synthesis which EventStoreService.java     # Find which workspace has a file
+```
 
-**Multi-workspace workflows:**
-- Managing multiple projects
-- Cross-repo search
+**Deep research reports:**
 
-**AI-powered features (optional, requires API key):**
-- README generation
-- Code synthesis from natural language
+```bash
+synthesis research --estimate              # Preview cost
+synthesis research --topic architecture    # Architecture analysis
+synthesis research --output report.md      # Save to file
+```
 
-**Media support:**
-- Indexing videos (metadata extraction)
-- PDF full-text search
-- Image analysis
+**Binary file enrichment:**
 
-### Module 8: Real-World Use Cases (30 minutes)
+```bash
+synthesis enrich                           # Generate companions
+synthesis enrich --level ai                # AI descriptions
+synthesis scan                             # Re-index
+```
 
-**Break into groups (3-4 people per group):**
+### Module 9: Group Exercises (45 min)
 
-Each group picks a use case:
-1. **Onboarding:** Use Synthesis to create a new hire guide
-2. **Technical debt:** Find all TODOs, FIXMEs, deprecated APIs
-3. **Refactoring safety:** Pick a shared service, map full impact
-4. **Architecture documentation:** Generate module graph, document it
+Break into groups of 3-4. Each group picks one:
 
-**Groups work for 20 minutes, then present (2 min each).**
+1. **Technical debt audit:** Find all TODOs, FIXMEs, deprecated code. Report the top 5 debt items.
+2. **Refactoring plan:** Pick a shared service. Map full impact with `relate`. Create a refactoring checklist.
+3. **Architecture documentation:** Generate module graph. Annotate it. Create an architecture README.
+4. **Cross-repo exploration:** If multiple repos are available, run `cross-repo-deps`. Report findings.
 
-### Module 9: Integration & Automation (30 minutes)
+Groups work 30 minutes, then present (3 min each).
 
-**CI/CD integration:**
-- Adding Synthesis to GitHub Actions
-- Automated technical debt reports
+### Module 10: Team Workflow Integration (15 min)
 
-**Watch mode:**
-- Continuous indexing during development
-
-**Team workflows:**
-- Code review checklists
-- Architecture governance
-
-### Extended Exercises (fill remaining time)
-
-- Generate cross-repo dependency graphs
-- Create custom search workflows
-- Build a knowledge base for your team
+- Add `relate` checks to PR template
+- Add `synthesis scan` to git hooks
+- Set up `synthesis watch` for continuous indexing
+- Configure `synthesis architecture` in CI/CD
 
 ---
 
-## Workshop Structure: 6-8 Hour Deep-Dive
+## 6-8 Hour Deep-Dive: Additional Modules
 
-**Recommended for:** Paid training, multi-day workshop, university course
+### Module 11: Business Intelligence Features (45 min)
 
-**Add to 4-hour version:**
+- `synthesis report` for executive reports
+- `synthesis upcoming` for event tracking
+- `synthesis org scan` for organizational discovery
+- Workshop exercise: Generate a product status report
 
-### Module 10: Organizational Intelligence (1 hour)
+### Module 12: Custom Integration Projects (2-3 hours)
 
-- Company/client/product detection
-- Organization-scoped search
-- Business context mapping
+Each attendee or pair builds one of:
+- CI/CD pipeline with Synthesis architecture checks
+- Custom search dashboard using `synthesis export`
+- Onboarding guide generated from `synthesis graph` + `synthesis explain`
+- Weekly automated report using `synthesis research`
 
-### Module 11: Custom Integration Projects (2-3 hours)
-
-**Each attendee builds something:**
-- CI/CD pipeline with Synthesis
-- Custom search dashboard
-- Architecture documentation system
-- Onboarding automation
-
-**Present projects at end.**
-
-### Module 12: Advanced Graph Analysis (1 hour)
-
-- Cyclomatic complexity
-- Coupling metrics
-- Architecture health scoring
+Present projects at end.
 
 ---
 
-## Troubleshooting Guide (For TAs/Helpers)
+## Proof of Methodology
 
-### Issue 1: "Not a Synthesis workspace"
+When using Synthesis as proof that AI-assisted development works at scale:
 
-**Symptom:** `synthesis scan` fails with error
-**Fix:** `synthesis init` first
+### Key Numbers to Reference
 
-### Issue 2: "No search results"
+- **lib-pcb:** 197,831 lines of Java code generated in 11 days (industry standard: 10-18 months)
+- **7,461 tests**, 99.8% pass rate
+- **8,934 files** indexed across 3 workspaces
+- **Sub-second search** (<1 second, typically 0.4 seconds)
+- **58 repositories**, 429 cross-dependencies mapped in under 31 seconds
 
-**Symptom:** Search returns 0 results after scan
-**Diagnosis:** Files not in includePatterns
-**Fix:** Edit `.synthesis/config.yaml`, add file types
+### Live Demonstration Flow
 
-### Issue 3: Scan is slow (>1 min for 1,000 files)
+```bash
+# Show the scale
+synthesis status                              # Files indexed, last scan
 
-**Diagnosis:** Including node_modules, build artifacts
-**Fix:** Add to excludePatterns in config
+# Show the speed
+synthesis search "validation"                 # Sub-second results
 
-### Issue 4: Java not found
+# Show the intelligence
+synthesis relate src/core/Validator.java      # Dependency mapping
 
-**Diagnosis:** Java not installed or not in PATH
-**Fix:** Install Java 17+ from adoptium.net
+# Show the architecture
+synthesis graph --modules --format mermaid     # Visual overview
 
-### Issue 5: Permission denied
+# Show the AI analysis
+synthesis research --estimate                  # What it would analyze
+synthesis insights                            # Codebase health
+```
 
-**Diagnosis:** Synthesis JAR not executable
-**Fix:** `chmod +x synthesis.jar`
+### Skills Export
+
+After the workshop, attendees can export skills for their Claude Code setup:
+
+```bash
+synthesis learn                               # Generate skills from workspace
+synthesis learn --install                     # Install to ~/.claude/skills/
+synthesis export-skills                       # Export bundled Synthesis skills
+```
+
+---
+
+## Troubleshooting (For TAs)
+
+| Issue | Fix |
+|-------|-----|
+| "Not a Synthesis workspace" | `synthesis init` |
+| No search results | Check `includePatterns` in `.synthesis/config.yaml` |
+| Scan is slow | Exclude `node_modules`, `target`, `build`, `.venv` |
+| Java not found | Install Java 17+ from adoptium.net |
+| AI features not working | `synthesis credentials set ANTHROPIC_API_KEY sk-ant-...` |
+| Graph won't render | Use `--format mermaid` and paste into mermaid.live |
 
 ---
 
@@ -493,102 +415,41 @@ Each group picks a use case:
 
 **Send within 24 hours:**
 
-**Email subject:** "Synthesis Workshop - Resources & Next Steps"
-
-**Email body:**
 ```
 Thanks for attending the Synthesis workshop!
 
 Quick links:
-- Workshop slides: [link]
-- Quick Start Guide: [link]
-- Full User Guide: [link]
-- Slack/Discord for questions: [link]
+- Quick Start: https://github.com/exoreaction/Synthesis/blob/main/docs/guides/QUICK-START.md
+- Full User Guide: https://github.com/exoreaction/Synthesis/blob/main/docs/USER-GUIDE-V2.md
+- GitHub: https://github.com/exoreaction/Synthesis
 
-Your homework (takes 5 min/day):
+Your 5-day challenge:
 1. Day 1: Run `synthesis scan` on your main project
-2. Day 2: Search for something you need (instead of grep)
+2. Day 2: Use `synthesis search` instead of grep
 3. Day 3: Run `relate` before refactoring a file
 4. Day 4: Generate your architecture graph
-5. Day 5: Share one interesting finding with your team
+5. Day 5: Share one finding with your team
 
-Reply to this email with:
+Reply with:
 - One thing you learned
 - One thing you tried
 - One question you still have
-
-Keep building!
-[Your name]
 ```
 
 **Follow up after 1 week:**
-
-*"Quick check-in: Are you still using Synthesis?"*
-- Yes → *"What's been most valuable?"*
-- No → *"What's blocking you?"*
+- "Are you still using Synthesis?"
+- Yes: "What has been most valuable?"
+- No: "What is blocking you?"
 
 **Success metrics:**
-- 70%+ attendees using Synthesis 1 week later
-- 50%+ attendees using Synthesis 1 month later
+- 70%+ using Synthesis 1 week later
+- 50%+ using Synthesis 1 month later
 - 3+ attendees become internal champions
 
 ---
 
-## Facilitator Checklist
-
-**Week before:**
-- [ ] Send pre-work email
-- [ ] Prepare sample codebase (if needed)
-- [ ] Test all demos on your laptop
-- [ ] Print handouts (command reference)
-- [ ] Set up feedback form
-
-**Day before:**
-- [ ] Test projector/screen
-- [ ] Verify internet (for mermaid.live if using)
-- [ ] Charge laptop
-- [ ] Prepare USB drives with Synthesis JAR
-
-**Day of (arrive 30 min early):**
-- [ ] Test projector again
-- [ ] Set up Slack/Discord channel
-- [ ] Help stragglers with installation
-- [ ] Start on time (respect attendees' schedules)
-
-**During workshop:**
-- [ ] Walk around during exercises
-- [ ] Answer questions publicly (everyone benefits)
-- [ ] Collect interesting findings/stories
-- [ ] Stay on time (use timer)
-
-**After workshop:**
-- [ ] Send resources email within 24 hours
-- [ ] Review feedback
-- [ ] Follow up with non-responders after 1 week
-
----
-
-## Your Next Step
-
-**Pick your workshop format:**
-- 2 hours → Use Module 1-6 (core workflow)
-- 4 hours → Add Module 7-9 (advanced + use cases)
-- 6-8 hours → Add Module 10-12 (deep-dive projects)
-
-**Schedule it:**
-- Internal team? → Friday afternoon lunch-and-learn
-- Client workshop? → Tuesday-Thursday full-day
-- Conference? → 2-hour session
-
-**Prepare:**
-- Send pre-work email 1 week before
-- Test demos on your laptop
-- Bring energy (you're teaching a superpower!)
-
----
-
-**Related documentation:**
-- **For your attendees:** [Quick Start](../guides/QUICK-START.md) | [User Guide](../guides/USER-GUIDE.md)
-- **For workshop examples:** Sample codebases in `examples/` directory
-- **For CI/CD integration:** [DevOps Guide](./DEVOPS.md)
-- **For team adoption:** [Engineering Manager Guide](./ENGINEERING-MANAGER.md)
+**Related guides:**
+- [Developer Guide](./DEVELOPER.md) -- hand this to attendees
+- [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- for attendees' managers
+- [DevOps Guide](./DEVOPS.md) -- CI/CD integration
+- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
