@@ -1,7 +1,5 @@
 package io.exoreaction.synthesis.update;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.exoreaction.synthesis.util.AnsiOutput;
 
 import java.io.*;
@@ -29,19 +27,17 @@ import java.util.*;
  *
  * <p>Update sources (checked in order):
  * <ol>
- *   <li>Local source directory (git pull + mvn package)</li>
- *   <li>GitHub releases (binary downloads)</li>
- *   <li>Cantara Maven repository (JAR only)</li>
+ *   <li>Local source directory (git pull + mvn package) - preferred for dev setups</li>
+ *   <li>Cantara Maven repository (CLI JAR) + GitHub raw (scripts)</li>
  * </ol>
  *
  * @author Thor Henning Hetland / eXOReaction
  */
 public class UpdateManager {
 
-    private static final String GITHUB_REPO = "exoreaction/Synthesis";
-    private static final String GITHUB_API = "https://api.github.com/repos/" + GITHUB_REPO;
-    private static final String GITHUB_RAW = "https://raw.githubusercontent.com/" + GITHUB_REPO + "/main";
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String CANTARA_BASE =
+            "https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis";
+    private static final String CANTARA_METADATA_URL = CANTARA_BASE + "/maven-metadata.xml";
 
     private final Path synthesisHome;
     private final Path libDir;
@@ -86,14 +82,13 @@ public class UpdateManager {
 
         InstallationFingerprint fingerprint = loadOrDetectFingerprint();
 
-        // Check GitHub for latest version
+        // Check Cantara Maven for latest version
         String latestVersion = null;
-        String releaseNotes = null;
         try {
-            latestVersion = fetchLatestGitHubVersion();
+            latestVersion = fetchLatestMavenVersion();
         } catch (Exception e) {
             if (verbose) {
-                System.err.println("  Could not check GitHub: " + e.getMessage());
+                System.err.println("  Could not check Cantara Maven: " + e.getMessage());
             }
         }
 
@@ -228,8 +223,8 @@ public class UpdateManager {
             // Source-based update (preferred for development setups)
             newVersion = performSourceUpdate(sourceDir, fingerprint, options, updatedComponents, errors);
         } else {
-            // GitHub-based update
-            newVersion = performGitHubUpdate(fingerprint, options, updatedComponents, errors);
+            // Maven-based update (download JAR from Cantara, scripts from GitHub)
+            newVersion = performMavenUpdate(fingerprint, options, updatedComponents, errors);
         }
 
         // Update fingerprint
@@ -485,59 +480,53 @@ public class UpdateManager {
     }
 
     // -----------------------------------------------------------------------
-    // GitHub-based update
+    // Maven-based update (CLI JAR from Cantara, scripts from GitHub raw)
     // -----------------------------------------------------------------------
 
-    private String performGitHubUpdate(InstallationFingerprint fingerprint,
-                                        UpdateOptions options, List<String> updated, List<String> errors) {
-        // Fetch latest release info
+    private String performMavenUpdate(InstallationFingerprint fingerprint,
+                                       UpdateOptions options, List<String> updated, List<String> errors) {
+        // Fetch latest version from Cantara Maven metadata
         String latestVersion;
-        String cliJarUrl;
         try {
-            JsonNode releaseInfo = fetchLatestReleaseInfo();
-            latestVersion = releaseInfo.get("tag_name").asText().replaceFirst("^v", "");
-            cliJarUrl = findAssetUrl(releaseInfo, "synthesis");
+            latestVersion = fetchLatestMavenVersion();
+            if (latestVersion == null) {
+                errors.add("Could not determine latest version from Cantara Maven repository");
+                return null;
+            }
         } catch (Exception e) {
-            errors.add("Failed to check GitHub releases: " + e.getMessage());
+            errors.add("Failed to check Cantara Maven repository: " + e.getMessage());
             return null;
         }
 
         if (options.isDryRun()) {
-            System.out.println("  [DRY RUN] Would download from GitHub release: " + latestVersion);
+            System.out.println("  [DRY RUN] Would download synthesis-" + latestVersion + ".jar from Cantara Maven");
             return latestVersion;
         }
 
-        // Download and install CLI JAR
-        if (cliJarUrl != null) {
-            try {
-                String jarName = "synthesis-" + latestVersion + ".jar";
-                Path tempFile = downloadFile(cliJarUrl);
-                Files.createDirectories(libDir);
-                Files.move(tempFile, libDir.resolve(jarName), StandardCopyOption.REPLACE_EXISTING);
-                Path currentJar = libDir.resolve("current.jar");
-                Files.deleteIfExists(currentJar);
-                Files.createSymbolicLink(currentJar, libDir.resolve(jarName));
-                fingerprint.setComponent("synthesis-cli", true, latestVersion);
-                updated.add("synthesis-cli (" + jarName + ")");
-            } catch (Exception e) {
-                errors.add("Failed to download CLI JAR: " + e.getMessage());
-            }
+        // Download and install CLI JAR from Cantara Maven
+        String jarName = "synthesis-" + latestVersion + ".jar";
+        String jarUrl = CANTARA_BASE + "/" + latestVersion + "/" + jarName;
+        try {
+            Path tempFile = downloadFile(jarUrl);
+            Files.createDirectories(libDir);
+            Files.move(tempFile, libDir.resolve(jarName), StandardCopyOption.REPLACE_EXISTING);
+            Path currentJar = libDir.resolve("current.jar");
+            Files.deleteIfExists(currentJar);
+            Files.createSymbolicLink(currentJar, libDir.resolve(jarName));
+            fingerprint.setComponent("synthesis-cli", true, latestVersion);
+            updated.add("synthesis-cli (" + jarName + ")");
+        } catch (Exception e) {
+            errors.add("Failed to download CLI JAR from Cantara: " + e.getMessage());
+            return null;
         }
 
-        // Download scripts from GitHub raw
+        // Extract bundled scripts from the JAR (repo is private, scripts are bundled)
         for (String script : List.of("synthesis", "synthesis-mcp-server", "synthesis-lsp-server",
                 "update.sh", "install.sh", "uninstall.sh")) {
-            try {
-                String url = GITHUB_RAW + "/bin/" + script;
-                Path tempFile = downloadFile(url);
-                Files.createDirectories(binDir);
-                Files.move(tempFile, binDir.resolve(script), StandardCopyOption.REPLACE_EXISTING);
-                makeExecutable(binDir.resolve(script));
-                updated.add("bin/" + script);
-            } catch (Exception e) {
-                if (verbose) {
-                    System.err.println("  Failed to download " + script + ": " + e.getMessage());
-                }
+            if (extractBundledScript(script, updated)) {
+                // success
+            } else if (verbose) {
+                System.err.println("  Bundled script not found: " + script);
             }
         }
 
@@ -571,6 +560,28 @@ public class UpdateManager {
             return true;
         } catch (IOException e) {
             System.err.println("  Failed to install " + jarName + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Extract a bundled script from the JAR (classpath resource /bin/{scriptName}).
+     * Used when the source directory is not available (Maven-based updates).
+     */
+    private boolean extractBundledScript(String scriptName, List<String> updated) {
+        String resourcePath = "/bin/" + scriptName;
+        try (var stream = getClass().getResourceAsStream(resourcePath)) {
+            if (stream == null) return false;
+            Files.createDirectories(binDir);
+            Path target = binDir.resolve(scriptName);
+            Files.write(target, stream.readAllBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            makeExecutable(target);
+            updated.add("bin/" + scriptName);
+            return true;
+        } catch (IOException e) {
+            if (verbose) {
+                System.err.println("  Failed to extract bundled script " + scriptName + ": " + e.getMessage());
+            }
             return false;
         }
     }
@@ -699,50 +710,27 @@ public class UpdateManager {
         return null;
     }
 
-    private String fetchLatestGitHubVersion() throws Exception {
+    /**
+     * Fetch the latest released version from the Cantara Maven repository metadata.
+     *
+     * @return latest release version string, or null if unavailable
+     */
+    private String fetchLatestMavenVersion() throws Exception {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(GITHUB_API + "/releases/latest"))
-                .header("Accept", "application/vnd.github.v3+json")
+                .uri(URI.create(CANTARA_METADATA_URL))
                 .timeout(Duration.ofSeconds(15))
                 .GET()
                 .build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() == 200) {
-            JsonNode json = MAPPER.readTree(response.body());
-            String tag = json.get("tag_name").asText();
-            return tag.replaceFirst("^v", "");
-        }
-        return null;
-    }
-
-    private JsonNode fetchLatestReleaseInfo() throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(GITHUB_API + "/releases/latest"))
-                .header("Accept", "application/vnd.github.v3+json")
-                .timeout(Duration.ofSeconds(15))
-                .GET()
-                .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            throw new IOException("GitHub API returned " + response.statusCode());
-        }
-        return MAPPER.readTree(response.body());
-    }
-
-    private String findAssetUrl(JsonNode releaseInfo, String nameContains) {
-        JsonNode assets = releaseInfo.get("assets");
-        if (assets != null && assets.isArray()) {
-            for (JsonNode asset : assets) {
-                String name = asset.get("name").asText();
-                if (name.contains(nameContains) && name.endsWith(".jar")) {
-                    return asset.get("browser_download_url").asText();
-                }
+            // Extract <release> tag from Maven metadata XML
+            var matcher = java.util.regex.Pattern.compile("<release>([^<]+)</release>")
+                    .matcher(response.body());
+            if (matcher.find()) {
+                return matcher.group(1).trim();
             }
         }
         return null;

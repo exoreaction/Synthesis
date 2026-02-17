@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+#
+# Synthesis Launcher
+# Launches the Synthesis CLI with auto-update notifications.
+#
+# This script is installed to ~/.synthesis/bin/synthesis by install.sh.
+# It resolves the current.jar symlink and launches with Java.
+#
+# Usage:
+#   synthesis init ~/my-project
+#   synthesis scan
+#   synthesis search "query"
+#   synthesis --version
+#
+# Environment:
+#   SYNTHESIS_HOME              Installation directory (default: ~/.synthesis)
+#   SYNTHESIS_NO_UPDATE_CHECK   Set to 1 to disable auto-update checks
+#   SYNTHESIS_JAVA_OPTS         Extra JVM options (e.g., "-Xmx2g")
+#
+# Copyright (c) 2026 eXOReaction AS. All rights reserved.
+
+set -euo pipefail
+
+readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
+readonly JAR_PATH="$SYNTHESIS_HOME/lib/current.jar"
+readonly MIN_JAVA_VERSION=17
+
+# ---------------------------------------------------------------------------
+# Color Output
+# ---------------------------------------------------------------------------
+if [ -t 1 ] && [ -t 2 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' NC=''
+fi
+
+# ---------------------------------------------------------------------------
+# Pre-flight Checks
+# ---------------------------------------------------------------------------
+
+# Check JAR exists
+if [ ! -f "$JAR_PATH" ]; then
+    printf "${RED}Error:${NC} Synthesis JAR not found at %s\n" "$JAR_PATH" >&2
+    printf "  Run the installer:\n" >&2
+    printf "    curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash\n" >&2
+    printf "  Or install from source:\n" >&2
+    printf "    ./bin/install.sh --source /path/to/synthesis\n" >&2
+    exit 1
+fi
+
+# Check Java exists
+if ! command -v java >/dev/null 2>&1; then
+    printf "${RED}Error:${NC} Java not found. Java %d+ is required.\n" "$MIN_JAVA_VERSION" >&2
+    printf "  Install:\n" >&2
+    printf "    Ubuntu/Debian: sudo apt install openjdk-17-jdk\n" >&2
+    printf "    macOS:         brew install openjdk@17\n" >&2
+    printf "    Fedora:        sudo dnf install java-17-openjdk\n" >&2
+    exit 1
+fi
+
+# Check Java version
+JAVA_VER=$(java -version 2>&1 | head -1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')
+JAVA_VER="${JAVA_VER:-0}"
+if [ "$JAVA_VER" -lt "$MIN_JAVA_VERSION" ]; then
+    printf "${RED}Error:${NC} Java %s found, but Java %d+ is required.\n" "$JAVA_VER" "$MIN_JAVA_VERSION" >&2
+    printf "  Upgrade your Java installation.\n" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Auto-Update Check (non-blocking, daily)
+# ---------------------------------------------------------------------------
+if [ "${SYNTHESIS_NO_UPDATE_CHECK:-0}" != "1" ]; then
+    LAST_CHECK_FILE="$SYNTHESIS_HOME/.metadata/last-update-check"
+    NOW=$(date +%s)
+    LAST_CHECK=0
+
+    if [ -f "$LAST_CHECK_FILE" ]; then
+        LAST_CHECK=$(cat "$LAST_CHECK_FILE" 2>/dev/null || echo 0)
+    fi
+
+    SECONDS_IN_DAY=86400
+    if [ $((NOW - LAST_CHECK)) -ge $SECONDS_IN_DAY ]; then
+        # Run update check in background (non-blocking, does not delay launch)
+        if [ -x "$SYNTHESIS_HOME/bin/update.sh" ]; then
+            (
+                "$SYNTHESIS_HOME/bin/update.sh" --check --quiet > "$SYNTHESIS_HOME/.metadata/update-check-result" 2>/dev/null
+                echo "$NOW" > "$LAST_CHECK_FILE"
+            ) &
+            disown 2>/dev/null || true
+        fi
+    fi
+
+    # Show result from previous background check
+    RESULT_FILE="$SYNTHESIS_HOME/.metadata/update-check-result"
+    if [ -f "$RESULT_FILE" ]; then
+        UPDATE_MSG=$(cat "$RESULT_FILE" 2>/dev/null || true)
+        if [ -n "$UPDATE_MSG" ] && echo "$UPDATE_MSG" | grep -qi "update available"; then
+            printf "${YELLOW}[update]${NC} %s\n" "$UPDATE_MSG"
+            printf "  Run: ${GREEN}synthesis-update${NC}\n\n"
+            # Clear after showing once
+            rm -f "$RESULT_FILE"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Launch Synthesis
+# ---------------------------------------------------------------------------
+
+# Resolve the actual JAR path (follow symlink)
+REAL_JAR=$(readlink -f "$JAR_PATH" 2>/dev/null || readlink "$JAR_PATH" 2>/dev/null || echo "$JAR_PATH")
+
+# JVM flags to suppress warnings (can be overridden via SYNTHESIS_JAVA_OPTS)
+DEFAULT_JAVA_OPTS="--enable-native-access=ALL-UNNAMED -Djava.util.logging.config.file=/dev/null"
+JAVA_OPTS="${SYNTHESIS_JAVA_OPTS:-$DEFAULT_JAVA_OPTS}"
+
+exec java $JAVA_OPTS -jar "$REAL_JAR" "$@"

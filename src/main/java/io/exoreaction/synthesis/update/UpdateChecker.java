@@ -32,7 +32,8 @@ import java.time.Instant;
  */
 public class UpdateChecker {
 
-    private static final String GITHUB_API = "https://api.github.com/repos/exoreaction/Synthesis/releases/latest";
+    private static final String CANTARA_METADATA_URL =
+            "https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis/maven-metadata.xml";
     private static final long CHECK_INTERVAL_SECONDS = 86400; // 24 hours
     private static final String RESULT_FILE = "update-check-result";
     private static final String LAST_CHECK_FILE = "last-update-check";
@@ -146,8 +147,7 @@ public class UpdateChecker {
                     .build();
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(GITHUB_API))
-                    .header("Accept", "application/vnd.github.v3+json")
+                    .uri(URI.create(CANTARA_METADATA_URL))
                     .timeout(Duration.ofSeconds(10))
                     .GET()
                     .build();
@@ -161,26 +161,12 @@ public class UpdateChecker {
                     String.valueOf(Instant.now().getEpochSecond()));
 
             if (response.statusCode() == 200) {
-                // Parse minimal info from response
-                String body = response.body();
-                String latestVersion = extractJsonField(body, "tag_name");
-                if (latestVersion != null) {
-                    latestVersion = latestVersion.replaceFirst("^v", "");
-
+                // Parse <release> tag from Maven metadata XML
+                String latestVersion = extractXmlField(response.body(), "release");
+                if (latestVersion != null && !latestVersion.isBlank()) {
                     String currentVersion = Version.getVersion();
                     if (VersionManifest.compareVersions(latestVersion, currentVersion) > 0) {
-                        // Extract release name for description
-                        String releaseName = extractJsonField(body, "name");
-                        String description = releaseName != null ? releaseName : "";
-
-                        // Also check for missing MCP/LSP components
-                        InstallationFingerprint fp = InstallationFingerprint.detect(synthesisHome);
-                        if (!fp.hasComponent("synthesis-mcp-server")) {
-                            description += " (includes MCP server)";
-                        }
-                        if (!fp.hasComponent("synthesis-lsp-server")) {
-                            description += " (includes LSP server)";
-                        }
+                        String description = "";
 
                         // Write result for next invocation to display
                         Files.writeString(metaDir.resolve(RESULT_FILE),
@@ -197,14 +183,14 @@ public class UpdateChecker {
     }
 
     /**
-     * Simple JSON field extractor (avoids parsing dependency in background thread).
-     * Only works for top-level string fields.
+     * Simple XML field extractor for Maven metadata.
+     * Extracts content of the first matching tag.
      */
-    private static String extractJsonField(String json, String field) {
-        String pattern = "\"" + field + "\"\\s*:\\s*\"([^\"]+)\"";
-        var matcher = java.util.regex.Pattern.compile(pattern).matcher(json);
+    private static String extractXmlField(String xml, String tag) {
+        String pattern = "<" + tag + ">([^<]+)</" + tag + ">";
+        var matcher = java.util.regex.Pattern.compile(pattern).matcher(xml);
         if (matcher.find()) {
-            return matcher.group(1);
+            return matcher.group(1).trim();
         }
         return null;
     }
