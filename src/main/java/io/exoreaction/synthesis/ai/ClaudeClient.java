@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.ai;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.*;
+import io.exoreaction.synthesis.config.CredentialStore;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 
 import java.io.IOException;
@@ -47,7 +48,8 @@ public class ClaudeClient {
             return Optional.empty();
         }
 
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
+        String apiKey = resolveApiKey();
+
         if (apiKey == null || apiKey.isBlank()) {
             return Optional.empty();
         }
@@ -61,6 +63,26 @@ public class ClaudeClient {
             System.err.println("Warning: Failed to initialize Claude client: " + e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Resolves the Anthropic API key using the following priority order:
+     * <ol>
+     *   <li>ANTHROPIC_API_KEY environment variable</li>
+     *   <li>Credential store ({@code ~/.synthesis/credentials})</li>
+     * </ol>
+     *
+     * @return the API key, or null if not found
+     */
+    private static String resolveApiKey() {
+        // 1. Environment variable (highest priority)
+        String envKey = System.getenv("ANTHROPIC_API_KEY");
+        if (envKey != null && !envKey.isBlank()) {
+            return envKey;
+        }
+
+        // 2. Credential store
+        return CredentialStore.retrieve("ANTHROPIC_API_KEY").orElse(null);
     }
 
     /**
