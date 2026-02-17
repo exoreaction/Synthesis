@@ -515,6 +515,58 @@ class ClientCodebaseResolverTest {
     }
 
     // =====================================================================
+    // Bug Fix Tests: /src/ paths should not be incorrectly prepended with $HOME
+    // =====================================================================
+
+    @Test
+    void resolveCodebasePath_absolutePathThatExists_returnsWithoutPrependingHome() {
+        // /tmp always exists on Linux
+        String result = ClientCodebaseResolver.resolveCodebasePath("/tmp");
+        assertEquals("/tmp", result, "/tmp exists as an absolute path and should NOT be prefixed with home");
+    }
+
+    @Test
+    void resolveCodebasePath_absolutePathThatDoesNotExist_fallsBackForNonSrcPaths() {
+        String result = ClientCodebaseResolver.resolveCodebasePath("/nonexistent-xyz-abc-123");
+        // Not /src/ prefix, so it should be returned as-is
+        assertEquals("/nonexistent-xyz-abc-123", result);
+    }
+
+    @Test
+    void resolveCodebasePath_srcPathThatDoesNotExist_prependsHome() {
+        // /src/nonexistent-xyz-abc should not exist on the filesystem
+        String result = ClientCodebaseResolver.resolveCodebasePath("/src/nonexistent-xyz-abc/");
+        assertNotNull(result);
+        String home = System.getProperty("user.home");
+        assertTrue(result.startsWith(home),
+                "Non-existent /src/ path should fall back to home-relative: " + result);
+        assertTrue(result.endsWith("/src/nonexistent-xyz-abc"));
+    }
+
+    @Test
+    void resolveCodebasePath_srcPathThatExists_returnsAbsolute() {
+        // /src exists if /src/exoreaction/Synthesis is valid on this system
+        // Use /tmp as a stand-in for a path that definitely exists
+        // Create a more precise test: /src/ itself may or may not exist,
+        // so we test the logic by verifying that existing absolute paths are preserved
+        Path srcPath = Path.of("/src");
+        if (java.nio.file.Files.exists(srcPath)) {
+            String result = ClientCodebaseResolver.resolveCodebasePath("/src");
+            assertEquals("/src", result,
+                    "When /src exists on filesystem, it should be returned as-is without home prefix");
+        }
+        // If /src doesn't exist, the fallback would prepend home. That's also correct behavior.
+    }
+
+    @Test
+    void resolveCodebasePath_homeRelativePath_resolvesRelativeToHome() {
+        String result = ClientCodebaseResolver.resolveCodebasePath("~/Documents");
+        assertNotNull(result);
+        String home = System.getProperty("user.home");
+        assertEquals(home + "/Documents", result);
+    }
+
+    // =====================================================================
     // Helper Methods
     // =====================================================================
 
