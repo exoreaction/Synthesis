@@ -338,10 +338,22 @@ public class CompanionFileGenerator {
             sb.append(preview).append("\n\n");
         }
 
-        // AI summary if available
-        if (level.hasAI() && aiClient != null && !analysis.summary().isEmpty()) {
+        // AI summary if available and text content was extractable
+        if (level.hasAI() && aiClient != null && !analysis.summary().isEmpty()
+                && metrics.containsKey("textPreview")) {
             sb.append("## AI Summary\n");
             sb.append(analysis.summary()).append("\n\n");
+        }
+
+        // AI description from filename when no extractable text (e.g., visual/image-based PDFs).
+        // The PdfAnalyzer produces a thin "PDF presentation (N pages)" summary for visual PDFs;
+        // we replace it with a richer Claude text-based description from the filename.
+        if (level.hasAI() && aiClient != null && !metrics.containsKey("textPreview")) {
+            String aiDesc = generateDescriptionFromFilename(metadata, metrics);
+            if (aiDesc != null && !aiDesc.isBlank()) {
+                sb.append("## AI Description\n");
+                sb.append(aiDesc).append("\n\n");
+            }
         }
 
         // Headings if extracted
@@ -419,6 +431,43 @@ public class CompanionFileGenerator {
                     512);
         } catch (Exception e) {
             // Vision analysis is best-effort; don't fail enrichment
+            return null;
+        }
+    }
+
+    /**
+     * Generates a description for a PDF using its filename when no text content is extractable
+     * (e.g., visual/image-based PDFs from NotebookLM, slide exports, presentations).
+     *
+     * @param metadata the PDF file metadata
+     * @param metrics  analysis metrics (may include pages, mediaType)
+     * @return AI-generated description with Keywords line, or null on failure
+     */
+    private String generateDescriptionFromFilename(FileMetadata metadata, Map<String, Object> metrics) {
+        if (aiClient == null) return null;
+
+        String name = metadata.fileName();
+        // Strip extension and convert separators to readable form
+        String readable = name.replaceAll("\\.[^.]+$", "")
+                .replace("_", " ").replace("-", " ");
+
+        String pages = metrics.containsKey("pages")
+                ? String.valueOf(metrics.get("pages")) : "unknown";
+        String size = io.exoreaction.synthesis.util.FileUtils.formatSize(metadata.sizeBytes());
+
+        String prompt = """
+                This is a PDF file named "%s" (%s pages, %s).
+                The readable title is: "%s"
+                It is a visual presentation PDF (no extractable text content).
+                Based only on the filename, generate a concise description for a search index.
+                Describe what topics this document likely covers and what audience it's for.
+                Respond with 2-4 sentences followed by a line in the exact format:
+                Keywords: keyword1, keyword2, keyword3, keyword4, keyword5
+                """.formatted(name, pages, size, readable);
+
+        try {
+            return aiClient.generate(prompt, 256);
+        } catch (Exception e) {
             return null;
         }
     }

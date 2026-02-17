@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.enrichment;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.config.CredentialStore;
 
 /**
  * Enrichment capability tiers for companion file generation.
@@ -67,8 +68,11 @@ public enum EnrichmentLevel {
             return BASIC;
         }
 
-        // Check if Claude API is available
+        // Check if Claude API is available (env var or credential store)
         String apiKey = System.getenv("ANTHROPIC_API_KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            apiKey = CredentialStore.retrieve("ANTHROPIC_API_KEY").orElse(null);
+        }
         if (apiKey != null && !apiKey.isBlank()) {
             return AI;
         }

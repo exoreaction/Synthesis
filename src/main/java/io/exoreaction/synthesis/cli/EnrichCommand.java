@@ -170,10 +170,14 @@ public class EnrichCommand implements Callable<Integer> {
                 return showDryRun(enrichable, workspaceRoot);
             }
 
-            // Create AI client if needed for AI-level enrichment
+            // Create AI client if needed for AI-level enrichment.
+            // Falls back to API-key-only client when ai.enabled=false but a key is available.
             ClaudeClient aiClient = null;
             if (level.hasAI()) {
                 Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                if (clientOpt.isEmpty()) {
+                    clientOpt = ClaudeClient.createIfApiKeyAvailable(config.getAi().getModel());
+                }
                 aiClient = clientOpt.orElse(null);
                 if (aiClient == null) {
                     AnsiOutput.printWarning("AI enrichment requested but no API key available. Falling back to BASIC.");
