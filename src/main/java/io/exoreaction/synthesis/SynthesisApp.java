@@ -98,7 +98,8 @@ import java.util.concurrent.Callable;
                 StagingCommand.class,
                 MigrateReposCommand.class,
                 ExportSkillsCommand.class,
-                UpcomingCommand.class
+                UpcomingCommand.class,
+                ResearchCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
