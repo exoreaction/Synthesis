@@ -99,7 +99,8 @@ import java.util.concurrent.Callable;
                 MigrateReposCommand.class,
                 ExportSkillsCommand.class,
                 UpcomingCommand.class,
-                ResearchCommand.class
+                ResearchCommand.class,
+                ReportCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
