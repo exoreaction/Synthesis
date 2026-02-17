@@ -725,56 +725,60 @@ fi
 # ---------------------------------------------------------------------------
 step "Installing exo executive script..."
 
-EXO_SCRIPT_INSTALLED=false
+# exo is embedded inline here (same pattern as synthesis launcher above).
+# Distribution is via Maven/Cantara for the JAR + install.sh for scripts.
+# Scripts are never downloaded at runtime -- they are baked into this installer.
 
-# Determine user bin dir
 USER_BIN_DIR="${HOME}/bin"
 mkdir -p "$USER_BIN_DIR"
 
-# Try: copy from same directory as this install script
-if [ -f "$SCRIPT_DIR/exo" ]; then
-    cp "$SCRIPT_DIR/exo" "$USER_BIN_DIR/exo"
-    chmod +x "$USER_BIN_DIR/exo"
-    EXO_SCRIPT_INSTALLED=true
-    info "Copied exo from source"
-fi
+cat > "$USER_BIN_DIR/exo" << 'EXO_EOF'
+#!/usr/bin/env bash
+#
+# eXOReaction Executive Command
+#
+# Smart executive tool that wraps Synthesis dashboard and report commands.
+#
+# Usage:
+#   exo                    → interactive dashboard
+#   exo report             → weekly CEO briefing
+#   exo decisions          → critical decisions needed
+#   exo pipeline           → pipeline status
+#   exo activities         → recent activities summary
+#   exo client <name>      → client status report
+#   exo product <name>     → product status report
+#   exo <name>             → smart: tries client, then product
+#
+# Copyright (c) 2026 eXOReaction AS. All rights reserved.
 
-# Try: copy from source dir
-if [ "$EXO_SCRIPT_INSTALLED" = false ] && [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/bin/exo" ]; then
-    cp "$SOURCE_DIR/bin/exo" "$USER_BIN_DIR/exo"
-    chmod +x "$USER_BIN_DIR/exo"
-    EXO_SCRIPT_INSTALLED=true
-    info "Copied exo from source directory"
-fi
+WORKSPACE="${SYNTHESIS_WORKSPACE:-$HOME/Documents}"
 
-# Try: download from GitHub
-if [ "$EXO_SCRIPT_INSTALLED" = false ]; then
-    if download_file "${GITHUB_RAW}/bin/exo" "$USER_BIN_DIR/exo" 2>/dev/null; then
-        chmod +x "$USER_BIN_DIR/exo"
-        EXO_SCRIPT_INSTALLED=true
-        info "Downloaded exo from GitHub"
-    fi
-fi
+case "${1:-}" in
+  "")         exec synthesis dashboard ;;
+  report)     exec synthesis report -d "$WORKSPACE" -v "${@:2}" ;;
+  decisions)  exec synthesis report -d "$WORKSPACE" --topic decisions -v ;;
+  pipeline)   exec synthesis report -d "$WORKSPACE" --topic pipeline -v ;;
+  activities) exec synthesis report -d "$WORKSPACE" --topic activities -v ;;
+  client)     exec synthesis report -d "$WORKSPACE" --client "$2" -v ;;
+  product)    exec synthesis report -d "$WORKSPACE" --product "$2" -v ;;
+  *)          exec synthesis report -d "$WORKSPACE" --client "$1" -v ;;
+esac
+EXO_EOF
 
-if [ "$EXO_SCRIPT_INSTALLED" = true ]; then
-    detail "Installed exo executive command to $USER_BIN_DIR/exo"
-    detail "Usage: exo               → interactive dashboard"
-    detail "       exo report        → weekly CEO briefing"
-    detail "       exo client NAME   → client status report"
-else
-    warn "Could not install exo script (optional, for executive reporting)"
-    detail "Download manually: https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/exo"
-fi
+chmod +x "$USER_BIN_DIR/exo"
+info "Installed exo executive command to $USER_BIN_DIR/exo"
+detail "Usage: exo               → interactive dashboard"
+detail "       exo report        → weekly CEO briefing"
+detail "       exo client NAME   → client status report"
 
 # Ensure ~/bin is in PATH
 PATH_LINE_BIN='export PATH="$HOME/bin:$PATH"'
-BIN_MARKER="# User local bin"
 if [ -f "$SHELL_RC" ] && grep -q "$USER_BIN_DIR" "$SHELL_RC" 2>/dev/null; then
     true  # Already in PATH
 else
     {
         echo ""
-        echo "$BIN_MARKER"
+        echo "# User local bin (added by Synthesis installer)"
         echo "$PATH_LINE_BIN"
     } >> "$SHELL_RC"
     export PATH="$USER_BIN_DIR:$PATH"
