@@ -6,12 +6,17 @@ import com.anthropic.models.messages.*;
 import io.exoreaction.synthesis.config.CredentialStore;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import javax.imageio.ImageIO;
 
 /**
  * Thin wrapper around the Anthropic Java SDK.
@@ -122,21 +127,32 @@ public class ClaudeClient {
      * @return the generated description
      * @throws IOException if the image cannot be read
      */
+    /**
+     * Maximum bytes allowed for a base64-encoded image by the Anthropic API (5 MB).
+     * Raw file threshold: 5,242,880 * 3/4 ≈ 3.75 MB.
+     */
+    private static final long MAX_BASE64_BYTES = 5_242_880;
+    private static final long MAX_RAW_BYTES = 3_932_160; // 3.75 MB
+    private static final int MAX_DIMENSION = 2048;
+
     public String generateFromImage(Path imagePath, String prompt, int maxTokens) throws IOException {
-        byte[] imageBytes = Files.readAllBytes(imagePath);
+        long fileSize = Files.size(imagePath);
+        byte[] imageBytes = readImageBytes(imagePath);
         String base64Image = Base64.getEncoder().encodeToString(imageBytes);
 
-        // Determine media type from extension
+        // Determine media type: resized images are re-encoded as JPEG
         String ext = imagePath.getFileName().toString().toLowerCase();
         Base64ImageSource.MediaType mediaType;
-        if (ext.endsWith(".png")) {
+        if (fileSize > MAX_RAW_BYTES) {
+            // Was resized and re-encoded as JPEG
+            mediaType = Base64ImageSource.MediaType.IMAGE_JPEG;
+        } else if (ext.endsWith(".png")) {
             mediaType = Base64ImageSource.MediaType.IMAGE_PNG;
         } else if (ext.endsWith(".gif")) {
             mediaType = Base64ImageSource.MediaType.IMAGE_GIF;
         } else if (ext.endsWith(".webp")) {
             mediaType = Base64ImageSource.MediaType.IMAGE_WEBP;
         } else {
-            // Default to JPEG for .jpg, .jpeg, and other formats
             mediaType = Base64ImageSource.MediaType.IMAGE_JPEG;
         }
 
@@ -173,6 +189,50 @@ public class ClaudeClient {
                 .map(block -> block.asText().text())
                 .findFirst()
                 .orElse("");
+    }
+
+    /**
+     * Reads image bytes, resizing the image if it would exceed the Anthropic API's
+     * 5 MB base64 limit. Resized images are re-encoded as JPEG at quality 0.85.
+     *
+     * @param imagePath path to the image file
+     * @return image bytes ready for base64 encoding (≤ 3.75 MB)
+     * @throws IOException if the image cannot be read
+     */
+    private byte[] readImageBytes(Path imagePath) throws IOException {
+        long fileSize = Files.size(imagePath);
+        if (fileSize <= MAX_RAW_BYTES) {
+            return Files.readAllBytes(imagePath);
+        }
+
+        // Image is too large for the API — resize to fit within MAX_DIMENSION
+        BufferedImage original = ImageIO.read(imagePath.toFile());
+        if (original == null) {
+            // Can't decode (e.g., animated GIF) — send as-is and let API reject if needed
+            return Files.readAllBytes(imagePath);
+        }
+
+        int origW = original.getWidth();
+        int origH = original.getHeight();
+        double scale = Math.min((double) MAX_DIMENSION / origW, (double) MAX_DIMENSION / origH);
+        // Only downscale, never upscale
+        if (scale >= 1.0) {
+            return Files.readAllBytes(imagePath);
+        }
+
+        int newW = (int) (origW * scale);
+        int newH = (int) (origH * scale);
+
+        BufferedImage resized = new BufferedImage(newW, newH, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = resized.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g.drawImage(original, 0, 0, newW, newH, null);
+        g.dispose();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(resized, "JPEG", baos);
+        return baos.toByteArray();
     }
 
     /**
