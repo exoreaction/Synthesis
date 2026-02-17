@@ -166,6 +166,19 @@ public class ReportCommand implements Callable<Integer> {
 
             // Cost estimate mode
             if (estimate) {
+                // Show which documents will be used
+                BusinessDocumentFinder estimateFinder = new BusinessDocumentFinder();
+                List<ReportDocument> estimateDocs = estimateFinder.discover(workspaceRoot, reportTopic);
+                if (!estimateDocs.isEmpty()) {
+                    System.err.println("  Documents that will be analyzed:");
+                    for (ReportDocument doc : estimateDocs) {
+                        System.err.printf("    %-12s %s (%s)%n",
+                                doc.category() + ":",
+                                doc.relativePath(),
+                                formatSize(doc.sizeBytes()));
+                    }
+                    System.err.println();
+                }
                 ReportEngine.CostEstimate costEstimate =
                         engine.estimateCost(workspaceRoot, reportTarget, reportTopic, period);
                 System.out.println(costEstimate.format());
@@ -290,6 +303,12 @@ public class ReportCommand implements Callable<Integer> {
 
     private boolean isValidPeriod(String period) {
         return "1w".equals(period) || "2w".equals(period) || "1m".equals(period);
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024));
     }
 
     private String formatDuration(long millis) {
