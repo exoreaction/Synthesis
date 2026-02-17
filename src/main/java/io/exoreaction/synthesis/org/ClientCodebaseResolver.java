@@ -241,7 +241,7 @@ public class ClientCodebaseResolver {
      * @param path the path string from CODEBASE-INDEX.md
      * @return absolute path, or null if invalid
      */
-    static String resolveCodebasePath(String path) {
+    public static String resolveCodebasePath(String path) {
         if (path == null || path.isEmpty()) return null;
 
         // Remove backticks
@@ -258,14 +258,17 @@ public class ClientCodebaseResolver {
             return homePath + path.substring(1);
         }
 
-        // Resolve /src/ to ~/src/
-        if (path.startsWith("/src/")) {
-            String homePath = System.getProperty("user.home");
-            return homePath + path;
-        }
-
-        // Already absolute
+        // For absolute paths (including /src/), check if the path exists at root first
         if (path.startsWith("/")) {
+            Path absolute = Path.of(path);
+            if (Files.exists(absolute)) {
+                return path; // already valid absolute path
+            }
+            // Fallback: try relative to home (e.g., /src/elprint -> ~/src/elprint)
+            if (path.startsWith("/src/")) {
+                String homePath = System.getProperty("user.home");
+                return homePath + path;
+            }
             return path;
         }
 
