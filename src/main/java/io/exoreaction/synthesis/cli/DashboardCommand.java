@@ -141,6 +141,9 @@ public class DashboardCommand implements Callable<Integer> {
                         switch (input) {
                             case "1" -> runQuickStatusAll(displayWorkspaces);
                             case "2" -> runWhatChangedAll(displayWorkspaces);
+                            case "r" -> runSynthesisReport();
+                            case "d" -> runSynthesisReport("--topic", "decisions");
+                            case "p" -> runSynthesisReport("--topic", "pipeline");
                             case "w" -> navState = NavState.WORKSPACE_TOP_LEVEL;
                             default -> {
                                 // Try org selection (numbered starting at 3)
@@ -248,6 +251,8 @@ public class DashboardCommand implements Callable<Integer> {
                             openFolder(selectedClient.resolvedPath());
                         } else if ("s".equals(input)) {
                             runClientSummary(selectedClient, allWorkspaces, scanner);
+                        } else if ("4".equals(input)) {
+                            runSynthesisReport("--client", selectedClient.getName());
                         } else {
                             WorkspaceInfo clientWs = findWorkspaceForPath(selectedClient.resolvedPath(), allWorkspaces);
                             if (clientWs != null && clientWs.indexed) {
@@ -275,6 +280,8 @@ public class DashboardCommand implements Callable<Integer> {
                             openFolder(selectedProduct.resolvedPath());
                         } else if ("s".equals(input)) {
                             runProductSummary(selectedProduct, scanner);
+                        } else if ("4".equals(input)) {
+                            runSynthesisReport("--product", selectedProduct.getName());
                         } else {
                             WorkspaceInfo prodWs = findWorkspaceForPath(selectedProduct.resolvedPath(), allWorkspaces);
                             if (prodWs != null && prodWs.indexed) {
@@ -472,6 +479,12 @@ public class DashboardCommand implements Callable<Integer> {
             System.out.println("    " + AnsiOutput.bold(String.valueOf(i + 3))
                     + ") Navigate into " + AnsiOutput.cyan(orgs.get(i).getName()));
         }
+        System.out.println();
+        System.out.println("  " + AnsiOutput.cyan("  ── AI Reports ─────────────────────────"));
+        System.out.println("    " + AnsiOutput.bold("r") + ") " + AnsiOutput.cyan("[AI]") + " Weekly CEO briefing");
+        System.out.println("    " + AnsiOutput.bold("d") + ") " + AnsiOutput.cyan("[AI]") + " Critical decisions");
+        System.out.println("    " + AnsiOutput.bold("p") + ") " + AnsiOutput.cyan("[AI]") + " Pipeline status");
+        System.out.println();
         System.out.println("    " + AnsiOutput.bold("w") + ") Raw workspace view");
         System.out.println("    " + AnsiOutput.bold("q") + ") Quit");
         System.out.println();
@@ -671,6 +684,7 @@ public class DashboardCommand implements Callable<Integer> {
             System.out.println("    " + AnsiOutput.bold("2") + ") Codebase Profile");
             System.out.println("    " + AnsiOutput.bold("3") + ") What Changed");
         }
+        System.out.println("    " + AnsiOutput.bold("4") + ") " + AnsiOutput.cyan("[AI]") + " Client Report");
         System.out.println("    " + AnsiOutput.bold("o") + ") Open folder");
         System.out.println("    " + AnsiOutput.bold("b") + ") Back");
         System.out.println("    " + AnsiOutput.bold("q") + ") Quit");
@@ -716,6 +730,7 @@ public class DashboardCommand implements Callable<Integer> {
             System.out.println("    " + AnsiOutput.bold("2") + ") Codebase Profile");
             System.out.println("    " + AnsiOutput.bold("3") + ") What Changed");
         }
+        System.out.println("    " + AnsiOutput.bold("4") + ") " + AnsiOutput.cyan("[AI]") + " Product Report");
         System.out.println("    " + AnsiOutput.bold("o") + ") Open folder");
         System.out.println("    " + AnsiOutput.bold("b") + ") Back");
         System.out.println("    " + AnsiOutput.bold("q") + ") Quit");
@@ -1087,6 +1102,51 @@ public class DashboardCommand implements Callable<Integer> {
             AnsiOutput.printError("Failed to save report: " + e.getMessage());
         }
 
+        pressEnterToContinue();
+    }
+
+    // ===============================================================
+    //  AI Report (delegates to `synthesis report` command)
+    // ===============================================================
+
+    /**
+     * Runs the {@code synthesis report} command as a subprocess with inherited I/O,
+     * so color output streams directly to the terminal.
+     *
+     * <p>The workspace root is resolved from the parent command's workspace root
+     * (typically ~/Documents, where business docs like PIPELINE-STATUS.md live).
+     *
+     * @param extraArgs additional arguments to pass after {@code synthesis report -d <root>}
+     */
+    private void runSynthesisReport(String... extraArgs) {
+        System.out.println();
+
+        try {
+            Path workspaceRoot = parent.getWorkspaceRoot();
+
+            List<String> command = new ArrayList<>();
+            command.add("synthesis");
+            command.add("report");
+            command.add("-d");
+            command.add(workspaceRoot.toString());
+            command.add("-v");
+            for (String arg : extraArgs) {
+                command.add(arg);
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.inheritIO();
+            Process process = pb.start();
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                AnsiOutput.printWarning("Report exited with code " + exitCode);
+            }
+        } catch (Exception e) {
+            AnsiOutput.printError("Failed to run report: " + e.getMessage());
+        }
+
+        System.out.println();
         pressEnterToContinue();
     }
 
