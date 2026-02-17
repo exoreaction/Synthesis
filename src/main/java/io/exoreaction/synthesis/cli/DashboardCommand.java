@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.changelog.*;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -20,7 +21,9 @@ import io.exoreaction.synthesis.workspace.WorkspaceType;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ParentCommand;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -191,6 +194,9 @@ public class DashboardCommand implements Callable<Integer> {
                                 AnsiOutput.printWarning("No Synthesis index found for " + selectedOrg.getName() + ".");
                                 pressEnterToContinue();
                             }
+                        } else if ("d".equals(input)) {
+                            // Business summary for org
+                            runOrgBusinessSummary(selectedOrg, scanner);
                         } else if ("c".equals(input)) {
                             // What changed for org workspace
                             WorkspaceInfo orgWs = findWorkspaceForPath(Path.of(selectedOrg.getBasePath()), allWorkspaces);
@@ -240,6 +246,8 @@ public class DashboardCommand implements Callable<Integer> {
                             navState = NavState.ORG_LEVEL;
                         } else if ("o".equals(input)) {
                             openFolder(selectedClient.resolvedPath());
+                        } else if ("s".equals(input)) {
+                            runClientSummary(selectedClient, allWorkspaces, scanner);
                         } else {
                             WorkspaceInfo clientWs = findWorkspaceForPath(selectedClient.resolvedPath(), allWorkspaces);
                             if (clientWs != null && clientWs.indexed) {
@@ -250,7 +258,7 @@ public class DashboardCommand implements Callable<Integer> {
                                     default -> AnsiOutput.printWarning("Invalid choice.");
                                 }
                             } else {
-                                AnsiOutput.printWarning("Invalid choice. Enter 'o' to open, 'b' for back, or 'q' to quit.");
+                                AnsiOutput.printWarning("Invalid choice. Enter 's' for summary, 'o' to open, 'b' for back, or 'q' to quit.");
                             }
                         }
                     }
@@ -265,6 +273,8 @@ public class DashboardCommand implements Callable<Integer> {
                             navState = NavState.ORG_LEVEL;
                         } else if ("o".equals(input)) {
                             openFolder(selectedProduct.resolvedPath());
+                        } else if ("s".equals(input)) {
+                            runProductSummary(selectedProduct, scanner);
                         } else {
                             WorkspaceInfo prodWs = findWorkspaceForPath(selectedProduct.resolvedPath(), allWorkspaces);
                             if (prodWs != null && prodWs.indexed) {
@@ -275,7 +285,7 @@ public class DashboardCommand implements Callable<Integer> {
                                     default -> AnsiOutput.printWarning("Invalid choice.");
                                 }
                             } else {
-                                AnsiOutput.printWarning("Invalid choice. Enter 'o' to open, 'b' for back, or 'q' to quit.");
+                                AnsiOutput.printWarning("Invalid choice. Enter 's' for summary, 'o' to open, 'b' for back, or 'q' to quit.");
                             }
                         }
                     }
@@ -609,6 +619,7 @@ public class DashboardCommand implements Callable<Integer> {
             System.out.println("    " + AnsiOutput.bold("s") + ") Summary (org workspace)");
             System.out.println("    " + AnsiOutput.bold("c") + ") What Changed (org workspace)");
         }
+        System.out.println("    " + AnsiOutput.bold("d") + ") Business summary -- " + AnsiOutput.cyan(org.getName()));
         System.out.println("    " + AnsiOutput.bold("b") + ") Back");
         System.out.println("    " + AnsiOutput.bold("q") + ") Quit");
         System.out.println();
@@ -654,9 +665,10 @@ public class DashboardCommand implements Callable<Integer> {
 
         System.out.println();
         System.out.println("  " + AnsiOutput.bold("Actions:"));
+        System.out.println("    " + AnsiOutput.bold("s") + ") Client Summary (business context + code activity)");
         if (hasIndex) {
             System.out.println("    " + AnsiOutput.bold("1") + ") Search here");
-            System.out.println("    " + AnsiOutput.bold("2") + ") Summary");
+            System.out.println("    " + AnsiOutput.bold("2") + ") Codebase Profile");
             System.out.println("    " + AnsiOutput.bold("3") + ") What Changed");
         }
         System.out.println("    " + AnsiOutput.bold("o") + ") Open folder");
@@ -698,9 +710,10 @@ public class DashboardCommand implements Callable<Integer> {
 
         System.out.println();
         System.out.println("  " + AnsiOutput.bold("Actions:"));
+        System.out.println("    " + AnsiOutput.bold("s") + ") Product Summary (overview + code activity)");
         if (hasIndex) {
             System.out.println("    " + AnsiOutput.bold("1") + ") Search here");
-            System.out.println("    " + AnsiOutput.bold("2") + ") Summary");
+            System.out.println("    " + AnsiOutput.bold("2") + ") Codebase Profile");
             System.out.println("    " + AnsiOutput.bold("3") + ") What Changed");
         }
         System.out.println("    " + AnsiOutput.bold("o") + ") Open folder");
@@ -1075,6 +1088,580 @@ public class DashboardCommand implements Callable<Integer> {
         }
 
         pressEnterToContinue();
+    }
+
+    // ===============================================================
+    //  Two-Tier Summaries (Client / Product / Org Business)
+    // ===============================================================
+
+    /**
+     * Two-tier client summary: fast tier (README + git log) shown immediately,
+     * then optional AI digest.
+     */
+    private void runClientSummary(Client client, List<WorkspaceInfo> allWorkspaces, Scanner scanner) {
+        System.out.println();
+        String statusLabel = clientStatusLabel(client.getStatus());
+        AnsiOutput.printHeader(client.getName() + " (" + client.getStatus().name() + ")");
+
+        // --- Fast Tier: README ---
+        Path basePath = client.resolvedPath();
+        Path readmePath = basePath.resolve("README.md");
+        System.out.println("  " + AnsiOutput.bold("[Business Context]"));
+        printReadmePreview(readmePath, basePath, 40);
+        System.out.println();
+
+        // --- Fast Tier: Code Activity (last 7 days) ---
+        if (!client.getCodebases().isEmpty()) {
+            System.out.println("  " + AnsiOutput.bold("[Code Activity -- Last 7 Days]"));
+            for (String codebasePath : client.getCodebases()) {
+                Path cbPath = Path.of(codebasePath);
+                if (!Files.isDirectory(cbPath)) {
+                    System.out.println("  " + AnsiOutput.dim(codebasePath)
+                            + "  " + AnsiOutput.warning("(codebase not found)"));
+                    continue;
+                }
+                System.out.println("  " + AnsiOutput.dim(codebasePath));
+                List<String> commits = runGitLog(cbPath, 7, 10);
+                if (commits.isEmpty()) {
+                    System.out.println("    " + AnsiOutput.dim("(no changes in last 7 days)"));
+                } else {
+                    for (String commit : commits) {
+                        System.out.println("    " + commit);
+                    }
+                }
+            }
+            System.out.println();
+        }
+
+        // --- AI Tier Prompt ---
+        System.out.println("  " + AnsiOutput.bold("a") + ") Generate AI digest  "
+                + AnsiOutput.dim("(requires API key)"));
+        System.out.println("  " + AnsiOutput.dim("[Enter] Back"));
+        System.out.println();
+        System.out.print("  Choose: ");
+        System.out.flush();
+        if (scanner.hasNextLine()) {
+            String choice = scanner.nextLine().trim().toLowerCase();
+            if ("a".equals(choice)) {
+                runClientAiDigest(client);
+            }
+        }
+    }
+
+    /**
+     * Two-tier product summary: fast tier (README + git log) shown immediately,
+     * then optional AI digest.
+     */
+    private void runProductSummary(Product product, Scanner scanner) {
+        System.out.println();
+        AnsiOutput.printHeader(product.getName());
+
+        // --- Fast Tier: README ---
+        Path basePath = product.resolvedPath();
+        Path readmePath = basePath.resolve("README.md");
+        System.out.println("  " + AnsiOutput.bold("[Product Overview]"));
+        printReadmePreview(readmePath, basePath, 40);
+        System.out.println();
+
+        // --- AI Tier Prompt ---
+        System.out.println("  " + AnsiOutput.bold("a") + ") Generate AI digest  "
+                + AnsiOutput.dim("(requires API key)"));
+        System.out.println("  " + AnsiOutput.dim("[Enter] Back"));
+        System.out.println();
+        System.out.print("  Choose: ");
+        System.out.flush();
+        if (scanner.hasNextLine()) {
+            String choice = scanner.nextLine().trim().toLowerCase();
+            if ("a".equals(choice)) {
+                runProductAiDigest(product);
+            }
+        }
+    }
+
+    /**
+     * Org-level business summary: fast tier showing clients by status with
+     * last activity and next actions, then optional AI digest.
+     */
+    private void runOrgBusinessSummary(Organization org, Scanner scanner) {
+        System.out.println();
+        AnsiOutput.printHeader(org.getName() + " -- Business Overview");
+
+        List<Client> orderedClients = buildOrderedClientList(org);
+
+        // Group clients by status
+        Map<ClientStatus, List<Client>> grouped = new LinkedHashMap<>();
+        for (ClientStatus status : List.of(ClientStatus.ACTIVE, ClientStatus.SIGNED,
+                ClientStatus.OPPORTUNITY, ClientStatus.PAST)) {
+            List<Client> byStatus = org.getClientsByStatus(status);
+            if (!byStatus.isEmpty()) {
+                grouped.put(status, byStatus);
+            }
+        }
+
+        // Show each group
+        for (Map.Entry<ClientStatus, List<Client>> entry : grouped.entrySet()) {
+            ClientStatus status = entry.getKey();
+            List<Client> clients = entry.getValue();
+            String header = switch (status) {
+                case ACTIVE -> "ACTIVE CLIENTS (" + clients.size() + ")";
+                case SIGNED -> "SIGNED (" + clients.size() + ")";
+                case OPPORTUNITY -> "HOT PIPELINE (" + clients.size() + ")";
+                case PAST -> "PAST CLIENTS (" + clients.size() + ")";
+            };
+            System.out.println("  " + AnsiOutput.bold(header));
+
+            for (Client client : clients) {
+                String lastActivity = getLastActivityLabel(client);
+                String nextAction = getFirstNextAction(client);
+                String statusBadge = switch (status) {
+                    case ACTIVE -> "";
+                    case SIGNED -> AnsiOutput.blue("(SIGNED)") + "  ";
+                    case OPPORTUNITY -> AnsiOutput.yellow("(OPPORTUNITY)") + "  ";
+                    case PAST -> AnsiOutput.dim("(PAST)") + "  ";
+                };
+                System.out.printf("    %-18s %s-- last activity: %s%n",
+                        AnsiOutput.bold(client.getName()),
+                        statusBadge,
+                        lastActivity);
+                if (nextAction != null) {
+                    System.out.println("                     " + AnsiOutput.dim("next: " + nextAction));
+                }
+            }
+            System.out.println();
+        }
+
+        // Show products
+        if (!org.getProducts().isEmpty()) {
+            System.out.println("  " + AnsiOutput.bold("PRODUCTS"));
+            for (Product product : org.getProducts()) {
+                System.out.println("    " + AnsiOutput.cyan(product.getName()));
+            }
+            System.out.println();
+        }
+
+        // --- AI Tier Prompt ---
+        System.out.println("  " + AnsiOutput.bold("a") + ") Generate AI digest for CEO"
+                + "  " + AnsiOutput.dim("(requires API key)"));
+        System.out.println("  " + AnsiOutput.dim("[Enter] Back"));
+        System.out.println();
+        System.out.print("  Choose: ");
+        System.out.flush();
+        if (scanner.hasNextLine()) {
+            String choice = scanner.nextLine().trim().toLowerCase();
+            if ("a".equals(choice)) {
+                runOrgAiDigest(org);
+            }
+        }
+    }
+
+    // ===============================================================
+    //  AI Digest Helpers
+    // ===============================================================
+
+    /**
+     * Generates an AI digest for a client using ClaudeClient.
+     */
+    private void runClientAiDigest(Client client) {
+        System.out.println();
+        AnsiOutput.printInfo("Generating AI digest...");
+
+        try {
+            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            if (clientOpt.isEmpty()) {
+                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
+                        + " and enable AI in a workspace config (ai.enabled: true).");
+                pressEnterToContinue();
+                return;
+            }
+
+            // Read README
+            Path readmePath = client.resolvedPath().resolve("README.md");
+            String readmeContent = "";
+            if (Files.exists(readmePath)) {
+                readmeContent = readFileSafe(readmePath, 8000);
+            }
+
+            // Gather git logs (14 days, max 20 per repo)
+            StringBuilder gitContext = new StringBuilder();
+            for (String codebasePath : client.getCodebases()) {
+                Path cbPath = Path.of(codebasePath);
+                if (!Files.isDirectory(cbPath)) continue;
+                gitContext.append("\nRepository: ").append(codebasePath).append("\n");
+                List<String> commits = runGitLogWithAuthor(cbPath, 14, 20);
+                if (commits.isEmpty()) {
+                    gitContext.append("  (no commits in last 14 days)\n");
+                } else {
+                    for (String c : commits) {
+                        gitContext.append("  ").append(c).append("\n");
+                    }
+                }
+            }
+
+            String prompt = "You are a business assistant for a software consultancy.\n\n"
+                    + "Client: " + client.getName() + " (Status: " + client.getStatus().name() + ")\n\n"
+                    + "Business context from README:\n"
+                    + (readmeContent.isEmpty() ? "(no README available)" : readmeContent) + "\n\n"
+                    + "Recent code activity (last 14 days):\n"
+                    + (gitContext.isEmpty() ? "(no codebases linked)" : gitContext.toString()) + "\n\n"
+                    + "Generate a concise executive summary (max 200 words) covering:\n"
+                    + "1. Current relationship status and business context\n"
+                    + "2. What the team has been working on recently\n"
+                    + "3. Key next actions or open items\n\n"
+                    + "Write for a CEO/CTO audience. Be specific, not generic.";
+
+            String answer = clientOpt.get().generate(prompt, 1024);
+
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("AI Digest -- " + client.getName()));
+            System.out.println();
+            for (String line : answer.split("\n")) {
+                System.out.println("  " + line);
+            }
+            System.out.println();
+
+        } catch (Exception e) {
+            AnsiOutput.printError("AI digest failed: " + e.getMessage());
+        }
+
+        pressEnterToContinue();
+    }
+
+    /**
+     * Generates an AI digest for a product using ClaudeClient.
+     */
+    private void runProductAiDigest(Product product) {
+        System.out.println();
+        AnsiOutput.printInfo("Generating AI digest...");
+
+        try {
+            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            if (clientOpt.isEmpty()) {
+                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
+                        + " and enable AI in a workspace config (ai.enabled: true).");
+                pressEnterToContinue();
+                return;
+            }
+
+            // Read README
+            Path readmePath = product.resolvedPath().resolve("README.md");
+            String readmeContent = "";
+            if (Files.exists(readmePath)) {
+                readmeContent = readFileSafe(readmePath, 8000);
+            }
+
+            String prompt = "You are a business assistant for a software consultancy.\n\n"
+                    + "Product: " + product.getName() + "\n\n"
+                    + "Product documentation from README:\n"
+                    + (readmeContent.isEmpty() ? "(no README available)" : readmeContent) + "\n\n"
+                    + "Generate a concise product summary (max 200 words) covering:\n"
+                    + "1. What the product does and its target market\n"
+                    + "2. Current status and maturity\n"
+                    + "3. Key next steps or opportunities\n\n"
+                    + "Write for a CEO/CTO audience. Be specific, not generic.";
+
+            String answer = clientOpt.get().generate(prompt, 1024);
+
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("AI Digest -- " + product.getName()));
+            System.out.println();
+            for (String line : answer.split("\n")) {
+                System.out.println("  " + line);
+            }
+            System.out.println();
+
+        } catch (Exception e) {
+            AnsiOutput.printError("AI digest failed: " + e.getMessage());
+        }
+
+        pressEnterToContinue();
+    }
+
+    /**
+     * Generates an AI CEO briefing for the entire organization.
+     */
+    private void runOrgAiDigest(Organization org) {
+        System.out.println();
+        AnsiOutput.printInfo("Generating CEO briefing...");
+
+        try {
+            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            if (clientOpt.isEmpty()) {
+                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
+                        + " and enable AI in a workspace config (ai.enabled: true).");
+                pressEnterToContinue();
+                return;
+            }
+
+            // Build context from all clients
+            StringBuilder context = new StringBuilder();
+            for (ClientStatus status : List.of(ClientStatus.ACTIVE, ClientStatus.SIGNED,
+                    ClientStatus.OPPORTUNITY, ClientStatus.PAST)) {
+                List<Client> clients = org.getClientsByStatus(status);
+                if (clients.isEmpty()) continue;
+                context.append("\n").append(status.name()).append(" CLIENTS:\n");
+                for (Client client : clients) {
+                    context.append("- ").append(client.getName())
+                            .append(" (").append(status.name()).append(")");
+                    String lastAct = getLastActivityLabel(client);
+                    context.append(", last activity: ").append(lastAct);
+                    String nextAction = getFirstNextAction(client);
+                    if (nextAction != null) {
+                        context.append(", next: ").append(nextAction);
+                    }
+                    context.append("\n");
+                }
+            }
+
+            // Add product info
+            if (!org.getProducts().isEmpty()) {
+                context.append("\nPRODUCTS:\n");
+                for (Product product : org.getProducts()) {
+                    context.append("- ").append(product.getName()).append("\n");
+                }
+            }
+
+            String prompt = "You are a business assistant. Generate a weekly CEO briefing"
+                    + " (max 300 words) for " + org.getName() + " based on:\n\n"
+                    + context + "\n\n"
+                    + "Write as a CEO briefing: what's going well, what needs attention,"
+                    + " key actions for this week.";
+
+            String answer = clientOpt.get().generate(prompt, 1024);
+
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("CEO Briefing -- " + org.getName()));
+            System.out.println();
+            for (String line : answer.split("\n")) {
+                System.out.println("  " + line);
+            }
+            System.out.println();
+
+        } catch (Exception e) {
+            AnsiOutput.printError("CEO briefing failed: " + e.getMessage());
+        }
+
+        pressEnterToContinue();
+    }
+
+    // ===============================================================
+    //  Summary Utility Methods
+    // ===============================================================
+
+    /**
+     * Prints first N lines of a README.md file, or a "not found" message.
+     */
+    private void printReadmePreview(Path readmePath, Path basePath, int maxLines) {
+        if (!Files.exists(readmePath)) {
+            System.out.println("    " + AnsiOutput.dim("No README.md found -- add one at "
+                    + basePath.resolve("README.md")));
+            return;
+        }
+        try {
+            List<String> lines = Files.readAllLines(readmePath);
+            int limit = Math.min(lines.size(), maxLines);
+            for (int i = 0; i < limit; i++) {
+                System.out.println("    " + lines.get(i));
+            }
+            if (lines.size() > maxLines) {
+                System.out.println("    " + AnsiOutput.dim("... (" + (lines.size() - maxLines) + " more lines)"));
+            }
+        } catch (IOException e) {
+            System.out.println("    " + AnsiOutput.dim("(could not read README.md: " + e.getMessage() + ")"));
+        }
+    }
+
+    /**
+     * Runs git log for a codebase directory, returning formatted commit lines.
+     *
+     * @param codebaseDir directory to run git log in
+     * @param sinceDays   number of days to look back
+     * @param maxCommits  maximum commits to return
+     * @return list of formatted commit strings (e.g., "3d  fix: Update invoice parser")
+     */
+    private List<String> runGitLog(Path codebaseDir, int sinceDays, int maxCommits) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "git", "log", "--oneline",
+                    "--since=" + sinceDays + ".days",
+                    "--format=%ar  %s",
+                    "-" + maxCommits);
+            pb.directory(codebaseDir.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            List<String> lines = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.isBlank()) {
+                        lines.add(line);
+                    }
+                }
+            }
+            process.waitFor();
+            return lines;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Runs git log with author info for AI context.
+     */
+    private List<String> runGitLogWithAuthor(Path codebaseDir, int sinceDays, int maxCommits) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "git", "log", "--oneline",
+                    "--since=" + sinceDays + ".days",
+                    "--format=%ar %an: %s",
+                    "-" + maxCommits);
+            pb.directory(codebaseDir.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            List<String> lines = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.isBlank()) {
+                        lines.add(line);
+                    }
+                }
+            }
+            process.waitFor();
+            return lines;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Gets a human-readable label for the last git activity in a client's codebases.
+     */
+    private String getLastActivityLabel(Client client) {
+        if (client.getCodebases().isEmpty()) {
+            return "unknown";
+        }
+        String mostRecent = null;
+        for (String codebasePath : client.getCodebases()) {
+            Path cbPath = Path.of(codebasePath);
+            if (!Files.isDirectory(cbPath)) continue;
+            try {
+                // Read .synthesis-last-activity file if present
+                Path lastActivityFile = cbPath.resolve(".synthesis-last-activity");
+                if (Files.exists(lastActivityFile)) {
+                    String content = Files.readString(lastActivityFile).trim();
+                    if (!content.isEmpty()) {
+                        if (mostRecent == null || content.compareTo(mostRecent) > 0) {
+                            mostRecent = content;
+                        }
+                    }
+                    continue;
+                }
+                // Fallback: run git log to find most recent commit
+                ProcessBuilder pb = new ProcessBuilder(
+                        "git", "log", "-1", "--format=%ar");
+                pb.directory(cbPath.toFile());
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    String line = reader.readLine();
+                    if (line != null && !line.isBlank()) {
+                        return line.trim();
+                    }
+                }
+                process.waitFor();
+            } catch (Exception ignored) {}
+        }
+        if (mostRecent != null) {
+            // Parse ISO date and compute relative time
+            try {
+                java.time.LocalDate date = java.time.LocalDate.parse(mostRecent);
+                long daysAgo = java.time.temporal.ChronoUnit.DAYS.between(date, java.time.LocalDate.now());
+                if (daysAgo == 0) return "today";
+                if (daysAgo == 1) return "1d ago";
+                return daysAgo + "d ago";
+            } catch (Exception e) {
+                return mostRecent;
+            }
+        }
+        return "unknown";
+    }
+
+    /**
+     * Reads the first "## Next Actions" item from a client's README.md.
+     *
+     * @return first next action line, or null if not found
+     */
+    private String getFirstNextAction(Client client) {
+        Path readmePath = client.resolvedPath().resolve("README.md");
+        if (!Files.exists(readmePath)) return null;
+        try {
+            List<String> lines = Files.readAllLines(readmePath);
+            boolean inNextActions = false;
+            for (String line : lines) {
+                if (line.matches("(?i)^#{1,3}\\s+Next\\s+Actions?.*")) {
+                    inNextActions = true;
+                    continue;
+                }
+                if (inNextActions) {
+                    // Found a non-empty line after the heading
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty()) continue;
+                    if (trimmed.startsWith("#")) break; // next heading
+                    // Strip leading bullet/dash
+                    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                        trimmed = trimmed.substring(2).trim();
+                    }
+                    // Truncate if too long
+                    if (trimmed.length() > 80) {
+                        trimmed = trimmed.substring(0, 77) + "...";
+                    }
+                    return trimmed;
+                }
+            }
+        } catch (IOException ignored) {}
+        return null;
+    }
+
+    /**
+     * Reads a file safely, returning at most maxChars characters.
+     */
+    private String readFileSafe(Path path, int maxChars) {
+        try {
+            String content = Files.readString(path);
+            if (content.length() > maxChars) {
+                return content.substring(0, maxChars) + "\n...(truncated)";
+            }
+            return content;
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Creates a ClaudeClient by trying to find an AI-enabled config across workspaces.
+     * Falls back to checking just the ANTHROPIC_API_KEY env var with default model.
+     */
+    private Optional<ClaudeClient> createClaudeClient() {
+        // Check if API key is available at all
+        String apiKey = System.getenv("ANTHROPIC_API_KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            return Optional.empty();
+        }
+
+        // Try to find an AI config from any workspace
+        try {
+            // Try parent workspace root first
+            Path workspaceRoot = parent.getWorkspaceRoot();
+            SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+            if (config.getAi().isEnabled()) {
+                return ClaudeClient.create(config.getAi());
+            }
+        } catch (Exception ignored) {}
+
+        // API key is present -- create with a default enabled config
+        SynthesisConfig.AiConfig aiConfig = new SynthesisConfig.AiConfig();
+        aiConfig.setEnabled(true);
+        return ClaudeClient.create(aiConfig);
     }
 
     /**

@@ -12,6 +12,8 @@ import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.org.*;
+import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -21,16 +23,24 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 /**
  * Maintains the workspace index by detecting and applying incremental changes.
@@ -69,6 +79,13 @@ public class MaintainCommand implements Callable<Integer> {
             defaultValue = "false"
     )
     private boolean verbose;
+
+    @Option(
+            names = {"--skip-git-fetch"},
+            description = "Skip fetching remote changes for client codebases",
+            defaultValue = "false"
+    )
+    private boolean skipGitFetch;
 
     @Override
     public Integer call() {
@@ -192,6 +209,11 @@ public class MaintainCommand implements Callable<Integer> {
                         System.err.println("  Warning: Changelog snapshot failed: " + e.getMessage());
                     }
                 }
+            }
+
+            // --- Git Fetch for client codebases ---
+            if (!skipGitFetch) {
+                fetchClientCodebases(workspaceRoot);
             }
 
             System.out.println();
@@ -388,6 +410,220 @@ public class MaintainCommand implements Callable<Integer> {
 
         return reportPath;
     }
+
+    /**
+     * Fetches remote changes for all client codebases discovered via OrganizationRegistry.
+     * Also writes .synthesis-last-activity files for dashboard consumption.
+     */
+    private void fetchClientCodebases(Path workspaceRoot) {
+        OrganizationRegistry registry = loadOrgRegistryForMaintain(workspaceRoot);
+        if (registry == null || !registry.hasOrganizations()) {
+            if (verbose) {
+                AnsiOutput.printInfo("No organization registry found -- skipping git fetch.");
+            }
+            return;
+        }
+
+        // Collect all unique codebase paths
+        Set<String> seen = new HashSet<>();
+        List<CodebaseFetchTarget> targets = new ArrayList<>();
+        for (Organization org : registry.getOrganizations()) {
+            for (Client client : org.getClients()) {
+                for (String codebasePath : client.getCodebases()) {
+                    if (seen.add(codebasePath)) {
+                        targets.add(new CodebaseFetchTarget(client.getName(), codebasePath));
+                    }
+                }
+            }
+        }
+
+        if (targets.isEmpty()) {
+            if (verbose) {
+                AnsiOutput.printInfo("No client codebases configured -- skipping git fetch.");
+            }
+            return;
+        }
+
+        System.out.println();
+        AnsiOutput.printInfo("Fetching remote changes for client codebases...");
+
+        for (CodebaseFetchTarget target : targets) {
+            Path cbPath = Path.of(target.path);
+            String label = String.format("  %-16s ", target.clientName + ":");
+
+            if (!Files.isDirectory(cbPath)) {
+                System.out.println(label + AnsiOutput.dim("skipped (directory not found)"));
+                continue;
+            }
+
+            // Check if it's a git repo
+            if (!Files.isDirectory(cbPath.resolve(".git"))) {
+                System.out.println(label + AnsiOutput.dim("skipped (not a git repo)"));
+                continue;
+            }
+
+            // Write last activity file
+            writeLastActivity(cbPath);
+
+            // Run git fetch
+            try {
+                ProcessBuilder fetchPb = new ProcessBuilder(
+                        "git", "fetch", "--all", "--quiet");
+                fetchPb.directory(cbPath.toFile());
+                fetchPb.redirectErrorStream(true);
+                Process fetchProcess = fetchPb.start();
+                // Drain output
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(fetchProcess.getInputStream()))) {
+                    while (reader.readLine() != null) { /* consume */ }
+                }
+                int exitCode = fetchProcess.waitFor();
+
+                if (exitCode != 0) {
+                    System.out.println(label + AnsiOutput.yellow("git fetch failed (exit " + exitCode + ")"));
+                    continue;
+                }
+
+                // Check for new remote commits
+                int newCommits = countRemoteNewCommits(cbPath);
+                String lastActivity = getRelativeLastCommit(cbPath);
+                if (newCommits > 0) {
+                    System.out.println(label + AnsiOutput.green("new commits (" + newCommits + " new)")
+                            + AnsiOutput.dim(" -- last: " + lastActivity));
+                } else {
+                    System.out.println(label + "up to date"
+                            + AnsiOutput.dim(" (" + lastActivity + ")"));
+                }
+
+            } catch (Exception e) {
+                System.out.println(label + AnsiOutput.dim("skipped (" + e.getMessage() + ")"));
+            }
+        }
+    }
+
+    /**
+     * Writes the most recent commit date to .synthesis-last-activity in a codebase.
+     */
+    private void writeLastActivity(Path cbPath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "git", "log", "-1", "--format=%aI");
+            pb.directory(cbPath.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            String dateStr = null;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                dateStr = reader.readLine();
+            }
+            process.waitFor();
+            if (dateStr != null && !dateStr.isBlank()) {
+                // Extract just the date part (YYYY-MM-DD)
+                String isoDate = dateStr.trim();
+                if (isoDate.length() >= 10) {
+                    isoDate = isoDate.substring(0, 10);
+                }
+                Files.writeString(cbPath.resolve(".synthesis-last-activity"), isoDate);
+            }
+        } catch (Exception e) {
+            if (verbose) {
+                System.err.println("  Warning: Could not write last-activity for " + cbPath + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Counts new commits on the remote that aren't in the local branch.
+     */
+    private int countRemoteNewCommits(Path cbPath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "git", "log", "--oneline", "HEAD..@{u}");
+            pb.directory(cbPath.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            int count = 0;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                while (reader.readLine() != null) {
+                    count++;
+                }
+            }
+            process.waitFor();
+            return count;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Gets a relative time label for the last commit (e.g., "2d ago").
+     */
+    private String getRelativeLastCommit(Path cbPath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "git", "log", "-1", "--format=%ar");
+            pb.directory(cbPath.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            String result = null;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                result = reader.readLine();
+            }
+            process.waitFor();
+            return result != null ? result.trim() : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    /**
+     * Loads the OrganizationRegistry for maintain operations.
+     * Searches workspace root and common locations.
+     */
+    private OrganizationRegistry loadOrgRegistryForMaintain(Path workspaceRoot) {
+        // Try the workspace root
+        Path orgsFile = workspaceRoot.resolve(".synthesis").resolve("organizations.json");
+        if (Files.exists(orgsFile)) {
+            try {
+                OrganizationRegistry registry = new OrganizationRegistry(workspaceRoot);
+                registry.load();
+                if (registry.hasOrganizations()) return registry;
+            } catch (Exception ignored) {}
+        }
+
+        // Try ~/Documents
+        Path docsPath = Path.of(System.getProperty("user.home"), "Documents");
+        orgsFile = docsPath.resolve(".synthesis").resolve("organizations.json");
+        if (Files.exists(orgsFile)) {
+            try {
+                OrganizationRegistry registry = new OrganizationRegistry(docsPath);
+                registry.load();
+                if (registry.hasOrganizations()) return registry;
+            } catch (Exception ignored) {}
+        }
+
+        // Try all discovered workspaces
+        try {
+            WorkspaceDiscoveryConfig config = WorkspaceDiscoveryConfig.load();
+            for (Path searchPath : config.getSearchPaths()) {
+                if (!Files.exists(searchPath)) continue;
+                orgsFile = searchPath.resolve(".synthesis").resolve("organizations.json");
+                if (Files.exists(orgsFile)) {
+                    try {
+                        OrganizationRegistry registry = new OrganizationRegistry(searchPath);
+                        registry.load();
+                        if (registry.hasOrganizations()) return registry;
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    private record CodebaseFetchTarget(String clientName, String path) {}
 
     private String formatInstant(Instant instant) {
         return LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
