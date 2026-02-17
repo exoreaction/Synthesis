@@ -195,14 +195,22 @@ public class BusinessDocumentFinder {
         String fileName = path.getFileName().toString();
         String fullPath = path.toString();
 
-        // For events category, check if file is inside an events/ directory
+        // Exclude bare README.md everywhere — these are directory indexes, not content
+        if (fileName.equalsIgnoreCase("readme.md")) {
+            return false;
+        }
+
+        // For events category: must be inside an events/ directory and have a meaningful name
+        // (not a bare README.md, which is already excluded above)
         if ("event".equals(category)) {
             return fullPath.contains("/events/") && fileName.endsWith(".md");
         }
 
-        // For strategy category, check if file is in a strategy/ or analysis/ directory
+        // For strategy category: must be in strategy/ or analysis/, but skip screenshots/
+        // subdirectories (those are image metadata, not business content)
         if ("strategy".equals(category)) {
             return (fullPath.contains("/business/strategy/") || fullPath.contains("/business/analysis/"))
+                    && !fullPath.contains("/screenshots/")
                     && (fileName.endsWith(".md") || fileName.endsWith(".txt"));
         }
 
