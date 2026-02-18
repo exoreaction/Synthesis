@@ -16,6 +16,34 @@ public class ReportPrompts {
 
     private ReportPrompts() {}
 
+    /**
+     * Instructs the AI to classify each finding with a confidence marker.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/42">#42</a>
+     */
+    private static final String CONFIDENCE_MARKERS = """
+
+            When presenting findings, classify each with a confidence marker:
+            - **[Document-supported]** -- directly stated in source documents
+            - **[Inferred]** -- reasonably deduced from available context
+            - **[Ambiguous]** -- conflicting or insufficient evidence; list alternatives
+            """;
+
+    /**
+     * Instructs the AI to flag conflicts and maintain consistency across multi-pass synthesis.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/42">#42</a>
+     */
+    private static final String CONSISTENCY_RULES = """
+
+            CONSISTENCY RULES:
+            - If previous passes contain conflicting information about the same deal or metric,
+              flag the conflict explicitly rather than silently choosing one interpretation.
+            - Do not contradict findings from previous passes -- synthesize, do not overrule.
+            - When recommendations differ between passes, present both with rationale.
+            - Where data is ambiguous, say so.
+            """;
+
     /** Returns today's date formatted for prompt injection (e.g., "2026-02-18 (Tuesday)"). */
     static String todayForPrompt() {
         LocalDate today = LocalDate.now();
@@ -71,7 +99,8 @@ public class ReportPrompts {
                 Format as clean markdown. Use tables where appropriate.
                 Be specific with numbers -- do not round excessively.
                 If information is missing from the documents, note what data would be needed.
-                """.formatted(target.displayName(), todayForPrompt(), period, docContent);
+                %s""".formatted(target.displayName(), todayForPrompt(), period, docContent,
+                CONFIDENCE_MARKERS);
     }
 
     /**
@@ -171,8 +200,8 @@ public class ReportPrompts {
                 Prioritize decisions by urgency and business impact.
                 Be specific -- avoid generic recommendations.
                 Reference specific data from the documents to support analysis.
-                """.formatted(target.displayName(), todayForPrompt(), period, docContent,
-                todayForPrompt(), todayForPrompt());
+                %s""".formatted(target.displayName(), todayForPrompt(), period, docContent,
+                todayForPrompt(), todayForPrompt(), CONFIDENCE_MARKERS);
     }
 
     /**
@@ -256,8 +285,8 @@ public class ReportPrompts {
 
                 Format as polished markdown. The report should be scannable in 5-7 minutes.
                 Use bold for key numbers and outcomes. Use bullet points, not paragraphs.
-                """.formatted(period, target.displayName(), previousAnalysis.toString(),
-                docContent, targetInstructions);
+                %s""".formatted(period, target.displayName(), previousAnalysis.toString(),
+                docContent, targetInstructions, CONSISTENCY_RULES);
     }
 
     /**
@@ -281,10 +310,15 @@ public class ReportPrompts {
                 DOCUMENTS:
                 %s
 
+                STALENESS DETECTION (today is %s):
+                1. Information in documents modified >14 days ago: mark as **[POTENTIALLY STALE]**
+                2. Specific dates mentioned in text that are before today: mark as **[DEADLINE PASSED]**
+                   and note how many days overdue -- do NOT present these as upcoming
+                3. Relative time phrases ("this week", "next Monday") in documents >7 days old:
+                   mark as **[TEMPORAL REFERENCE LIKELY OUTDATED]**
+
                 INSTRUCTIONS:
                 Extract and structure all factual information about "%s" from these documents.
-                Note the document modification dates and flag any information that appears to be
-                more than 14 days old as potentially stale.
                 Do NOT interpret or recommend yet — only gather evidence.
 
                 Organize what you find under these headings:
@@ -316,7 +350,8 @@ public class ReportPrompts {
 
                 List only what is explicitly stated in the documents.
                 If a section has no information, write "No information found."
-                """.formatted(entityType, entityName, todayForPrompt(), docContent, entityName);
+                """.formatted(entityType, entityName, todayForPrompt(), docContent,
+                todayForPrompt(), entityName);
     }
 
     /**
@@ -442,8 +477,15 @@ public class ReportPrompts {
         }
 
         return docs.stream()
-                .map(doc -> "--- " + doc.category().toUpperCase() + ": " + doc.relativePath() + " ---\n" +
-                        doc.content() + "\n")
+                .map(doc -> {
+                    String header = "--- " + doc.category().toUpperCase() + ": "
+                            + doc.relativePath() + " ---\n";
+                    if (doc.isArchived()) {
+                        header += "[HISTORICAL DOCUMENT -- may be outdated. "
+                                + "Weight current documents more heavily.]\n";
+                    }
+                    return header + doc.content() + "\n";
+                })
                 .collect(Collectors.joining("\n"));
     }
 }

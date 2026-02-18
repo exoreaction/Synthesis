@@ -58,9 +58,9 @@ public class ReportEngine {
                                   ReportTopic topic, String period, boolean verbose) {
         long startTime = System.currentTimeMillis();
 
-        // Step 1: Discover business documents
+        // Step 1: Discover business documents (period-filtered, #46)
         BusinessDocumentFinder finder = new BusinessDocumentFinder();
-        List<ReportDocument> documents = finder.discover(workspaceRoot, topic);
+        List<ReportDocument> documents = finder.discover(workspaceRoot, topic, period);
 
         if (verbose) {
             System.err.println("  Discovered " + documents.size() + " business documents:");
@@ -276,32 +276,59 @@ public class ReportEngine {
      */
     public CostEstimate estimateCost(Path workspaceRoot, ReportTarget target,
                                       ReportTopic topic, String period) {
-        // Discover documents to count them
+        // Discover documents to count them (period-filtered, #46)
         BusinessDocumentFinder finder = new BusinessDocumentFinder();
-        List<ReportDocument> documents = finder.discover(workspaceRoot, topic);
+        List<ReportDocument> documents = finder.discover(workspaceRoot, topic, period);
 
         int docCount = documents.size();
-        int avgCharsPerDoc = 4000; // average after truncation
-        int estimatedInputTokens = (docCount * avgCharsPerDoc) / 4; // ~4 chars per token
 
+        // Build actual prompts to estimate token counts accurately (#53)
+        // (~4 chars per token heuristic)
+        String periodDisplay = (period != null && !period.isBlank()) ? period : "1w";
+        int estimatedInputTokens;
         int passCount;
         int estimatedOutputTokens;
 
         switch (topic) {
-            case PIPELINE:
-            case ACTIVITIES:
-            case DECISIONS:
+            case PIPELINE: {
+                String prompt = ReportPrompts.pipelinePass(documents, target, periodDisplay);
+                estimatedInputTokens = prompt.length() / 4;
                 passCount = 1;
                 estimatedOutputTokens = maxTokensPerPass;
                 break;
+            }
+            case ACTIVITIES: {
+                String prompt = ReportPrompts.activitiesPass(documents, target, periodDisplay);
+                estimatedInputTokens = prompt.length() / 4;
+                passCount = 1;
+                estimatedOutputTokens = maxTokensPerPass;
+                break;
+            }
+            case DECISIONS: {
+                String prompt = ReportPrompts.decisionsPass(documents, target, periodDisplay);
+                estimatedInputTokens = prompt.length() / 4;
+                passCount = 1;
+                estimatedOutputTokens = maxTokensPerPass;
+                break;
+            }
             case WEEKLY:
             case EXECUTIVE:
-            default:
-                passCount = 4; // pipeline + activities + decisions + synthesis
-                estimatedOutputTokens = maxTokensPerPass * 3 + Math.min(maxTokensPerPass * 2, 16000);
-                // synthesis gets all previous output as input too
+            default: {
+                // Build each pass prompt with actual documents to measure total chars
+                String p1 = ReportPrompts.pipelinePass(documents, target, periodDisplay);
+                String p2 = ReportPrompts.activitiesPass(documents, target, periodDisplay);
+                String p3 = ReportPrompts.decisionsPass(documents, target, periodDisplay);
+                String p4 = ReportPrompts.executivePass(
+                        documents, target,
+                        "(pipeline output)", "(activities output)", "(decisions output)",
+                        periodDisplay);
+                estimatedInputTokens = (p1.length() + p2.length() + p3.length() + p4.length()) / 4;
+                // Synthesis pass also receives previous pass outputs as input
                 estimatedInputTokens += maxTokensPerPass * 3;
+                passCount = 4;
+                estimatedOutputTokens = maxTokensPerPass * 3 + Math.min(maxTokensPerPass * 2, 16000);
                 break;
+            }
         }
 
         String model = getModel();

@@ -301,6 +301,79 @@ class ReportPromptsTest {
                 "Investor target prompt must reference investor format");
     }
 
+    // --- Confidence markers (#42) ---
+
+    @Test
+    void pipelinePass_containsConfidenceMarkers_issue42() {
+        List<ReportDocument> docs = List.of(sampleDoc("pipeline"));
+        String prompt = ReportPrompts.pipelinePass(docs, ReportTarget.CEO, "Last 7 days");
+        assertTrue(prompt.contains("Document-supported"), "#42: confidence markers required");
+        assertTrue(prompt.contains("Inferred"), "#42: Inferred marker required");
+        assertTrue(prompt.contains("Ambiguous"), "#42: Ambiguous marker required");
+    }
+
+    @Test
+    void decisionsPass_containsConfidenceMarkers_issue42() {
+        List<ReportDocument> docs = List.of(sampleDoc("strategy"));
+        String prompt = ReportPrompts.decisionsPass(docs, ReportTarget.CEO, "Last 7 days");
+        assertTrue(prompt.contains("Document-supported"), "#42: confidence markers required");
+    }
+
+    @Test
+    void executivePass_containsConsistencyRules_issue42() {
+        List<ReportDocument> docs = List.of(sampleDoc("pipeline"));
+        String prompt = ReportPrompts.executivePass(
+                docs, ReportTarget.CEO, "p", "a", "d", "Last 7 days");
+        assertTrue(prompt.contains("CONSISTENCY RULES")
+                || prompt.contains("conflicting information"), "#42: consistency rules required");
+    }
+
+    // --- Staleness strengthening (#48) ---
+
+    @Test
+    void entityEvidencePass_containsDeadlinePassedInstruction_issue48() {
+        List<ReportDocument> docs = List.of(sampleDoc("client"));
+        String prompt = ReportPrompts.entityEvidencePass("TestCorp", "client", docs);
+        assertTrue(prompt.contains("DEADLINE PASSED"), "#48: deadline passed instruction required");
+    }
+
+    @Test
+    void entityEvidencePass_containsPotentiallyStaleInstruction_issue48() {
+        List<ReportDocument> docs = List.of(sampleDoc("client"));
+        String prompt = ReportPrompts.entityEvidencePass("TestCorp", "client", docs);
+        assertTrue(prompt.contains("POTENTIALLY STALE"), "#48: stale instruction required");
+    }
+
+    @Test
+    void entityEvidencePass_containsTemporalReferenceInstruction_issue48() {
+        List<ReportDocument> docs = List.of(sampleDoc("client"));
+        String prompt = ReportPrompts.entityEvidencePass("TestCorp", "client", docs);
+        assertTrue(prompt.contains("TEMPORAL REFERENCE LIKELY OUTDATED"),
+                "#48: temporal reference instruction required");
+    }
+
+    // --- Archive document marker (#51) ---
+
+    @Test
+    void formatDocuments_prependsHistoricalMarkerForArchivedDocs_issue51() {
+        ReportDocument archivedDoc = new ReportDocument(
+                Path.of("/workspace/archive/old-pipeline.md"),
+                "archive/old-pipeline.md", "pipeline", "Old pipeline data", Instant.now(), 50L);
+        String prompt = ReportPrompts.pipelinePass(List.of(archivedDoc), ReportTarget.CEO, "Last 7 days");
+        assertTrue(prompt.contains("HISTORICAL DOCUMENT"),
+                "Archived documents should have [HISTORICAL DOCUMENT] marker (#51)");
+    }
+
+    @Test
+    void formatDocuments_noHistoricalMarkerForCurrentDocs_issue51() {
+        ReportDocument currentDoc = new ReportDocument(
+                Path.of("/workspace/PIPELINE-STATUS.md"),
+                "PIPELINE-STATUS.md", "pipeline", "Current pipeline", Instant.now(), 50L);
+        String prompt = ReportPrompts.pipelinePass(List.of(currentDoc), ReportTarget.CEO, "Last 7 days");
+        assertFalse(prompt.contains("HISTORICAL DOCUMENT"),
+                "Current documents should NOT have historical marker (#51)");
+    }
+
     // --- Helper ---
 
     private ReportDocument sampleDoc(String category) {

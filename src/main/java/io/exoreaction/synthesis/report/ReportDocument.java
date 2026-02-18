@@ -26,6 +26,21 @@ public record ReportDocument(
     long sizeBytes
 ) {
     /**
+     * Returns true if this document is in an archive or historical directory.
+     *
+     * <p>Archived documents are included in report context but marked as historical,
+     * so the AI gives them lower weight than current documents.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/51">#51</a>
+     */
+    public boolean isArchived() {
+        String pathStr = path.toString().toLowerCase();
+        return pathStr.contains("/archive/") || pathStr.contains("/archived/")
+                || pathStr.contains("/legacy/") || pathStr.contains("/historical/")
+                || pathStr.contains("/old/");
+    }
+
+    /**
      * Returns a brief description for display purposes.
      */
     public String briefDescription() {

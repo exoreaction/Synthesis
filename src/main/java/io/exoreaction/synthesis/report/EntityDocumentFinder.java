@@ -40,6 +40,16 @@ public class EntityDocumentFinder {
     /** Maximum chars to extract from large docs via mention search. */
     private static final int MAX_MENTION_CHARS = 3000;
 
+    /**
+     * File name patterns to exclude from entity discovery.
+     * Prevents reference/cheatsheet files from contaminating product reports.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/52">#52</a>
+     */
+    private static final List<String> EXCLUDED_FILE_PATTERNS = List.of(
+            "-gotchas.", ".notes.", "-cheatsheet.", "-reference."
+    );
+
     // ---- Public API ----
 
     /**
@@ -162,15 +172,28 @@ public class EntityDocumentFinder {
                     .filter(p -> !p.toString().contains(".git"))
                     .filter(p -> !p.toString().contains("target/"))
                     .filter(p -> !p.toString().contains("node_modules"))
+                    // Exclude reference/gotcha files that cause cross-contamination (#52)
+                    .filter(p -> {
+                        String nameLower = p.getFileName().toString().toLowerCase();
+                        for (String pattern : EXCLUDED_FILE_PATTERNS) {
+                            if (nameLower.contains(pattern)) return false;
+                        }
+                        return true;
+                    })
                     .filter(p -> {
                         // For product-source, prefer docs/ and key files
                         if ("product-source".equals(category)) {
                             String s = p.toString();
                             String name = p.getFileName().toString();
+                            String nameUpper = name.toUpperCase();
                             return s.contains("/docs/")
                                     || name.equalsIgnoreCase("README.md")
                                     || name.equalsIgnoreCase("CLAUDE.md")
-                                    || name.toUpperCase().contains("CHANGELOG");
+                                    || nameUpper.contains("CHANGELOG")
+                                    || nameUpper.contains("RELEASE-NOTES")    // #49
+                                    || nameUpper.contains("RELEASE_NOTES")    // #49
+                                    || nameUpper.contains("ROADMAP")           // #49
+                                    || (nameUpper.contains("ACTIVITY") && nameUpper.contains("LOG")); // #49
                         }
                         return true;
                     })
@@ -325,12 +348,16 @@ public class EntityDocumentFinder {
     /**
      * Case-insensitive fuzzy match: ignores dashes, underscores, and spaces.
      * e.g., "SpareBank 1" matches "SpareBank1", "sparebank-1", "SPAREBANK1"
+     *
+     * <p>Requires both normalized names to be at least 3 characters to avoid
+     * false positives from trivially short directory names (e.g., "t", "src").
      */
     static boolean fuzzyMatches(String dirName, String entityName) {
         String normalDir = dirName.toLowerCase()
                 .replace("-", "").replace("_", "").replace(" ", "");
         String normalEntity = entityName.toLowerCase()
                 .replace("-", "").replace("_", "").replace(" ", "");
+        if (normalDir.length() < 3 || normalEntity.length() < 3) return false;
         return normalDir.contains(normalEntity) || normalEntity.contains(normalDir);
     }
 
