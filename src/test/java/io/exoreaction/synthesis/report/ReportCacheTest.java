@@ -253,6 +253,37 @@ class ReportCacheTest {
         assertEquals("Report for workspace 2", from2.get().finalReport());
     }
 
+    // --- Hit counter and model persistence (#54) ---
+
+    @Test
+    void get_incrementsHitCounterOnEachAccess() throws Exception {
+        ReportResult stored = sampleResult(ReportTopic.PIPELINE);
+        cache.put(WORKSPACE, stored, FINGERPRINT);
+
+        cache.get(WORKSPACE, ReportTopic.PIPELINE, ReportTarget.CEO, "1w", FINGERPRINT);
+        cache.get(WORKSPACE, ReportTopic.PIPELINE, ReportTarget.CEO, "1w", FINGERPRINT);
+
+        try (var stmt = connection.prepareStatement(
+                "SELECT hits FROM report_cache WHERE workspace_path = ? AND topic = ?")) {
+            stmt.setString(1, WORKSPACE.toString());
+            stmt.setString(2, "pipeline");
+            var rs = stmt.executeQuery();
+            assertTrue(rs.next());
+            assertEquals(2, rs.getInt("hits"), "Hit counter should be 2 after two get() calls");
+        }
+    }
+
+    @Test
+    void putAndGet_preservesModel() {
+        ReportResult stored = sampleResult(ReportTopic.PIPELINE);
+        cache.put(WORKSPACE, stored, FINGERPRINT);
+        Optional<ReportResult> retrieved = cache.get(
+                WORKSPACE, ReportTopic.PIPELINE, ReportTarget.CEO, "1w", FINGERPRINT);
+        assertTrue(retrieved.isPresent());
+        assertEquals("claude-sonnet-4-5-test", retrieved.get().model(),
+                "Model name should be preserved through cache round-trip");
+    }
+
     // --- Helpers ---
 
     private ReportResult sampleResult(ReportTopic topic) {

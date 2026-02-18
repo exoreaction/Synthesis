@@ -115,6 +115,47 @@ public class ClaudeClient {
     }
 
     /**
+     * Result of a generation call, including truncation status.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/44">#44</a>
+     */
+    public record GenerationResult(String content, boolean truncated) {}
+
+    /**
+     * Generates text and returns metadata including whether output was truncated.
+     *
+     * <p>Use this for single-pass topics where silent truncation is a bug.
+     * When {@code truncated=true}, the caller should warn the user to increase
+     * {@code --max-tokens} or switch to a multi-pass topic like {@code --topic weekly}.
+     *
+     * @param prompt      the prompt to send
+     * @param maxTokens   maximum tokens in the response
+     * @param temperature sampling temperature (0.0 for deterministic)
+     * @return result with content and truncation flag
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/44">#44</a>
+     */
+    public GenerationResult generateWithMeta(String prompt, int maxTokens, double temperature) {
+        MessageCreateParams params = MessageCreateParams.builder()
+                .model(model)
+                .maxTokens((long) maxTokens)
+                .temperature(temperature)
+                .addUserMessage(prompt)
+                .build();
+
+        Message message = client.messages().create(params);
+        String content = message.content().stream()
+                .filter(block -> block.isText())
+                .map(block -> block.asText().text())
+                .findFirst()
+                .orElse("");
+
+        // Check if stop reason indicates truncation (#44)
+        boolean truncated = StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null));
+
+        return new GenerationResult(content, truncated);
+    }
+
+    /**
      * Generates text content from a prompt.
      *
      * @param prompt    the prompt to send
