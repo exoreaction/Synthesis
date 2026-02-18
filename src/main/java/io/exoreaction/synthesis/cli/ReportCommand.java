@@ -15,6 +15,8 @@ import picocli.CommandLine.ParentCommand;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -118,6 +120,12 @@ public class ReportCommand implements Callable<Integer> {
             description = "Generate a client status report for a named client (e.g., Elprint, Mynder)"
     )
     private String client;
+
+    @Option(
+            names = {"--no-save"},
+            description = "Print to stdout only, do not auto-save to workspace"
+    )
+    private boolean noSave = false;
 
     @Option(
             names = {"--verbose", "-v"},
@@ -294,8 +302,19 @@ public class ReportCommand implements Callable<Integer> {
 
             // Output
             String report = ReportRenderer.render(result);
+
+            // Auto-save: co-locate report with its entity or save to .synthesis/reports/
+            Optional<Path> autoSavePath = determineAutoSavePath(workspaceRoot, result, entityName);
+            if (autoSavePath.isPresent()) {
+                Path savePath = autoSavePath.get();
+                Files.createDirectories(savePath.getParent());
+                Files.writeString(savePath, report);
+                System.err.println("  Saved: " + workspaceRoot.relativize(savePath));
+            }
+
             if (outputFile != null) {
                 Path outPath = Path.of(outputFile);
+                Files.createDirectories(outPath.toAbsolutePath().getParent());
                 Files.writeString(outPath, report);
                 AnsiOutput.printSuccess("Business report saved to: " + outPath.toAbsolutePath());
                 System.err.println("  Topic:   " + result.topic().displayName());
@@ -319,6 +338,36 @@ public class ReportCommand implements Callable<Integer> {
             AnsiOutput.printError("Report generation failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Determines where to auto-save the report. Returns empty if auto-save is suppressed.
+     *
+     * <ul>
+     *   <li>Entity reports (client/product): co-located under the entity's workspace directory</li>
+     *   <li>Business topic reports: saved to {@code .synthesis/reports/}</li>
+     *   <li>Suppressed when {@code --no-save} or {@code --output} is given</li>
+     * </ul>
+     */
+    private Optional<Path> determineAutoSavePath(Path workspaceRoot, ReportResult result, String entityName) {
+        if (noSave || outputFile != null) return Optional.empty();
+
+        String filename = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                + "-" + result.topic().cliValue()
+                + "-" + result.target().cliValue()
+                + ".md";
+
+        // Entity reports: co-locate with the entity's workspace directory
+        if (entityName != null) {
+            Optional<Path> entityRoot = new EntityDocumentFinder()
+                    .findEntityRoot(workspaceRoot, entityName, result.topic());
+            if (entityRoot.isPresent()) {
+                return Optional.of(entityRoot.get().resolve("reports").resolve(filename));
+            }
+        }
+
+        // Business topic reports (or entity not found in workspace): .synthesis/reports/
+        return Optional.of(new WorkspaceManager(workspaceRoot).getReportsPath().resolve(filename));
     }
 
     private int showCacheStats(Path workspaceRoot) {
