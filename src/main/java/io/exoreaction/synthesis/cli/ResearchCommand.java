@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -102,6 +104,12 @@ public class ResearchCommand implements Callable<Integer> {
             description = "Clear all cached research reports for this workspace"
     )
     private boolean cacheClear = false;
+
+    @Option(
+            names = {"--no-save"},
+            description = "Print to stdout only, do not auto-save to workspace"
+    )
+    private boolean noSave = false;
 
     @Option(
             names = {"--verbose", "-v"},
@@ -226,8 +234,21 @@ public class ResearchCommand implements Callable<Integer> {
 
             // Output
             String report = result.finalReport();
+
+            // Auto-save to .synthesis/reports/research/
+            if (!noSave && outputFile == null) {
+                String filename = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                        + "-" + researchTarget.cliValue() + ".md";
+                Path savePath = new WorkspaceManager(workspaceRoot)
+                        .getReportsPath().resolve("research").resolve(filename);
+                Files.createDirectories(savePath.getParent());
+                Files.writeString(savePath, report);
+                System.err.println("  Saved: " + workspaceRoot.relativize(savePath));
+            }
+
             if (outputFile != null) {
                 Path outPath = Path.of(outputFile);
+                Files.createDirectories(outPath.toAbsolutePath().getParent());
                 Files.writeString(outPath, report);
                 AnsiOutput.printSuccess("Research report saved to: " + outPath.toAbsolutePath());
                 System.err.println("  Passes:  " + result.passNames().size() + " (" +

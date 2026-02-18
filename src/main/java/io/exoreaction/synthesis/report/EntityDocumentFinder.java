@@ -43,6 +43,42 @@ public class EntityDocumentFinder {
     // ---- Public API ----
 
     /**
+     * Returns the root directory of a named entity within the workspace, without loading any files.
+     *
+     * <p>Used by {@code ReportCommand} to determine the auto-save location for co-located reports.
+     *
+     * @param workspaceRoot the workspace root (e.g., ~/Documents)
+     * @param entityName    the entity name to locate
+     * @param entityType    CLIENT or PRODUCT
+     * @return the matching directory path, or empty if not found
+     */
+    public Optional<Path> findEntityRoot(Path workspaceRoot, String entityName, ReportTopic entityType) {
+        Path searchRoot = entityType == ReportTopic.CLIENT
+                ? workspaceRoot.resolve("eXOReaction/clients")
+                : workspaceRoot.resolve("eXOReaction/products");
+
+        if (!Files.isDirectory(searchRoot)) return Optional.empty();
+
+        // For clients, also check opportunity- prefixed directories
+        if (entityType == ReportTopic.CLIENT) {
+            try (Stream<Path> stream = Files.list(searchRoot)) {
+                Optional<Path> opportunityDir = stream.filter(Files::isDirectory)
+                        .filter(dir -> {
+                            String dirName = dir.getFileName().toString();
+                            return dirName.startsWith("opportunity-")
+                                    && fuzzyMatches(dirName.substring("opportunity-".length()), entityName);
+                        })
+                        .findFirst();
+                if (opportunityDir.isPresent()) return opportunityDir;
+            } catch (IOException e) {
+                // fall through to direct name match
+            }
+        }
+
+        return findMatchingDirs(searchRoot, entityName).stream().findFirst();
+    }
+
+    /**
      * Discovers documents for a named product.
      *
      * @param workspaceRoot the workspace root (e.g., ~/Documents)
