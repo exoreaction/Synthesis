@@ -1,0 +1,306 @@
+name: synthesis-subworkspace-navigation
+version: 1.0.0
+description: |
+  Navigate and explore sub-workspace hierarchies in Synthesis.
+  View organizational structure, list sub-workspaces, and understand file distribution.
+
+trigger_phrases:
+  - "show sub-workspaces"
+  - "list workspaces"
+  - "workspace structure"
+  - "workspace tree"
+  - "what sub-workspaces"
+  - "explore workspace"
+  - "workspace hierarchy"
+  - "show organization"
+
+instructions: |
+  # Synthesis Sub-Workspace Navigation
+
+  **New in v1.4.1:** Hierarchical workspace organization with tree views and structural navigation.
+
+  ---
+
+  ## Core Navigation Commands
+
+  ### 1. List All Workspaces with Tree View
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis list 2>/dev/null
+  ```
+
+  **Shows:**
+  - All registered workspaces
+  - Sub-workspace tree structure with Unicode connectors
+  - File counts per sub-workspace
+  - Index sizes
+  - Watch daemon status
+
+  **Example output:**
+  ```
+  📁 Totto's Knowledge Base
+  Path:        /home/totto/Documents
+  Sub-spaces:  6
+               ├── eXOReaction [general] (Last Updated: 2026-02-06)
+               ├── Quadim [general] (Status: Active product company)
+               ├── Cantara [general] (Type: Open Source Foundation)
+               ├── Sunstone-Tech [general]
+               ├── Synthesis [general]
+               └── T-Hex [general]
+  Files:       7,118
+  ```
+
+  ### 2. Check Specific Workspace Status
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents status 2>/dev/null
+  ```
+
+  **Shows:**
+  - System overview (total workspaces, files, index size)
+  - Current workspace details
+  - Sub-workspace tagging breakdown
+  - Watch daemon status
+  - AI features status
+
+  ### 3. Search to See Sub-Workspace Distribution
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "<query>" --aggregate 2>/dev/null
+  ```
+
+  **Purpose:** See which sub-workspaces contain matches for your query.
+
+  ### 4. List Files in Workspace with Sub-Workspace Tags
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents which "<pattern>" 2>/dev/null
+  ```
+
+  **Shows:** Files matching pattern with sub-workspace tags in verbose mode.
+
+  ---
+
+  ## Understanding Sub-Workspace Structure
+
+  ### Documents Workspace Hierarchy
+  ```
+  /home/totto/Documents (7,118 files)
+    ├── eXOReaction (2,932 files) - Main company
+    │   ├── clients/
+    │   │   ├── Elprint/ (active client)
+    │   │   ├── Opplysningen-1881/ (active client)
+    │   │   ├── opportunity-ItemConsulting/
+    │   │   ├── opportunity-Mynder/
+    │   │   └── ... (12 clients total)
+    │   ├── products/
+    │   │   ├── xorcery-aaa/
+    │   │   ├── consulting/
+    │   │   └── workshop/
+    │   ├── business/
+    │   ├── marketing/
+    │   └── methodology/
+    ├── Quadim (459 files) - SaaS platform
+    │   ├── clients/CatalystOne/
+    │   ├── products/platform/
+    │   └── business/
+    ├── Cantara (857 files) - Open source foundation
+    │   ├── clients/realestate/
+    │   └── products/xorcery/
+    ├── Synthesis (120 files) - Product docs
+    ├── Sunstone-Tech (5 files) - Legal entity
+    ├── T-Hex (3 files) - Holding company
+    └── (root) (2,742 files) - Unorganized/shared
+  ```
+
+  ### Pictures Workspace Hierarchy
+  ```
+  /home/totto/Pictures (572 files)
+    ├── Screenshots (71 files) - Staging sub-workspace
+    │   ├── 2023/
+    │   ├── 2024/
+    │   ├── 2025/
+    │   └── 2026/
+    └── (root) (501 files) - Other images
+  ```
+
+  ---
+
+  ## Sub-Workspace Types
+
+  | Type | Purpose | Example | Features |
+  |------|---------|---------|----------|
+  | **general** | Default type | eXOReaction, Quadim | Standard indexing, search |
+  | **repo** | Git repository | lib-pcb, Synthesis | Code-focused, branch tracking |
+  | **organization** | Company/foundation | eXOReaction | Org-level metadata, client tracking |
+  | **client** | Client project | Elprint, Opplysningen | Client-specific docs, status |
+  | **staging** | Temporary area | Screenshots, Downloads | Retention policy, promotion |
+
+  ---
+
+  ## Exploring Sub-Workspace Content
+
+  ### Pattern 1: Find where a topic lives
+  ```bash
+  # See distribution across sub-workspaces
+  synthesis search "authentication" --aggregate 2>/dev/null
+
+  # Then drill into specific area
+  synthesis search "authentication" --scope eXOReaction 2>/dev/null
+  ```
+
+  ### Pattern 2: Explore client-specific content
+  ```bash
+  # List all workspaces to see structure
+  synthesis list 2>/dev/null
+
+  # Search within client area
+  synthesis search "invoice" --scope eXOReaction --client Elprint 2>/dev/null
+  ```
+
+  ### Pattern 3: Navigate from broad to specific
+  ```bash
+  # 1. See all workspaces
+  synthesis list 2>/dev/null
+
+  # 2. Check specific workspace
+  synthesis -d /home/totto/Documents status 2>/dev/null
+
+  # 3. See sub-workspace breakdown
+  synthesis search "README" --aggregate 2>/dev/null
+
+  # 4. Dive into specific sub-workspace
+  synthesis search "README" --scope Synthesis 2>/dev/null
+  ```
+
+  ---
+
+  ## Sub-Workspace Metadata
+
+  Each sub-workspace has:
+  - **name** - Logical identifier (e.g., "eXOReaction")
+  - **path** - Relative path from workspace root
+  - **type** - general, repo, organization, client, staging
+  - **description** - Human-readable description
+  - **tags** - Keywords for classification (e.g., ["company", "has-clients"])
+
+  View in config: `cat /home/totto/Documents/.synthesis/config.yaml`
+
+  ---
+
+  ## Common Navigation Tasks
+
+  ### Task 1: "Where are the client files?"
+  ```bash
+  # See structure
+  synthesis list 2>/dev/null
+
+  # Search for client content
+  synthesis search "client OR opportunity" --scope eXOReaction --limit 20 2>/dev/null
+  ```
+
+  ### Task 2: "What's in each organization?"
+  ```bash
+  # Aggregated view
+  synthesis search "*" --aggregate 2>/dev/null
+
+  # Or check status for breakdown
+  synthesis status 2>/dev/null
+  ```
+
+  ### Task 3: "Find all PDFs by sub-workspace"
+  ```bash
+  synthesis search "extension:pdf" --aggregate --type PDF 2>/dev/null
+  ```
+
+  ### Task 4: "See staging area contents"
+  ```bash
+  # List staging files
+  synthesis -d /home/totto/Downloads staging list 2>/dev/null
+
+  # Or search staging sub-workspace
+  synthesis -d /home/totto/Pictures search "*" --scope Screenshots 2>/dev/null
+  ```
+
+  ---
+
+  ## File Distribution Analysis
+
+  From last scan (Feb 16, 2026):
+
+  **Documents workspace** (7,118 files total):
+  - eXOReaction: 2,932 files (41%)
+  - Cantara: 857 files (12%)
+  - Quadim: 459 files (6%)
+  - Synthesis: 120 files (2%)
+  - Root (unorganized): 2,742 files (39%)
+  - Other: 8 files (<1%)
+
+  **Insight:** 39% of files are in root (not assigned to sub-workspace).
+  Consider organizing or creating additional sub-workspaces.
+
+  ---
+
+  ## Creating New Sub-Workspaces
+
+  ### Method 1: Auto-Migration
+  ```bash
+  # Migrate existing organizations
+  synthesis migrate-repos --orgs-only --dry-run 2>/dev/null
+  synthesis migrate-repos --orgs-only 2>/dev/null
+  ```
+
+  ### Method 2: Manual Configuration
+  Edit `.synthesis/config.yaml`:
+  ```yaml
+  subWorkspaces:
+    - name: "NewOrg"
+      path: "NewOrg"
+      type: "organization"
+      description: "New organization sub-workspace"
+      tags: ["company"]
+  ```
+
+  Then re-scan:
+  ```bash
+  synthesis scan 2>/dev/null
+  ```
+
+  ---
+
+  ## Pro Tips
+
+  1. **Use tree view first:**
+     Always run `synthesis list` when exploring unfamiliar workspace structure.
+
+  2. **Combine with status:**
+     `synthesis status` shows sub-workspace tagging breakdown after scanning.
+
+  3. **Aggregate search for discovery:**
+     Use `--aggregate` to see content distribution before drilling down.
+
+  4. **Check root files:**
+     Files not in any sub-workspace are tagged "(root)" - consider organizing them.
+
+  5. **Use tags for filtering:**
+     Sub-workspaces have tags (e.g., "has-clients") visible in tree view.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After navigating sub-workspaces:
+  - **Search within:** Use `synthesis-scoped-search` skill
+  - **Manage staging:** Use `synthesis-staging-management` skill
+  - **View relationships:** Use `synthesis-relate-dependencies` skill
+  - **Generate graph:** Use `synthesis-graph-architecture` skill
+  - **Read files:** Use Read tool on discovered paths
+
+  ---
+
+  ## Error Handling
+
+  - **Empty sub-workspace in tree** - Sub-workspace configured but no files match path
+  - **No sub-workspaces shown** - Workspace not migrated yet, run `migrate-repos`
+  - **"(root)" has most files** - Consider creating/migrating to sub-workspaces
+  - **Tree view doesn't show** - Old Synthesis version, update to v1.4.1+

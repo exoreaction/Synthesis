@@ -1,0 +1,164 @@
+name: synthesis-relate-dependencies
+version: 1.0.0
+description: |
+  Show bidirectional relationships, imports, and dependencies for any file in a Synthesis workspace.
+  Answers "what depends on this?" and "what does this depend on?" with optional Mermaid diagrams.
+
+trigger_phrases:
+  - "synthesis relate"
+  - "show relationships"
+  - "show dependencies"
+  - "what depends on"
+  - "what does this depend on"
+  - "file relationships"
+  - "trace dependencies"
+  - "impact analysis"
+  - "what breaks if I change"
+  - "dependency graph for"
+
+instructions: |
+  # Synthesis Relate Dependencies
+
+  **Purpose:** Show bidirectional file relationships - what a file depends on and what depends on it.
+  **Use case:** Impact analysis ("what breaks if I change this?"), dependency tracing, onboarding.
+  **Workspace:** `/home/totto/Documents` (7,117 documents indexed)
+
+  ---
+
+  ## How to Use
+
+  Run the Synthesis CLI relate command via Bash tool:
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "<file-name-or-path>" [options] 2>/dev/null
+  ```
+
+  **Important:** Always add `2>/dev/null` to suppress SLF4J and pilot approval stderr noise.
+
+  ---
+
+  ## Command Syntax
+
+  ```
+  synthesis -d <workspace> relate "<targetFile>" [--depth N] [--verbose] [--mermaid]
+  ```
+
+  ### Required Parameters
+  - `<targetFile>` - File name or path to analyze. Can be:
+    - Full path: `eXOReaction/business/PIPELINE-STATUS.md`
+    - Relative path: `PIPELINE-STATUS.md`
+    - Just filename: `PIPELINE-STATUS.md` (will search for matches)
+
+  ### Optional Parameters
+  - `--depth N` - How many levels of relationships to follow (default: 1, try 2-3 for deeper analysis)
+  - `--verbose` or `-v` - Show detailed reference information (line numbers, context)
+  - `--mermaid` - Output as Mermaid diagram (for visualization)
+
+  ---
+
+  ## Common Usage Patterns
+
+  ### 1. Basic relationship check (what links to/from a file)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "CLAUDE.md" 2>/dev/null
+  ```
+
+  ### 2. Deep dependency tracing (2 levels)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "PIPELINE-STATUS.md" --depth 2 2>/dev/null
+  ```
+
+  ### 3. Verbose output with line-level detail
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "PROOF-POINTS.md" --verbose 2>/dev/null
+  ```
+
+  ### 4. Generate Mermaid diagram
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "CLAUDE.md" --mermaid 2>/dev/null
+  ```
+
+  ### 5. Impact analysis for a code file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents relate "package.json" --depth 2 2>/dev/null
+  ```
+
+  ---
+
+  ## Interpreting Results
+
+  The relate command shows two types of relationships:
+
+  ### Incoming (what references THIS file)
+  - Files that import, link to, or reference the target
+  - Shows: source file, type of reference (import, link, mention)
+  - Answers: "What breaks if I delete this file?"
+
+  ### Outgoing (what THIS file references)
+  - Files that the target imports, links to, or references
+  - Shows: target file, type of reference
+  - Answers: "What does this file depend on?"
+
+  ### Mermaid Output
+  When using `--mermaid`, the output is a valid Mermaid graph definition that can be:
+  - Rendered in GitHub markdown (```mermaid code blocks)
+  - Pasted into https://mermaid.live for visualization
+  - Embedded in documentation
+
+  ---
+
+  ## Relationship Types Detected
+
+  Synthesis detects these relationship types:
+  - **Import statements** (Java imports, JS/TS imports, Python imports)
+  - **Markdown links** (`[text](path)` and `[text]: path` references)
+  - **File references** (paths mentioned in text, configs, or code)
+  - **Config references** (YAML/JSON file references, Spring configs)
+  - **Cross-file mentions** (filename references in comments or docs)
+
+  ---
+
+  ## Tips for Best Results
+
+  1. **Start with depth 1** - See immediate relationships first
+  2. **Increase depth for impact analysis** - Use depth 2-3 to see cascading dependencies
+  3. **Use --mermaid for presentations** - Visual diagrams are great for workshops/meetings
+  4. **Combine with search** - First search to find the file, then relate to see connections
+  5. **Use verbose for debugging** - Shows exact line numbers where references occur
+
+  ---
+
+  ## Error Handling
+
+  - **"File not found"** - Check the filename/path. Try just the filename without directory.
+  - **"No relationships found"** - File may be standalone. Try with `--depth 2`.
+  - **"Index not found"** - Run `synthesis -d /home/totto/Documents scan` first
+  - **SLF4J warnings on stderr** - Normal, suppress with `2>/dev/null`
+  - **Pilot approval warning** - Cosmetic only, commands execute normally
+
+  ---
+
+  ## Follow-up Suggestions
+
+  After showing relationships, suggest these related actions:
+  - "Want to see the full architecture graph?" -> Use `synthesis-graph-architecture` skill
+  - "Want to search for more related files?" -> Use `synthesis-search-workspace` skill
+  - "Want to see deeper dependencies?" -> Re-run with `--depth 2` or `--depth 3`
+  - "Want a visual diagram?" -> Re-run with `--mermaid` flag
+  - "Want to read one of the related files?" -> Use the Read tool on the file path
+
+  ---
+
+  **Key Business Value:**
+  - "What breaks if I change this?" - Instant impact analysis
+  - Onboarding: Understand file connections in seconds instead of hours
+  - Architecture review: See actual dependencies, not assumed ones
+  - Refactoring safety: Know all references before making changes
+
+  **Last indexed:** February 15, 2026

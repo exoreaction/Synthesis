@@ -1,0 +1,222 @@
+name: synthesis-export-docs
+version: 1.0.0
+description: |
+  Export workspace index as documentation in multiple formats.
+  Generate onboarding guides, architecture docs, JSON exports, and Markdown overviews.
+
+trigger_phrases:
+  - "export docs"
+  - "generate documentation"
+  - "create onboarding guide"
+  - "synthesis export"
+  - "export workspace"
+  - "architecture documentation"
+  - "export index"
+
+instructions: |
+  # Synthesis Export - Generate Documentation from Workspace Index
+
+  **Purpose:** Export the workspace index as structured documentation. Generates onboarding guides, architecture documents, JSON data, or Markdown overviews from indexed content. AI-enhanced formats available with ANTHROPIC_API_KEY.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> export [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `-f, --format <type>` - Output format: `markdown` (default), `json`, `architecture-doc`, `onboarding-guide`
+  - `-o, --output <path>` - Save to file (default: stdout)
+  - `--type <TYPE>` - Filter by file type: CODE, MARKDOWN, YAML, JSON, CONFIG, PDF, IMAGE, VIDEO
+  - `--limit <N>` - Maximum entries to export (default: 1000)
+
+  ---
+
+  ## Export Formats
+
+  | Format | AI Required | Description |
+  |--------|-------------|-------------|
+  | `markdown` | No | File index grouped by type with summaries |
+  | `json` | No | Machine-readable workspace data |
+  | `architecture-doc` | Optional | Narrative architecture document (AI-enhanced if available) |
+  | `onboarding-guide` | Optional | New team member guide (AI-enhanced if available) |
+
+  **Note:** `architecture-doc` and `onboarding-guide` work without AI but produce richer content with it.
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Export workspace overview as Markdown
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export 2>/dev/null
+  ```
+
+  ### 2. Export as JSON (machine-readable)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --format json 2>/dev/null
+  ```
+
+  **JSON structure:**
+  ```json
+  {
+    "workspace": "Totto's Knowledge Base",
+    "type": "knowledge-base",
+    "totalFiles": 7118,
+    "files": [
+      {
+        "path": "CLAUDE.md",
+        "fileName": "CLAUDE.md",
+        "fileType": "MARKDOWN",
+        "language": null,
+        "sizeBytes": 24567,
+        "summary": "LinkedIn Strategy Documentation..."
+      }
+    ]
+  }
+  ```
+
+  ### 3. Generate AI-powered architecture document
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --format architecture-doc --output /tmp/architecture.md 2>/dev/null
+  ```
+
+  ### 4. Generate onboarding guide
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --format onboarding-guide --output /tmp/onboarding.md 2>/dev/null
+  ```
+
+  ### 5. Export only code files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --type CODE 2>/dev/null
+  ```
+
+  ### 6. Export only Markdown documentation
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --type MARKDOWN --output /tmp/docs-index.md 2>/dev/null
+  ```
+
+  ### 7. Export with limited entries
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --limit 100 2>/dev/null
+  ```
+
+  ### 8. Export PDFs inventory
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --type PDF --format json --output /tmp/pdf-inventory.json 2>/dev/null
+  ```
+
+  ### 9. Architecture doc for a source workspace
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/src/exoreaction/Synthesis export --format architecture-doc 2>/dev/null
+  ```
+
+  ### 10. Quick YAML config inventory
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents export --type YAML --format markdown 2>/dev/null
+  ```
+
+  ---
+
+  ## Markdown Format Details
+
+  The default Markdown export includes:
+
+  1. **Header** - Workspace name, type, root path, total files
+  2. **File Types table** - Count per type (CODE, MARKDOWN, JSON, etc.)
+  3. **Files by type** - Grouped listing with:
+     - File path (bold)
+     - Language (if applicable)
+     - File size
+     - Summary (truncated to 120 chars)
+
+  ---
+
+  ## Architecture Doc Details
+
+  **With AI:** Narrative document covering:
+  - Technology stack analysis
+  - Component relationships
+  - Key architectural patterns
+  - Entry points and critical paths
+  - Dependency structure
+
+  **Without AI (fallback):**
+  - Technology stack (language distribution)
+  - Directory structure (top-level breakdown)
+  - Key files (READMEs, build files, Dockerfiles)
+
+  ---
+
+  ## Onboarding Guide Details
+
+  **With AI:** Narrative guide covering:
+  - Project purpose and context
+  - Getting started steps
+  - Key areas to explore
+  - Common workflows
+  - Who to ask about what
+
+  **Without AI (fallback):**
+  - Getting started (root path, key docs)
+  - Start Reading Here (README files)
+  - Project layout (file type distribution)
+  - Configuration files
+
+  ---
+
+  ## Error Handling
+
+  - **"No documents found in index"** - Run `synthesis scan` first
+  - **"Unknown format"** - Use `markdown`, `json`, `architecture-doc`, or `onboarding-guide`
+  - **"AI not configured"** (for architecture/onboarding) - Falls back to basic format automatically
+  - **"AI generation failed"** - Falls back to basic format with a warning
+  - **"Workspace not initialized"** - Run `synthesis init` first
+
+  ---
+
+  ## Pro Tips
+
+  1. **JSON for automation:** Export as JSON and pipe to `jq` for custom filtering and analysis.
+
+  2. **Type filter for focus:** Use `--type CODE` to get a code-only inventory, `--type PDF` for document audit.
+
+  3. **AI makes architecture docs much better:** Set ANTHROPIC_API_KEY for narrative documentation vs basic listings.
+
+  4. **Onboarding guides for new team members:** Generate and share before someone joins the project.
+
+  5. **Limit for large workspaces:** Use `--limit 500` for initial overview, then increase for full export.
+
+  6. **Combine with scan:** Run `synthesis scan` then `export` for the most current view.
+
+  7. **Periodic exports:** Schedule monthly architecture doc exports to track codebase evolution.
+
+  8. **Pipe stdout to clipboard:** `synthesis export | pbcopy` (macOS) or `synthesis export | xclip` (Linux) for quick sharing.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After exporting:
+  - "Want deeper analysis?" -> Use `synthesis-insights-metrics` skill
+  - "Want to search specific content?" -> Use `synthesis-search-workspace` skill
+  - "Want to explain a specific file?" -> Use `synthesis-explain-code` skill
+  - "Want AI-powered Q&A?" -> Use `synthesis-ask-workspace` skill
+  - "Want architecture monitoring?" -> Use `synthesis-architecture-monitoring` skill
+
+  ---
+
+  **Last updated:** February 16, 2026

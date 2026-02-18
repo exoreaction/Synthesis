@@ -1,0 +1,224 @@
+name: synthesis-perspectives-analysis
+version: 1.0.0
+description: |
+  Directed synthesis - analyze complex questions from multiple analytical perspectives.
+  Generates multi-viewpoint analysis with comparison, impact, and gap detection modes.
+
+trigger_phrases:
+  - "multiple perspectives"
+  - "analyze question"
+  - "different angles"
+  - "synthesis perspectives"
+  - "directed synthesis"
+  - "compare options"
+  - "impact analysis"
+
+instructions: |
+  # Synthesis Perspectives - Directed Multi-Perspective Analysis
+
+  **Purpose:** Analyze complex questions from multiple analytical perspectives instead of giving a single answer. Generates 2-7 distinct viewpoints, comparisons, impact analyses, or gap detection grounded in actual workspace content.
+  **Requires:** ANTHROPIC_API_KEY environment variable (AI-powered feature)
+  **Key difference from `ask`:** `ask` gives one answer; `perspectives` generates multiple analytical viewpoints that reveal blind spots.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> perspectives "<question>" [options] 2>/dev/null
+  ```
+
+  ### Required Parameters
+  - `<question>` - The complex question to analyze (positional)
+
+  ### Optional Parameters
+  - `-m, --mode <mode>` - Analysis mode: `auto` (default), `perspectives`, `comparison`, `impact`, `gaps`
+  - `-n, --num-perspectives <N>` - Number of perspectives (default: 4, range: 2-7)
+  - `-v, --verbose` - Show context documents used in analysis
+
+  ---
+
+  ## Analysis Modes
+
+  | Mode | Best For | Trigger Patterns |
+  |------|----------|------------------|
+  | **perspectives** (default) | Open-ended strategic questions | "Should we...", "How should we..." |
+  | **comparison** | Choosing between options | "X vs Y", "Which is better...", "Compare..." |
+  | **impact** | Understanding consequences | "What if we...", "What happens when..." |
+  | **gaps** | Finding missing pieces | "What's missing...", "What are we overlooking..." |
+
+  **Auto mode:** Synthesis analyzes the question text and selects the best mode automatically.
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Multi-perspective analysis (default)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "Should we migrate to microservices?" 2>/dev/null
+  ```
+
+  ### 2. Comparison analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "Spring Boot vs Quarkus for our use case" --mode comparison 2>/dev/null
+  ```
+
+  ### 3. Impact analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "What if we drop Java 11 support?" --mode impact 2>/dev/null
+  ```
+
+  ### 4. Gap analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "What's missing in our testing strategy?" --mode gaps 2>/dev/null
+  ```
+
+  ### 5. More perspectives (up to 7)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "How should we approach the refactoring?" -n 6 2>/dev/null
+  ```
+
+  ### 6. Fewer perspectives (minimum 2)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "Build vs buy for CI/CD?" -n 2 2>/dev/null
+  ```
+
+  ### 7. Architecture decision
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "Should we move from monolith to event-driven architecture?" 2>/dev/null
+  ```
+
+  ### 8. Business strategy analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "What's the best approach for enterprise sales?" 2>/dev/null
+  ```
+
+  ### 9. Verbose output (see context used)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "How should we handle authentication?" --verbose 2>/dev/null
+  ```
+
+  ### 10. Technical trade-off analysis
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents perspectives "PostgreSQL vs MongoDB for our data model" --mode comparison 2>/dev/null
+  ```
+
+  ---
+
+  ## How It Works
+
+  1. **Question analysis:** Auto-detects the best analysis mode (or uses specified mode)
+  2. **Context gathering:** Searches workspace index for relevant files
+  3. **Multi-pass generation:** Generates N distinct analytical perspectives, each finding gaps the others missed
+  4. **Synthesis:** Combines perspectives into a comprehensive answer
+  5. **Grounding:** All perspectives reference actual workspace files and patterns
+
+  ---
+
+  ## Example Output Structure
+
+  **Perspectives mode:**
+  ```
+  Synthesis - Multi-Perspective Analysis
+  Question: Should we migrate to microservices?
+  Mode: perspectives (4 perspectives)
+
+  ## Perspective 1: Architecture Complexity
+  [Analysis of complexity trade-offs...]
+
+  ## Perspective 2: Team & Organizational
+  [Analysis of team readiness...]
+
+  ## Perspective 3: Business Impact
+  [Analysis of time-to-market effects...]
+
+  ## Perspective 4: Operational Maturity
+  [Analysis of DevOps readiness...]
+
+  ## Synthesis
+  [Combined insights from all perspectives...]
+
+  ---
+  4 context documents | 3.2s
+  ```
+
+  ---
+
+  ## When to Use Perspectives vs Ask
+
+  | Scenario | Command | Why |
+  |----------|---------|-----|
+  | "What auth methods are used?" | `ask` | Single factual answer |
+  | "Should we change our auth approach?" | `perspectives` | Trade-offs need multiple viewpoints |
+  | "Where is the config file?" | `ask` | Simple lookup |
+  | "Is our configuration approach scalable?" | `perspectives` | Needs analysis from multiple angles |
+  | "What dependencies does X have?" | `ask` | Factual query |
+  | "Should we change our dependency strategy?" | `perspectives` | Strategic decision |
+
+  **Rule of thumb:** If the question has a single right answer, use `ask`. If it involves trade-offs, strategies, or "should we...", use `perspectives`.
+
+  ---
+
+  ## Auto-Mode Detection
+
+  The `auto` mode (default) analyzes your question and picks the best mode:
+
+  - **"vs"**, **"or"**, **"compared to"**, **"which"** -> `comparison`
+  - **"what if"**, **"what happens"**, **"impact of"** -> `impact`
+  - **"what's missing"**, **"gaps in"**, **"overlooking"** -> `gaps`
+  - Everything else -> `perspectives`
+
+  ---
+
+  ## Error Handling
+
+  - **"AI not configured"** - Set `ANTHROPIC_API_KEY` environment variable
+  - **"Workspace not initialized"** - Run `synthesis init` then `synthesis scan`
+  - **Perspective count clamped** - Automatically adjusted to 2-7 range if out of bounds
+  - **Analysis takes long** - Complex questions with many context docs may take 5-15 seconds
+
+  ---
+
+  ## Pro Tips
+
+  1. **Auto mode is usually right:** Let Synthesis detect the mode unless you specifically want a different analysis style.
+
+  2. **4 perspectives is the sweet spot:** Default of 4 gives good coverage without overwhelming. Use 2 for quick, 6-7 for thorough.
+
+  3. **Ask first, then perspectives:** Use `ask` to get oriented, then `perspectives` for strategic decisions.
+
+  4. **Verbose reveals grounding:** Use `--verbose` to see which files informed the analysis.
+
+  5. **Gap analysis finds blind spots:** When you feel "something is off" but cannot pinpoint it, use `--mode gaps`.
+
+  6. **Impact analysis for changes:** Before any significant change, run impact analysis to understand ripple effects.
+
+  7. **Comparison for technology choices:** Any "A vs B" decision benefits from structured comparison.
+
+  8. **Re-run with different perspective counts:** Increasing from 4 to 6 perspectives can reveal additional insights.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After perspectives analysis:
+  - "Want to dive deeper into one perspective?" -> Use `synthesis-ask-workspace` skill
+  - "Want to see the files mentioned?" -> Use Read tool on cited paths
+  - "Want metrics to support the analysis?" -> Use `synthesis-insights-metrics` skill
+  - "Want to check architecture implications?" -> Use `synthesis-architecture-monitoring` skill
+  - "Want to explain specific code involved?" -> Use `synthesis-explain-code` skill
+
+  ---
+
+  **Last updated:** February 16, 2026

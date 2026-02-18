@@ -1,0 +1,252 @@
+name: synthesis-track-movements
+version: 1.0.0
+description: |
+  Track file movements across workspaces using hash-based detection.
+  Monitor moves, renames, and deletions with safety periods and audit trails.
+  New in Synthesis v1.3.0.
+
+trigger_phrases:
+  - "track files"
+  - "file movements"
+  - "moved files"
+  - "synthesis track"
+  - "file tracking"
+  - "track movement"
+  - "cleanup files"
+
+instructions: |
+  # Synthesis Track - File Movement Tracking (v1.3.0+)
+
+  **Purpose:** Track file movements across workspaces using content-hash-based detection. Monitors moves, renames, and deletions with a 7-day safety period before cleanup eligibility. Provides full audit trails.
+  **New in:** Synthesis v1.3.0 (PR #18, Feb 16, 2026)
+  **Database:** Uses SQLite with 6 new tables (Flyway V3 migration)
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--status <status>` - Filter by status: `detected`, `confirmed`, `cleanup_eligible`, `cleaned`
+  - `--cleanup` - Show cleanup-eligible files (past safety period) and process expired safety periods
+  - `--confirm <id>` - Confirm cleanup of a specific movement by ID
+  - `--audit <hash>` - Show full audit trail for a content hash
+  - `--since <duration>` - Show movements since duration: `7d` (default), `24h`, `30d`, `2w`
+  - `-v, --verbose` - Show detailed output including audit log entries
+
+  ---
+
+  ## Movement Status Lifecycle
+
+  ```
+  DETECTED -> CONFIRMED -> CLEANUP_ELIGIBLE -> CLEANED
+       \                                          /
+        \-> REVERTED (file returned to original location)
+  ```
+
+  | Status | Meaning | Auto/Manual |
+  |--------|---------|-------------|
+  | `detected` | Movement found by hash matching | Auto (during maintain/scan) |
+  | `confirmed` | User acknowledged the movement | Manual |
+  | `cleanup_eligible` | Past 7-day safety period | Auto (when --cleanup run) |
+  | `cleaned` | Cleanup confirmed by user | Manual (`--confirm <id>`) |
+  | `reverted` | File moved back to original location | Auto |
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Show recent movements (last 7 days)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track 2>/dev/null
+  ```
+
+  **Example output:**
+  ```
+  Synthesis - File Movement Tracking
+
+  Recent movements (3):
+
+  #42 [detected] 2026-02-15 14:30 hash_match
+    From: Documents:eXOReaction/drafts/proposal.pdf
+    To:   Documents:eXOReaction/clients/ItemConsulting/proposal.pdf
+    Size: 2.4 MB | Hash: a3f8b2c1...
+    Safety: expires 2026-02-22 14:30
+
+  #41 [cleanup_eligible] 2026-02-10 09:15 hash_match
+    From: Downloads:contract-template.docx
+    To:   Documents:eXOReaction/business/templates/contract-template.docx
+    Size: 156 KB | Hash: 7e2d9f4a...
+    Safety: EXPIRED
+
+  #40 [cleaned] 2026-02-08 11:00 hash_match
+    From: Documents:old-readme.md
+    To:   (deleted)
+    Size: 4.2 KB | Hash: 1b5c8e3d...
+    Safety: EXPIRED
+
+  Summary: 1 detected, 0 confirmed, 1 cleanup-eligible
+  ```
+
+  ### 2. Show movements in last 30 days
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --since 30d 2>/dev/null
+  ```
+
+  ### 3. Show movements in last 24 hours
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --since 24h 2>/dev/null
+  ```
+
+  ### 4. Show only detected (unconfirmed) movements
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --status detected 2>/dev/null
+  ```
+
+  ### 5. Show cleanup-eligible files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --cleanup 2>/dev/null
+  ```
+
+  **Effect:** Also processes expired safety periods (transitions DETECTED -> CLEANUP_ELIGIBLE for movements past 7 days).
+
+  ### 6. Confirm cleanup of a specific movement
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --confirm 42 2>/dev/null
+  ```
+
+  **Effect:** Marks movement #42 as CLEANED with audit entry "Cleanup confirmed by user".
+
+  ### 7. View audit trail for a content hash
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --audit a3f8b2c1 2>/dev/null
+  ```
+
+  **Shows all movements of a file (identified by content hash), including:**
+  - Source and target locations
+  - Status transitions
+  - Timestamps
+
+  ### 8. Verbose audit trail (with log entries)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --audit a3f8b2c1 --verbose 2>/dev/null
+  ```
+
+  **Additional output with --verbose:**
+  ```
+  Audit trail for hash: a3f8b2c1
+    #42 [detected] 2026-02-15 14:30
+      From: Documents:eXOReaction/drafts/proposal.pdf
+      To:   Documents:eXOReaction/clients/ItemConsulting/proposal.pdf
+        2026-02-15 14:30 [DETECTED] Hash match found during maintain
+        2026-02-15 14:35 [STATUS_CHANGE] detected -> confirmed
+  ```
+
+  ### 9. Show movements in last 2 weeks
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --since 2w 2>/dev/null
+  ```
+
+  ### 10. Filter by confirmed status
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis track --status confirmed 2>/dev/null
+  ```
+
+  ---
+
+  ## How Movement Detection Works
+
+  1. **Hash computation:** When files are scanned, their content hashes (SHA-256) are stored
+  2. **During maintain/scan:** If a file disappears from one location but its hash appears in another, a movement is detected
+  3. **Safety period:** 7 days before a detected movement becomes cleanup-eligible
+  4. **Audit trail:** Every status change is logged with timestamp and details
+  5. **Cross-workspace:** Tracks movements between different workspaces (Documents <-> Downloads)
+
+  ---
+
+  ## Safety Period
+
+  The 7-day safety period prevents premature cleanup:
+  - File moved on Feb 15 -> Cleanup eligible Feb 22
+  - During safety period: File can be reverted without data loss
+  - After safety period: File marked as cleanup-eligible
+  - User confirms: File marked as cleaned
+
+  **Configurable:** Safety period is set in the code (default: 7 days).
+
+  ---
+
+  ## Integration with Maintain Command
+
+  File tracking is automatically integrated into the `maintain` command:
+  ```bash
+  synthesis maintain 2>/dev/null
+  ```
+  This runs movement detection as part of regular workspace maintenance.
+
+  ---
+
+  ## Duration Format
+
+  | Format | Meaning | Example |
+  |--------|---------|---------|
+  | `Nh` | N hours ago | `24h` = last 24 hours |
+  | `Nd` | N days ago | `7d` = last 7 days (default) |
+  | `Nw` | N weeks ago | `2w` = last 2 weeks |
+
+  ---
+
+  ## Error Handling
+
+  - **"No file movements detected"** - No movements in the specified period; this is normal for stable workspaces
+  - **"Track command failed"** - Database issue; check `.synthesis/` directory permissions
+  - **Invalid --confirm ID** - Movement ID does not exist; use `synthesis track` to see valid IDs
+  - **Invalid --audit hash** - No movements found for that hash; try a different hash prefix
+
+  ---
+
+  ## Pro Tips
+
+  1. **Regular maintenance:** Run `synthesis maintain` regularly - it auto-detects file movements.
+
+  2. **Check before cleanup:** Always use `synthesis track --cleanup` to review before confirming.
+
+  3. **Audit for compliance:** The audit trail provides forensic evidence of file locations over time.
+
+  4. **Cross-workspace visibility:** Track files moving between Downloads (staging) and Documents (permanent).
+
+  5. **Hash-based = content-aware:** Renaming a file without changing content is detected as a movement, not a new file.
+
+  6. **Safety period protects:** The 7-day safety period prevents accidental cleanup of files that are still being reorganized.
+
+  7. **Verbose for debugging:** Use `--verbose` with `--audit` to see the full timeline of status changes.
+
+  8. **Combine with changelog:** Use `synthesis changelog` for change overview, `synthesis track` for specific file movements.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After tracking movements:
+  - "See what changed overall?" -> Use `synthesis-changelog-reports` skill
+  - "Search for a moved file?" -> Use `synthesis-search-workspace` skill
+  - "Check staging area?" -> Use `synthesis-staging-management` skill
+  - "Manage workspace structure?" -> Use `synthesis-subworkspace-navigation` skill
+
+  ---
+
+  **Last updated:** February 16, 2026
