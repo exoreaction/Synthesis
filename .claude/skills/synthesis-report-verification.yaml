@@ -1,0 +1,309 @@
+name: synthesis-report-verification
+version: 1.1.0
+description: How to verify synthesis report command quality, find document discovery issues, and write report module tests. Includes configurable outputDir feature documentation.
+created: 2026-02-18
+tags:
+  - synthesis
+  - report
+  - testing
+  - verification
+  - qa
+
+instructions: |
+  # Synthesis Report Verification Guide
+
+  **Context:** The `synthesis report` command generates AI business reports from workspace documents.
+  This guide captures learnings from a systematic verification run (Feb 18, 2026) that found
+  18 issues across 8 test phases. Use this skill when:
+  - Verifying report quality after code changes
+  - Writing tests for the report module
+  - Debugging document discovery issues
+
+  ---
+
+  ## Key Architecture Facts
+
+  **Multi-pass synthesis:**
+  - `--topic weekly/executive`: 4 passes (pipeline → activities → decisions → executive)
+  - `--topic pipeline/activities/decisions`: 1 pass (truncation risk with large docs)
+  - `--product/--client`: 2 passes (evidence → synthesis)
+
+  **Document discovery:**
+  - `BusinessDocumentFinder.java`: keyword matching on filename + path
+  - `EntityDocumentFinder.java`: entity-name matching for --product/--client
+  - Period parameter NOT used for filtering — only injected into prompt text (#46)
+
+  **Cache key:** workspace_path + topic + target + period + document_fingerprint
+  - Fingerprint = hash of discovered doc paths + mtimes
+  - If PIPELINE-STATUS.md is touched → new fingerprint → cache miss → fresh generation
+
+  **Auto-save path logic:**
+  - Entity reports (`--client`/`--product`): always co-locate at `<entity>/reports/<date>-<topic>-<target>.md`
+  - Business topic reports: use `report.outputDir` from config (default: `.synthesis/reports/`)
+  - `--no-save` or `--output` → auto-save suppressed
+
+  **Configurable output directory (v1.8.4+):**
+  ```yaml
+  # .synthesis/config.yaml
+  report:
+    outputDir: "reports"         # relative to workspace root
+    # outputDir: "/abs/path"     # or absolute path
+    # (omit = .synthesis/reports/)
+  ```
+  - `WorkspaceManager.getReportsPath(SynthesisConfig)` is the single resolution point
+  - Relative paths resolved against workspace root; absolute used as-is
+  - Both `synthesis report` and `synthesis research` respect this setting
+  - Entity co-location (`--client`/`--product`) is NOT affected by `outputDir`
+
+  ---
+
+  ## Verification Command Sequence
+
+  ```bash
+  # 1. Setup
+  synthesis --version  # confirm version
+  synthesis report --cache-clear  # start fresh
+
+  # 2. Cost estimate (before AI calls)
+  synthesis report --estimate
+  synthesis report --topic executive --estimate
+  synthesis report --product Synthesis --estimate
+
+  # 3. Core topics
+  synthesis report --topic pipeline --verbose
+  synthesis report --topic activities --verbose
+  synthesis report --topic decisions --verbose
+  synthesis report --topic weekly --verbose
+  synthesis report --topic executive --verbose
+
+  # 4. Target audience variations
+  synthesis report --topic pipeline --target ceo
+  synthesis report --topic pipeline --target board
+  synthesis report --topic pipeline --target investor
+
+  # 5. Period coverage
+  synthesis report --topic activities --period 1w
+  synthesis report --topic activities --period 2w
+  synthesis report --topic activities --period 1m
+
+  # 6. Product reports
+  synthesis report --product Synthesis --verbose
+  synthesis report --product "xorcery-aaa" --verbose
+  synthesis report --product lib-pcb --verbose
+
+  # 7. Client reports
+  synthesis report --client Mynder --verbose
+  synthesis report --client "SpareBank 1" --verbose
+  synthesis report --client Elprint --verbose
+
+  # 8. Cache verification
+  synthesis report --topic pipeline          # should be instant (cache hit)
+  synthesis report --topic pipeline          # confirm "Loaded from cache"
+  synthesis report --cache-stats            # check hit counts
+  synthesis report --topic pipeline --no-cache  # should re-generate AND re-store
+
+  # 9. Edge cases
+  synthesis report --product NonExistentProduct  # expect error, not hallucination
+  synthesis report --client NonExistentClient    # expect clean error message
+  synthesis report --product Synthesis --client Mynder  # expect mutual-exclusion error
+  synthesis report --target invalid         # expect validation error
+  synthesis report --period 3w              # expect validation error
+  synthesis report --topic pipeline --output /tmp/test-report.md
+  ```
+
+  ---
+
+  ## Known Issues (as of Feb 18, 2026)
+
+  ### Fixed (v1.8.4-SNAPSHOT, in-progress PR)
+  - **report.outputDir**: `SynthesisConfig.ReportConfig` + `WorkspaceManager.getReportsPath(config)`.
+    Entity co-location unaffected. 1,054 tests passing.
+
+  ### Fixed (v1.8.3-SNAPSHOT, PR #55)
+  - **#40 Date hallucination**: AI generated past deadlines (Jan 17) because prompts had no
+    current-date injection. Fixed: `todayForPrompt()` injects today's date dynamically.
+  - **#41 --no-cache skips write**: `--no-cache` also skipped cache write. Fixed: always writes.
+
+  ### Open P1
+  - **#42 Non-deterministic recommendations**: `--topic weekly` and `--topic executive` produce
+    opposite recommendations for same documents (temp=default → AI variance).
+
+  ### Open P2 (document discovery)
+  - **#43 Pipeline false positive**: `multi-stage-pipeline-architecture.yaml` matched by
+    `fileName.contains("pipeline")` in `BusinessDocumentFinder.matchesPatterns()`
+  - **#44 Single-pass truncation**: activities/decisions truncate silently at maxTokensPerPass
+  - **#45 Personal events false positive**: `personal/events/sommerfest.md` matched by
+    `fullPath.contains("/events/")`
+  - **#46 Period has no effect**: `discover()` has no period parameter; period only in prompt text
+  - **#47 --product non-existent → hallucination**: `discoverForProduct()` has no empty guard
+  - **#48 Stale urgency**: source docs have hardcoded past deadlines; date fix helps but doesn't
+    cure stale source content
+  - **#49 Product misses dev history**: changelogs, PRs, git activity not discovered
+
+  ### Open P3
+  - **#50 PDF decks as events**: presentation PDFs in event dirs classified as events
+  - **#51 Archive docs weighted equally**: old strategy docs weighted same as current
+  - **#52 lib-pcb cross-contamination**: jme3-gotchas.md discovered in lib-pcb product report
+  - **#53 --estimate uses hardcoded tokens**: not based on actual prompt construction
+
+  ### Meta
+  - **#54 Report module test coverage**: PR #55 started with 38 tests; needs much more
+
+  ---
+
+  ## Writing Report Module Tests
+
+  **Test directory:** `src/test/java/io/exoreaction/synthesis/report/`
+
+  **Pattern for ReportDocument:**
+  ```java
+  new ReportDocument(
+      Path.of("/workspace/test-doc.md"),  // path
+      "test-doc.md",                      // relativePath
+      "pipeline",                         // category
+      "Sample content",                   // content
+      Instant.now(),                      // lastModified
+      30L                                 // sizeBytes
+  )
+  ```
+
+  **Pattern for ReportCacheTest (in-memory SQLite):**
+  ```java
+  @BeforeEach void setUp() throws Exception {
+      Class.forName("org.sqlite.JDBC");
+      connection = DriverManager.getConnection("jdbc:sqlite::memory:");
+      applyV8Schema(connection);  // CREATE TABLE report_cache (...)
+      cache = new ReportCache(connection);
+  }
+  ```
+
+  **Pattern for @TempDir workspace tests (BusinessDocumentFinder):**
+  ```java
+  @TempDir Path workspaceRoot;
+
+  @Test void pipeline_excludes_technical_architecture_files() throws IOException {
+      // Create test workspace structure
+      Path businessDir = workspaceRoot.resolve("eXOReaction/business");
+      Files.createDirectories(businessDir);
+      Files.writeString(businessDir.resolve("PIPELINE-STATUS.md"), "# Pipeline");
+
+      Path skillsDir = workspaceRoot.resolve("eXOReaction/skills");
+      Files.createDirectories(skillsDir);
+      Files.writeString(skillsDir.resolve("multi-stage-pipeline-architecture.yaml"), "stages:");
+
+      List<ReportDocument> docs = new BusinessDocumentFinder().discover(workspaceRoot, ReportTopic.PIPELINE);
+
+      assertTrue(docs.stream().anyMatch(d -> d.relativePath().contains("PIPELINE-STATUS.md")));
+      assertFalse(docs.stream().anyMatch(d -> d.relativePath().contains("architecture.yaml")));
+  }
+  ```
+
+  **Existing test classes (Feb 18, 2026):**
+  - `WorkspaceManagerTest` — 5 tests: default path, relative outputDir, absolute outputDir, null config, blank outputDir
+  - `ReportAutoSaveTest` — 11 tests: entity co-location, topic → `.synthesis/reports/`, configuredOutputDir, default fallback, absolute path
+
+  **Key test cases still needed:**
+  - `BusinessDocumentFinderTest`: pipeline false positive, personal events, strategy archive
+  - `EntityDocumentFinderTest`: non-existent product returns empty (not hallucination)
+  - `ReportCommandTest` (CLI): period validation, target validation, mutual exclusion
+
+  ---
+
+  ## Document Discovery Root Causes
+
+  In `BusinessDocumentFinder.java`:
+
+  **Pipeline false positive** — `matchesPatterns()` line ~218:
+  ```java
+  if (fileName.contains(pattern))  // "pipeline" matches any filename with "pipeline"
+  ```
+  Fix: add path exclusion for `/skills/`, `/methodology/`, `/docs/technical/`
+
+  **Personal events false positive** — event category check:
+  ```java
+  fullPath.contains("/events/")  // matches personal/events/ too
+  ```
+  Fix: add `&& !fullPath.contains("/personal/")`
+
+  **Period not filtering docs** — `discover()` signature:
+  ```java
+  public List<ReportDocument> discover(Path workspaceRoot, ReportTopic topic)
+  // No period parameter! Period only in prompt text.
+  ```
+  Fix: add period param, filter by `Files.getLastModifiedTime(path)`
+
+  ---
+
+  ## Validation Checklist Per Report
+
+  **Pipeline report:**
+  - [ ] PIPELINE-STATUS.md discovered ✅
+  - [ ] No technical architecture files (YAML with "pipeline" in name) ❌ known issue #43
+  - [ ] Numbers match PIPELINE-STATUS.md exactly (spot-check)
+  - [ ] Deadlines are future dates (not past) — fixed in v1.8.3
+
+  **Activities report:**
+  - [ ] ACTIVITY-LOG.md discovered ✅
+  - [ ] No personal/events/ content ❌ known issue #45
+  - [ ] Content not truncated mid-section ❌ known issue #44
+  - [ ] Period coverage matches requested period (NOTE: doesn't actually filter) ❌ #46
+
+  **Client reports (--client):**
+  - [ ] Correct opportunity directory discovered (e.g., opportunity-Mynder/)
+  - [ ] Deadlines are future dates — fixed in v1.8.3
+  - [ ] Non-existent client returns clean error (not hallucination) ✅
+
+  **Product reports (--product):**
+  - [ ] Product directory discovered
+  - [ ] Dev history (changelog, PRs) included ❌ known issue #49
+  - [ ] Non-existent product returns error (not hallucination) ❌ known issue #47
+  - [ ] No unrelated files (jme3-gotchas.md etc.) ❌ known issue #52
+
+  ---
+
+  ## Using Synthesis to Explore Report Codebase
+
+  Always use `synthesis` for codebase exploration (dogfood the product):
+  ```bash
+  # Find document discovery logic
+  synthesis -d /src/exoreaction/Synthesis search "BusinessDocumentFinder pipeline"
+
+  # Find test patterns
+  synthesis -d /src/exoreaction/Synthesis search "TempDir ReportDocument"
+
+  # Find all report classes
+  synthesis -d /src/exoreaction/Synthesis search "report package discovery"
+
+  # Understand cache schema
+  synthesis -d /src/exoreaction/Synthesis search "V8 report_cache migration"
+  ```
+
+  ---
+
+  ## Verification Run Reference
+
+  Full results documented at:
+  `/home/totto/Documents/Synthesis/reports/REPORT-VERIFICATION-2026-02-18.md`
+
+  Issues created: #40 (closed/fixed), #41 (open/fixed in PR #55), #42-#54 (open)
+  PR: https://github.com/exoreaction/Synthesis/pull/55
+
+related_skills:
+  - synthesis-product-context
+  - synthesis-development
+  - executive-report-generator
+
+version_history:
+  - version: 1.1.0
+    date: 2026-02-18
+    changes:
+      - "Add report.outputDir feature documentation (config, resolution, entity exception)"
+      - "Update Known Issues with v1.8.4 fix for configurable output directory"
+      - "Document existing test classes: WorkspaceManagerTest (5) + ReportAutoSaveTest (11)"
+  - version: 1.0.0
+    date: 2026-02-18
+    changes:
+      - "Initial creation from Feb 18 verification run (18 issues found, 2 fixed)"
+      - "Documents all known issues with root causes and code references"
+      - "Includes test patterns for in-memory SQLite, @TempDir, BusinessDocumentFinder"
+      - "Includes verification command sequence (8 phases)"

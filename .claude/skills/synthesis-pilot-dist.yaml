@@ -1,0 +1,221 @@
+name: synthesis-pilot-dist
+version: 1.0.0
+description: Create a personalized Synthesis pilot distribution zip for a named recipient
+
+trigger_phrases:
+  - "create pilot distribution"
+  - "make pilot zip"
+  - "pilot dist"
+  - "synthesis pilot for"
+  - "distribution zip"
+
+instructions: |
+  # Synthesis Pilot Distribution Builder
+
+  Creates a personalized `synthesis-{name}.zip` for a named pilot recipient.
+  The zip contains the latest install/update/uninstall scripts plus
+  customized README, QUICKSTART, INSTALL-FIRST, and VERSION docs.
+
+  ## Step 1: Get Recipient Name
+
+  If the user didn't supply a name (e.g. `/pilot-dist gunnar`), ask for it.
+  Name should be lowercase, no spaces (e.g. `gunnar`, `xesca`, `daniel`).
+
+  ## Step 2: Determine Current Release Version
+
+  Read from the project pom.xml:
+  ```bash
+  grep -m1 '<version>' /src/exoreaction/Synthesis/pom.xml
+  ```
+  The SNAPSHOT version tells you what's in development; the last release tag
+  is one patch behind. Also confirm with:
+  ```bash
+  git -C /src/exoreaction/Synthesis tag --sort=-version:refname | grep '^synthesis-' | head -5
+  ```
+  Use the most recent release tag (e.g. `synthesis-1.8.4` → version `1.8.4`).
+
+  ## Step 3: Collect New Features Since Last Pilot
+
+  Check git log to understand what has changed since the version used in the
+  previous pilot (visible in the existing `/tmp/synthesis-*.zip` files or
+  by asking the user). Extract the top 3–5 headline features for VERSION.txt.
+
+  ```bash
+  git -C /src/exoreaction/Synthesis log --oneline synthesis-{prev}..synthesis-{current} | grep -v 'maven-release-plugin'
+  ```
+
+  ## Step 4: Create Working Directory and Copy Scripts
+
+  ```bash
+  NAME={name}
+  DIST=/tmp/synthesis-${NAME}
+  mkdir -p ${DIST}
+
+  # Copy latest scripts from bin/
+  cp /src/exoreaction/Synthesis/bin/install.sh   ${DIST}/
+  cp /src/exoreaction/Synthesis/bin/install.ps1  ${DIST}/
+  cp /src/exoreaction/Synthesis/bin/update.sh    ${DIST}/
+  cp /src/exoreaction/Synthesis/bin/update.ps1   ${DIST}/
+  cp /src/exoreaction/Synthesis/bin/uninstall.sh ${DIST}/
+  cp /src/exoreaction/Synthesis/bin/uninstall.ps1 ${DIST}/
+
+  # Copy project README
+  cp /src/exoreaction/Synthesis/README.md ${DIST}/
+  ```
+
+  ## Step 5: Write VERSION.txt
+
+  Use the Write tool to create `/tmp/synthesis-{name}/VERSION.txt`:
+
+  ```
+  Synthesis Installation Package
+  Version: {VERSION}
+  Release Date: {TODAY}
+  Package: synthesis-{name}.zip
+
+  What's New in v{VERSION}:
+  ─────────────────────────────────────────────────────
+  ✨ {Feature 1} (NEW)
+    - {detail}
+    - Command: synthesis {cmd}
+
+  ✨ {Feature 2}
+    - {detail}
+    - Command: synthesis {cmd}
+
+  [... top 3-5 features ...]
+
+  Previous Releases:
+  ─────────────────────────────────────────────────────
+  v{prev} - {brief description}
+  [... 3-4 previous release lines ...]
+
+  For full changelog, see:
+  https://github.com/exoreaction/Synthesis/releases
+  ```
+
+  ## Step 6: Write INSTALL-FIRST.txt
+
+  Use the Write tool to create `/tmp/synthesis-{name}/INSTALL-FIRST.txt`.
+  Base it on the standard template — only the version number and the
+  "AFTER INSTALL" featured command need updating per release:
+
+  ```
+  ╔══════════════════════════════════════════════════════════════════════╗
+  ║                                                                      ║
+  ║                   SYNTHESIS INSTALLATION PACKAGE                     ║
+  ║                         v{VERSION} — Pilot                          ║
+  ║                                                                      ║
+  ║                  AI Operations Partner for Knowledge                 ║
+  ║                                                                      ║
+  ╚══════════════════════════════════════════════════════════════════════╝
+
+  📦 What's in this package:
+
+    ✓ install.sh / install.ps1      - Installation scripts
+    ✓ update.sh / update.ps1        - Update scripts
+    ✓ uninstall.sh / uninstall.ps1  - Uninstall scripts
+    ✓ README.md                     - Full installation guide
+    ✓ QUICKSTART.md                 - 5-minute getting started
+    ✓ VERSION.txt                   - What's new in v{VERSION}
+
+  ─────────────────────────────────────────────────────────────────────
+
+  🚀 QUICK INSTALL:
+
+    Linux / macOS:
+      1. Open Terminal
+      2. Navigate to this directory
+      3. Run: chmod +x install.sh && ./install.sh
+
+    Windows:
+      1. Open PowerShell
+      2. Navigate to this directory
+      3. Run: Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+      4. Run: .\install.ps1
+
+  ─────────────────────────────────────────────────────────────────────
+
+  📋 REQUIREMENTS:
+
+    ✓ Java 17 or later (required)
+    ✓ Internet connection (for downloading JARs)
+    ✓ ~200MB disk space
+
+    Check Java: java -version
+    Install:    https://adoptium.net/
+
+  ─────────────────────────────────────────────────────────────────────
+
+  📖 AFTER INSTALL:
+
+    1. Read QUICKSTART.md (5 minutes)
+    2. Run: synthesis init
+    3. Run: synthesis maintain
+    4. Run: synthesis search "your query"
+    5. Run: synthesis {headline-new-command}    ← new in v{VERSION}
+
+  ─────────────────────────────────────────────────────────────────────
+
+  🆘 NEED HELP?
+
+    • Check README.md for troubleshooting
+    • GitHub: https://github.com/exoreaction/Synthesis
+    • Contact: thor.henning.hetland@exoreaction.com
+
+  ─────────────────────────────────────────────────────────────────────
+
+  Built by eXOReaction AS — https://exoreaction.com
+  ```
+
+  ## Step 7: Write QUICKSTART.md
+
+  Use the Write tool to create `/tmp/synthesis-{name}/QUICKSTART.md`.
+  Include:
+  - Version header: `**Up and running in 5 minutes — v{VERSION} Pilot**`
+  - Sections: Install, Index First Project, Search & Understand
+  - A highlighted section for the top new feature(s) with `← New in v{VERSION}`
+  - Deep Research Reports section (always include, it's popular)
+  - Enable AI Features section (export key + `synthesis credentials set`)
+  - Multi-Workspace section
+  - Key Commands Reference table (update with new commands)
+  - Troubleshooting
+
+  ## Step 8: Create the Zip
+
+  ```bash
+  cd /tmp && zip -r synthesis-{name}.zip synthesis-{name}/
+  ```
+
+  Verify contents:
+  ```bash
+  unzip -l /tmp/synthesis-{name}.zip
+  ```
+
+  Expected: 11 files (6 scripts + README + QUICKSTART + INSTALL-FIRST + VERSION + dir entry).
+
+  ## Step 9: Report to User
+
+  ```
+  ✅ /tmp/synthesis-{name}.zip created
+
+  Contents:
+    synthesis-{name}/install.sh (.ps1)
+    synthesis-{name}/update.sh (.ps1)
+    synthesis-{name}/uninstall.sh (.ps1)
+    synthesis-{name}/README.md
+    synthesis-{name}/QUICKSTART.md
+    synthesis-{name}/INSTALL-FIRST.txt
+    synthesis-{name}/VERSION.txt
+
+  Version: {VERSION}
+  Size: {size}
+  ```
+
+  ## Key Paths
+
+  - Project root: `/src/exoreaction/Synthesis`
+  - Scripts source: `/src/exoreaction/Synthesis/bin/`
+  - README source: `/src/exoreaction/Synthesis/README.md`
+  - Output: `/tmp/synthesis-{name}.zip`
+  - Previous examples: `/tmp/synthesis-xesca.zip`, `/tmp/synthesis-daniel/`

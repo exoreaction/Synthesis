@@ -1,0 +1,300 @@
+name: synthesis-enrich-media
+version: 1.0.0
+description: |
+  Make binary media files searchable by generating companion metadata files.
+  Supports videos, images, PDFs, and audio with multi-tier enrichment.
+
+trigger_phrases:
+  - "enrich media"
+  - "make searchable"
+  - "analyze video"
+  - "synthesis enrich"
+  - "companion files"
+  - "enrich binary files"
+  - "media enrichment"
+
+instructions: |
+  # Synthesis Enrich - Make Media Files Searchable
+
+  **Purpose:** Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs, audio) to make them fully text-searchable. After enrichment and re-scanning, `synthesis search` can find content within binary files.
+  **Privacy:** Local-only processing available (BASIC and LOCAL tiers). No cloud required.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> enrich [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--type <type>` - Only enrich files of this type: `video`, `image`, `pdf`, `audio`
+  - `--level <level>` - Enrichment level: `basic`, `local`, `ai` (default: auto-detect)
+  - `--force` - Regenerate companion files even if they already exist
+  - `--dry-run` - Show what would be generated without writing files
+  - `--stats` - Show enrichment coverage statistics only
+  - `-v, --verbose` - Show detailed per-file output
+
+  ---
+
+  ## Enrichment Tier Model
+
+  ```
+  +----------+--------------------------------------------+
+  |  BASIC   | Deterministic metadata only                |
+  |          | Works everywhere, zero dependencies        |
+  +----------+--------------------------------------------+
+  |  LOCAL   | BASIC + Local tools (Whisper, Tesseract)   |
+  |          | Air-gapped, privacy-first                  |
+  +----------+--------------------------------------------+
+  |    AI    | LOCAL + Cloud AI (Claude Vision)            |
+  |          | Requires API key and network               |
+  +----------+--------------------------------------------+
+  ```
+
+  **Auto-detect:** If no `--level` specified, Synthesis detects the maximum available tier:
+  - Has Whisper + Tesseract? -> LOCAL
+  - Has ANTHROPIC_API_KEY? -> AI
+  - Neither? -> BASIC
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Enrich all binary files (auto-detect level)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich 2>/dev/null
+  ```
+
+  ### 2. Show enrichment coverage statistics
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --stats 2>/dev/null
+  ```
+
+  **Output:**
+  ```
+  Enrichment Coverage Statistics
+  ----------------------------------------
+  Total binary files:     656
+  With companion file:    142
+  Without companion file: 514
+  Coverage:               21.6%
+
+  By type:
+    PDF        452 files
+    IMAGE      120 files
+    VIDEO       68 files
+    AUDIO       16 files
+  ```
+
+  ### 3. Enrich only video files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --type video 2>/dev/null
+  ```
+
+  ### 4. Enrich only PDFs
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --type pdf 2>/dev/null
+  ```
+
+  ### 5. Force basic enrichment (no AI, no local tools)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --level basic 2>/dev/null
+  ```
+
+  ### 6. Force AI-level enrichment
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --level ai 2>/dev/null
+  ```
+
+  ### 7. Dry run (preview what would be generated)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --dry-run 2>/dev/null
+  ```
+
+  ### 8. Force regeneration of existing companion files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --force 2>/dev/null
+  ```
+
+  ### 9. Verbose output (see per-file processing)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents enrich --verbose 2>/dev/null
+  ```
+
+  ### 10. Enrich Pictures workspace images
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Pictures enrich --type image 2>/dev/null
+  ```
+
+  ---
+
+  ## Companion File Format
+
+  For each binary file (e.g., `video.mp4`), a companion file `video.mp4.synthesis.md` is generated:
+
+  ```markdown
+  # video.mp4
+
+  ## Metadata
+  - **Type:** VIDEO
+  - **Size:** 45.2 MB
+  - **Duration:** 5:23
+  - **Resolution:** 1920x1080
+  - **Codec:** H.264/AAC
+
+  ## Description
+  [AI-generated description if AI level, or metadata-based summary]
+
+  ## Transcript
+  [Whisper transcription if LOCAL level or higher]
+
+  ## Related Files
+  - video-transcript.md (transcript)
+  - video-slides.pdf (slides)
+  ```
+
+  ---
+
+  ## What Each Level Provides
+
+  | Feature | BASIC | LOCAL | AI |
+  |---------|-------|-------|----|
+  | File metadata (size, format) | Yes | Yes | Yes |
+  | Video metadata (duration, resolution) | Yes | Yes | Yes |
+  | Image dimensions | Yes | Yes | Yes |
+  | Speech-to-text transcription | No | Yes (Whisper) | Yes |
+  | OCR text extraction | No | Yes (Tesseract) | Yes |
+  | PDF text extraction | No | Yes (Poppler+Tesseract) | Yes |
+  | AI-generated descriptions | No | No | Yes |
+  | Content analysis | No | No | Yes |
+
+  ---
+
+  ## Local Tool Installation (Optional)
+
+  For LOCAL-level enrichment:
+  ```bash
+  # Speech-to-text (Whisper)
+  sudo apt install whisper-cpp   # or: pip install openai-whisper
+
+  # OCR (Tesseract)
+  sudo apt install tesseract-ocr
+
+  # PDF conversion (Poppler)
+  sudo apt install poppler-utils
+  ```
+
+  **Performance (LOCAL tier):**
+  - Whisper: ~5-10 sec per minute of audio (whisper.cpp is 100x faster than Python)
+  - Tesseract: ~1-2 sec per 1920x1080 image
+  - PDF (Poppler): ~1-2 sec per page at 300 DPI
+
+  ---
+
+  ## Workflow: Enrich Then Search
+
+  ```bash
+  # Step 1: Enrich binary files
+  synthesis enrich 2>/dev/null
+
+  # Step 2: Re-scan to index companion files
+  synthesis scan 2>/dev/null
+
+  # Step 3: Now search finds content in binary files!
+  synthesis search "quarterly report" 2>/dev/null
+  # -> Finds: reports/Q4-2025.pdf.synthesis.md (matched via OCR text)
+  ```
+
+  ---
+
+  ## Related File Detection
+
+  The enrichment process automatically detects related files:
+  - **Naming conventions:** `video.mp4` + `video-transcript.md` -> linked as transcript
+  - **Subtitle files:** `video.mp4` + `video.srt` or `video.vtt` -> linked as subtitles
+  - **Thumbnails:** `video.mp4` + `video-thumb.png` -> linked as thumbnail
+  - **Slides:** `presentation.mp4` + `presentation-slides.pdf` -> linked as slides
+  - **Notes:** `recording.mp4` + `recording-notes.md` -> linked as notes
+
+  ---
+
+  ## Compliance
+
+  LOCAL-tier enrichment is fully compliant with:
+  - **HIPAA** - Healthcare (local processing only)
+  - **PCI-DSS** - Financial (no data transmission)
+  - **GDPR** - EU data privacy (privacy-first architecture)
+  - **Air-gapped** - Government/classified environments
+
+  ---
+
+  ## Error Handling
+
+  - **"No binary files found"** - Workspace may not contain video/image/PDF/audio files, or use `--type` filter
+  - **"No files in index"** - Run `synthesis scan` first
+  - **"AI enrichment requested but no API key"** - Falls back to BASIC automatically
+  - **"File not found"** - File may have been moved since last scan; re-scan first
+  - **Progress indicator** - Every 10 files, progress is printed to stdout
+
+  ---
+
+  ## Pro Tips
+
+  1. **Start with --stats:** Check coverage before enriching to understand the scope.
+
+  2. **Use --dry-run first:** Preview what will be generated before committing.
+
+  3. **Enrich by type:** Process videos, images, PDFs separately for better control.
+
+  4. **BASIC is fine for metadata:** If you just need file metadata searchable, BASIC is instant and requires nothing.
+
+  5. **Re-scan after enrichment:** Always run `synthesis scan` after `enrich` to index the new companion files.
+
+  6. **Force for updates:** Use `--force` when you want to regenerate companion files (e.g., after upgrading enrichment tools).
+
+  7. **Videos are the biggest win:** Video transcription makes hours of content searchable in seconds.
+
+  8. **PDFs already have some text:** Many PDFs have embedded text; enrichment adds OCR for scanned documents.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After enrichment:
+  - "Search for content in media" -> Use `synthesis-search-workspace` skill
+  - "See enrichment coverage" -> Run `synthesis enrich --stats`
+  - "Explain a media file" -> Use `synthesis-explain-code` skill on the companion .md file
+  - "Export documentation" -> Use `synthesis-export-docs` skill
+
+  ---
+
+  ## Large Image Handling (Feb 17, 2026 fix)
+
+  The Anthropic Vision API has a hard limit: **5 MB for base64-encoded images** (5,242,880 bytes).
+  Raw file threshold: ~3.75 MB (× 1.33 base64 overhead = 5 MB).
+
+  **Before fix:** Images >3.75 MB silently failed — companion generated but no `## AI Description`.
+  **After fix:** `ClaudeClient.readImageBytes()` auto-resizes before encoding:
+  - Reads with `ImageIO`, downscales to fit 2048×2048, re-encodes as JPEG
+  - No `--level` flag change needed — happens automatically
+
+  **Affected files:** High-res PNGs (NotebookLM exports, 4K screenshots). Slide PNGs (1.4-1.8 MB) unaffected.
+
+  **If a companion has no `## AI Description` despite `--level ai`:**
+  1. Check file size: `ls -lh <file>` — if >3.75 MB, it's the size limit
+  2. Rebuild + deploy the latest JAR (fix is in v1.8.1-SNAPSHOT+)
+  3. Re-run: `synthesis enrich --level ai --force --type image -d <workspace>`
+
+  **Last updated:** February 17, 2026

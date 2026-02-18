@@ -1,0 +1,181 @@
+name: synthesis-scoped-search
+version: 1.0.0
+description: |
+  Search within specific sub-workspaces using Synthesis --scope flag.
+  Perfect for focused searches in large workspaces with organizational hierarchy.
+
+trigger_phrases:
+  - "search in eXOReaction"
+  - "find within Quadim"
+  - "search scope"
+  - "search sub-workspace"
+  - "search within organization"
+  - "search in client folder"
+  - "find in specific area"
+
+instructions: |
+  # Synthesis Scoped Search (Sub-Workspace Feature)
+
+  **New in v1.4.1:** Search within specific sub-workspaces for precise, focused results.
+
+  ---
+
+  ## What are Sub-Workspaces?
+
+  Sub-workspaces are logical divisions within a workspace:
+  - **Documents workspace:** Organizations (eXOReaction, Quadim, Cantara, Synthesis, Sunstone-Tech, T-Hex)
+  - **Pictures workspace:** Screenshots sub-workspace
+  - **Source workspaces:** Individual repositories (when migrated)
+
+  **Benefit:** Instead of searching 7,000+ files, search only the 2,932 files in eXOReaction.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> search "<query>" --scope <sub-workspace-name> [options] 2>/dev/null
+  ```
+
+  ### Parameters
+  - `--scope <name>` - Sub-workspace name (case-sensitive)
+  - Can combine with `--type`, `--limit`, `--verbose`, etc.
+  - Use `--all` with `--scope` for cross-workspace scoped search
+
+  ---
+
+  ## Examples
+
+  ### 1. Search within eXOReaction organization
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "workshop curriculum" --scope eXOReaction 2>/dev/null
+  ```
+
+  ### 2. Search within Quadim (product company)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "skill mapping" --scope Quadim 2>/dev/null
+  ```
+
+  ### 3. Search Screenshots sub-workspace
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Pictures search "dashboard" --scope Screenshots 2>/dev/null
+  ```
+
+  ### 4. Scoped search with type filter
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "pipeline" --scope eXOReaction --type MARKDOWN 2>/dev/null
+  ```
+
+  ### 5. Cross-workspace scoped search
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "API documentation" --scope eXOReaction --all 2>/dev/null
+  ```
+
+  ---
+
+  ## Available Sub-Workspaces
+
+  **Documents workspace** (`/home/totto/Documents`):
+  - `eXOReaction` - 2,932 files (main company: clients, products, business)
+  - `Quadim` - 459 files (SaaS platform company)
+  - `Cantara` - 857 files (open source foundation)
+  - `Synthesis` - 120 files (knowledge infrastructure docs)
+  - `Sunstone-Tech` - 5 files (legal entity)
+  - `T-Hex` - 3 files (holding company)
+
+  **Pictures workspace** (`/home/totto/Pictures`):
+  - `Screenshots` - 71 files (organized by year: 2023-2026)
+
+  **To see all sub-workspaces:** Run `synthesis list` for tree view.
+
+  ---
+
+  ## Aggregated Search (Alternative)
+
+  Instead of scoping to one sub-workspace, group results by ALL sub-workspaces:
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "README" --aggregate 2>/dev/null
+  ```
+
+  **Output format:**
+  ```
+  (root workspace)  5 results
+    1. KNOWLEDGE-GRAPH-README-PROGRESS.md
+    2. TONIGHT-COMPLETE-PLAN.md
+    ...
+
+  eXOReaction  8 results
+    1. eXOReaction/operations/MEDIA-ORGANIZATION-2026-02-04.md
+    2. eXOReaction/business/finance/annual-reports/2023/README.md
+    ...
+
+  Synthesis  7 results
+    1. Synthesis/case-studies/DOWNLOADS-ORGANIZATION-REPORT.md
+    ...
+  ```
+
+  ---
+
+  ## When to Use Scoped Search
+
+  **Use scoped search when:**
+  - You know which organization/sub-workspace contains what you need
+  - The workspace is very large (>5,000 files)
+  - You want to avoid noise from other areas
+  - Searching for common terms that appear everywhere
+
+  **Use aggregated search when:**
+  - You're not sure which sub-workspace has the content
+  - You want to see distribution across areas
+  - You're exploring topic coverage
+
+  **Use regular search when:**
+  - Workspace is small (<1,000 files)
+  - You want maximum coverage
+  - Query is very specific (low false positive rate)
+
+  ---
+
+  ## Pro Tips
+
+  1. **Check available sub-workspaces first:**
+     ```bash
+     synthesis list  # Shows tree structure with sub-workspaces
+     ```
+
+  2. **Combine with other filters:**
+     ```bash
+     synthesis search "contract" --scope eXOReaction --type PDF --limit 5 2>/dev/null
+     ```
+
+  3. **Use for client-specific searches:**
+     Sub-workspaces can represent clients, making it easy to find client-specific content.
+
+  4. **Case-sensitive names:**
+     Sub-workspace names are case-sensitive: `eXOReaction` not `exoreaction`.
+
+  ---
+
+  ## Error Handling
+
+  - **"Sub-workspace not found"** - Check name with `synthesis list`, verify case
+  - **No results** - Sub-workspace might be empty, try without --scope
+  - **Works without --scope but not with** - Sub-workspace tagging may not be applied, re-scan workspace
+
+  ---
+
+  ## Follow-up Actions
+
+  After scoped search:
+  - "Want to see all sub-workspaces?" -> Run `synthesis list`
+  - "Want aggregated view?" -> Add `--aggregate` flag
+  - "Want to search another sub-workspace?" -> Change `--scope` parameter
+  - "Want to read a file?" -> Use Read tool on the file path

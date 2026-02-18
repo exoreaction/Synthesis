@@ -1,0 +1,264 @@
+name: synthesis-changelog-reports
+version: 1.0.0
+description: |
+  Cross-workspace change reporting with snapshots, smart filtering, and executive summaries.
+  Track what changed, when, and how significant it is. New in Synthesis v1.3.0.
+
+trigger_phrases:
+  - "changelog"
+  - "what changed"
+  - "change report"
+  - "synthesis changelog"
+  - "weekly report"
+  - "workspace changes"
+  - "take snapshot"
+
+instructions: |
+  # Synthesis Changelog - Cross-Workspace Change Reporting (v1.3.0+)
+
+  **Purpose:** Generate change reports across workspaces by comparing snapshots over time. Smart filtering separates noise from signal, detects critical path changes, and produces executive summaries.
+  **New in:** Synthesis v1.3.0 (PR #18, Feb 16, 2026)
+  **Retention:** 90 days of snapshot data
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> changelog [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--since <duration>` - Duration: `7d` (default), `24h`, `2w`, `30d`
+  - `--weekly` - Generate weekly executive report (shorthand for --since 7d)
+  - `--snapshot` - Take a snapshot now (captures current workspace state)
+  - `--significance <level>` - Minimum significance: `noise`, `normal` (default), `notable`, `critical`
+  - `-f, --format <type>` - Output format: `text` (default), `markdown`, `json`
+  - `-o, --output <path>` - Write report to file (default: stdout)
+  - `-v, --verbose` - Show detailed output
+
+  ---
+
+  ## Snapshot Workflow
+
+  Changelogs compare workspace state between snapshots:
+
+  ```
+  Snapshot A (Feb 10) -----> Snapshot B (Feb 16) = Changelog
+     7,100 files                7,118 files       18 added, 5 modified, 0 deleted
+  ```
+
+  **First time:** The command automatically takes an initial snapshot.
+  **After that:** Each `--snapshot` captures current state for future comparison.
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Show changes since last snapshot (default: 7 days)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog 2>/dev/null
+  ```
+
+  **Example output:**
+  ```
+  Synthesis - Change Report
+
+  Period: 2026-02-09 to now
+  Summary: 18 added, 5 modified, 2 deleted, 1 moved
+
+  + eXOReaction/clients/ItemConsulting/proposal.md
+  + eXOReaction/marketing/linkedin/post-2026-02-15.md
+  ~ CLAUDE.md
+  ~ eXOReaction/business/PIPELINE-STATUS.md
+  ~ ACTIVITY-LOG.md
+  - eXOReaction/drafts/old-draft.md
+  > eXOReaction/business/templates/contract.md [CRITICAL]
+
+  12 noise events filtered. Use --significance noise to see all.
+  ```
+
+  ### 2. Take a snapshot now
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --snapshot 2>/dev/null
+  ```
+
+  **Output:**
+  ```
+  Scanning workspace for snapshot...
+  Snapshot #15 taken: 7,118 files
+  Changes since last snapshot: 18 added, 5 modified, 2 deleted
+  ```
+
+  ### 3. Weekly executive report
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --weekly 2>/dev/null
+  ```
+
+  ### 4. Changes in last 24 hours
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --since 24h 2>/dev/null
+  ```
+
+  ### 5. Changes in last 30 days
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --since 30d 2>/dev/null
+  ```
+
+  ### 6. Show all changes (including noise)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --significance noise 2>/dev/null
+  ```
+
+  ### 7. Show only critical changes
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --significance critical 2>/dev/null
+  ```
+
+  ### 8. Generate Markdown report and save to file
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --format markdown --output /tmp/weekly-changelog.md 2>/dev/null
+  ```
+
+  ### 9. Show only notable+ changes
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --significance notable 2>/dev/null
+  ```
+
+  ### 10. Changes in last 2 weeks with verbose output
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents changelog --since 2w --verbose 2>/dev/null
+  ```
+
+  ---
+
+  ## Change Types
+
+  | Symbol | Type | Description |
+  |--------|------|-------------|
+  | `+` (green) | ADDED | New file appeared |
+  | `~` (yellow) | MODIFIED | File content changed |
+  | `-` (red) | DELETED | File removed |
+  | `>` (blue) | MOVED | File relocated (detected by hash) |
+
+  ---
+
+  ## Significance Levels
+
+  | Level | Description | Examples |
+  |-------|-------------|---------|
+  | `noise` | Trivial changes, auto-generated | Log files, temp files, caches |
+  | `normal` | Standard development changes | Code files, configs |
+  | `notable` | Important changes worth reviewing | READMEs, build files, major refactors |
+  | `critical` | High-impact changes requiring attention | Security files, production configs, mass deletions |
+
+  **Smart filtering rules:**
+  - Mass changes (>10 files deleted at once) are flagged as CRITICAL
+  - Build/config files changes are NOTABLE
+  - README and documentation changes are NOTABLE
+  - Temporary/generated files are NOISE
+
+  ---
+
+  ## Duration Format
+
+  | Format | Meaning | Example |
+  |--------|---------|---------|
+  | `Nh` | N hours ago | `24h` = last 24 hours |
+  | `Nd` | N days ago | `7d` = last 7 days (default) |
+  | `Nw` | N weeks ago | `2w` = last 2 weeks |
+
+  ---
+
+  ## Output Formats
+
+  | Format | Flag | Best For |
+  |--------|------|----------|
+  | `text` | default | Terminal review, quick check |
+  | `markdown` | `--format markdown` | Sharing, archiving, documentation |
+  | `json` | `--format json` | Automation, CI/CD, dashboards |
+
+  **File output:** Add `--output <path>` to any format to write to file instead of stdout.
+
+  ---
+
+  ## Snapshot Management
+
+  - **Auto-snapshot:** The `maintain` command takes snapshots automatically
+  - **Manual snapshot:** Use `--snapshot` flag to capture current state
+  - **Retention:** Snapshots are retained for 90 days
+  - **Comparison:** Changelogs compare against the most recent previous snapshot
+  - **First run:** If no snapshot exists, one is automatically taken
+
+  ---
+
+  ## Executive Summary Example
+
+  The `--weekly` flag generates a summary suitable for stakeholders:
+
+  ```
+  Summary: 18 files added, 5 modified, 2 deleted, 1 moved (26 total changes)
+
+  Notable:
+  + eXOReaction/clients/ItemConsulting/proposal.md
+  ~ eXOReaction/business/PIPELINE-STATUS.md
+  ~ CLAUDE.md
+
+  Critical:
+  > eXOReaction/business/templates/contract.md (moved)
+  ```
+
+  ---
+
+  ## Error Handling
+
+  - **"No snapshots found"** - First run, takes initial snapshot automatically. Run again after changes.
+  - **"No changes detected"** - No modifications between snapshots; workspace is stable
+  - **"Workspace not initialized"** - Run `synthesis init` then `synthesis scan`
+  - **Tip on no changes:** "Run 'synthesis changelog --snapshot' to take a new snapshot, then 'synthesis changelog' to see changes since then."
+
+  ---
+
+  ## Pro Tips
+
+  1. **Snapshot before and after:** Take a snapshot before major work, do the work, then changelog to see what changed.
+
+  2. **Weekly habit:** Run `synthesis changelog --weekly` every Monday for an executive summary.
+
+  3. **Filter noise:** Default `--significance normal` filters out trivial changes. Use `noise` only when debugging.
+
+  4. **Critical alerts:** Changes flagged as CRITICAL deserve immediate review (mass deletions, security files).
+
+  5. **Markdown for sharing:** Use `--format markdown --output report.md` to create shareable reports.
+
+  6. **Combine with track:** `changelog` shows what changed; `track` shows where files moved. Use both.
+
+  7. **Cross-workspace:** Run changelog on different workspaces (Documents, Pictures, source repos) for full coverage.
+
+  8. **CI/CD integration:** Take snapshots in CI pipelines and generate changelogs for deployment reports.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After viewing changelog:
+  - "Track specific file movements?" -> Use `synthesis-track-movements` skill
+  - "Search for changed files?" -> Use `synthesis-search-workspace` skill
+  - "Check architecture after changes?" -> Use `synthesis-architecture-monitoring` skill
+  - "Understand a changed file?" -> Use `synthesis-explain-code` skill
+  - "Ask about the impact?" -> Use `synthesis-perspectives-analysis` skill
+
+  ---
+
+  **Last updated:** February 16, 2026

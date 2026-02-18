@@ -1,0 +1,207 @@
+name: synthesis-search-workspace
+version: 1.0.0
+description: |
+  Search across all indexed files in a Synthesis workspace - code, docs, videos, PDFs, configs.
+  Uses the Synthesis CLI to query a Lucene full-text index with sub-second response times.
+
+trigger_phrases:
+  - "synthesis search"
+  - "search workspace"
+  - "find files about"
+  - "search documents"
+  - "search codebase"
+  - "find in workspace"
+  - "search across repos"
+  - "look up"
+  - "what files mention"
+
+instructions: |
+  # Synthesis Search Workspace
+
+  **Purpose:** Search across all indexed files in a Synthesis workspace using full-text Lucene queries.
+  **Performance:** Sub-second search (<1s typical, 0.4s validated) across 7,000+ files.
+  **Workspace:** `/home/totto/Documents` (7,117 documents indexed, 1.0 GB content)
+
+  ---
+
+  ## How to Use
+
+  Run the Synthesis CLI search command via Bash tool:
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "<query>" [options] 2>/dev/null
+  ```
+
+  **Important:** Always add `2>/dev/null` to suppress SLF4J and pilot approval stderr noise.
+
+  ---
+
+  ## Command Syntax
+
+  ```
+  synthesis -d <workspace> search "<query>" [--type TYPE] [--limit N] [--verbose]
+            [--scope SUB-WORKSPACE] [--aggregate] [--all]
+            [--company NAME] [--client NAME] [--repo NAME] [--media-type TYPE]
+  ```
+
+  ### Required Parameters
+  - `<query>` - Search query (supports Lucene syntax)
+
+  ### Optional Parameters
+  - `--type TYPE` - Filter by file type: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF, IMAGE, VIDEO, AUDIO
+  - `--limit N` - Maximum results (default: 20)
+  - `--verbose` or `-v` - Show detailed result information (file size, modification date, etc.)
+  - **`--scope NAME`** - ⭐ NEW: Search within specific sub-workspace (eXOReaction, Quadim, etc.)
+  - **`--aggregate`** - ⭐ NEW: Group results by sub-workspace
+  - `--all` - Search across all workspaces (can combine with --scope)
+  - `--company NAME` - Filter to specific organization (eXOReaction, Quadim, Cantara, etc.)
+  - `--client NAME` - Filter to specific client
+  - `--repo NAME` - Filter to specific repository
+  - `--media-type TYPE` - Filter by media type: presentation, document, spreadsheet, photo, screenshot, diagram
+
+  ---
+
+  ## Query Syntax (Lucene)
+
+  Synthesis uses Apache Lucene query syntax:
+
+  | Pattern | Example | Description |
+  |---------|---------|-------------|
+  | Simple term | `authentication` | Files containing "authentication" |
+  | Exact phrase | `"NCI Protocol"` | Files containing exact phrase |
+  | Boolean AND | `testing AND strategy` | Both terms required |
+  | Boolean OR | `Java OR Kotlin` | Either term matches |
+  | NOT | `testing NOT unit` | Exclude term |
+  | Wildcard | `test*` | Prefix matching |
+  | Field query | `language:Java` | Search specific field |
+  | Fuzzy | `autentication~` | Fuzzy matching (typo-tolerant) |
+
+  ---
+
+  ## Common Search Patterns
+
+  ### 1. Find all files about a topic
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "authentication" --limit 10 2>/dev/null
+  ```
+
+  ### 2. Search only code files
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "dependency injection" --type CODE --limit 10 2>/dev/null
+  ```
+
+  ### 3. Search only documentation
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "workshop curriculum" --type MARKDOWN --limit 10 2>/dev/null
+  ```
+
+  ### 4. Search PDFs
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "compliance" --type PDF --limit 10 2>/dev/null
+  ```
+
+  ### 5. Search within a company
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "microservices" --company Quadim --limit 10 2>/dev/null
+  ```
+
+  ### 6. Search with verbose output (shows file sizes, dates)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents search "pipeline" --verbose --limit 5 2>/dev/null
+  ```
+
+  ### 7. Search within sub-workspace (NEW in v1.4.1)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "workshop" --scope eXOReaction 2>/dev/null
+  ```
+
+  ### 8. Aggregated search grouped by sub-workspace (NEW in v1.4.1)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis search "README" --aggregate 2>/dev/null
+  ```
+
+  ---
+
+  ## Sub-Workspaces (v1.4.1+)
+
+  Documents workspace has **6 sub-workspaces** for organizational hierarchy:
+  - **eXOReaction** (2,932 files) - Main company, clients, products, business docs
+  - **Quadim** (459 files) - SaaS platform company
+  - **Cantara** (857 files) - Open source foundation
+  - **Synthesis** (120 files) - Knowledge infrastructure product docs
+  - **Sunstone-Tech** (5 files) - Legal entity
+  - **T-Hex** (3 files) - Holding company
+
+  **Use `synthesis list` to see tree structure of all sub-workspaces.**
+
+  **Benefits of scoped search:**
+  - Faster (searches subset of files)
+  - More relevant (reduces noise)
+  - Better for large workspaces (>5,000 files)
+
+  ---
+
+  ## Interpreting Results
+
+  Search results typically show:
+  - **File path** (relative to workspace root)
+  - **File type** (MARKDOWN, CODE, PDF, etc.)
+  - **Score** (relevance ranking)
+  - **Preview snippet** (matching text context)
+
+  With `--verbose`, also shows:
+  - File size
+  - Last modified date
+  - Language (for code files)
+  - Organization/company
+
+  ---
+
+  ## Available Workspaces
+
+  | Workspace | Path | Files | Content |
+  |-----------|------|-------|---------|
+  | Documents | `/home/totto/Documents` | 7,117 | Business docs, strategies, clients, marketing |
+
+  Other workspaces can be scanned using `synthesis -d <path> init && synthesis -d <path> scan`.
+
+  ---
+
+  ## Error Handling
+
+  - **"Index not found"** - Run `synthesis -d /home/totto/Documents scan` first
+  - **"Workspace not initialized"** - Run `synthesis -d /home/totto/Documents init`
+  - **No results** - Try broader query, remove type filter, use wildcards (`test*`)
+  - **SLF4J warnings on stderr** - Normal, suppress with `2>/dev/null`
+  - **Pilot approval warning** - Cosmetic only, commands execute normally
+
+  ---
+
+  ## Follow-up Suggestions
+
+  After searching, suggest these related actions to the user:
+  - "Want to see relationships for one of these files?" -> Use `synthesis-relate-dependencies` skill
+  - "Want to visualize the architecture?" -> Use `synthesis-graph-architecture` skill
+  - "Want to read one of these files?" -> Use the Read tool directly on the file path
+  - "Need to update the index?" -> Run `synthesis -d /home/totto/Documents scan`
+
+  ---
+
+  **Indexed Content Breakdown:**
+  - MARKDOWN: 2,884 files (strategies, docs, READMEs, plans)
+  - CODE: 2,642 files (JavaScript 1,868, Java 645, SQL 85, Shell 34, Python 10)
+  - JSON: 742 files (configs, data, package manifests)
+  - PDF: 656 files (134 presentations, 522 documents)
+  - YAML: 63 files (configs, skills, CI/CD)
+  - OTHER: 129 files (misc formats)
+
+  **Last indexed:** February 15, 2026

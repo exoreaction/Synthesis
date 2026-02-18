@@ -1,0 +1,589 @@
+name: synthesis-product-context
+version: 1.8.1
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, and team staging
+auto_load: true
+
+instructions: |
+  # Synthesis: Knowledge Infrastructure for AI-Augmented Development
+
+  **Official Repository:** https://github.com/exoreaction/Synthesis
+  **License:** MIT (Open Source)
+  **Local Path:** /src/exoreaction/Synthesis
+  **Language:** Java 17+
+  **Status:** Production-ready (v1.8.4-SNAPSHOT as of Feb 18, 2026)
+  **Latest:** Configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
+
+  ---
+
+  ## What is Synthesis?
+
+  **One-line:** Knowledge infrastructure that indexes everything your team creates (code, docs, videos, PDFs) and makes it instantly searchable with relationship tracking.
+
+  **The Problem It Solves:**
+  - AI tools made developers 10x faster at creating code
+  - But comprehension speed stayed at 1x (unchanged)
+  - Result: 40-60% of time spent searching for context = wasted AI investment
+  - Gap: 10x creation speed, 1.5x shipping speed (where did the other 8.5x go?)
+
+  **The Solution:**
+  - Indexes 200-300 files/second across all formats
+  - Sub-second search (<1 sec typical, 0.4s validated)
+  - Bi-directional relationship tracking (know what breaks before you change it)
+  - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
+  - Multi-format support (code, docs, videos, PDFs, configs, media)
+  - Local-only processing (zero cloud required, privacy-first)
+
+  ---
+
+  ## Validated Metrics (Feb 17, 2026)
+
+  **Performance:**
+  - 36,342 files indexed across 8 workspaces (up from 8,934 on Feb 14)
+  - Indexing speed: 200-300 files/second
+  - Search speed: Sub-second (0.4s typical)
+  - Storage overhead: 2.7% (58.7 MB index)
+  - Cross-repo mapping: 58 repos, 429 dependencies in <31 seconds
+  - Tests: **2,291 tests passing** (84 test classes, PR #60)
+
+  **Business Impact:**
+  - 92-95% reduction in retrieval time (5-15 min → 10-30 sec)
+  - 10-12x faster knowledge organization
+  - 70-80% AI realization rate (up from 15-20% without infrastructure)
+  - ROI: 4.1M NOK/year for 10-person team (40% search time × salary)
+
+  ---
+
+  ## Core Commands
+
+  ```bash
+  # Initialize workspace
+  synthesis init
+
+  # Scan/index files (200-300 files/sec)
+  synthesis scan
+
+  # Search everything (sub-second)
+  synthesis search "keyword or phrase"
+
+  # Show relationships (what breaks if you change this?)
+  synthesis relate "filename"
+
+  # Generate architecture graph (Mermaid format)
+  synthesis graph --modules --format mermaid
+
+  # Export documentation (for users' codebases)
+  synthesis export --format onboarding-guide
+  synthesis export --format architecture-doc
+
+  # Watch mode (continuous indexing)
+  synthesis watch
+
+  # NEW: Enrich media files (Phase 2)
+  synthesis enrich --level LOCAL "path/to/media/"
+
+  # NEW: AI code explanations
+  synthesis explain src/main/MyClass.java
+
+  # NEW: Semantic search
+  synthesis search "authentication logic" --semantic
+
+  # NEW: Architecture monitoring
+  synthesis architecture --check
+
+  # Sub-workspace features (v1.4.1+)
+  synthesis search "<query>" --scope <sub-workspace>  # Scoped search
+  synthesis search "<query>" --aggregate              # Grouped results
+  synthesis migrate-repos [--dry-run]                 # Migrate to sub-workspaces
+  synthesis staging list                              # Manage staging files
+  synthesis staging promote <file> --to <workspace>   # Promote from staging
+
+  # Bundled Claude Code Skills (v1.4.1+)
+  synthesis export-skills                             # Export bundled skills to ~/.claude/skills/
+  synthesis export-skills --list                      # List all 25 bundled skills
+
+  # File tracking & change reporting (v1.3.0, PR #18)
+  synthesis track                                     # Show tracked file movements
+  synthesis changelog                                 # Cross-workspace change report (daily snapshot)
+
+  # AI research & reporting (v1.5+)
+  synthesis research --topic <topic>                  # Multi-pass AI analysis (architecture/security/synthesis)
+  synthesis report                                    # AI-generated business report
+  synthesis report --topic decisions                  # Decisions needing attention
+  synthesis report --topic pipeline                   # Pipeline status report
+  synthesis report --client <name>                    # Per-client report
+  synthesis report --product <name>                   # Per-product report
+
+  # report.outputDir: custom save location (in config.yaml)
+  # report:
+  #   outputDir: "reports"   # relative to workspace root, or absolute path
+  #                          # Default: .synthesis/reports/
+  # Entity reports (--client/--product) always co-locate regardless of outputDir
+
+  # Executive dashboard (v1.7+)
+  synthesis dashboard                                 # Interactive WBS/org dashboard
+  exo                                                 # Executive shortcut → synthesis dashboard
+  exo decisions                                       # Quick decisions report
+  exo pipeline                                        # Quick pipeline report
+  exo client <name>                                   # Client-specific report
+
+  # Credential store (v1.6+)
+  synthesis credentials set ANTHROPIC_API_KEY <key>  # Store API key securely
+  synthesis credentials status                        # Show stored credentials
+
+  # Upcoming features
+  synthesis upcoming                                  # Timeline view of events/deadlines
+  ```
+
+  ---
+
+  ## Sub-Workspace Architecture (v1.4.1+, Feb 16, 2026)
+
+  **Problem:** Flat workspace structure makes it hard to organize and search large codebases with multiple organizations, clients, and repos.
+
+  **Solution:** Hierarchical sub-workspaces with scoped search and aggregation.
+
+  ### Features
+  1. **Organizational Hierarchy:** Nest organizations, clients, products as sub-workspaces
+  2. **Repository Sub-Workspaces:** Treat individual repos as searchable units
+  3. **Scoped Search:** `--scope` flag filters to specific sub-workspace
+  4. **Aggregated Results:** `--aggregate` groups results by sub-workspace
+  5. **Staging Workspaces:** Temporary areas (Downloads, Screenshots) with retention policies
+  6. **Auto-Migration:** `migrate-repos` converts existing orgs/repos to sub-workspaces
+
+  ### Architecture
+  - **Data Model:** `SubWorkspaceConfig` with name, path, type, tags, inheritance
+  - **Index Tagging:** Lucene documents tagged with `subWorkspace` field
+  - **Configuration:** YAML-based with inheritance (parent → child)
+  - **Database:** New `workspaces` table with `parent_id` for tree structure
+
+  ### Example Structure
+  ```
+  Documents/
+    ├── eXOReaction/ (sub-workspace, 2,932 files)
+    │   ├── clients/
+    │   │   ├── Elprint/
+    │   │   └── Opplysningen-1881/
+    │   ├── products/
+    │   └── business/
+    ├── Quadim/ (sub-workspace, 459 files)
+    └── Cantara/ (sub-workspace, 857 files)
+  ```
+
+  ### Commands
+  ```bash
+  # See sub-workspace tree
+  synthesis list
+
+  # Scoped search
+  synthesis search "authentication" --scope eXOReaction
+
+  # Aggregated search
+  synthesis search "README" --aggregate
+
+  # Migrate existing orgs
+  synthesis migrate-repos [--dry-run] [--orgs-only]
+
+  # Staging management
+  synthesis staging list
+  synthesis staging promote "file.pdf" --to documents
+  ```
+
+  ---
+
+  ## Bundled Claude Code Skills (v1.4.1+, Feb 16, 2026)
+
+  **Problem:** Users need to manually create skills to leverage Synthesis in Claude Code, creating friction.
+
+  **Solution:** All 25 official Synthesis skills are now embedded in the JAR and can be exported with one command.
+
+  ### Features
+  1. **Zero Setup:** Skills bundled as JAR resources, no external downloads required
+  2. **One Command Install:** `synthesis export-skills` installs all 25 skills instantly
+  3. **Version Matched:** Skills always match your Synthesis version
+  4. **Complete Coverage:** 80.6% command coverage (25 of 31 commands)
+  5. **Skills Manifest:** JSON metadata for skill discovery and tooling
+
+  ### Included Skills (25 total)
+
+  **Core Workspace Operations (5):**
+  - synthesis-workspace-management - init, scan, watch, update commands
+  - synthesis-search-workspace - Full-text search with Lucene queries
+  - synthesis-scoped-search - Search within specific sub-workspaces
+  - synthesis-subworkspace-navigation - Navigate hierarchical structure
+  - synthesis-relate-dependencies - Bi-directional relationship tracking
+
+  **AI-Powered Features (4):**
+  - synthesis-ask-workspace - AI Q&A about workspace content
+  - synthesis-explain-code - AI code explanations (overview/detailed/expert)
+  - synthesis-learn-skills - Auto-generate skills from workspace patterns
+  - synthesis-perspectives-analysis - Multi-perspective directed synthesis
+
+  **Analysis & Metrics (3):**
+  - synthesis-insights-metrics - Codebase quality dashboard
+  - synthesis-architecture-monitoring - Architecture drift detection
+  - synthesis-graph-architecture - Visual dependency graphs (Mermaid)
+
+  **Change Tracking (2):**
+  - synthesis-track-movements - File movement tracking with audit trail
+  - synthesis-changelog-reports - Cross-workspace change reporting
+
+  **Media & Documentation (2):**
+  - synthesis-enrich-media - Make videos/images/PDFs searchable
+  - synthesis-export-docs - Generate documentation (multiple formats)
+
+  **Staging & Workflow (1):**
+  - synthesis-staging-management - Manage temporary/incoming files
+
+  **Database & Release (2):**
+  - synthesis-database-migrations - Schema management with Flyway
+  - synthesis-release-manager - Release workflow automation
+
+  **Context & Development (4):**
+  - synthesis-product-context - Complete product knowledge
+  - synthesis-development - Development guide
+  - synthesis-context - General context
+  - synthesis-interactive-cli - CLI usage patterns
+
+  **Campaign Management (2):**
+  - synthesis-linkedin-campaign - 9-week marketing campaign
+  - synthesis-metrics-tracking - Usage analytics
+
+  ### Export Commands
+  ```bash
+  # List all bundled skills
+  synthesis export-skills --list
+
+  # Export to default location (~/.claude/skills/)
+  synthesis export-skills
+
+  # Export to custom directory
+  synthesis export-skills --output /path/to/skills
+
+  # Overwrite existing skills
+  synthesis export-skills --overwrite
+
+  # Verbose output
+  synthesis export-skills -v
+  ```
+
+  ### Distribution Strategy
+  - **Users:** Run `synthesis export-skills` after installation → instant Claude Code integration
+  - **Workshops:** One command to provision all skills for participants
+  - **CI/CD:** Automated skill deployment in build pipelines
+  - **Version Control:** Skills stay in sync with Synthesis updates
+
+  ### Technical Implementation
+  - **Storage:** `/src/main/resources/claude-skills/` in JAR (25 YAML/MD files + manifest)
+  - **Manifest:** `skills-manifest.json` with version, categories, commands mapped
+  - **Classpath Loading:** Skills read via `getResourceAsStream()` at runtime
+  - **Size:** ~77KB total (2,289 lines of skill documentation)
+
+  ---
+
+  ## Multi-Perspective Documentation (PR #8, Merged Feb 14, 2026)
+
+  **9 role-specific guides** (~64,000 words total):
+
+  1. **ENGINEERING-MANAGER.md** - 4-week adoption playbook, Success Dashboard (6 metrics), ROI calculator
+  2. **ARCHITECT.md** - Cross-repo dependency mapping, Mermaid graphs, governance integration
+  3. **EXECUTIVE-BRIEF.md** - AI Paradox, Three Classes of Orgs, Strategic Window (12-18 months)
+  4. **DEVOPS.md** - CI/CD integration (GitHub Actions YAML), Docker deployment, Git hooks
+  5. **PRODUCT-MANAGER.md** - Demo prep (60min → 3min), QBR automation, content audit
+  6. **WORKSHOP-FACILITATOR.md** - 2hr/4hr/8hr workshop plans, exercises, troubleshooting
+  7. **SALES-ENABLEMENT.md** - Discovery questions, 15-min demo script, objection handling
+  8. **SECURITY-POSTURE.md** - Threat model, GDPR/SOC2/HIPAA compliance, data flow diagram
+  9. **README.md** (perspectives/) - Role selector hub, navigation by question
+
+  **Visual Assets Library (153 MB):**
+  - 5 high-res infographics (PNG, 6+ MB each)
+  - 8 NotebookLM-generated presentations (PDF, 13-20 MB each)
+  - Complete usage guide with audience targeting
+
+  **Location:** `/home/totto/src/synthesis/docs/`
+  - `docs/perspectives/` - Role-specific guides
+  - `docs/guides/` - Quick Start, User Guide, Generating Docs
+  - `docs/visuals/` - Infographics + presentations
+
+  ---
+
+  ## Phase 2: Local Media Enrichment (PR #14, Merged Feb 15, 2026)
+
+  **Air-Gapped, Privacy-First Media Processing**
+
+  **New Features:**
+  - **Whisper Integration:** Speech-to-text transcription (99 languages)
+    - Supports: MP3, WAV, M4A, FLAC, OGG, WebM, MP4, AVI, MOV
+    - Performance: ~5-10 sec for 1 min audio (whisper.cpp 100x faster than Python)
+    - Local-only: No cloud APIs, no network calls
+
+  - **Tesseract Integration:** OCR text extraction (100+ languages)
+    - Supports: PNG, JPG, JPEG, TIFF, BMP, GIF, WEBP
+    - Performance: ~1-2 sec for 1920×1080 screenshot
+    - Confidence scores + bounding boxes
+
+  - **PDF Support:** Multi-page PDF → images → OCR workflow
+    - Poppler utilities (pdftoppm) for PDF conversion
+    - 300 DPI conversion for optimal OCR accuracy
+    - Performance: ~1-2 sec per page
+
+  **Enrichment Tier Model:**
+  ```
+  ┌──────────┬──────────────────────────────────────────┐
+  │  BASIC   │ Deterministic metadata only              │
+  │          │ Works everywhere, zero dependencies      │
+  ├──────────┼──────────────────────────────────────────┤
+  │  LOCAL   │ BASIC + Local tools (Whisper, Tesseract)│ ← Phase 2
+  │          │ Air-gapped, privacy-first               │
+  ├──────────┼──────────────────────────────────────────┤
+  │    AI    │ LOCAL + Cloud AI (Claude Vision)        │
+  │          │ Requires API key and network             │
+  └──────────┴──────────────────────────────────────────┘
+  ```
+
+  **Compliance Ready:**
+  - ✅ HIPAA (healthcare - local processing)
+  - ✅ PCI-DSS (financial - no data transmission)
+  - ✅ GDPR (EU - privacy-first architecture)
+  - ✅ Air-gapped environments (government, classified)
+
+  **Commands:**
+  ```bash
+  # Enrich media files (auto-detects tier: BASIC/LOCAL/AI)
+  synthesis enrich [path]
+
+  # Specify enrichment level explicitly
+  synthesis enrich --level LOCAL [path]
+  synthesis enrich --level AI [path]
+
+  # Explain code with AI
+  synthesis explain [file]
+
+  # Search with semantic understanding (if embeddings available)
+  synthesis search "query" --semantic
+  ```
+
+  **Testing:**
+  - 835 tests passing (43 Phase 2 tests, 29 sub-workspace tests, 4 skills tests)
+  - Zero regressions
+  - 100% backward compatible
+
+  **Installation (Optional Tools):**
+  ```bash
+  # Whisper (speech-to-text)
+  brew install whisper-cpp  # or: pip install openai-whisper
+
+  # Tesseract (OCR)
+  brew install tesseract
+
+  # Poppler (PDF conversion)
+  brew install poppler
+  ```
+
+  **Strategic Value:**
+  - Enterprise deployments with privacy requirements
+  - Government/classified environments (air-gapped)
+  - Healthcare organizations (HIPAA compliance)
+  - Financial institutions (PCI-DSS compliance)
+  - Competitive advantage: Only knowledge infrastructure with local media processing
+
+  **Revenue Opportunity:**
+  - Enterprise tier: $50K-100K/year (air-gapped deployments)
+  - Workshop upgrades: +$10K-20K per workshop (media-heavy customers)
+  - Expected Q3-Q4 revenue: $60K-120K (conservative)
+
+  ---
+
+  ## Technical Architecture
+
+  **Core:**
+  - Apache Lucene for full-text indexing
+  - SQLite for metadata and relationships
+  - Bundled ffprobe (FFmpeg 7.0.2-static) for video metadata
+  - Picocli for CLI interface
+  - Jackson for JSON processing
+
+  **Index Structure:**
+  - `.synthesis/index/` - Lucene index
+  - `.synthesis/config.yaml` - Configuration
+  - `.synthesis/organizations.json` - Organization metadata
+
+  **Supported Formats:**
+  - Code: Java, Python, JavaScript, TypeScript, Go, Rust, etc.
+  - Docs: Markdown, AsciiDoc, reStructuredText, plaintext
+  - Media: MP4, AVI, MOV (metadata extraction)
+  - Office: PDF, DOCX (coming soon)
+  - Config: YAML, JSON, XML, properties
+
+  ---
+
+  ## Strategic Positioning
+
+  **Category:** Knowledge Infrastructure (emerging category, 2026)
+  **Market:** AI-augmented development teams (5%+ adoption now, 60%+ in 24 months)
+  **Competitive Advantage:** First-mover in "knowledge infrastructure" category
+
+  **Three Classes of Organizations (Feb 2026):**
+  - **Class 1 (60%):** Output-Overwhelmed - 15-20% AI realization, 1.5x shipping speed
+  - **Class 2 (35%):** Synthesis-Enabled - 70-80% AI realization, 7-8x shipping speed
+  - **Class 3 (5%):** Synthesis-Native - 90-100% AI realization, 9-10x shipping speed
+
+  **Strategic Window:** 12-18 months (Feb 2026 - Aug 2027) to move Class 1 → Class 3
+  **After window:** Class 2 becomes table stakes, first-mover advantage diminishes
+
+  ---
+
+  ## Business Context (eXOReaction)
+
+  **Synthesis is developed by eXOReaction** (Thor Henning Hetland's company)
+
+  **Revenue Models:**
+  1. **Workshops:** 35-75K NOK (half-day to full-day, validated Feb 13 Item Consulting)
+  2. **Train-the-trainer:** 100-200K NOK (corporate internal rollout, SpareBank 1 pattern)
+  3. **Consulting:** Enterprise transformation (200-300K+ for org-wide adoption)
+  4. **Open Source:** Community growth, enterprise leads, speaking opportunities
+
+  **Current Pipeline:**
+  - Item Consulting: 55-75K committed (Feb 13 workshop, 75% developer commitment)
+  - SpareBank 1: 100-200K hot (Vidar presenting to team Feb 4)
+  - Mynder AS: 540-900K/year (Bergen retainer, recurring model)
+
+  **Proven Patterns:**
+  - LinkedIn drives leads (43% comment-to-lead conversion, 405-605K attributed revenue)
+  - Finance-led adoption (Item: CFO initiated purchase, bypassing internal sell)
+  - Conservative claims convert (10-30x closed deals, 320x failed)
+  - Help first, never pitch (SpareBank 1: inbound after helping with refactoring)
+
+  ---
+
+  ## Key People & Networks
+
+  **Thor Henning Hetland (Totto):**
+  - Chairman of IASA (International Association of Software Architects)
+  - Founder of JavaZone (largest Java conference in Nordics)
+  - 30+ years enterprise architecture
+  - Networks: Norwegian tech (JavaZone), Architecture (IASA), Enterprise (board members)
+
+  **Networks for Synthesis Promotion:**
+  - IASA: Architect community (present at meetings, workshops)
+  - JavaZone: Developer conference (guaranteed speaking slot as founder)
+  - LinkedIn: 9 different perspectives = 9 different audiences
+  - Enterprise: Board members, investors (IASA Chairman network)
+
+  ---
+
+  ## Related Projects & Proof Points
+
+  **Synthesis was built to solve eXOReaction's own problem:**
+
+  1. **lib-pcb** (11-day build, Jan 16-27, 2026)
+     - 197,831 lines Java code, 7,461 tests (99.8% pass)
+     - Industry standard: 10-18 months → Built in 11 days (25-66x faster)
+     - Generated 691 files/day with Claude Code
+     - Problem: Finding files, tracing dependencies across 8,000+ files
+     - Solution: Built Synthesis to manage the output explosion
+
+  2. **Quadim** (Production SaaS, 15+ microservices)
+     - Skill management platform
+     - Multi-repo development, cross-repo dependencies
+     - Synthesis used internally for architecture visibility
+
+  3. **Xorcery AAA** (eXOReaction IP, $10B+ market)
+     - Alchemy + Aurora: Temporal analytics, DevSecOps intelligence
+     - Complex multi-repo architecture
+     - Synthesis enables fast navigation across components
+
+  ---
+
+  ## When to Reference Synthesis
+
+  **Use Synthesis as example when discussing:**
+  - Knowledge infrastructure / AI output management
+  - Open source strategy (MIT license, community building)
+  - Multi-perspective documentation (9 audiences, not one size fits all)
+  - LinkedIn content strategy (9 perspectives = 9x reach)
+  - Workshop facilitation (Item Consulting validation, 75% commitment)
+  - Enterprise adoption patterns (SpareBank 1, finance-led at Item)
+  - Norwegian tech community (IASA, JavaZone connections)
+
+  **Quick Facts for Conversations:**
+  - "Built Synthesis to manage 691 files/day from lib-pcb build"
+  - "8,934 files indexed in 31 seconds, sub-second search"
+  - "92-95% reduction in retrieval time (validated)"
+  - "Open source MIT, 153 MB visual asset library"
+  - "9 perspective-specific guides, 64,000 words documentation"
+  - "Item Consulting: Finance team initiated workshop purchase (unprecedented)"
+
+  ---
+
+  ## Documentation Paths (Quick Reference)
+
+  **In Synthesis repo:**
+  - Perspectives: `/home/totto/src/synthesis/docs/perspectives/`
+  - Guides: `/home/totto/src/synthesis/docs/guides/`
+  - Visuals: `/home/totto/src/synthesis/docs/visuals/`
+
+  **In Documents (business/marketing):**
+  - Attention Strategy: `/home/totto/Documents/eXOReaction/marketing/SYNTHESIS-ATTENTION-STRATEGY.md`
+  - LinkedIn Strategy: `/home/totto/Documents/eXOReaction/marketing/linkedin/MONTHLY-CONTENT-STRATEGY.md`
+  - Pipeline Status: `/home/totto/Documents/eXOReaction/business/PIPELINE-STATUS.md`
+
+  ---
+
+  ## AI Vision Enrichment Fix (Feb 17, 2026)
+
+  **Problem:** Large images (>3.75 MB raw / >5 MB base64) silently failed Claude Vision API.
+  NotebookLM exports (6-7 MB PNG) produced empty companion files with no AI descriptions.
+
+  **Fix:** `ClaudeClient.readImageBytes()` auto-resizes oversized images before encoding:
+  - Threshold: 3.75 MB raw (→ 5 MB base64 = API limit)
+  - Resize: Downscale to fit 2048×2048, bilinear interpolation, re-encode as JPEG
+  - Result: All 22 unnamed-*.png NotebookLM infographics (6-7 MB) now fully described
+  - Validated: Knowledge graphs, system diagrams, AI paradox infographics all enriched
+
+  ## Staging Workspaces (Feb 17, 2026, configured)
+
+  Three staging workspaces now active:
+  - **Downloads** (`~/Downloads`): 30-day retention, 88 files (54 images, 33 PDFs, 1 video)
+  - **Pictures** (`~/Pictures`): 90-day retention, parent workspace for Screenshots
+  - **Screenshots** (`~/Pictures/Screenshots`): 90-day retention, 1,726+ images
+
+  All three: `staging.enabled: true`, `ai.enabled: true`, image-focused scan patterns.
+
+  ## Multi-Perspective Documentation (v1.8.0, Feb 2026)
+
+  **8 role-specific guides** in `docs/perspectives/`:
+  - Executive, Developer, Engineering Manager, Architect, DevOps, Product Manager, Workshop Facilitator, AI Agent
+  - **User Guide V2** — 37 commands, complete reference
+  - **MCP + LSP guides** — Protocol integration for AI agents and IDEs
+  - 153 MB visual asset library (NotebookLM presentations, infographics)
+
+  **Last Updated:** February 18, 2026 (v1.8.4-SNAPSHOT)
+  **Recent Features:**
+  - **Test suite expansion** (PR #60): 1,054 → 2,291 tests, 41 → 84 test classes
+    - 6 zero-coverage packages now covered: research/, summary/, workspace/, db/, metrics/, tracking/
+    - 43 new test files, 7,747 lines — all parameterized with @CsvSource/@ValueSource/@EnumSource
+    - Key patterns: in-memory SQLite, @TempDir, longest-prefix subworkspace, enum contracts
+    - SQLite JDBC lesson: getObject(col, Integer.class) fails for NULL — use non-null values
+  - **Configurable report output dir** (`report.outputDir` in config.yaml) — entity co-location unaffected
+  - Report date anchoring: TODAY'S DATE injected into all deadline-generating prompts (PR #55/#40)
+  - Report --no-cache fix: now skips read but still writes (PR #55/#41)
+  - AI vision image auto-resize (large images no longer silently fail)
+  - Staging areas for Downloads/Pictures/Screenshots (fully configured)
+  - `exo` executive command (installed via install.sh inline heredoc)
+  - Research command (multi-pass AI), Report command, Dashboard command
+  - Credential store, Upcoming command, Entity reports
+  - User Guide V2 (37 commands), 8 perspective guides, MCP/LSP documentation
+  - `synthesis track` + `synthesis changelog` (file movement tracking)
+
+  **Known Issues (tracked, not yet fixed):**
+  - #42 P1: Non-deterministic recommendations across report types (temperature not set)
+  - #43 P2: Pipeline keyword false positive (multi-stage-pipeline-architecture.yaml)
+  - #44 P2: Single-pass truncation (activities, decisions topics)
+  - #45 P2: Personal events directory false positive
+  - #46 P2: --period flag has no effect on document selection
+  - #47 P2: --product NonExistentProduct generates hallucinated report
+  - #48 P2: Stale urgency deadlines in client reports
+  - #49 P2: Product reports miss dev history (changelogs, PRs)
+  - #54 P1: Report module 0% test coverage (PR #55 starts fixing this)
+
+  **Next Milestone:** Fix #43/45 (document discovery false positives), Synthesis Hub (team collaboration), Show HN launch, JavaZone CFP

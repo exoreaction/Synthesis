@@ -1,0 +1,187 @@
+name: synthesis-learn-skills
+version: 1.0.0
+description: |
+  Auto-generate Claude Code skills from workspace organizational knowledge using Synthesis.
+  Scans workspace for patterns, organizations, clients, and generates YAML skill files.
+
+trigger_phrases:
+  - "generate skills"
+  - "learn from workspace"
+  - "create skills"
+  - "synthesis learn"
+  - "auto-generate skills"
+  - "install workspace skills"
+  - "workspace to skills"
+
+instructions: |
+  # Synthesis Learn - Auto-Generate Claude Code Skills
+
+  **Purpose:** Automatically generate Claude Code skill files from workspace organizational knowledge. Reads organizations, clients, products, and statistics from the Synthesis index and creates YAML skills that teach Claude Code about the workspace.
+  **Output:** `.synthesis/skills/` (workspace-scoped) or `~/.claude/skills/` (global, with --install)
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> learn [options] 2>/dev/null
+  ```
+
+  ### Optional Parameters
+  - `--install` - Copy generated skills to `~/.claude/skills/` for global availability
+  - `--uninstall` - Remove this workspace's skills from `~/.claude/skills/`
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Generate skills (workspace-scoped)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents learn 2>/dev/null
+  ```
+
+  **Output:**
+  ```
+  Reading organizational data from .synthesis/organizations.json...
+    6 organizations
+    12 clients
+    5 products
+
+  Generating Claude Code skills...
+    OK workspace-context.yaml (45 lines)
+    OK exoreaction-context.yaml (80 lines)
+    OK quadim-context.yaml (55 lines)
+    ...
+
+  Generated 8 skills (320 total lines)
+  Skills saved to: /home/totto/Documents/.synthesis/skills/
+  ```
+
+  ### 2. Generate and install globally
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents learn --install 2>/dev/null
+  ```
+
+  **Effect:** Skills are generated in `.synthesis/skills/` AND copied to `~/.claude/skills/` with workspace prefix (e.g., `Documents-workspace-context.yaml`).
+
+  ### 3. Uninstall global skills
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents learn --uninstall 2>/dev/null
+  ```
+
+  **Effect:** Removes all skills for this workspace from `~/.claude/skills/`.
+
+  ### 4. Regenerate after organizational changes
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents org scan 2>/dev/null  # Update org data first
+  synthesis -d /home/totto/Documents learn --install 2>/dev/null
+  ```
+
+  ### 5. Learn from a source workspace
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/src/exoreaction/Synthesis learn --install 2>/dev/null
+  ```
+
+  ---
+
+  ## What Skills Are Generated
+
+  The `learn` command reads `.synthesis/organizations.json` and generates:
+
+  | Skill Type | Content | Purpose |
+  |------------|---------|---------|
+  | **Workspace context** | Name, type, file counts, key statistics | General workspace awareness |
+  | **Organization context** | Per-org details: clients, products, codebases | Navigate org-specific content |
+  | **Client navigation** | Client directories, contacts, project status | Quick client lookups |
+  | **Pipeline tracking** | Active opportunities, deal stages | Business context |
+  | **Technical proof points** | Key metrics, achievements, benchmarks | Evidence for discussions |
+
+  ---
+
+  ## How It Works
+
+  1. **Reads organizational data** from `.synthesis/organizations.json` (populated by `synthesis org scan`)
+  2. **Analyzes workspace structure** - file counts, types, key directories
+  3. **Generates YAML skill files** with `name`, `description`, `trigger_phrases`, and `instructions`
+  4. **Saves to `.synthesis/skills/`** directory (workspace-scoped)
+  5. **Optionally installs** to `~/.claude/skills/` for use in all Claude Code sessions
+
+  ---
+
+  ## Prerequisites
+
+  Before running `learn`, ensure:
+  1. Workspace is initialized: `synthesis init`
+  2. Files are scanned: `synthesis scan`
+  3. Organizations are detected: `synthesis org scan`
+
+  The command will warn if no organizations are found and suggest running `synthesis org scan` or `synthesis init` first.
+
+  ---
+
+  ## Workspace-Scoped vs Global Skills
+
+  | Scope | Location | Loaded When | Use Case |
+  |-------|----------|-------------|----------|
+  | **Workspace** | `.synthesis/skills/` | Manual reference | Development, testing |
+  | **Global** | `~/.claude/skills/` | Every Claude Code session | Production use |
+
+  **Naming convention for global skills:** `<workspace-name>-<skill-name>.yaml`
+  Example: `Documents-workspace-context.yaml`, `Documents-exoreaction-context.yaml`
+
+  ---
+
+  ## Error Handling
+
+  - **"No organizations found"** - Run `synthesis org scan` first to detect organizations
+  - **"Workspace not initialized"** - Run `synthesis init` then `synthesis scan`
+  - **"Installation failed"** - Check permissions on `~/.claude/skills/` directory
+  - **"Uninstall: No installed skills found"** - Skills may not have been installed for this workspace
+
+  ---
+
+  ## Pro Tips
+
+  1. **Re-learn after major changes:** When you add clients, products, or reorganize, re-run `learn --install` to keep skills current.
+
+  2. **Org scan first:** Always run `synthesis org scan` before `learn` to ensure organizational data is fresh.
+
+  3. **Review before installing:** Check `.synthesis/skills/` output before using `--install` to verify quality.
+
+  4. **Multiple workspaces:** Each workspace can have its own skills. Global install uses workspace-name prefix to avoid conflicts.
+
+  5. **Uninstall cleanly:** Use `--uninstall` before switching workspace configurations to avoid stale skills.
+
+  6. **Complement manual skills:** Generated skills provide context; manual skills (like this one) provide command knowledge. They work together.
+
+  7. **Version tracking:** Generated skills include workspace statistics at generation time - useful for tracking growth.
+
+  8. **CI/CD integration:** Include `synthesis learn` in your build pipeline to auto-update skills when the workspace changes.
+
+  ---
+
+  ## Integration with Other Skills
+
+  After generating skills:
+  - "Want to update organization data?" -> Run `synthesis org scan` first
+  - "Want to search the workspace?" -> Use `synthesis-search-workspace` skill
+  - "Want to see workspace structure?" -> Use `synthesis-subworkspace-navigation` skill
+  - "Want insights about the codebase?" -> Use `synthesis-insights-metrics` skill
+
+  ---
+
+  ## Current Workspace Context
+
+  **Documents workspace** (`/home/totto/Documents`):
+  - 7,118 files indexed
+  - 6 organizations: eXOReaction, Quadim, Cantara, Synthesis, Sunstone-Tech, T-Hex
+  - 12+ clients across organizations
+  - Generates approximately 6-10 skill files
+
+  **Last updated:** February 16, 2026

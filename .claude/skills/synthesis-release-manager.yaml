@@ -1,0 +1,300 @@
+name: synthesis-release-manager
+version: 1.0.0
+description: Manage Synthesis releases, PRs, version updates, and documentation
+
+trigger_phrases:
+  - "create synthesis release"
+  - "prepare synthesis PR"
+  - "update synthesis version"
+  - "synthesis release notes"
+  - "tag synthesis release"
+
+instructions: |
+  # Synthesis Release Manager
+
+  Automates the process of creating releases, PRs, version updates, and release documentation for the Synthesis project.
+
+  ## Workflow
+
+  When user requests Synthesis release:
+
+  ### Step 1: Identify Release Scope
+
+  **Ask user:**
+  1. **What changed?**
+     - Feature name (e.g., "Phase 2 Local Media Enrichment")
+     - Components affected (Whisper, Tesseract, PDF support)
+     - Tests added/modified
+
+  2. **Release type:**
+     - Major (breaking changes, new major features)
+     - Minor (new features, backward compatible)
+     - Patch (bug fixes only)
+
+  3. **Target version:**
+     - Current: v1.0.3-SNAPSHOT (read from pom.xml)
+     - Next: v1.1.0, v1.2.0, v2.0.0? (suggest based on release type)
+
+  ### Step 2: Verify Tests & Build
+
+  **Before creating release:**
+  ```bash
+  cd /home/totto/src/synthesis
+  mvn clean test
+  ```
+
+  **Verify:**
+  - All tests pass ✅
+  - No regressions
+  - Build succeeds
+
+  **If tests fail:** Stop and report errors to user
+
+  ### Step 3: Create Feature Branch
+
+  **Git workflow:**
+  ```bash
+  git checkout main
+  git pull origin main
+  git checkout -b feature/{feature-name}
+  ```
+
+  **Example:** `feature/phase2-local-enrichment`
+
+  ### Step 4: Generate Commit Messages
+
+  **Pattern (Conventional Commits):**
+  ```
+  feat: Add {feature name}
+
+  {Description of what changed and why}
+
+  Features:
+  - {Feature 1}
+  - {Feature 2}
+  - {Feature 3}
+
+  Tests: X tests ({Y new tests})
+
+  Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+  ```
+
+  **Create logical commits:**
+  - Commit 1: Core feature implementation
+  - Commit 2: Tests
+  - Commit 3: Documentation
+  - Commit 4: Version + dependency updates
+
+  **Example (Phase 2):**
+  ```
+  Commit 1: feat: Add Whisper integration for audio/video transcription
+  Commit 2: feat: Add Tesseract integration for OCR text extraction
+  Commit 3: feat: Add PDF support with Poppler utilities
+  Commit 4: feat: Integrate LOCAL tier detection in EnrichmentLevel
+  Commit 5: docs: Add Phase 2 Local Media Enrichment documentation
+  ```
+
+  ### Step 5: Update Version Numbers
+
+  **Files to update:**
+
+  **1. pom.xml:**
+  ```xml
+  <version>1.2.0-SNAPSHOT</version>
+  ```
+
+  **2. Update synthesis-product-context.yaml:**
+  - Status: "Production-ready (v1.2.0-SNAPSHOT as of {DATE})"
+  - Add feature to capabilities list
+
+  **3. Update PRODUCT-VARIANTS-ROADMAP.md:**
+  - Mark completed phase (e.g., "Phase 2: ✅ Complete (Feb 15, 2026)")
+  - Update "Current Status" section
+
+  ### Step 6: Generate Release Notes
+
+  **Read commit history:**
+  ```bash
+  git log --oneline main..HEAD
+  ```
+
+  **Generate RELEASE-NOTES-v{VERSION}.md:**
+  ```markdown
+  # Synthesis v{VERSION} - {Feature Name}
+
+  **Released:** {DATE}
+  **Status:** Production-ready
+
+  ## What's New
+
+  {High-level summary}
+
+  ## Features
+
+  ### {Feature 1}
+  - {Description}
+  - {Technical details}
+  - {Use case}
+
+  ### {Feature 2}
+  - {Description}
+
+  ## Technical Details
+
+  **New Classes:**
+  - {Class 1} - {Purpose}
+  - {Class 2} - {Purpose}
+
+  **Tests:**
+  - {X total tests} ({Y new tests})
+  - Zero regressions
+  - 100% backward compatible
+
+  **Dependencies:**
+  - Added: {dependency 1} {version}
+  - Updated: {dependency 2} {old version} → {new version}
+
+  ## Installation
+
+  {Installation instructions if dependencies changed}
+
+  ## Migration Guide
+
+  {If breaking changes, provide migration guide}
+
+  ## Business Impact
+
+  {Strategic value, revenue opportunity, competitive advantage}
+
+  ## Next Steps
+
+  {What's coming in next release}
+  ```
+
+  ### Step 7: Create Pull Request
+
+  **Push feature branch:**
+  ```bash
+  git push -u origin feature/{feature-name}
+  ```
+
+  **Create PR using gh CLI:**
+  ```bash
+  gh pr create --title "{Title}" --body "$(cat <<'EOF'
+  {PR description with features, testing, documentation}
+  EOF
+  )" --base main
+  ```
+
+  **PR Description Format:**
+  - Summary (1-2 paragraphs)
+  - What's New (bullet list)
+  - Technical Details (files changed, tests added)
+  - Testing (X tests passing, zero regressions)
+  - Documentation (docs added/updated)
+  - Business Impact (strategic value)
+  - Next Steps (what comes after merge)
+
+  **Example:** See PR #14 format (Phase 2 Local Enrichment)
+
+  ### Step 8: Post-Merge Actions
+
+  **After user merges PR:**
+
+  **1. Tag release:**
+  ```bash
+  git checkout main
+  git pull origin main
+  git tag -a v{VERSION} -m "Release v{VERSION} - {Feature Name}"
+  git push origin v{VERSION}
+  ```
+
+  **2. Create GitHub Release:**
+  ```bash
+  gh release create v{VERSION} \
+    --title "v{VERSION} - {Feature Name}" \
+    --notes-file RELEASE-NOTES-v{VERSION}.md
+  ```
+
+  **3. Update documentation:**
+  - README.md (add feature to list)
+  - CHANGELOG.md (add release entry)
+  - synthesis-product-context.yaml skill (update "Last Updated" + add feature)
+
+  **4. Announce release:**
+  - Suggest LinkedIn post (use linkedin-post-creator skill)
+  - Recommend: Track 3 (Technical) or Track 2B (Personal reflection on build journey)
+
+  ### Step 9: Version Bump for Next Development
+
+  **After release tagged:**
+  ```bash
+  # Update pom.xml to next SNAPSHOT version
+  # v1.2.0 → v1.2.1-SNAPSHOT (for patch development)
+  # or v1.2.0 → v1.3.0-SNAPSHOT (for next minor feature)
+  ```
+
+  **Commit:**
+  ```
+  chore: Prepare for next development iteration
+
+  Bump version to v1.2.1-SNAPSHOT
+  ```
+
+  ## Example Usage
+
+  User: "create synthesis release for phase 2"
+
+  Agent:
+  1. Asks: "Release type? (Minor - new features, backward compatible)"
+  2. User: "Minor"
+  3. Agent suggests: v1.0.3 → v1.2.0 (Phase 2 is significant)
+  4. Runs tests: `mvn clean test` → 802 tests passing ✅
+  5. Creates branch: feature/phase2-local-enrichment
+  6. Generates 5 logical commits (Whisper, Tesseract, PDF, Integration, Docs)
+  7. Updates pom.xml: v1.2.0-SNAPSHOT
+  8. Generates RELEASE-NOTES-v1.2.0.md
+  9. Creates PR #14 with comprehensive description
+  10. Reports: "PR #14 created: https://github.com/exoreaction/Synthesis/pull/14"
+  11. After merge: Tags v1.2.0, creates GitHub release, suggests LinkedIn post
+
+  ## Configuration
+
+  **Repository:**
+  - Path: /src/exoreaction/Synthesis
+  - Remote: origin (github.com:exoreaction/Synthesis)
+  - Main branch: main
+
+  **Version file:** pom.xml
+  **Skill to update:** synthesis-product-context.yaml
+
+  **Release Pattern:**
+  - Major (X.0.0): Breaking changes, major milestones
+  - Minor (1.X.0): New features, backward compatible
+  - Patch (1.2.X): Bug fixes only
+
+  ## CRITICAL: Distribution Model
+
+  **NEVER add GitHub raw download steps for scripts in install.sh.**
+
+  Synthesis distribution has TWO components only:
+
+  1. **JAR** → Published to Cantara Maven repository (snapshots + releases)
+     - URL: https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis/
+     - install.sh fetches JAR from Cantara Maven (or GitHub release assets as fallback)
+     - Do NOT use GitHub raw URLs for the JAR
+
+  2. **Shell scripts** → Embedded INLINE in install.sh via heredoc
+     - Pattern: `cat > "$SYNTHESIS_HOME/bin/scriptname" << 'EOF' ... EOF`
+     - Examples: synthesis launcher, synthesis-mcp-server, synthesis-lsp-server, exo
+     - This is how they survive the `curl ... | bash` install flow — no separate download needed
+     - Do NOT add `download_file "${GITHUB_RAW}/bin/scriptname"` steps for scripts
+
+  **Why inline?** When a user runs `curl ... | bash`, there is no source directory. Any
+  script that needs to be installed must be embedded in install.sh itself. A GitHub raw
+  download would be a separate network call that could fail, and it couples the install
+  to GitHub availability.
+
+  **The exo script** is embedded inline in install.sh (Step 7b), written to `~/bin/exo`.
+  The `bin/exo` file in the repo is the canonical source — copy its content into install.sh
+  when it changes. Do not add a download step.
