@@ -12,11 +12,13 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -215,7 +217,7 @@ public class ReportCommand implements Callable<Integer> {
                             ? ef.discoverForClient(workspaceRoot, entityName)
                             : ef.discoverForProduct(workspaceRoot, entityName);
                 } else {
-                    estimateDocs = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic);
+                    estimateDocs = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic, period);
                 }
                 if (!estimateDocs.isEmpty()) {
                     System.err.println("  Documents that will be analyzed:");
@@ -242,9 +244,27 @@ public class ReportCommand implements Callable<Integer> {
                         ? ef.discoverForClient(workspaceRoot, entityName)
                         : ef.discoverForProduct(workspaceRoot, entityName);
             } else {
-                documents = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic);
+                documents = new BusinessDocumentFinder().discover(workspaceRoot, reportTopic, period);
             }
             documentFingerprint = BusinessDocumentFinder.generateFingerprint(documents);
+
+            // Guard: no documents found for entity (#47)
+            if (entityName != null && documents.isEmpty()) {
+                String entityType = reportTopic == ReportTopic.CLIENT ? "client" : "product";
+                AnsiOutput.printError("No documents found for " + entityType
+                        + " \"" + entityName + "\".");
+                List<String> suggestions = suggestSimilarEntities(workspaceRoot, entityName, reportTopic);
+                if (!suggestions.isEmpty()) {
+                    System.err.println("  Did you mean one of these?");
+                    for (String s : suggestions) {
+                        System.err.println("    --" + entityType + " " + s);
+                    }
+                } else {
+                    System.err.println("  Expected: eXOReaction/"
+                            + (reportTopic == ReportTopic.CLIENT ? "clients/" : "products/"));
+                }
+                return 1;
+            }
 
             ReportResult result = null;
 
@@ -368,6 +388,28 @@ public class ReportCommand implements Callable<Integer> {
 
         // Business topic reports (or entity not found in workspace): .synthesis/reports/
         return Optional.of(new WorkspaceManager(workspaceRoot).getReportsPath().resolve(filename));
+    }
+
+    /**
+     * Returns names of existing entities similar to the given name, for error suggestions (#47).
+     */
+    private List<String> suggestSimilarEntities(Path workspaceRoot, String entityName,
+                                                 ReportTopic topic) {
+        List<String> suggestions = new ArrayList<>();
+        Path searchRoot = topic == ReportTopic.CLIENT
+                ? workspaceRoot.resolve("eXOReaction/clients")
+                : workspaceRoot.resolve("eXOReaction/products");
+        if (!Files.isDirectory(searchRoot)) return suggestions;
+        try (var stream = Files.list(searchRoot)) {
+            stream.filter(Files::isDirectory)
+                    .map(p -> p.getFileName().toString())
+                    .filter(name -> !name.startsWith("."))
+                    .map(name -> name.startsWith("opportunity-")
+                            ? name.substring("opportunity-".length()) : name)
+                    .distinct().sorted()
+                    .forEach(suggestions::add);
+        } catch (IOException e) { /* ignore */ }
+        return suggestions;
     }
 
     private int showCacheStats(Path workspaceRoot) {

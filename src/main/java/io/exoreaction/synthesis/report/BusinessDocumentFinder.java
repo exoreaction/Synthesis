@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -47,6 +50,21 @@ public class BusinessDocumentFinder {
     private static final List<String> EXECUTIVE_PATTERNS = List.of(
             "EXECUTIVE-UPDATE", "SELINA", "executive-update",
             "EXECUTIVE_UPDATE", "executive_update"
+    );
+
+    /**
+     * Directories whose contents should NEVER match business document patterns.
+     * Prevents false positives from technical/methodology/personal directories.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/43">#43</a>
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/45">#45</a>
+     */
+    private static final List<String> EXCLUDED_DIRS = List.of(
+            "/skills/",
+            "/methodology/",
+            "/docs/technical/",
+            "/architecture/",
+            "/personal/"
     );
 
     private final int maxCharsPerDoc;
@@ -109,6 +127,62 @@ public class BusinessDocumentFinder {
                 .sorted(Comparator.comparing(ReportDocument::lastModified).reversed())
                 .limit(MAX_TOTAL_DOCS)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Anchor document name fragments — these are always included regardless of age.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/46">#46</a>
+     */
+    private static final List<String> ANCHOR_DOC_PATTERNS = List.of(
+            "PIPELINE-STATUS", "PIPELINE_STATUS",
+            "ACTIVITY-LOG", "ACTIVITY_LOG"
+    );
+
+    private static boolean isAnchorDoc(String fileName) {
+        String upper = fileName.toUpperCase();
+        return ANCHOR_DOC_PATTERNS.stream().anyMatch(upper::contains);
+    }
+
+    /**
+     * Discovers business documents in the workspace relevant to the given topic,
+     * filtered to only include documents modified within the given period.
+     *
+     * <p>Anchor documents (PIPELINE-STATUS.md, ACTIVITY-LOG.md) are always included
+     * regardless of age, so the AI always has the full current state as context.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param topic         the report topic
+     * @param period        the period string (e.g. "1w", "2w", "1m")
+     * @return list of discovered documents filtered by period
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/46">#46</a>
+     */
+    public List<ReportDocument> discover(Path workspaceRoot, ReportTopic topic, String period) {
+        List<ReportDocument> allDocs = discover(workspaceRoot, topic);
+        Instant cutoff = parsePeriodCutoff(period);
+        return allDocs.stream()
+                .filter(doc -> isAnchorDoc(doc.path().getFileName().toString())
+                        || doc.lastModified().isAfter(cutoff))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Parses a period string (e.g. "1w", "2w", "1m") into a cutoff {@link Instant}.
+     * Documents modified before the cutoff should be excluded (except anchor docs).
+     * Unknown period strings default to 1 week.
+     *
+     * @param period the period string
+     * @return the earliest acceptable last-modified timestamp
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/46">#46</a>
+     */
+    public static Instant parsePeriodCutoff(String period) {
+        LocalDate today = LocalDate.now();
+        LocalDate cutoff = switch (period) {
+            case "2w" -> today.minusWeeks(2);
+            case "1m" -> today.minusMonths(1);
+            default -> today.minusWeeks(1);
+        };
+        return cutoff.atStartOfDay(ZoneId.systemDefault()).toInstant();
     }
 
     /**
@@ -189,6 +263,18 @@ public class BusinessDocumentFinder {
     }
 
     /**
+     * Returns true if the filename indicates presentation material rather than an event record.
+     * Presentation materials are created FOR events, not records OF events.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/50">#50</a>
+     */
+    private static boolean isPresentationFile(String fileName) {
+        String lower = fileName.toLowerCase();
+        return lower.contains("presentation") || lower.contains("slides")
+                || lower.contains("deck") || lower.contains("talk-");
+    }
+
+    /**
      * Checks if a path matches any of the given patterns for a category.
      */
     private boolean matchesPatterns(Path path, List<String> patterns, String category) {
@@ -203,7 +289,14 @@ public class BusinessDocumentFinder {
         // For events category: must be inside an events/ directory and have a meaningful name
         // (not a bare README.md, which is already excluded above)
         if ("event".equals(category)) {
-            return fullPath.contains("/events/") && fileName.endsWith(".md");
+            if (!fullPath.contains("/events/") || !fileName.endsWith(".md")) return false;
+            // Exclude personal directories (#45)
+            for (String excluded : EXCLUDED_DIRS) {
+                if (fullPath.contains(excluded)) return false;
+            }
+            // Exclude presentation materials (#50)
+            if (isPresentationFile(fileName)) return false;
+            return true;
         }
 
         // For strategy category: must be in strategy/ or analysis/, but skip screenshots/
@@ -214,7 +307,14 @@ public class BusinessDocumentFinder {
                     && (fileName.endsWith(".md") || fileName.endsWith(".txt"));
         }
 
-        // For other categories, check if the filename contains any pattern
+        // Exclude technical/non-business directories (#43)
+        for (String excluded : EXCLUDED_DIRS) {
+            if (fullPath.contains(excluded)) {
+                return false;
+            }
+        }
+
+        // Check if the filename contains any pattern
         for (String pattern : patterns) {
             if (fileName.contains(pattern)) {
                 return true;
