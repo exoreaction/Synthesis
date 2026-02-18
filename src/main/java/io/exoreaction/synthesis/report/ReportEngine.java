@@ -87,32 +87,47 @@ public class ReportEngine {
         switch (topic) {
             case PIPELINE: {
                 if (verbose) System.err.print("  Running pipeline analysis...");
-                String pipelineResult = client.generate(
+                var pipelineGen = client.generateWithMeta(
                         ReportPrompts.pipelinePass(documents, target, periodDescription),
-                        maxTokensPerPass);
-                totalTokens += ResearchPassResult.estimateTokens(pipelineResult);
+                        maxTokensPerPass, 0.0);
+                if (pipelineGen.truncated()) {
+                    System.err.println("\n  WARNING: Output truncated at " + maxTokensPerPass
+                            + " tokens. Use --max-tokens " + (maxTokensPerPass * 2)
+                            + " or --topic weekly for multi-pass synthesis.");
+                }
+                totalTokens += ResearchPassResult.estimateTokens(pipelineGen.content());
                 if (verbose) System.err.println(" done");
-                reportContent = pipelineResult;
+                reportContent = pipelineGen.content();
                 break;
             }
             case ACTIVITIES: {
                 if (verbose) System.err.print("  Running activities analysis...");
-                String activitiesResult = client.generate(
+                var activitiesGen = client.generateWithMeta(
                         ReportPrompts.activitiesPass(documents, target, periodDescription),
-                        maxTokensPerPass);
-                totalTokens += ResearchPassResult.estimateTokens(activitiesResult);
+                        maxTokensPerPass, 0.0);
+                if (activitiesGen.truncated()) {
+                    System.err.println("\n  WARNING: Output truncated at " + maxTokensPerPass
+                            + " tokens. Use --max-tokens " + (maxTokensPerPass * 2)
+                            + " or --topic weekly for multi-pass synthesis.");
+                }
+                totalTokens += ResearchPassResult.estimateTokens(activitiesGen.content());
                 if (verbose) System.err.println(" done");
-                reportContent = activitiesResult;
+                reportContent = activitiesGen.content();
                 break;
             }
             case DECISIONS: {
                 if (verbose) System.err.print("  Running decisions analysis...");
-                String decisionsResult = client.generate(
+                var decisionsGen = client.generateWithMeta(
                         ReportPrompts.decisionsPass(documents, target, periodDescription),
-                        maxTokensPerPass);
-                totalTokens += ResearchPassResult.estimateTokens(decisionsResult);
+                        maxTokensPerPass, 0.0);
+                if (decisionsGen.truncated()) {
+                    System.err.println("\n  WARNING: Output truncated at " + maxTokensPerPass
+                            + " tokens. Use --max-tokens " + (maxTokensPerPass * 2)
+                            + " or --topic weekly for multi-pass synthesis.");
+                }
+                totalTokens += ResearchPassResult.estimateTokens(decisionsGen.content());
                 if (verbose) System.err.println(" done");
-                reportContent = decisionsResult;
+                reportContent = decisionsGen.content();
                 break;
             }
             case WEEKLY:
