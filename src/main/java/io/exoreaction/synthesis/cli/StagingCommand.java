@@ -130,7 +130,9 @@ public class StagingCommand implements Callable<Integer> {
                 SynthesisDatabase db = SynthesisDatabase.getDefault();
                 StagingManager staging = new StagingManager(db, config.getStaging(), workspaceRoot);
 
-                List<StagedFile> files = staging.list(statusFilter);
+                List<StagedFile> files = staging.list(statusFilter).stream()
+                        .filter(f -> !f.relativePath().startsWith(".synthesis/"))
+                        .toList();
 
                 if (files.isEmpty()) {
                     System.out.println();
@@ -872,12 +874,26 @@ public class StagingCommand implements Callable<Integer> {
                         }
                     }
 
+                    // Build matchers from workspace excludePatterns (same rules as scan)
+                    List<PathMatcher> excludeMatchers = new ArrayList<>();
+                    for (String pat : config.getScan().getExcludePatterns()) {
+                        excludeMatchers.add(FileSystems.getDefault().getPathMatcher("glob:" + pat));
+                    }
+
                     // Walk the staging directory and ingest new files
                     try (Stream<Path> files = Files.walk(stagingDir)) {
                         List<Path> newFiles = files
                                 .filter(Files::isRegularFile)
                                 .filter(p -> {
                                     String rel = workspaceRoot.relativize(p).toString();
+                                    // Always skip internal Synthesis files
+                                    if (rel.startsWith(".synthesis/")) return false;
+                                    // Skip files matching workspace excludePatterns
+                                    for (PathMatcher matcher : excludeMatchers) {
+                                        if (matcher.matches(p) || matcher.matches(Path.of(rel))) {
+                                            return false;
+                                        }
+                                    }
                                     return !existingPaths.contains(rel);
                                 })
                                 .toList();
@@ -1042,6 +1058,11 @@ public class StagingCommand implements Callable<Integer> {
                 SynthesisDatabase db = SynthesisDatabase.getDefault();
                 StagingManager staging = new StagingManager(db, config.getStaging(), workspaceRoot);
 
+                // Use filtered list counts for accuracy (excludes .synthesis/ internals)
+                long realPending = staging.list("pending").stream()
+                        .filter(f -> !f.relativePath().startsWith(".synthesis/")).count();
+                long realPromoted = staging.list("promoted").stream()
+                        .filter(f -> !f.relativePath().startsWith(".synthesis/")).count();
                 StagingSummary stats = staging.getStats();
 
                 System.out.println();
@@ -1055,8 +1076,8 @@ public class StagingCommand implements Callable<Integer> {
                         config.getStaging().getClassificationThreshold() * 100));
                 System.out.println();
                 System.out.println("  Status:");
-                System.out.println("    Pending:   " + AnsiOutput.yellow(String.valueOf(stats.ingested())));
-                System.out.println("    Promoted:  " + AnsiOutput.green(String.valueOf(stats.promoted())));
+                System.out.println("    Pending:   " + AnsiOutput.yellow(String.valueOf(realPending)));
+                System.out.println("    Promoted:  " + AnsiOutput.green(String.valueOf(realPromoted)));
                 System.out.println("    Expired:   " + AnsiOutput.red(String.valueOf(stats.expired())));
                 System.out.println();
 
