@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.report;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -13,6 +15,14 @@ import java.util.stream.Collectors;
 public class ReportPrompts {
 
     private ReportPrompts() {}
+
+    /** Returns today's date formatted for prompt injection (e.g., "2026-02-18 (Tuesday)"). */
+    static String todayForPrompt() {
+        LocalDate today = LocalDate.now();
+        return today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                + " (" + today.getDayOfWeek().name().charAt(0)
+                + today.getDayOfWeek().name().substring(1).toLowerCase() + ")";
+    }
 
     /**
      * Generates the pipeline analysis prompt.
@@ -28,6 +38,7 @@ public class ReportPrompts {
         return """
                 You are a business analyst generating a pipeline status report for %s.
 
+                TODAY'S DATE: %s
                 COVERAGE PERIOD: %s
 
                 BUSINESS DOCUMENTS:
@@ -60,7 +71,7 @@ public class ReportPrompts {
                 Format as clean markdown. Use tables where appropriate.
                 Be specific with numbers -- do not round excessively.
                 If information is missing from the documents, note what data would be needed.
-                """.formatted(target.displayName(), period, docContent);
+                """.formatted(target.displayName(), todayForPrompt(), period, docContent);
     }
 
     /**
@@ -129,6 +140,7 @@ public class ReportPrompts {
         return """
                 You are a business analyst identifying critical decisions for %s.
 
+                TODAY'S DATE: %s
                 COVERAGE PERIOD: %s
 
                 BUSINESS DOCUMENTS:
@@ -150,13 +162,17 @@ public class ReportPrompts {
                 4. **Recommendation** -- Your recommended option with reasoning
 
                 5. **Timeline** -- When the decision needs to be made
+                   IMPORTANT: All deadlines must be TODAY (%s) or later. If a document mentions a
+                   past deadline (e.g., "by February 5" when today is %s), note that it has passed
+                   and provide an updated timeline based on today's date.
 
                 6. **Impact** -- What happens if the decision is delayed
 
                 Prioritize decisions by urgency and business impact.
                 Be specific -- avoid generic recommendations.
                 Reference specific data from the documents to support analysis.
-                """.formatted(target.displayName(), period, docContent);
+                """.formatted(target.displayName(), todayForPrompt(), period, docContent,
+                todayForPrompt(), todayForPrompt());
     }
 
     /**
@@ -260,11 +276,15 @@ public class ReportPrompts {
         return """
                 You are a business analyst gathering evidence about %s "%s".
 
+                TODAY'S DATE: %s
+
                 DOCUMENTS:
                 %s
 
                 INSTRUCTIONS:
                 Extract and structure all factual information about "%s" from these documents.
+                Note the document modification dates and flag any information that appears to be
+                more than 14 days old as potentially stale.
                 Do NOT interpret or recommend yet — only gather evidence.
 
                 Organize what you find under these headings:
@@ -296,7 +316,7 @@ public class ReportPrompts {
 
                 List only what is explicitly stated in the documents.
                 If a section has no information, write "No information found."
-                """.formatted(entityType, entityName, docContent, entityName);
+                """.formatted(entityType, entityName, todayForPrompt(), docContent, entityName);
     }
 
     /**
@@ -332,6 +352,11 @@ public class ReportPrompts {
         return """
                 You are a senior business advisor producing an entity report for %s "%s".
 
+                TODAY'S DATE: %s
+                Use this date as the reference point for all deadlines and urgency assessments.
+                If the evidence contains dates that are already in the past (before today), note
+                they have passed and provide updated timelines from today forward.
+
                 EVIDENCE GATHERED:
                 %s
 
@@ -357,7 +382,7 @@ public class ReportPrompts {
                 Prioritized list of what needs to happen. For each item:
                 - What: specific action
                 - Why: impact if done / risk if not done
-                - By when: recommended deadline
+                - By when: recommended deadline (must be today or later)
                 - Owner: who should act
 
                 ### Risks & Signals
@@ -369,7 +394,7 @@ public class ReportPrompts {
 
                 Format as clean, scannable markdown. Lead with facts, not narratives.
                 Use bold for key numbers, names, and deadlines.
-                """.formatted(entityType, entityName, evidenceSummary,
+                """.formatted(entityType, entityName, todayForPrompt(), evidenceSummary,
                 focusInstructions, targetInstructions, entityName);
     }
 

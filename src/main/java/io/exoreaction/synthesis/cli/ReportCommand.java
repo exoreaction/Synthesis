@@ -281,16 +281,14 @@ public class ReportCommand implements Callable<Integer> {
                     result = engine.generate(workspaceRoot, reportTarget, reportTopic, period, verbose);
                 }
 
-                // Store in cache
-                if (!noCache) {
-                    try {
-                        SynthesisDatabase db = SynthesisDatabase.getDefault();
-                        Connection conn = db.getConnection();
-                        ReportCache cache = new ReportCache(conn);
-                        cache.put(workspaceRoot, result, documentFingerprint);
-                    } catch (Exception e) {
-                        System.err.println("Warning: Cache storage failed: " + e.getMessage());
-                    }
+                // Store in cache (always store, even with --no-cache, to refresh the entry)
+                try {
+                    SynthesisDatabase db = SynthesisDatabase.getDefault();
+                    Connection conn = db.getConnection();
+                    ReportCache cache = new ReportCache(conn);
+                    cache.put(workspaceRoot, result, documentFingerprint);
+                } catch (Exception e) {
+                    System.err.println("Warning: Cache storage failed: " + e.getMessage());
                 }
             }
 
