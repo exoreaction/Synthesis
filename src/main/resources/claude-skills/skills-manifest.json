@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
+  "version": "1.8.4",
   "generatedBy": "Synthesis",
   "description": "Bundled Claude Code skills for Synthesis knowledge infrastructure",
   "skills": [
@@ -107,6 +107,20 @@
       "command": "metrics",
       "category": "development",
       "description": "MCP tool metrics tracking and performance analysis"
+    },
+    {
+      "name": "synthesis-pilot-dist",
+      "file": "synthesis-pilot-dist.yaml",
+      "command": "pilot",
+      "category": "operations",
+      "description": "Create personalized Synthesis pilot distribution zip for a named recipient"
+    },
+    {
+      "name": "synthesis-report-verification",
+      "file": "synthesis-report-verification.yaml",
+      "command": "report",
+      "category": "development",
+      "description": "Verify report command quality, document discovery, and write report module tests"
     },
     {
       "name": "synthesis-perspectives-analysis",

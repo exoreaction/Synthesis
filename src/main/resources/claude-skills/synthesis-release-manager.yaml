@@ -261,15 +261,40 @@ instructions: |
   ## Configuration
 
   **Repository:**
-  - Path: /home/totto/src/synthesis
+  - Path: /src/exoreaction/Synthesis
   - Remote: origin (github.com:exoreaction/Synthesis)
   - Main branch: main
 
   **Version file:** pom.xml
   **Skill to update:** synthesis-product-context.yaml
-  **Roadmap to update:** PRODUCT-VARIANTS-ROADMAP.md
 
   **Release Pattern:**
   - Major (X.0.0): Breaking changes, major milestones
   - Minor (1.X.0): New features, backward compatible
   - Patch (1.2.X): Bug fixes only
+
+  ## CRITICAL: Distribution Model
+
+  **NEVER add GitHub raw download steps for scripts in install.sh.**
+
+  Synthesis distribution has TWO components only:
+
+  1. **JAR** → Published to Cantara Maven repository (snapshots + releases)
+     - URL: https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis/
+     - install.sh fetches JAR from Cantara Maven (or GitHub release assets as fallback)
+     - Do NOT use GitHub raw URLs for the JAR
+
+  2. **Shell scripts** → Embedded INLINE in install.sh via heredoc
+     - Pattern: `cat > "$SYNTHESIS_HOME/bin/scriptname" << 'EOF' ... EOF`
+     - Examples: synthesis launcher, synthesis-mcp-server, synthesis-lsp-server, exo
+     - This is how they survive the `curl ... | bash` install flow — no separate download needed
+     - Do NOT add `download_file "${GITHUB_RAW}/bin/scriptname"` steps for scripts
+
+  **Why inline?** When a user runs `curl ... | bash`, there is no source directory. Any
+  script that needs to be installed must be embedded in install.sh itself. A GitHub raw
+  download would be a separate network call that could fail, and it couples the install
+  to GitHub availability.
+
+  **The exo script** is embedded inline in install.sh (Step 7b), written to `~/bin/exo`.
+  The `bin/exo` file in the repo is the canonical source — copy its content into install.sh
+  when it changes. Do not add a download step.

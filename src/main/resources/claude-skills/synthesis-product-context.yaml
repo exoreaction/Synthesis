@@ -1,6 +1,6 @@
 name: synthesis-product-context
-version: 1.4.0
-description: Comprehensive Synthesis product context - open source knowledge infrastructure with sub-workspace architecture
+version: 1.8.1
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, and team staging
 auto_load: true
 
 instructions: |
@@ -8,10 +8,10 @@ instructions: |
 
   **Official Repository:** https://github.com/exoreaction/Synthesis
   **License:** MIT (Open Source)
-  **Local Path:** /home/totto/src/exoreaction/Synthesis
+  **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 17+
-  **Status:** Production-ready (v1.4.1-SNAPSHOT as of Feb 16, 2026)
-  **Latest:** Sub-workspace architecture with hierarchical organization
+  **Status:** Production-ready (v1.8.4-SNAPSHOT as of Feb 18, 2026)
+  **Latest:** Configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
 
   ---
 
@@ -35,15 +35,15 @@ instructions: |
 
   ---
 
-  ## Validated Metrics (Feb 14, 2026 Integration Test)
+  ## Validated Metrics (Feb 17, 2026)
 
   **Performance:**
-  - 8,934 files indexed across 3 diverse workspaces
+  - 36,342 files indexed across 8 workspaces (up from 8,934 on Feb 14)
   - Indexing speed: 200-300 files/second
   - Search speed: Sub-second (0.4s typical)
-  - Storage overhead: 2.7% (11.6 MB index for 434 MB content)
+  - Storage overhead: 2.7% (58.7 MB index)
   - Cross-repo mapping: 58 repos, 429 dependencies in <31 seconds
-  - Tests: **802 tests passing** (43 new Phase 2 tests)
+  - Tests: **2,291 tests passing** (84 test classes, PR #60)
 
   **Business Impact:**
   - 92-95% reduction in retrieval time (5-15 min → 10-30 sec)
@@ -90,12 +90,48 @@ instructions: |
   # NEW: Architecture monitoring
   synthesis architecture --check
 
-  # NEW v1.4.1: Sub-workspace features
+  # Sub-workspace features (v1.4.1+)
   synthesis search "<query>" --scope <sub-workspace>  # Scoped search
   synthesis search "<query>" --aggregate              # Grouped results
   synthesis migrate-repos [--dry-run]                 # Migrate to sub-workspaces
   synthesis staging list                              # Manage staging files
   synthesis staging promote <file> --to <workspace>   # Promote from staging
+
+  # Bundled Claude Code Skills (v1.4.1+)
+  synthesis export-skills                             # Export bundled skills to ~/.claude/skills/
+  synthesis export-skills --list                      # List all 25 bundled skills
+
+  # File tracking & change reporting (v1.3.0, PR #18)
+  synthesis track                                     # Show tracked file movements
+  synthesis changelog                                 # Cross-workspace change report (daily snapshot)
+
+  # AI research & reporting (v1.5+)
+  synthesis research --topic <topic>                  # Multi-pass AI analysis (architecture/security/synthesis)
+  synthesis report                                    # AI-generated business report
+  synthesis report --topic decisions                  # Decisions needing attention
+  synthesis report --topic pipeline                   # Pipeline status report
+  synthesis report --client <name>                    # Per-client report
+  synthesis report --product <name>                   # Per-product report
+
+  # report.outputDir: custom save location (in config.yaml)
+  # report:
+  #   outputDir: "reports"   # relative to workspace root, or absolute path
+  #                          # Default: .synthesis/reports/
+  # Entity reports (--client/--product) always co-locate regardless of outputDir
+
+  # Executive dashboard (v1.7+)
+  synthesis dashboard                                 # Interactive WBS/org dashboard
+  exo                                                 # Executive shortcut → synthesis dashboard
+  exo decisions                                       # Quick decisions report
+  exo pipeline                                        # Quick pipeline report
+  exo client <name>                                   # Client-specific report
+
+  # Credential store (v1.6+)
+  synthesis credentials set ANTHROPIC_API_KEY <key>  # Store API key securely
+  synthesis credentials status                        # Show stored credentials
+
+  # Upcoming features
+  synthesis upcoming                                  # Timeline view of events/deadlines
   ```
 
   ---
@@ -151,6 +187,96 @@ instructions: |
   synthesis staging list
   synthesis staging promote "file.pdf" --to documents
   ```
+
+  ---
+
+  ## Bundled Claude Code Skills (v1.4.1+, Feb 16, 2026)
+
+  **Problem:** Users need to manually create skills to leverage Synthesis in Claude Code, creating friction.
+
+  **Solution:** All 25 official Synthesis skills are now embedded in the JAR and can be exported with one command.
+
+  ### Features
+  1. **Zero Setup:** Skills bundled as JAR resources, no external downloads required
+  2. **One Command Install:** `synthesis export-skills` installs all 25 skills instantly
+  3. **Version Matched:** Skills always match your Synthesis version
+  4. **Complete Coverage:** 80.6% command coverage (25 of 31 commands)
+  5. **Skills Manifest:** JSON metadata for skill discovery and tooling
+
+  ### Included Skills (25 total)
+
+  **Core Workspace Operations (5):**
+  - synthesis-workspace-management - init, scan, watch, update commands
+  - synthesis-search-workspace - Full-text search with Lucene queries
+  - synthesis-scoped-search - Search within specific sub-workspaces
+  - synthesis-subworkspace-navigation - Navigate hierarchical structure
+  - synthesis-relate-dependencies - Bi-directional relationship tracking
+
+  **AI-Powered Features (4):**
+  - synthesis-ask-workspace - AI Q&A about workspace content
+  - synthesis-explain-code - AI code explanations (overview/detailed/expert)
+  - synthesis-learn-skills - Auto-generate skills from workspace patterns
+  - synthesis-perspectives-analysis - Multi-perspective directed synthesis
+
+  **Analysis & Metrics (3):**
+  - synthesis-insights-metrics - Codebase quality dashboard
+  - synthesis-architecture-monitoring - Architecture drift detection
+  - synthesis-graph-architecture - Visual dependency graphs (Mermaid)
+
+  **Change Tracking (2):**
+  - synthesis-track-movements - File movement tracking with audit trail
+  - synthesis-changelog-reports - Cross-workspace change reporting
+
+  **Media & Documentation (2):**
+  - synthesis-enrich-media - Make videos/images/PDFs searchable
+  - synthesis-export-docs - Generate documentation (multiple formats)
+
+  **Staging & Workflow (1):**
+  - synthesis-staging-management - Manage temporary/incoming files
+
+  **Database & Release (2):**
+  - synthesis-database-migrations - Schema management with Flyway
+  - synthesis-release-manager - Release workflow automation
+
+  **Context & Development (4):**
+  - synthesis-product-context - Complete product knowledge
+  - synthesis-development - Development guide
+  - synthesis-context - General context
+  - synthesis-interactive-cli - CLI usage patterns
+
+  **Campaign Management (2):**
+  - synthesis-linkedin-campaign - 9-week marketing campaign
+  - synthesis-metrics-tracking - Usage analytics
+
+  ### Export Commands
+  ```bash
+  # List all bundled skills
+  synthesis export-skills --list
+
+  # Export to default location (~/.claude/skills/)
+  synthesis export-skills
+
+  # Export to custom directory
+  synthesis export-skills --output /path/to/skills
+
+  # Overwrite existing skills
+  synthesis export-skills --overwrite
+
+  # Verbose output
+  synthesis export-skills -v
+  ```
+
+  ### Distribution Strategy
+  - **Users:** Run `synthesis export-skills` after installation → instant Claude Code integration
+  - **Workshops:** One command to provision all skills for participants
+  - **CI/CD:** Automated skill deployment in build pipelines
+  - **Version Control:** Skills stay in sync with Synthesis updates
+
+  ### Technical Implementation
+  - **Storage:** `/src/main/resources/claude-skills/` in JAR (25 YAML/MD files + manifest)
+  - **Manifest:** `skills-manifest.json` with version, categories, commands mapped
+  - **Classpath Loading:** Skills read via `getResourceAsStream()` at runtime
+  - **Size:** ~77KB total (2,289 lines of skill documentation)
 
   ---
 
@@ -237,7 +363,7 @@ instructions: |
   ```
 
   **Testing:**
-  - 802 tests passing (43 new Phase 2 tests)
+  - 835 tests passing (43 Phase 2 tests, 29 sub-workspace tests, 4 skills tests)
   - Zero regressions
   - 100% backward compatible
 
@@ -403,5 +529,61 @@ instructions: |
 
   ---
 
-  **Last Updated:** February 15, 2026 (PR #14 merged, Phase 2 local media enrichment complete)
-  **Next Milestone:** Phase 3: Auto-enrichment during scan, Show HN launch (Week 7, Mar 25), JavaZone CFP (Spring 2026)
+  ## AI Vision Enrichment Fix (Feb 17, 2026)
+
+  **Problem:** Large images (>3.75 MB raw / >5 MB base64) silently failed Claude Vision API.
+  NotebookLM exports (6-7 MB PNG) produced empty companion files with no AI descriptions.
+
+  **Fix:** `ClaudeClient.readImageBytes()` auto-resizes oversized images before encoding:
+  - Threshold: 3.75 MB raw (→ 5 MB base64 = API limit)
+  - Resize: Downscale to fit 2048×2048, bilinear interpolation, re-encode as JPEG
+  - Result: All 22 unnamed-*.png NotebookLM infographics (6-7 MB) now fully described
+  - Validated: Knowledge graphs, system diagrams, AI paradox infographics all enriched
+
+  ## Staging Workspaces (Feb 17, 2026, configured)
+
+  Three staging workspaces now active:
+  - **Downloads** (`~/Downloads`): 30-day retention, 88 files (54 images, 33 PDFs, 1 video)
+  - **Pictures** (`~/Pictures`): 90-day retention, parent workspace for Screenshots
+  - **Screenshots** (`~/Pictures/Screenshots`): 90-day retention, 1,726+ images
+
+  All three: `staging.enabled: true`, `ai.enabled: true`, image-focused scan patterns.
+
+  ## Multi-Perspective Documentation (v1.8.0, Feb 2026)
+
+  **8 role-specific guides** in `docs/perspectives/`:
+  - Executive, Developer, Engineering Manager, Architect, DevOps, Product Manager, Workshop Facilitator, AI Agent
+  - **User Guide V2** — 37 commands, complete reference
+  - **MCP + LSP guides** — Protocol integration for AI agents and IDEs
+  - 153 MB visual asset library (NotebookLM presentations, infographics)
+
+  **Last Updated:** February 18, 2026 (v1.8.4-SNAPSHOT)
+  **Recent Features:**
+  - **Test suite expansion** (PR #60): 1,054 → 2,291 tests, 41 → 84 test classes
+    - 6 zero-coverage packages now covered: research/, summary/, workspace/, db/, metrics/, tracking/
+    - 43 new test files, 7,747 lines — all parameterized with @CsvSource/@ValueSource/@EnumSource
+    - Key patterns: in-memory SQLite, @TempDir, longest-prefix subworkspace, enum contracts
+    - SQLite JDBC lesson: getObject(col, Integer.class) fails for NULL — use non-null values
+  - **Configurable report output dir** (`report.outputDir` in config.yaml) — entity co-location unaffected
+  - Report date anchoring: TODAY'S DATE injected into all deadline-generating prompts (PR #55/#40)
+  - Report --no-cache fix: now skips read but still writes (PR #55/#41)
+  - AI vision image auto-resize (large images no longer silently fail)
+  - Staging areas for Downloads/Pictures/Screenshots (fully configured)
+  - `exo` executive command (installed via install.sh inline heredoc)
+  - Research command (multi-pass AI), Report command, Dashboard command
+  - Credential store, Upcoming command, Entity reports
+  - User Guide V2 (37 commands), 8 perspective guides, MCP/LSP documentation
+  - `synthesis track` + `synthesis changelog` (file movement tracking)
+
+  **Known Issues (tracked, not yet fixed):**
+  - #42 P1: Non-deterministic recommendations across report types (temperature not set)
+  - #43 P2: Pipeline keyword false positive (multi-stage-pipeline-architecture.yaml)
+  - #44 P2: Single-pass truncation (activities, decisions topics)
+  - #45 P2: Personal events directory false positive
+  - #46 P2: --period flag has no effect on document selection
+  - #47 P2: --product NonExistentProduct generates hallucinated report
+  - #48 P2: Stale urgency deadlines in client reports
+  - #49 P2: Product reports miss dev history (changelogs, PRs)
+  - #54 P1: Report module 0% test coverage (PR #55 starts fixing this)
+
+  **Next Milestone:** Fix #43/45 (document discovery false positives), Synthesis Hub (team collaboration), Show HN launch, JavaZone CFP
