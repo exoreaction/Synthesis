@@ -280,4 +280,21 @@ instructions: |
 
   ---
 
-  **Last updated:** February 16, 2026
+  ## Large Image Handling (Feb 17, 2026 fix)
+
+  The Anthropic Vision API has a hard limit: **5 MB for base64-encoded images** (5,242,880 bytes).
+  Raw file threshold: ~3.75 MB (× 1.33 base64 overhead = 5 MB).
+
+  **Before fix:** Images >3.75 MB silently failed — companion generated but no `## AI Description`.
+  **After fix:** `ClaudeClient.readImageBytes()` auto-resizes before encoding:
+  - Reads with `ImageIO`, downscales to fit 2048×2048, re-encodes as JPEG
+  - No `--level` flag change needed — happens automatically
+
+  **Affected files:** High-res PNGs (NotebookLM exports, 4K screenshots). Slide PNGs (1.4-1.8 MB) unaffected.
+
+  **If a companion has no `## AI Description` despite `--level ai`:**
+  1. Check file size: `ls -lh <file>` — if >3.75 MB, it's the size limit
+  2. Rebuild + deploy the latest JAR (fix is in v1.8.1-SNAPSHOT+)
+  3. Re-run: `synthesis enrich --level ai --force --type image -d <workspace>`
+
+  **Last updated:** February 17, 2026
