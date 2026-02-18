@@ -127,6 +127,27 @@ public class WorkspaceManager {
     }
 
     /**
+     * Returns the reports output directory, respecting the workspace config.
+     *
+     * <p>If {@code config.report.outputDir} is set, resolves it relative to the
+     * workspace root (or uses it as-is if absolute). Otherwise falls back to the
+     * default {@code .synthesis/reports/}.
+     *
+     * @param config the workspace configuration (may be null)
+     * @return the resolved reports base path
+     */
+    public Path getReportsPath(SynthesisConfig config) {
+        if (config != null && config.getReport() != null) {
+            String outputDir = config.getReport().getOutputDir();
+            if (outputDir != null && !outputDir.isBlank()) {
+                Path custom = Path.of(outputDir);
+                return custom.isAbsolute() ? custom : workspaceRoot.resolve(custom);
+            }
+        }
+        return getReportsPath();
+    }
+
+    /**
      * Resolves the path to the scan state file.
      */
     public Path getScanStatePath() {

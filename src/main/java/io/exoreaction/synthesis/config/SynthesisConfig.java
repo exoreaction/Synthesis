@@ -32,6 +32,7 @@ public class SynthesisConfig {
     private List<SubWorkspaceConfig> subWorkspaces = new ArrayList<>();
     private StagingConfig staging = new StagingConfig();
     private RoutingConfig routing = new RoutingConfig();
+    private ReportConfig report = new ReportConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -61,6 +62,9 @@ public class SynthesisConfig {
 
     public RoutingConfig getRouting() { return routing; }
     public void setRouting(RoutingConfig routing) { this.routing = routing != null ? routing : new RoutingConfig(); }
+
+    public ReportConfig getReport() { return report; }
+    public void setReport(ReportConfig report) { this.report = report != null ? report : new ReportConfig(); }
 
     /**
      * Workspace identity and structure configuration.
@@ -506,5 +510,21 @@ public class SynthesisConfig {
         /** Absolute path to the destination directory. */
         public String getDestination() { return destination; }
         public void setDestination(String destination) { this.destination = destination; }
+    }
+
+    /**
+     * Report generation settings (v1.10.0+).
+     */
+    public static class ReportConfig {
+        /**
+         * Directory where workspace-level reports are saved.
+         * Relative paths are resolved against the workspace root.
+         * Absolute paths are used as-is.
+         * Default: null (uses .synthesis/reports/).
+         */
+        private String outputDir;
+
+        public String getOutputDir() { return outputDir; }
+        public void setOutputDir(String outputDir) { this.outputDir = outputDir; }
     }
 }

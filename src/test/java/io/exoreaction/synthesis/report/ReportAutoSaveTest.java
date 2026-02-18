@@ -1,5 +1,6 @@
 package io.exoreaction.synthesis.report;
 
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -171,6 +172,71 @@ class ReportAutoSaveTest {
         assertTrue(Files.exists(savePath));
         assertTrue(savePath.startsWith(tempDir.resolve(".synthesis/reports/research")),
                 "Research report should be under .synthesis/reports/research/");
+    }
+
+    // ---- Configurable outputDir ----
+
+    @Test
+    void autoSave_usesConfiguredOutputDir_whenSet() throws IOException {
+        // Write config with report.outputDir = "my-reports"
+        Path synthesisDir = tempDir.resolve(".synthesis");
+        Files.createDirectories(synthesisDir);
+        Files.writeString(synthesisDir.resolve("config.yaml"),
+                "report:\n  outputDir: \"my-reports\"\n");
+
+        SynthesisConfig config = new SynthesisConfig();
+        SynthesisConfig.ReportConfig reportConfig = new SynthesisConfig.ReportConfig();
+        reportConfig.setOutputDir("my-reports");
+        config.setReport(reportConfig);
+
+        Path reportsPath = new WorkspaceManager(tempDir).getReportsPath(config);
+        String filename = todayFilename("pipeline", "ceo");
+        Path savePath = reportsPath.resolve(filename);
+
+        Files.createDirectories(savePath.getParent());
+        Files.writeString(savePath, "# Pipeline Report");
+
+        assertTrue(Files.exists(savePath));
+        assertTrue(savePath.startsWith(tempDir.resolve("my-reports")),
+                "Should save under configured outputDir, not .synthesis/reports/");
+    }
+
+    @Test
+    void autoSave_usesDefaultPath_whenOutputDirNotConfigured() throws IOException {
+        SynthesisConfig config = new SynthesisConfig(); // no report.outputDir set
+
+        Path reportsPath = new WorkspaceManager(tempDir).getReportsPath(config);
+        String filename = todayFilename("weekly", "ceo");
+        Path savePath = reportsPath.resolve(filename);
+
+        Files.createDirectories(savePath.getParent());
+        Files.writeString(savePath, "# Weekly Report");
+
+        assertTrue(Files.exists(savePath));
+        assertTrue(savePath.startsWith(tempDir.resolve(".synthesis/reports")),
+                "Should fall back to .synthesis/reports/ when outputDir is not configured");
+    }
+
+    @Test
+    void autoSave_supportsAbsoluteOutputDir() throws IOException {
+        Path absoluteDir = tempDir.resolve("absolute-reports");
+        Files.createDirectories(absoluteDir);
+
+        SynthesisConfig config = new SynthesisConfig();
+        SynthesisConfig.ReportConfig reportConfig = new SynthesisConfig.ReportConfig();
+        reportConfig.setOutputDir(absoluteDir.toAbsolutePath().toString());
+        config.setReport(reportConfig);
+
+        Path reportsPath = new WorkspaceManager(tempDir).getReportsPath(config);
+        String filename = todayFilename("pipeline", "ceo");
+        Path savePath = reportsPath.resolve(filename);
+
+        Files.createDirectories(savePath.getParent());
+        Files.writeString(savePath, "# Absolute Dir Report");
+
+        assertTrue(Files.exists(savePath));
+        assertEquals(absoluteDir.toAbsolutePath(), reportsPath,
+                "Absolute outputDir should be used as-is");
     }
 
     // ---- Helper ----

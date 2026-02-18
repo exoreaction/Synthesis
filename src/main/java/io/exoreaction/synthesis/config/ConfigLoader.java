@@ -123,6 +123,11 @@ public final class ConfigLoader {
 
         sb.append("""
 
+                # report:
+                #   outputDir: "reports"  # Custom report output directory
+                #                         # Relative to workspace root, or absolute path
+                #                         # Default: .synthesis/reports/
+
                 scan:
                   # File patterns to include in the index
                   includePatterns:

@@ -365,7 +365,7 @@ public class ReportCommand implements Callable<Integer> {
      *
      * <ul>
      *   <li>Entity reports (client/product): co-located under the entity's workspace directory</li>
-     *   <li>Business topic reports: saved to {@code .synthesis/reports/}</li>
+     *   <li>Business topic reports: saved to configured {@code report.outputDir} or {@code .synthesis/reports/}</li>
      *   <li>Suppressed when {@code --no-save} or {@code --output} is given</li>
      * </ul>
      */
@@ -377,7 +377,7 @@ public class ReportCommand implements Callable<Integer> {
                 + "-" + result.target().cliValue()
                 + ".md";
 
-        // Entity reports: co-locate with the entity's workspace directory
+        // Entity reports: always co-locate with entity directory (unaffected by outputDir)
         if (entityName != null) {
             Optional<Path> entityRoot = new EntityDocumentFinder()
                     .findEntityRoot(workspaceRoot, entityName, result.topic());
@@ -386,8 +386,17 @@ public class ReportCommand implements Callable<Integer> {
             }
         }
 
-        // Business topic reports (or entity not found in workspace): .synthesis/reports/
-        return Optional.of(new WorkspaceManager(workspaceRoot).getReportsPath().resolve(filename));
+        // Business topic reports: use configured outputDir or default .synthesis/reports/
+        SynthesisConfig config = loadConfigQuietly(workspaceRoot);
+        return Optional.of(new WorkspaceManager(workspaceRoot).getReportsPath(config).resolve(filename));
+    }
+
+    private static SynthesisConfig loadConfigQuietly(Path workspaceRoot) {
+        try {
+            return ConfigLoader.load(workspaceRoot);
+        } catch (IOException e) {
+            return new SynthesisConfig();
+        }
     }
 
     /**
