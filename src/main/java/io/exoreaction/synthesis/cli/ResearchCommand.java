@@ -235,12 +235,18 @@ public class ResearchCommand implements Callable<Integer> {
             // Output
             String report = result.finalReport();
 
-            // Auto-save to .synthesis/reports/research/
+            // Auto-save to configured outputDir/research/ or .synthesis/reports/research/
             if (!noSave && outputFile == null) {
                 String filename = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
                         + "-" + researchTarget.cliValue() + ".md";
+                SynthesisConfig saveConfig;
+                try {
+                    saveConfig = ConfigLoader.load(workspaceRoot);
+                } catch (IOException e) {
+                    saveConfig = new SynthesisConfig();
+                }
                 Path savePath = new WorkspaceManager(workspaceRoot)
-                        .getReportsPath().resolve("research").resolve(filename);
+                        .getReportsPath(saveConfig).resolve("research").resolve(filename);
                 Files.createDirectories(savePath.getParent());
                 Files.writeString(savePath, report);
                 System.err.println("  Saved: " + workspaceRoot.relativize(savePath));
