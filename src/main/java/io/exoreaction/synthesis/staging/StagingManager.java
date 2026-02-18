@@ -298,16 +298,20 @@ public class StagingManager {
         // Create destination directory
         Files.createDirectories(absoluteDestination.getParent());
 
-        // Move the main file
-        Files.move(sourcePath, absoluteDestination, StandardCopyOption.REPLACE_EXISTING);
+        // Copy the main file to destination, then mark source as processed
+        Files.copy(sourcePath, absoluteDestination, StandardCopyOption.REPLACE_EXISTING);
+        Path processedSource = withProcessedSuffix(sourcePath);
+        Files.move(sourcePath, processedSource, StandardCopyOption.REPLACE_EXISTING);
 
-        // Move companion file if it exists
+        // Copy companion file if it exists, and rename the staging companion to _processed too
         if (copyCompanions) {
             Path companionSource = Path.of(sourcePath + ".synthesis.md");
             if (Files.exists(companionSource)) {
                 Path companionDest = Path.of(absoluteDestination + ".synthesis.md");
-                Files.move(companionSource, companionDest, StandardCopyOption.REPLACE_EXISTING);
-                LOG.info("Moved companion: " + companionSource.getFileName());
+                Files.copy(companionSource, companionDest, StandardCopyOption.REPLACE_EXISTING);
+                Files.move(companionSource, Path.of(processedSource + ".synthesis.md"),
+                        StandardCopyOption.REPLACE_EXISTING);
+                LOG.info("Copied companion: " + companionSource.getFileName());
             }
         }
 
@@ -331,7 +335,8 @@ public class StagingManager {
             }
         }
 
-        LOG.info("Routed: " + stagedFile.relativePath() + " -> " + absoluteDestination);
+        LOG.info("Routed: " + stagedFile.relativePath() + " -> " + absoluteDestination
+                + " (source marked as " + processedSource.getFileName() + ")");
         return true;
     }
 
@@ -487,6 +492,28 @@ public class StagingManager {
         return subWorkspaces.stream()
                 .filter(SubWorkspaceConfig::isStaging)
                 .toList();
+    }
+
+    /**
+     * Returns a path with {@code _processed} inserted before the file extension.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code unnamed (22).png} → {@code unnamed (22)_processed.png}</li>
+     *   <li>{@code report.pdf} → {@code report_processed.pdf}</li>
+     *   <li>{@code noextension} → {@code noextension_processed}</li>
+     * </ul>
+     *
+     * @param path the original file path
+     * @return path with {@code _processed} suffix before the extension
+     */
+    static Path withProcessedSuffix(Path path) {
+        String name = path.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        String newName = dot >= 0
+                ? name.substring(0, dot) + "_processed" + name.substring(dot)
+                : name + "_processed";
+        return path.getParent() != null ? path.getParent().resolve(newName) : Path.of(newName);
     }
 
     /**

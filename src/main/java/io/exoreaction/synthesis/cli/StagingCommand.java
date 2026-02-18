@@ -415,6 +415,10 @@ public class StagingCommand implements Callable<Integer> {
                     }
 
                     String basename = Path.of(relPath).getFileName().toString();
+                    // Skip already-processed files
+                    if (basename.contains("_processed")) {
+                        continue;
+                    }
                     Path basenameAsPath = Path.of(basename);
 
                     // Find first matching rule
@@ -888,6 +892,9 @@ public class StagingCommand implements Callable<Integer> {
                                     String rel = workspaceRoot.relativize(p).toString();
                                     // Always skip internal Synthesis files
                                     if (rel.startsWith(".synthesis/")) return false;
+                                    // Skip already-processed files (renamed by routing)
+                                    String basename = p.getFileName().toString();
+                                    if (basename.contains("_processed")) return false;
                                     // Skip files matching workspace excludePatterns
                                     for (PathMatcher matcher : excludeMatchers) {
                                         if (matcher.matches(p) || matcher.matches(Path.of(rel))) {
