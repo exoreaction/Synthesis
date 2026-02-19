@@ -27,6 +27,15 @@ import java.util.*;
  *   <li>{@link #deleteAll} -- clear the index for full rebuild</li>
  * </ul>
  *
+ * <p>Two open modes:
+ * <ul>
+ *   <li><b>Write mode</b> ({@code new SearchIndex(path)}) -- acquires Lucene's exclusive
+ *       {@code write.lock}. Use for scan, maintain, and watch operations.</li>
+ *   <li><b>Read-only mode</b> ({@code SearchIndex.openReadOnly(path)}) -- opens a
+ *       {@link DirectoryReader} directly; no lock is acquired. Multiple processes can
+ *       search the same index concurrently without contention.</li>
+ * </ul>
+ *
  * <p>Thread safety: This class is NOT thread-safe. Use from a single thread
  * or synchronize externally.
  */
@@ -35,7 +44,9 @@ public class SearchIndex implements Closeable {
     private final Path indexPath;
     private final Analyzer analyzer;
     private final Directory directory;
-    private IndexWriter writer;
+    private IndexWriter writer;       // null in read-only mode
+    private final boolean readOnly;
+    private final boolean indexEmpty; // true when read-only and no segments exist yet
 
     /** Fields searched by default, with relevance boost weights. */
     private static final String[] SEARCH_FIELDS = {
@@ -58,17 +69,50 @@ public class SearchIndex implements Closeable {
     );
 
     /**
-     * Opens or creates a search index at the given path.
+     * Opens or creates a search index at the given path in <b>write mode</b>.
+     *
+     * <p>Acquires Lucene's exclusive {@code write.lock}. Use only for commands
+     * that modify the index (scan, maintain, watch). For read-only access use
+     * {@link #openReadOnly(Path)}.
      *
      * @param indexPath directory where the Lucene index files are stored
      */
     public SearchIndex(Path indexPath) throws IOException {
         this.indexPath = indexPath;
         this.analyzer = new StandardAnalyzer();
+        this.readOnly = false;
+        this.indexEmpty = false; // writer initialises segments on creation
 
         Files.createDirectories(indexPath);
         this.directory = FSDirectory.open(indexPath);
         openWriter();
+    }
+
+    /**
+     * Opens an existing search index in <b>read-only mode</b>.
+     *
+     * <p>Uses {@link DirectoryReader#open(Directory)} which does <em>not</em>
+     * acquire any file lock. Multiple processes can call this concurrently on
+     * the same index directory without contention.
+     *
+     * @param indexPath directory where the Lucene index files are stored
+     * @return a read-only SearchIndex; write operations throw {@link IllegalStateException}
+     * @throws IOException if the index directory cannot be opened
+     */
+    public static SearchIndex openReadOnly(Path indexPath) throws IOException {
+        return new SearchIndex(indexPath, true);
+    }
+
+    private SearchIndex(Path indexPath, boolean readOnly) throws IOException {
+        this.indexPath = indexPath;
+        this.analyzer = new StandardAnalyzer();
+        this.readOnly = readOnly;
+
+        Files.createDirectories(indexPath);
+        this.directory = FSDirectory.open(indexPath);
+        // writer stays null — DirectoryReader.open(directory) used per search call
+        // If no segments exist yet, mark as empty so search methods return [] gracefully
+        this.indexEmpty = !DirectoryReader.indexExists(directory);
     }
 
     private void openWriter() throws IOException {
@@ -77,11 +121,19 @@ public class SearchIndex implements Closeable {
         this.writer = new IndexWriter(directory, config);
     }
 
+    /** Opens a reader appropriate for the current mode. */
+    private DirectoryReader openReader() throws IOException {
+        return readOnly ? DirectoryReader.open(directory) : DirectoryReader.open(writer);
+    }
+
     /**
      * Adds a document to the index. If a document with the same path
      * already exists, it is replaced (update semantics).
+     *
+     * @throws IllegalStateException if this index was opened in read-only mode
      */
     public void addDocument(Document doc) throws IOException {
+        requireWritable();
         String path = doc.get(DocumentFields.PATH);
         if (path != null) {
             // Delete existing document with same path (upsert)
@@ -95,16 +147,22 @@ public class SearchIndex implements Closeable {
     /**
      * Commits all pending changes to the index.
      * Must be called after adding documents to make them searchable.
+     *
+     * @throws IllegalStateException if this index was opened in read-only mode
      */
     public void commit() throws IOException {
+        requireWritable();
         writer.commit();
     }
 
     /**
      * Deletes all documents from the index.
      * Used for full rebuild.
+     *
+     * @throws IllegalStateException if this index was opened in read-only mode
      */
     public void deleteAll() throws IOException {
+        requireWritable();
         writer.deleteAll();
         writer.commit();
     }
@@ -114,8 +172,10 @@ public class SearchIndex implements Closeable {
      * Used by incremental maintenance to remove deleted files.
      *
      * @param relativePath the relative path of the file to remove
+     * @throws IllegalStateException if this index was opened in read-only mode
      */
     public void deleteByRelativePath(String relativePath) throws IOException {
+        requireWritable();
         writer.deleteDocuments(new Term(DocumentFields.RELATIVE_PATH, relativePath));
     }
 
@@ -123,7 +183,22 @@ public class SearchIndex implements Closeable {
      * Returns the number of documents in the index.
      */
     public int documentCount() {
-        return writer.getDocStats().numDocs;
+        if (!readOnly) {
+            return writer.getDocStats().numDocs;
+        }
+        if (indexEmpty) return 0;
+        try (DirectoryReader reader = DirectoryReader.open(directory)) {
+            return reader.numDocs();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private void requireWritable() {
+        if (readOnly) {
+            throw new IllegalStateException(
+                    "SearchIndex is open in read-only mode; use new SearchIndex(path) for write access");
+        }
     }
 
     /**
@@ -144,11 +219,11 @@ public class SearchIndex implements Closeable {
      * @return ranked list of search results
      */
     public List<SearchResult> search(String queryString, int maxResults) throws IOException {
-        if (queryString == null || queryString.isBlank()) {
+        if (queryString == null || queryString.isBlank() || indexEmpty) {
             return List.of();
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             Query query = buildQuery(queryString);
@@ -171,11 +246,12 @@ public class SearchIndex implements Closeable {
      * Searches the index with an optional file type filter.
      */
     public List<SearchResult> search(String queryString, String fileTypeFilter, int maxResults) throws IOException {
+        if (indexEmpty) return List.of();
         if (fileTypeFilter == null || fileTypeFilter.isBlank()) {
             return search(queryString, maxResults);
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -217,11 +293,11 @@ public class SearchIndex implements Closeable {
     public List<SearchResult> search(String queryString, String fileTypeFilter,
                                       String repoFilter, String orgFilter,
                                       String clientFilter, int maxResults) throws IOException {
-        if (queryString == null || queryString.isBlank()) {
+        if (queryString == null || queryString.isBlank() || indexEmpty) {
             return List.of();
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -273,11 +349,11 @@ public class SearchIndex implements Closeable {
      */
     public List<SearchResult> search(String queryString, String fileTypeFilter,
                                       String repoFilter, int maxResults) throws IOException {
-        if (queryString == null || queryString.isBlank()) {
+        if (queryString == null || queryString.isBlank() || indexEmpty) {
             return List.of();
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -322,7 +398,8 @@ public class SearchIndex implements Closeable {
      * @return list of all matching documents
      */
     public List<SearchResult> listAll(String fileTypeFilter, int maxResults) throws IOException {
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        if (indexEmpty) return List.of();
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             Query query;
@@ -353,7 +430,8 @@ public class SearchIndex implements Closeable {
      * @return list of all matching documents
      */
     public List<SearchResult> listAll(String fileTypeFilter, String repoFilter, int maxResults) throws IOException {
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        if (indexEmpty) return List.of();
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -386,7 +464,8 @@ public class SearchIndex implements Closeable {
     public List<SearchResult> listAll(String fileTypeFilter, String repoFilter,
                                        String orgFilter, String clientFilter,
                                        int maxResults) throws IOException {
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        if (indexEmpty) return List.of();
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -437,11 +516,11 @@ public class SearchIndex implements Closeable {
                                                    String repoFilter, String mediaTypeFilter,
                                                    String orgFilter, String clientFilter,
                                                    int maxResults) throws IOException {
-        if (queryString == null || queryString.isBlank()) {
+        if (queryString == null || queryString.isBlank() || indexEmpty) {
             return List.of();
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -498,7 +577,8 @@ public class SearchIndex implements Closeable {
      * Fallback simple search when query parsing fails.
      */
     private List<SearchResult> searchSimple(String queryString, int maxResults) throws IOException {
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        if (indexEmpty) return List.of();
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -544,11 +624,11 @@ public class SearchIndex implements Closeable {
                                                       String repoFilter, String orgFilter,
                                                       String clientFilter, String subWorkspaceFilter,
                                                       int maxResults) throws IOException {
-        if (queryString == null || queryString.isBlank()) {
+        if (queryString == null || queryString.isBlank() || indexEmpty) {
             return List.of();
         }
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -608,7 +688,8 @@ public class SearchIndex implements Closeable {
                                                        String orgFilter, String clientFilter,
                                                        String subWorkspaceFilter,
                                                        int maxResults) throws IOException {
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        if (indexEmpty) return List.of();
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
             BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
@@ -677,9 +758,10 @@ public class SearchIndex implements Closeable {
      * @return map from sub-workspace name to file count
      */
     public Map<String, Long> getSubWorkspaceCounts() throws IOException {
+        if (indexEmpty) return Map.of();
         Map<String, Long> counts = new HashMap<>();
 
-        try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        try (DirectoryReader reader = openReader()) {
             IndexSearcher searcher = new IndexSearcher(reader);
             TopDocs topDocs = searcher.search(new MatchAllDocsQuery(), Integer.MAX_VALUE);
 

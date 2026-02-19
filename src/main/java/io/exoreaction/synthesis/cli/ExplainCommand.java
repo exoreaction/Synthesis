@@ -131,7 +131,7 @@ public class ExplainCommand implements Callable<Integer> {
             CodeExplainer explainer = new CodeExplainer(clientOpt.get(), config.getAi().getMaxTokens());
             ExplanationResult result;
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 if (filePath != null) {
                     // Resolve file path
                     Path resolved = resolveFilePath(filePath, workspaceRoot, index);

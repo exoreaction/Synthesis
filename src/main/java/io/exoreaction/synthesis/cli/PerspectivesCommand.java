@@ -126,7 +126,7 @@ public class PerspectivesCommand implements Callable<Integer> {
             System.out.println();
 
             // Run directed synthesis
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 DirectedSynthesisEngine engine = new DirectedSynthesisEngine(
                         clientOpt.get(), config.getAi().getMaxTokens());
 

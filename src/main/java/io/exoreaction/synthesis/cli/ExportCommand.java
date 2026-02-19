@@ -99,7 +99,7 @@ public class ExportCommand implements Callable<Integer> {
 
             // Query the index for all documents
             List<SearchResult> results;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 results = index.listAll(typeFilter, limit);
             }
 

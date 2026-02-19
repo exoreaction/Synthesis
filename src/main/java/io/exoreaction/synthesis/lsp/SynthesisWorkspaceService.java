@@ -66,7 +66,7 @@ public class SynthesisWorkspaceService implements WorkspaceService {
                     return Either.forLeft(List.of());
                 }
 
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     List<SearchResult> results = index.search(query, 50);
 
                     for (SearchResult result : results) {

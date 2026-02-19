@@ -144,7 +144,7 @@ public class EnrichCommand implements Callable<Integer> {
 
             // Get all indexed files
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 allFiles = index.listAll(null, 50000);
             }
 

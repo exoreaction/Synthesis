@@ -85,7 +85,7 @@ public class ArchitectureCommand implements Callable<Integer> {
 
             long startTime = System.currentTimeMillis();
             List<ArchitectureAlert> alerts;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 alerts = monitor.analyze(index);
             }
             long duration = System.currentTimeMillis() - startTime;

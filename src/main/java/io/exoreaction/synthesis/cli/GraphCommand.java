@@ -117,7 +117,7 @@ public class GraphCommand implements Callable<Integer> {
 
             // Load files
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 if (repo != null && !repo.isBlank()) {
                     allFiles = index.listAll(null, repo, 50000);
                 } else {

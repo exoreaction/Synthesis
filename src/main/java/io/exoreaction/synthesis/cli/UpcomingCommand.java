@@ -317,7 +317,7 @@ public class UpcomingCommand implements Callable<Integer> {
         List<ScannedAction> actions = new ArrayList<>();
         Set<String> seenFiles = new HashSet<>();
 
-        try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+        try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
             // Search for documents containing "Next Actions" or "Next Steps"
             List<SearchResult> results = index.search("\"Next Actions\" OR \"Next Steps\"", "MARKDOWN", 50);
 

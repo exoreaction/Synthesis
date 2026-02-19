@@ -12,8 +12,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -176,5 +181,72 @@ class SearchIndexTest {
 
         index.addDocument(fileIndexer.createDocument(metadata, analysis));
         index.commit();
+    }
+
+    // --- Read-only mode tests (#86) ---
+
+    @Test
+    void openReadOnly_searchesWithoutWriteLock() throws IOException {
+        addTestDocument("guide.md", "deployment guide", "deployment", List.of("deployment", "guide"));
+        index.close();
+        index = null;
+
+        // Read-only open should work even though we just closed the writer
+        try (SearchIndex ro = SearchIndex.openReadOnly(indexPath)) {
+            List<SearchResult> results = ro.search("deployment", 10);
+            assertFalse(results.isEmpty(), "Read-only search must find results");
+            assertEquals("guide.md", results.get(0).fileName());
+        }
+    }
+
+    @Test
+    void openReadOnly_multipleInstancesConcurrently() throws Exception {
+        addTestDocument("api.md", "API reference documentation", "api reference", List.of("api", "reference"));
+        index.close();
+        index = null;
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<Callable<Integer>> tasks = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            tasks.add(() -> {
+                try (SearchIndex ro = SearchIndex.openReadOnly(indexPath)) {
+                    return ro.search("api", 10).size();
+                }
+            });
+        }
+
+        List<Future<Integer>> futures = pool.invokeAll(tasks);
+        pool.shutdown();
+
+        for (Future<Integer> f : futures) {
+            assertTrue(f.get() > 0, "Every concurrent read-only search must return results");
+        }
+    }
+
+    @Test
+    void openReadOnly_throwsOnWriteAttempt() throws IOException {
+        addTestDocument("doc.md", "some content", "summary", List.of());
+        index.close();
+        index = null;
+
+        try (SearchIndex ro = SearchIndex.openReadOnly(indexPath)) {
+            assertThrows(IllegalStateException.class, () -> ro.deleteAll());
+            assertThrows(IllegalStateException.class, () -> ro.commit());
+        }
+    }
+
+    @Test
+    void openReadOnly_documentCountMatchesWriter() throws IOException {
+        addTestDocument("a.md", "alpha content", "alpha", List.of());
+        addTestDocument("b.md", "beta content", "beta", List.of());
+        int writerCount = index.documentCount();
+        index.close();
+        index = null;
+
+        try (SearchIndex ro = SearchIndex.openReadOnly(indexPath)) {
+            assertEquals(writerCount, ro.documentCount(),
+                    "documentCount() in read-only mode must match committed document count");
+        }
     }
 }

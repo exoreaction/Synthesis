@@ -68,7 +68,7 @@ public class CrossRepoDepsCommand implements Callable<Integer> {
 
             // Build per-repo file index
             Map<String, Map<String, String>> repoFileIndex = new LinkedHashMap<>();
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 for (RepositoryManager.RepoEntry repo : repoManager.getRepositories()) {
                     List<SearchResult> files = index.listAll(null, repo.name(), 50000);
                     Map<String, String> fileNameToPath = new HashMap<>();
@@ -82,7 +82,7 @@ public class CrossRepoDepsCommand implements Callable<Integer> {
             // Analyze cross-repo references
             Map<String, Map<String, List<String>>> crossDeps = new LinkedHashMap<>();
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 for (RepositoryManager.RepoEntry repo : repoManager.getRepositories()) {
                     List<SearchResult> files = index.listAll(null, repo.name(), 50000);
                     for (SearchResult file : files) {

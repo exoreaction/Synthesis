@@ -144,7 +144,7 @@ public class SummaryCommand implements Callable<Integer> {
                 // Generate profile (Phase 1: rule-based metrics)
                 CodebaseProfile profiler = new CodebaseProfile();
                 CodebaseProfile.Profile profile;
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     profile = profiler.generate(index, workspaceRoot);
                 }
 

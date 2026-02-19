@@ -931,7 +931,7 @@ public class DashboardCommand implements Callable<Integer> {
             Path indexPath = ws.path.resolve(".synthesis").resolve("index");
             CodebaseProfile profiler = new CodebaseProfile();
             CodebaseProfile.Profile profile;
-            try (SearchIndex index = new SearchIndex(indexPath)) {
+            try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                 profile = profiler.generate(index, ws.path);
             }
 
@@ -1006,7 +1006,7 @@ public class DashboardCommand implements Callable<Integer> {
         if (ws.indexed) {
             try {
                 Path indexPath = ws.path.resolve(".synthesis").resolve("index");
-                try (SearchIndex index = new SearchIndex(indexPath)) {
+                try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                     showMediaStats(index);
                 }
             } catch (Exception ignored) {
@@ -1047,7 +1047,7 @@ public class DashboardCommand implements Callable<Integer> {
             Path indexPath = ws.path.resolve(".synthesis").resolve("index");
             CodebaseProfile profiler = new CodebaseProfile();
             CodebaseProfile.Profile profile;
-            try (SearchIndex index = new SearchIndex(indexPath)) {
+            try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                 profile = profiler.generate(index, ws.path);
             }
 
@@ -1079,7 +1079,7 @@ public class DashboardCommand implements Callable<Integer> {
             Path indexPath = ws.path.resolve(".synthesis").resolve("index");
             CodebaseProfile profiler = new CodebaseProfile();
             CodebaseProfile.Profile profile;
-            try (SearchIndex index = new SearchIndex(indexPath)) {
+            try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                 profile = profiler.generate(index, ws.path);
             }
 
@@ -1745,7 +1745,7 @@ public class DashboardCommand implements Callable<Integer> {
 
         try {
             Path indexPath = ws.path.resolve(".synthesis").resolve("index");
-            try (SearchIndex index = new SearchIndex(indexPath)) {
+            try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                 List<SearchResult> results = index.searchWithSubWorkspace(
                                 query, null, null, null, null, sub.getName(), 20);
 
@@ -1788,7 +1788,7 @@ public class DashboardCommand implements Callable<Integer> {
 
         try {
             Path indexPath = ws.path.resolve(".synthesis").resolve("index");
-            try (SearchIndex index = new SearchIndex(indexPath)) {
+            try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                 List<SearchResult> results = index.search(query, 20);
 
                 if (results.isEmpty()) {
@@ -2120,7 +2120,7 @@ public class DashboardCommand implements Callable<Integer> {
                     }
 
                     // Get sub-workspace counts
-                    try (SearchIndex index = new SearchIndex(indexDir)) {
+                    try (SearchIndex index = SearchIndex.openReadOnly(indexDir)) {
                         Map<String, Long> counts = index.getSubWorkspaceCounts();
                         if (counts != null && !counts.isEmpty()) {
                             info.subWorkspaceCounts = counts;

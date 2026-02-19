@@ -170,7 +170,7 @@ public class ResearchCommand implements Callable<Integer> {
             // Build the codebase profile (always needed — fast, no AI)
             CodebaseProfile profiler = new CodebaseProfile();
             CodebaseProfile.Profile profile;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 profile = profiler.generate(index, workspaceRoot);
             }
 

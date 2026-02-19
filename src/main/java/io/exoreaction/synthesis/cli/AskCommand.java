@@ -129,7 +129,7 @@ public class AskCommand implements Callable<Integer> {
             }
 
             List<SearchResult> results;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 results = index.search(question, contextFiles);
             }
 
@@ -324,7 +324,7 @@ public class AskCommand implements Callable<Integer> {
 
                     // Search for relevant files
                     List<SearchResult> results;
-                    try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                    try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                         results = index.search(input, contextFiles);
                     }
 
