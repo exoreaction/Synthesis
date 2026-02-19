@@ -9,6 +9,7 @@ import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -16,6 +17,7 @@ import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -132,9 +134,11 @@ public class ExplainCommand implements Callable<Integer> {
             try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
                 if (filePath != null) {
                     // Resolve file path
-                    Path resolved = resolveFilePath(filePath, workspaceRoot);
+                    Path resolved = resolveFilePath(filePath, workspaceRoot, index);
                     if (resolved == null) {
                         AnsiOutput.printError("File not found: " + filePath);
+                        AnsiOutput.printInfo("Try 'synthesis search " + filePath.getFileName()
+                                + "' to find it.");
                         return 1;
                     }
 
@@ -196,9 +200,18 @@ public class ExplainCommand implements Callable<Integer> {
     }
 
     /**
-     * Resolves a file path -- handles both absolute paths and relative/filename-only.
+     * Resolves a file path — handles absolute paths, workspace-relative paths,
+     * and bare filenames by searching the index.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>Absolute path that exists on disk</li>
+     *   <li>Path relative to workspace root</li>
+     *   <li>Filename search in the Synthesis index (e.g. {@code StagingCommand.java}
+     *       resolves to {@code src/main/java/.../StagingCommand.java})</li>
+     * </ol>
      */
-    private Path resolveFilePath(Path input, Path workspaceRoot) {
+    Path resolveFilePath(Path input, Path workspaceRoot, SearchIndex index) {
         // Try as absolute
         if (input.isAbsolute() && Files.exists(input)) {
             return input;
@@ -208,8 +221,22 @@ public class ExplainCommand implements Callable<Integer> {
         if (Files.exists(resolved)) {
             return resolved;
         }
-        // Try as filename search
-        // TODO: Search index for filename match
+        // Fall back to filename search in the index
+        String query = input.getFileName().toString();
+        try {
+            List<SearchResult> results = index.search(query, 10);
+            // Prefer exact path or filename match; fall back to top scored result
+            for (SearchResult r : results) {
+                if (r.relativePath().equals(query)
+                        || r.relativePath().endsWith("/" + query)
+                        || r.fileName().equals(query)) {
+                    return r.path();
+                }
+            }
+            if (!results.isEmpty()) {
+                return results.get(0).path();
+            }
+        } catch (Exception ignored) {}
         return null;
     }
 
