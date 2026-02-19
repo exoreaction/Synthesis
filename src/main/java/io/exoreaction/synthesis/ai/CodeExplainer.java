@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.ai;
 
 import io.exoreaction.synthesis.cli.RelateCommand;
+import io.exoreaction.synthesis.cli.RelateCommand.RelationshipMap;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.insights.InsightsEngine;
@@ -377,12 +378,63 @@ public class CodeExplainer {
 
     // --- Context gathering ---
 
+    /**
+     * Gathers bidirectional relationships for a file using the same logic as
+     * {@code synthesis relate}: outgoing imports/references and incoming references.
+     *
+     * <p>Returns a formatted multi-line string suitable for embedding in an AI prompt.
+     * Returns a fallback hint if the file is not yet in the index.
+     */
     private String gatherRelationships(Path filePath, SearchIndex index,
                                         Path workspaceRoot) throws IOException {
-        // TODO: Use RelateCommand logic to gather relationships
-        // For now, return minimal context
-        return "Relationship analysis available via 'synthesis relate " +
-                filePath.getFileName() + "'";
+        String fileName = filePath.getFileName().toString();
+        String relPath = workspaceRoot.relativize(filePath).toString();
+
+        // Find the SearchResult for this file in the index
+        List<SearchResult> candidates = index.search(fileName, 10);
+        SearchResult target = null;
+        for (SearchResult r : candidates) {
+            if (r.relativePath().equals(relPath)
+                    || r.relativePath().endsWith("/" + fileName)
+                    || r.fileName().equals(fileName)) {
+                target = r;
+                break;
+            }
+        }
+        if (target == null && !candidates.isEmpty()) {
+            target = candidates.get(0);
+        }
+        if (target == null) {
+            return "(file not in index — run 'synthesis scan' first)";
+        }
+
+        // Build the filename → paths lookup used by RelateCommand
+        List<SearchResult> allFiles = index.listAll(null, 5000);
+        Map<String, List<String>> fileNameIndex = new HashMap<>();
+        for (SearchResult f : allFiles) {
+            fileNameIndex.computeIfAbsent(f.fileName(), k -> new ArrayList<>()).add(f.relativePath());
+        }
+
+        // Run outgoing + incoming analysis via RelateCommand
+        RelateCommand relater = new RelateCommand();
+        RelationshipMap map = new RelationshipMap(target.relativePath());
+        relater.analyzeOutgoingRefs(target, workspaceRoot, map, fileNameIndex);
+        relater.analyzeIncomingRefs(target, allFiles, workspaceRoot, map);
+
+        // Format for the AI prompt
+        StringBuilder sb = new StringBuilder();
+        if (!map.outgoing().isEmpty()) {
+            sb.append("Outgoing (imports/references) — ").append(map.outgoing().size()).append(" file(s):\n");
+            map.outgoing().keySet().forEach(ref -> sb.append("  -> ").append(ref).append("\n"));
+        }
+        if (!map.incoming().isEmpty()) {
+            sb.append("Incoming (referenced by) — ").append(map.incoming().size()).append(" file(s):\n");
+            map.incoming().keySet().forEach(ref -> sb.append("  <- ").append(ref).append("\n"));
+        }
+        if (map.outgoing().isEmpty() && map.incoming().isEmpty()) {
+            sb.append("No relationships found in index.");
+        }
+        return sb.toString();
     }
 
     private String gatherModuleContext(Path filePath, SearchIndex index,
