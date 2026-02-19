@@ -16,7 +16,7 @@ the codebase architecture, and following established patterns.
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
 - **Version:** 1.9.9-SNAPSHOT (as of Feb 19, 2026)
-- **Tests:** 2540+ (JUnit 5)
+- **Tests:** 2,540+ (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)
@@ -274,7 +274,7 @@ cd /src/exoreaction/Synthesis
 mvn exec:java -Dexec.mainClass="io.exoreaction.synthesis.SynthesisApp" -Dexec.args="status"
 
 # Via JAR
-java -jar target/synthesis-1.2.1-SNAPSHOT-jar-with-dependencies.jar status
+java -jar target/synthesis-1.8.4-SNAPSHOT-jar-with-dependencies.jar status
 ```
 
 ### Adding a New CLI Command
@@ -330,10 +330,13 @@ Quick reference:
 
 ### Adding a New MCP Tool
 
-1. Add the tool definition in `SynthesisMCPServer.listTools()`:
+MCP tools are registered **programmatically** in `SynthesisMCPServer` — there are no `@Tool` annotations.
+Two methods handle the registration:
+
+1. Add the tool definition in `SynthesisMCPServer.handleToolsList()` (lines ~300-379):
 ```java
-tools.add(createTool("synthesis_mytool", "Description",
-    Map.of("param1", "string description")));
+tools.add(createToolDefinition("synthesis_mytool", "Description",
+    createMyToolSchema()));
 ```
 
 2. Add the handler method in `SynthesisToolHandler`:
@@ -347,7 +350,7 @@ public ObjectNode handleMyTool(JsonNode params) {
 }
 ```
 
-3. Add the routing in `SynthesisMCPServer.handleToolCall()`.
+3. Add the routing in `SynthesisMCPServer.handleToolsCall()` (switch expression on tool name).
 
 ### Configuration (config.yaml)
 

@@ -271,11 +271,25 @@ instructions: |
   | Screenshots | 90 days | ❌ No | Keep longer, manual review |
 
   **How retention works:**
-  1. Files are indexed when scanned
-  2. Age is tracked from first index date
-  3. After retention period, files become "expired"
+  1. Files are indexed when scanned with an `expires_at` timestamp
+  2. `StagingManager.findExpired()` uses `expires_at < NOW` (strict less-than — files expiring *exactly* now are NOT yet expired)
+  3. After retention period passes, files become "expired"
   4. `staging expire` removes expired entries from index
   5. **Files remain on disk** (manual deletion if desired)
+
+  **Special values:**
+  - `retentionDays: 0` = **never expire** (stores NULL as `expires_at`; NULL rows always pass the expiry check)
+  - `retentionDays: -1` = already expired immediately (useful in tests to force expiry)
+  - The `<` predicate (not `<=`) means a file set to expire at exactly the current second survives one more cycle
+
+  **Downloads cron — order matters:**
+  ```bash
+  # Correct: ingest new files, route them, then maintain index
+  synthesis -d /home/totto/Downloads staging ingest && \
+  synthesis -d /home/totto/Downloads staging route && \
+  synthesis -d /home/totto/Downloads maintain
+  # ⚠️ maintain alone does NOT process staged files
+  ```
 
   ---
 

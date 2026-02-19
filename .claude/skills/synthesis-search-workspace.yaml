@@ -41,6 +41,21 @@ instructions: |
   because agents omitted `-d /src/exoreaction`. The source IS indexed — just needs the right flag.
   Issue #85 filed for auto-detection.
 
+  **⚠️ Two different paths — easy to confuse:**
+  - Synthesis workspace root: `/src/exoreaction` ← use this with `-d` (has `.synthesis/` index)
+  - Project source tree: `/home/totto/src/exoreaction/Synthesis/` ← for file reads/edits (no index)
+  - `/home/totto/src/exoreaction/` has NO `.synthesis/` → "Not a Synthesis workspace" exit code 1
+
+  **Verify search will work before relying on it:**
+  ```bash
+  synthesis search -d /src/exoreaction "test" 2>/dev/null | head -3
+  # Should show "X results for: test" — if not, wrong path or index missing
+  ```
+
+  **Parallel search contention:** Running multiple `synthesis search` calls simultaneously may fail
+  with "lock held by another program" (Lucene write.lock). If this happens, run searches sequentially
+  or fall back to Glob/Grep. Issue #86 filed for read-only search support.
+
   ---
 
   ## Command Syntax
