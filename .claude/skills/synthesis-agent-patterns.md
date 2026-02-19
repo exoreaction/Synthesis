@@ -73,7 +73,18 @@ Specific, code-facing terms outperform natural-language descriptions:
 | Find retention logic | `"retention policy"` | `"retentionDays"` |
 
 **Rule:** Use identifiers (class names, method names, config keys) rather than descriptions.
-The Lucene index boosts `filename` (3x) and `keywords` (2x) — code terms score high.
+The Lucene index searches 6 fields with the following boost weights:
+
+| Field | Boost | Storage |
+|---|---|---|
+| `filename` | 3.0x | stored + tokenized |
+| `headings` | 2.5x | stored + tokenized |
+| `keywords` | 2.0x | stored + tokenized |
+| `summary` | 1.5x | stored + tokenized |
+| `content` | 1.0x | tokenized only (NOT stored — too large; reconstructed from file) |
+| `relativePath` | 1.0x | stored + exact match |
+
+Filenames and headings rank highest — code identifiers naturally appear in both.
 
 ---
 
