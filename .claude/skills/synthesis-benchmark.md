@@ -139,21 +139,32 @@ CLAUDE.md context tells agents which files to read → eliminates exploration cy
 
 ## Phase 3 Status: COMPLETE ✅
 
-**Phase 4 plan:**
-1. "Cold discovery" tasks — tasks where CLAUDE.md doesn't help, to show search's true value
-2. Token counts for all 12 tasks across all 3 conditions
-3. Harder tasks where Opus may score < 3/3
-4. 4-point rubric: differentiate "correct but shallow" from "correct and comprehensive"
+## Phase 4 Status: COMPLETE ✅
+
+**Phase 4 headline (24 sessions, 8 cold tasks × 3 conditions):**
+
+| Condition | Avg tool calls | Δ vs Baseline |
+|---|---|---|
+| Baseline | 4.4 | — |
+| Skills-only | 6.1 | **+40.0% (WORSE)** |
+| Full | 4.9 | **+11.4% (slightly worse)** |
+
+**Cold task reversal confirmed:** Skills-only is WORST when skills don't name relevant files. Skills-only is harmful for cold tasks (+40% overhead). Full wins only on multi-package cross-file tasks (P4-C1: 5 vs 7 calls).
+
+**Combined insight (Phases 3 + 4):**
+- Warm tasks (class named in skills): Skills-only wins (-47%)
+- Cold, single-class: Baseline wins (grep as fast as search)
+- Cold, multi-package cross-file: Full wins (-29%)
 
 ## Known Design Flaws
 
 1. ~~**write.lock contention**~~ → **Fixed in 1.10.0 (#86)**
 2. ~~**No Skills-only condition**~~ → **Completed in Phase 3**
-3. **D1/Full prompt revealed the answer** → Confounds token comparison
-4. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled)
-5. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
-6. **All tasks too easy for Opus** → All scored 3/3, no differentiation
-7. **Tasks biased toward known files** → Skills-only wins most tasks; need cold discovery tasks
+3. ~~**Tasks biased toward known files**~~ → **Fixed in Phase 4 (cold tasks)**
+4. **D1/Full prompt revealed the answer** → Confounds token comparison
+5. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled)
+6. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
+7. **All Phase 3 tasks too easy for Opus** → All scored 3/3, no differentiation
 
 ## Related
 

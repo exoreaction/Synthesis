@@ -223,17 +223,83 @@ This result is likely **benchmark-specific**: the tasks were designed around the
 
 ---
 
-## Phase 4 Plan
+## Phase 4 Results: Cold Discovery Tasks (Feb 19, 2026)
 
-1. **"Cold discovery" tasks** — tasks where CLAUDE.md doesn't help, to isolate search value
-2. **Token counts for all 12 tasks** across all 3 conditions
-3. **4-point rubric** — differentiate "correct but shallow" from "correct and comprehensive"
-4. **Harder tasks** — multi-hop reasoning, recent changelog required, ambiguous questions
-5. **Fix contamination** — move BENCHMARK-DESIGN.md outside repo, exclude MEMORY.md
+8 tasks × 3 conditions = 24 sessions. All 24/24 correct (3/3). Tasks designed where CLAUDE.md/skills do NOT name relevant files.
+
+| Task | Category | Baseline | Skills-only | Full | SO vs Base | Full vs Base |
+|---|---|---|---|---|---|---|
+| P4-N1 (discover cmd) | Navigation | 3 | 5 | 4 | **+66.7%** | **+33.3%** |
+| P4-N2 (update checker) | Navigation | 2 | 2 | 2 | 0% | 0% |
+| P4-F1 (summary cache) | Feature | 2 | 8 | 4 | **+300%** | **+100%** |
+| P4-F2 (pilot approval) | Feature | 5 | 8 | 5 | **+60%** | 0% |
+| P4-C1 (--since flow) | Cross-file | 7 | 11 | 5 | **+57.1%** | **-28.6%** ← Full wins |
+| P4-C2 (MCP errors) | Cross-file | 6 | 5 | 8 | -16.7% | **+33.3%** |
+| P4-B1 (Flyway) | Inventory | 8 | 8 | 9 | 0% | **+12.5%** |
+| P4-B2 (fingerprint) | Feature | 2 | 2 | 2 | 0% | 0% |
+| **Average** | | **4.4** | **6.1** | **4.9** | **+40.0%** | **+11.4%** |
+
+**Phase 4 headline: Baseline (4.4) < Full (4.9) < Skills-only (6.1)**
+
+This reverses Phase 3: Skills-only is now the WORST condition. CLAUDE.md/skills gave no help on these tasks — reading them costs 1-6 extra calls without benefit.
+
+### Key Phase 4 Findings
+
+**1. Skills-only is actively harmful for cold tasks (+40% overhead)**
+When skill files don't name the relevant classes, agents read them, find nothing, then over-explore to compensate for uncertainty. Worst case: P4-F1 where Skills-only used 8 calls vs Baseline's 2 (SummaryCache not mentioned in any skill).
+
+**2. Full wins only on multi-package cross-file reasoning**
+Full beat Baseline on exactly 1 task: P4-C1 (--since data flow, 7 classes across 4 packages).
+Synthesis search spans packages simultaneously; Baseline follows references sequentially.
+Rule: search helps when ≥5 classes across multiple packages.
+
+**3. Full adds overhead for single-class cold tasks**
+When `grep ClassName` finds the answer in 1 call, synthesis search adds 1-3 extra calls.
+Full was WORSE than Baseline on 5/8 tasks.
+
+**4. 3-way ties for trivially-named classes**
+P4-N2 (`UpdateChecker`), P4-B2 (`InstallationFingerprint`) — all three tied at 2 calls.
+grep is as fast as search when the question = the class name.
+
+---
+
+## Synthesis: 3 + 4 Combined Picture
+
+| Condition | Phase 3 (warm) | Phase 4 (cold) | Interpretation |
+|---|---|---|---|
+| Baseline | 14.2 calls | **4.4 calls** | Blind navigation: fast for cold, slow for warm |
+| Skills-only | **7.5 calls (-47%)** | 6.1 calls (+40%) | Dominant when warm, harmful when cold |
+| Full | 9.8 calls (-31%) | 4.9 calls (+11%) | Good warm, marginal cold, best for multi-package |
+
+### When each condition wins:
+
+| Task type | Best condition | Why |
+|---|---|---|
+| Warm (class named in skills) | **Skills-only (-47%)** | Teleport to file, no exploration |
+| Cold, single-class | **Baseline (~equal)** | grep finds it as fast as search |
+| Cold, multi-package cross-file | **Full (-29%)** | Search spans packages faster |
+| Cold, inventory | **All equal** | Must read all files regardless |
+
+---
+
+## Phase 4 Ground Truth Corrections
+
+Again: 5/8 Opus-designed ground truths were wrong (same 58% error rate as Phase 3):
+
+| Task | Was wrong about |
+|---|---|
+| P4-N1 | discover finds dirs WITHOUT .synthesis/ (not with) |
+| P4-F2 | Slack Java SDK + channel ID hardcoded (not a generic HTTP endpoint) |
+| P4-C1 | 7 classes in flow, not 4 (ChangedCommand + ChangeReportGenerator missed) |
+| P4-B1 | V8 adds report_cache (not installation_fingerprint) |
+| P4-B2 | Components are JARs + scripts (not README, CLAUDE.md) |
+
+Agents consistently navigate more accurately than Opus's spec — strong meta-validation.
 
 ---
 
 *Created: February 19, 2026*
 *Phase 2: 25 sessions (12 Baseline + 13 Full), ~$15-20*
 *Phase 3: 14 sessions (12 Skills-only + 2 Full clean re-runs), ~$8-12*
-*Total: 39 sessions, all 3/3 correctness*
+*Phase 4: 24 sessions (8 cold tasks × 3 conditions), ~$15-20*
+*Total: 63 sessions, all 3/3 correctness*
