@@ -217,7 +217,21 @@ instructions: |
   - "Want to explain a complex file?" -> Use `synthesis-explain-code` skill
   - "Want to see relationships?" -> Use `synthesis relate <file>` (relate-dependencies skill)
   - "Want to export the full index?" -> Use `synthesis-export-docs` skill
+  - "Want a deep architecture analysis?" -> Use `synthesis-perspectives-analysis` skill (NOT `synthesis research`)
 
   ---
 
-  **Last updated:** February 16, 2026
+  ## Choosing the Right Deep-Analysis Command
+
+  | Need | Command | Notes |
+  |------|---------|-------|
+  | Metrics, counts, file stats | `insights` | No AI needed, reads from index |
+  | Single factual question | `ask` | AI, grounded in index |
+  | Strategic / multi-angle analysis | `perspectives` | AI, multiple viewpoints |
+  | Prompts for ChatGPT/NotebookLM | `research` | Generates prompts FOR external tools — NOT a standalone report |
+
+  **Warning:** `synthesis research` does NOT generate a real analysis report. It produces haiku-model prompts intended for use with external AI tools (ChatGPT, NotebookLM). For real deep-dives, use `synthesis perspectives`.
+
+  ---
+
+  **Last updated:** February 18, 2026

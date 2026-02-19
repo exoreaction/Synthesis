@@ -35,3 +35,13 @@ replay_pid*
 
 # Synthesis workspace data (user-specific)
 .synthesis/
+
+# IDE files
+.idea/
+
+# Maven release artifacts
+pom.xml.releaseBackup
+release.properties
+
+# Large generated visuals/PDFs (use Synthesis or shared storage instead)
+docs/visuals/

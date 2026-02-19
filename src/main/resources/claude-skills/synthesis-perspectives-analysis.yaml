@@ -155,7 +155,7 @@ instructions: |
 
   ---
 
-  ## When to Use Perspectives vs Ask
+  ## When to Use Perspectives vs Ask vs Research
 
   | Scenario | Command | Why |
   |----------|---------|-----|
@@ -165,8 +165,20 @@ instructions: |
   | "Is our configuration approach scalable?" | `perspectives` | Needs analysis from multiple angles |
   | "What dependencies does X have?" | `ask` | Factual query |
   | "Should we change our dependency strategy?" | `perspectives` | Strategic decision |
+  | "Create a deep architecture report" | `perspectives` (multiple) | Run several targeted perspectives queries, save with `-o file.md`, combine |
+  | "Generate prompts for ChatGPT/NotebookLM" | `research` | Produces haiku-generated prompts FOR external AI tools, not a standalone report |
 
-  **Rule of thumb:** If the question has a single right answer, use `ask`. If it involves trade-offs, strategies, or "should we...", use `perspectives`.
+  **Rule of thumb:** If the question has a single right answer, use `ask`. If it involves trade-offs, strategies, or "should we...", use `perspectives`. Never use `research` expecting a real analysis — it generates prompts for other AI tools, not answers.
+
+  ### Generating Multi-Section Reports with Perspectives
+  For long architecture/security deep-dives, run multiple focused queries:
+  ```bash
+  synthesis -d <workspace> perspectives "What is the module architecture and data flow?" -o /tmp/arch-p1.md 2>/dev/null
+  synthesis -d <workspace> perspectives "What are the security risks and vulnerabilities?" -o /tmp/arch-p2.md 2>/dev/null
+  synthesis -d <workspace> perspectives "What are the scalability and maintenance challenges?" -o /tmp/arch-p3.md 2>/dev/null
+  # Combine sections into final report
+  cat /tmp/arch-p1.md /tmp/arch-p2.md /tmp/arch-p3.md > report.md
+  ```
 
   ---
 
