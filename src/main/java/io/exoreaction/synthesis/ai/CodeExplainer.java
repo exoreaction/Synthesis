@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.ai;
 
-import io.exoreaction.synthesis.cli.RelateCommand;
-import io.exoreaction.synthesis.cli.RelateCommand.RelationshipMap;
+import io.exoreaction.synthesis.graph.RelationService;
+import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.insights.InsightsEngine;
@@ -408,15 +408,15 @@ public class CodeExplainer {
             return "(file not in index — run 'synthesis scan' first)";
         }
 
-        // Build the filename → paths lookup used by RelateCommand
+        // Build the filename → paths lookup used by RelationService
         List<SearchResult> allFiles = index.listAll(null, 5000);
         Map<String, List<String>> fileNameIndex = new HashMap<>();
         for (SearchResult f : allFiles) {
             fileNameIndex.computeIfAbsent(f.fileName(), k -> new ArrayList<>()).add(f.relativePath());
         }
 
-        // Run outgoing + incoming analysis via RelateCommand
-        RelateCommand relater = new RelateCommand();
+        // Run outgoing + incoming analysis via RelationService
+        RelationService relater = new RelationService();
         RelationshipMap map = new RelationshipMap(target.relativePath());
         relater.analyzeOutgoingRefs(target, workspaceRoot, map, fileNameIndex);
         relater.analyzeIncomingRefs(target, allFiles, workspaceRoot, map);

@@ -8,7 +8,7 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.ai.CodeExplainer;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
-import io.exoreaction.synthesis.cli.RelateCommand;
+import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.FileMetadata;
@@ -406,8 +406,8 @@ public class SynthesisToolHandler {
                 targetResults = index.search(filePath, 10);
             }
 
-            // Use RelateCommand's matching logic
-            RelateCommand relateCmd = new RelateCommand();
+            // Use RelationService's matching logic
+            RelationService relateCmd = new RelationService();
             SearchResult target = relateCmd.findBestMatch(targetResults, filePath);
             if (target == null) {
                 throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
@@ -427,7 +427,7 @@ public class SynthesisToolHandler {
             }
 
             // Analyze relationships
-            RelateCommand.RelationshipMap relationshipMap = new RelateCommand.RelationshipMap(target.relativePath());
+            RelationService.RelationshipMap relationshipMap = new RelationService.RelationshipMap(target.relativePath());
             relateCmd.analyzeOutgoingRefs(target, workspacePath, relationshipMap, fileNameIndex);
             relateCmd.analyzeIncomingRefs(target, allFiles, workspacePath, relationshipMap);
 

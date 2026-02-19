@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.architecture;
 
-import io.exoreaction.synthesis.cli.RelateCommand;
+import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -195,7 +195,7 @@ public class ArchitectureMonitor {
     List<ArchitectureAlert> detectDeadCode(List<SearchResult> codeFiles,
                                             List<SearchResult> allFiles) {
         List<ArchitectureAlert> alerts = new ArrayList<>();
-        RelateCommand relateCmd = new RelateCommand();
+        RelationService relateCmd = new RelationService();
 
         for (SearchResult file : codeFiles) {
             try {
@@ -203,7 +203,7 @@ public class ArchitectureMonitor {
                 String name = file.fileName().toLowerCase();
                 if (isEntryPoint(name) || isTestFile(name) || isConfigFile(name)) continue;
 
-                RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(file.relativePath());
+                RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(file.relativePath());
                 relateCmd.analyzeIncomingRefs(file, allFiles, workspaceRoot, relMap);
 
                 if (relMap.incoming().isEmpty()) {
@@ -306,7 +306,7 @@ public class ArchitectureMonitor {
     List<ArchitectureAlert> detectCircularDependencies(List<SearchResult> codeFiles,
                                                         List<SearchResult> allFiles) {
         List<ArchitectureAlert> alerts = new ArrayList<>();
-        RelateCommand relateCmd = new RelateCommand();
+        RelationService relateCmd = new RelationService();
 
         // Build module-level dependency graph
         Map<String, Set<String>> moduleGraph = new HashMap<>();
@@ -321,7 +321,7 @@ public class ArchitectureMonitor {
             moduleGraph.computeIfAbsent(module, k -> new HashSet<>());
 
             try {
-                RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(file.relativePath());
+                RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(file.relativePath());
                 relateCmd.analyzeOutgoingRefs(file, workspaceRoot, relMap, fileNameIndex);
 
                 for (String depPath : relMap.outgoing().keySet()) {
@@ -361,11 +361,11 @@ public class ArchitectureMonitor {
     List<ArchitectureAlert> detectHighCoupling(List<SearchResult> codeFiles,
                                                 List<SearchResult> allFiles) {
         List<ArchitectureAlert> alerts = new ArrayList<>();
-        RelateCommand relateCmd = new RelateCommand();
+        RelationService relateCmd = new RelationService();
 
         for (SearchResult file : codeFiles) {
             try {
-                RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(file.relativePath());
+                RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(file.relativePath());
                 relateCmd.analyzeIncomingRefs(file, allFiles, workspaceRoot, relMap);
 
                 int incomingCount = relMap.incoming().size();
