@@ -6,6 +6,8 @@ import io.exoreaction.synthesis.graph.GraphBuilder;
 import io.exoreaction.synthesis.graph.GraphBuilder.*;
 import io.exoreaction.synthesis.graph.GraphRenderer;
 import io.exoreaction.synthesis.graph.GraphRenderer.Format;
+import io.exoreaction.synthesis.graph.ViolationDetector;
+import io.exoreaction.synthesis.graph.ViolationDetector.*;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -31,6 +33,7 @@ import java.util.concurrent.Callable;
  *   synthesis graph --modules --format svg --output architecture.svg
  *   synthesis graph --cross-repo --format png --output deps.png
  *   synthesis graph --all --depth 2 --format mermaid
+ *   synthesis graph --violations                         # Detect layering/circular violations
  * </pre>
  */
 @Command(
@@ -98,6 +101,13 @@ public class GraphCommand implements Callable<Integer> {
     )
     private String repo;
 
+    @Option(
+            names = {"--violations"},
+            description = "Detect layering violations and circular dependencies",
+            defaultValue = "false"
+    )
+    private boolean violations;
+
     @Override
     public Integer call() {
         try {
@@ -128,6 +138,11 @@ public class GraphCommand implements Callable<Integer> {
             if (allFiles.isEmpty()) {
                 AnsiOutput.printWarning("No files in index. Run 'synthesis scan' first.");
                 return 0;
+            }
+
+            // Violations mode
+            if (violations) {
+                return runViolationDetection(allFiles, workspaceRoot);
             }
 
             // Size check
@@ -247,6 +262,121 @@ public class GraphCommand implements Callable<Integer> {
         String baseName = !targetFile.isEmpty() ? targetFile.replaceAll("[^a-zA-Z0-9]", "_") :
                 (modules ? "modules" : crossRepo ? "cross-repo" : "graph");
         return Path.of(baseName + extension).toAbsolutePath();
+    }
+
+    /**
+     * Runs violation detection and prints results.
+     */
+    private int runViolationDetection(List<SearchResult> allFiles, Path workspaceRoot) {
+        AnsiOutput.printHeader("Synthesis - Violation Detection");
+
+        ViolationDetector detector = new ViolationDetector();
+        ViolationReport report = detector.detect(allFiles, workspaceRoot);
+
+        System.out.printf("  Scanned %d files (%d Java files)%n%n",
+                report.totalFiles(), report.javaFiles());
+
+        // Layering violations
+        if (!report.layeringViolations().isEmpty()) {
+            System.out.println("  " + AnsiOutput.bold(AnsiOutput.yellow("LAYERING VIOLATIONS"))
+                    + " (" + report.layeringViolations().size() + ")");
+            System.out.println();
+
+            // Group by source file for cleaner output
+            Map<String, List<LayeringViolation>> bySource = new LinkedHashMap<>();
+            for (LayeringViolation v : report.layeringViolations()) {
+                bySource.computeIfAbsent(v.sourceFile(), k -> new ArrayList<>()).add(v);
+            }
+
+            for (var entry : bySource.entrySet()) {
+                System.out.println("    " + AnsiOutput.cyan(entry.getKey()));
+                for (LayeringViolation v : entry.getValue()) {
+                    String className = v.targetClass().contains(".")
+                            ? v.targetClass().substring(v.targetClass().lastIndexOf('.') + 1)
+                            : v.targetClass();
+                    System.out.printf("      %s %s.%s%n",
+                            AnsiOutput.yellow("->"),
+                            v.targetPackage(),
+                            className);
+                    System.out.printf("      %s Layer %d (%s) imports Layer %d (%s)%n",
+                            AnsiOutput.dim("  "),
+                            v.sourceLayer(), detector.getLayerName(v.sourceLayer()),
+                            v.targetLayer(), detector.getLayerName(v.targetLayer()));
+                }
+                // Show suggestion once per source file
+                LayeringViolation first = entry.getValue().get(0);
+                System.out.println("      " + AnsiOutput.dim("Suggestion: " + first.suggestion()));
+                System.out.println();
+            }
+        } else {
+            System.out.println("  " + AnsiOutput.green("No layering violations found."));
+            System.out.println();
+        }
+
+        // Circular dependencies
+        if (!report.circularDependencies().isEmpty()) {
+            System.out.println("  " + AnsiOutput.bold(AnsiOutput.yellow("CIRCULAR DEPENDENCIES"))
+                    + " (" + report.circularDependencies().size() + ")");
+            System.out.println();
+
+            for (CircularDependency cycle : report.circularDependencies()) {
+                System.out.printf("    %s %s %s %s%n",
+                        AnsiOutput.cyan(cycle.packageA()),
+                        AnsiOutput.yellow("<->"),
+                        AnsiOutput.cyan(cycle.packageB()),
+                        cycle.isDirect() ? AnsiOutput.yellow("(direct)") : AnsiOutput.dim("(transitive)"));
+
+                // Show imports in each direction
+                System.out.printf("      %s imports from %s: %s%n",
+                        cycle.packageA(), cycle.packageB(),
+                        formatImportList(cycle.aImportsFromB()));
+                System.out.printf("      %s imports from %s: %s%n",
+                        cycle.packageB(), cycle.packageA(),
+                        formatImportList(cycle.bImportsFromA()));
+                System.out.println("      " + AnsiOutput.dim(
+                        "Suggestion: document as infrastructure peer coupling, or extract shared types"));
+                System.out.println();
+            }
+        } else {
+            System.out.println("  " + AnsiOutput.green("No circular dependencies found."));
+            System.out.println();
+        }
+
+        // Summary
+        int totalViolations = report.totalViolations();
+        if (totalViolations == 0) {
+            System.out.println("  " + AnsiOutput.green("Architecture is clean — no violations detected."));
+        } else {
+            System.out.printf("  %s %d violation%s found (%d layering, %d circular)%n",
+                    AnsiOutput.yellow("Total:"),
+                    totalViolations,
+                    totalViolations == 1 ? "" : "s",
+                    report.layeringViolations().size(),
+                    report.circularDependencies().size());
+        }
+        System.out.println();
+
+        return totalViolations > 0 ? 1 : 0;
+    }
+
+    /**
+     * Formats a list of imports for compact display.
+     */
+    private String formatImportList(List<String> imports) {
+        if (imports.size() <= 3) {
+            return String.join(", ", imports.stream()
+                    .map(imp -> imp.contains(".")
+                            ? imp.substring(imp.lastIndexOf('.') + 1)
+                            : imp)
+                    .toList());
+        }
+        return imports.stream()
+                .limit(3)
+                .map(imp -> imp.contains(".")
+                        ? imp.substring(imp.lastIndexOf('.') + 1)
+                        : imp)
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("") + " (+" + (imports.size() - 3) + " more)";
     }
 
     private SearchResult findTarget(List<SearchResult> files, String target) {
