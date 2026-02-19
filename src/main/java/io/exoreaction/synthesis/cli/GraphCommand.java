@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.graph.CoChangeAnalyzer;
 import io.exoreaction.synthesis.graph.GraphBuilder;
 import io.exoreaction.synthesis.graph.GraphBuilder.*;
 import io.exoreaction.synthesis.graph.GraphRenderer;
@@ -108,6 +109,27 @@ public class GraphCommand implements Callable<Integer> {
     )
     private boolean violations;
 
+    @Option(
+            names = {"--co-change"},
+            description = "Detect implicit coupling from git commit history",
+            defaultValue = "false"
+    )
+    private boolean coChange;
+
+    @Option(
+            names = {"--min-support"},
+            description = "Minimum co-commit count to report (default: 3)",
+            defaultValue = "3"
+    )
+    private int minSupport;
+
+    @Option(
+            names = {"--lookback"},
+            description = "Number of recent commits to analyse (default: 100)",
+            defaultValue = "100"
+    )
+    private int lookback;
+
     @Override
     public Integer call() {
         try {
@@ -120,6 +142,11 @@ public class GraphCommand implements Callable<Integer> {
             if (validation.isPresent()) {
                 AnsiOutput.printError(validation.get());
                 return 1;
+            }
+
+            // Co-change mode — does not require the search index
+            if (coChange) {
+                return runCoChangeAnalysis(workspaceRoot);
             }
 
             // Determine format
@@ -262,6 +289,26 @@ public class GraphCommand implements Callable<Integer> {
         String baseName = !targetFile.isEmpty() ? targetFile.replaceAll("[^a-zA-Z0-9]", "_") :
                 (modules ? "modules" : crossRepo ? "cross-repo" : "graph");
         return Path.of(baseName + extension).toAbsolutePath();
+    }
+
+    /**
+     * Runs co-change analysis using git commit history and prints results.
+     */
+    private int runCoChangeAnalysis(Path workspaceRoot) {
+        try {
+            AnsiOutput.printHeader("Co-Change Analysis");
+            System.out.println("  Analysing last " + lookback + " commits...");
+
+            CoChangeAnalyzer analyzer = new CoChangeAnalyzer();
+            // Pass empty import links for now (import analysis integration is a future pass)
+            CoChangeAnalyzer.CoChangeReport report = analyzer.analyze(workspaceRoot, lookback, minSupport, Set.of());
+
+            System.out.println(analyzer.format(report, minSupport));
+            return 0;
+        } catch (Exception e) {
+            AnsiOutput.printError("Co-change analysis failed: " + e.getMessage());
+            return 1;
+        }
     }
 
     /**
