@@ -989,6 +989,7 @@ public class SynthesisToolHandler {
         String level = params.has("level") ? params.get("level").asText() : "executive";
         String perspective = params.has("perspective") ? params.get("perspective").asText() : "general";
         String format = params.has("format") ? params.get("format").asText() : "markdown";
+        String since = params.has("since") ? params.get("since").asText() : null;
         boolean noAi = params.has("noAi") && params.get("noAi").asBoolean(false);
         boolean noCache = params.has("noCache") && params.get("noCache").asBoolean(false);
 
@@ -1037,6 +1038,29 @@ public class SynthesisToolHandler {
                     profile = profiler.generate(index, workspacePath);
                 }
 
+                // Temporal context (if since provided)
+                String temporalContext = null;
+                if (since != null && !since.isBlank()) {
+                    java.time.Instant sinceInstant =
+                        io.exoreaction.synthesis.cli.ChangedCommand.parseSince(since);
+                    if (sinceInstant != null) {
+                        try {
+                            io.exoreaction.synthesis.db.SynthesisDatabase changeDb =
+                                io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+                            io.exoreaction.synthesis.changelog.SnapshotManager snapshots =
+                                new io.exoreaction.synthesis.changelog.SnapshotManager(changeDb);
+                            java.util.List<io.exoreaction.synthesis.changelog.ChangeEvent> events =
+                                snapshots.getChangesForWorkspace(workspacePath.toString(), sinceInstant);
+                            temporalContext = "Changes since " + since + ": " +
+                                new io.exoreaction.synthesis.changelog.ChangeReportGenerator()
+                                    .generateSummary(events);
+                        } catch (Exception e) {
+                            temporalContext = "Changes since " + since +
+                                " (changelog not available — run 'synthesis maintain' first)";
+                        }
+                    }
+                }
+
                 // AI-enhanced summary
                 String aiSummary = null;
                 String modelUsed = null;
@@ -1048,14 +1072,19 @@ public class SynthesisToolHandler {
                         io.exoreaction.synthesis.summary.SummaryEngine engine =
                             new io.exoreaction.synthesis.summary.SummaryEngine(clientOpt.get());
                         modelUsed = engine.getModel();
-                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective);
+                        aiSummary = engine.generateSummary(
+                            profile, summaryLevel, summaryPerspective, temporalContext);
                     }
                 }
 
                 long generationTime = System.currentTimeMillis() - startTime;
 
                 // Create result
-                if (aiSummary != null) {
+                if (temporalContext != null) {
+                    result = io.exoreaction.synthesis.summary.SummaryResult.withTemporal(
+                        profile, aiSummary, summaryLevel, summaryPerspective,
+                        temporalContext, generationTime);
+                } else if (aiSummary != null) {
                     result = io.exoreaction.synthesis.summary.SummaryResult.withAiSummary(
                         profile, aiSummary, summaryLevel, summaryPerspective, generationTime);
                 } else {
@@ -1095,6 +1124,9 @@ public class SynthesisToolHandler {
             response.put("perspective", result.perspective().cliValue());
             response.put("fromCache", result.fromCache());
             response.put("generationTimeMs", result.generationTimeMs());
+            if (result.temporalContext() != null) {
+                response.put("temporalContext", result.temporalContext());
+            }
 
             return response;
 

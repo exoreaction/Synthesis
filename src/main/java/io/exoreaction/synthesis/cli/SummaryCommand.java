@@ -21,10 +21,6 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -253,33 +249,10 @@ public class SummaryCommand implements Callable<Integer> {
 
     /**
      * Parses a --since value into an Instant.
-     * Supports ISO dates (2026-01-15) and durations (7d, 24h, 2w, 3m).
+     * Delegates to {@link ChangedCommand#parseSince} (ISO dates + duration formats).
      */
     Instant parseSince(String since) {
-        if (since == null || since.isBlank()) return null;
-        // Try as ISO date (e.g. "2026-01-15")
-        try {
-            LocalDate date = LocalDate.parse(since);
-            return date.atStartOfDay(ZoneId.systemDefault()).toInstant();
-        } catch (DateTimeParseException e) {
-            // Not a date — try duration
-        }
-        // Try as duration (e.g. "7d", "24h", "2w", "3m")
-        try {
-            String numStr = since.substring(0, since.length() - 1);
-            char unit = since.charAt(since.length() - 1);
-            long num = Long.parseLong(numStr);
-            Instant now = Instant.now();
-            return switch (unit) {
-                case 'h' -> now.minus(num, ChronoUnit.HOURS);
-                case 'd' -> now.minus(num, ChronoUnit.DAYS);
-                case 'w' -> now.minus(num * 7, ChronoUnit.DAYS);
-                case 'm' -> now.minus(num * 30, ChronoUnit.DAYS);
-                default -> null;
-            };
-        } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
-            return null;
-        }
+        return ChangedCommand.parseSince(since);
     }
 
     private String formatDuration(long millis) {
