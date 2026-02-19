@@ -6,6 +6,7 @@ import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.validate.DriftDetector;
 import io.exoreaction.synthesis.validate.DriftDetector.DriftIssue;
+import io.exoreaction.synthesis.validate.GapDetector;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
@@ -27,6 +28,7 @@ import java.util.stream.Stream;
  *   synthesis validate --skills       # Check .claude/skills/ and CLAUDE.md
  *   synthesis validate --docs         # Check docs/
  *   synthesis validate --all          # Check everything
+ *   synthesis validate --gaps         # Find source files with no skill coverage
  * </pre>
  *
  * <p>Exit codes: 0 = no drift found, 1 = drift detected or error.
@@ -50,18 +52,23 @@ public class ValidateCommand implements Callable<Integer> {
     private boolean docs;
 
     @Option(names = {"--all"},
-            description = "Check all documentation (skills + docs)")
+            description = "Check all documentation (skills + docs + gaps)")
     private boolean all;
+
+    @Option(names = {"--gaps"},
+            description = "Find indexed source files that have no mention in any skill file")
+    private boolean gaps;
 
     @Override
     public Integer call() {
-        // Default: check skills
-        if (!skills && !docs && !all) {
+        // Default: check skills (when no specific flag given)
+        if (!skills && !docs && !all && !gaps) {
             skills = true;
         }
         if (all) {
             skills = true;
             docs = true;
+            gaps = true;
         }
 
         Path workspaceRoot = parent.getWorkspaceRoot();
@@ -74,28 +81,42 @@ public class ValidateCommand implements Callable<Integer> {
         }
 
         try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-            List<Path> filesToCheck = new ArrayList<>();
+            int exitCode = 0;
 
-            if (skills) {
-                filesToCheck.addAll(collectSkillFiles(workspaceRoot));
+            // Drift detection (--skills and/or --docs)
+            if (skills || docs) {
+                List<Path> filesToCheck = new ArrayList<>();
+
+                if (skills) {
+                    filesToCheck.addAll(collectSkillFiles(workspaceRoot));
+                }
+                if (docs) {
+                    filesToCheck.addAll(collectDocFiles(workspaceRoot));
+                }
+
+                if (filesToCheck.isEmpty()) {
+                    System.out.println("  No documentation files found to check.");
+                } else {
+                    DriftDetector detector = new DriftDetector();
+                    Map<Path, List<DriftIssue>> allIssues = new LinkedHashMap<>();
+
+                    for (Path file : filesToCheck) {
+                        allIssues.put(file, detector.detect(file, index));
+                    }
+
+                    exitCode = Math.max(exitCode, printReport(allIssues, workspaceRoot));
+                }
             }
-            if (docs) {
-                filesToCheck.addAll(collectDocFiles(workspaceRoot));
+
+            // Gap detection (--gaps)
+            if (gaps) {
+                List<Path> skillFiles = collectSkillFiles(workspaceRoot);
+                GapDetector gapDetector = new GapDetector();
+                List<GapDetector.GapResult> gapResults = gapDetector.detectGaps(index, skillFiles);
+                exitCode = Math.max(exitCode, printGapReport(gapResults, skillFiles.size()));
             }
 
-            if (filesToCheck.isEmpty()) {
-                System.out.println("  No documentation files found to check.");
-                return 0;
-            }
-
-            DriftDetector detector = new DriftDetector();
-            Map<Path, List<DriftIssue>> allIssues = new LinkedHashMap<>();
-
-            for (Path file : filesToCheck) {
-                allIssues.put(file, detector.detect(file, index));
-            }
-
-            return printReport(allIssues, workspaceRoot);
+            return exitCode;
 
         } catch (Exception e) {
             AnsiOutput.printError("Validate failed: " + e.getMessage());
@@ -143,6 +164,36 @@ public class ValidateCommand implements Callable<Integer> {
         }
 
         return driftFiles > 0 ? 1 : 0;
+    }
+
+    private int printGapReport(List<GapDetector.GapResult> gapResults, int totalSkillFiles) {
+        System.out.println();
+        if (gapResults.isEmpty()) {
+            System.out.println("  \u2713 Gap Analysis \u2014 all indexed source files have skill coverage");
+            System.out.println();
+            return 0;
+        }
+        System.out.printf("  \u26a0 GAP ANALYSIS: %d source file(s) have no skill coverage:%n%n",
+                gapResults.size());
+
+        // Group by priority
+        int prevPriority = -1;
+        for (GapDetector.GapResult gap : gapResults) {
+            if (gap.priority() != prevPriority) {
+                String label = gap.priority() >= 5 ? "HIGH PRIORITY"
+                        : gap.priority() >= 3 ? "MEDIUM PRIORITY" : "LOW PRIORITY";
+                System.out.println("  " + label + ":");
+                prevPriority = gap.priority();
+            }
+            System.out.printf("    %-50s  %s%n",
+                    gap.className() + ".java",
+                    gap.relativePath() != null ? gap.relativePath() : "");
+        }
+
+        System.out.println();
+        System.out.printf("  Checked against %d skill file(s). Run 'synthesis validate --gaps' regularly to track coverage.%n%n",
+                totalSkillFiles);
+        return 1;
     }
 
     /** Collects {@code .claude/skills/*.md}, {@code .claude/skills/*.yaml}, and {@code CLAUDE.md}. */
