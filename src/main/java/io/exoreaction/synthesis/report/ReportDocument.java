@@ -2,6 +2,9 @@ package io.exoreaction.synthesis.report;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 
 /**
  * Represents a discovered business document with its content.
@@ -44,7 +47,16 @@ public record ReportDocument(
      * Returns a brief description for display purposes.
      */
     public String briefDescription() {
-        return category + ": " + relativePath + " (" + formatSize(sizeBytes) + ")";
+        return category + ": " + relativePath
+                + " (" + formatSize(sizeBytes) + ", modified " + formatAge(lastModified) + ")";
+    }
+
+    static String formatAge(Instant lastModified) {
+        long days = ChronoUnit.DAYS.between(
+                lastModified.atZone(ZoneId.systemDefault()).toLocalDate(), LocalDate.now());
+        if (days == 0) return "today";
+        if (days == 1) return "yesterday";
+        return days + " days ago";
     }
 
     private static String formatSize(long bytes) {

@@ -6,6 +6,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -121,6 +124,58 @@ class ReportDocumentTest {
         String desc = doc.briefDescription();
         assertTrue(desc.contains(expectedUnit),
                 "Size " + sizeBytes + " bytes should format as " + expectedUnit);
+    }
+
+    // --- briefDescription age (issue #81) ---
+
+    @Test
+    void briefDescription_includesModificationAge_today() {
+        Instant now = Instant.now();
+        ReportDocument doc = new ReportDocument(
+                Path.of("/ws/doc.md"), "doc.md", "activity", "content", now, 512L);
+        String desc = doc.briefDescription();
+        assertTrue(desc.contains("today"), "Brief description should say 'today' for just-modified doc");
+    }
+
+    @Test
+    void briefDescription_includesModificationAge_yesterday() {
+        Instant yesterday = LocalDate.now().minusDays(1)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant()
+                .plusSeconds(3600); // within yesterday
+        ReportDocument doc = new ReportDocument(
+                Path.of("/ws/doc.md"), "doc.md", "activity", "content", yesterday, 512L);
+        String desc = doc.briefDescription();
+        assertTrue(desc.contains("yesterday"), "Brief description should say 'yesterday' for a 1-day-old doc");
+    }
+
+    @Test
+    void briefDescription_includesModificationAge_nDaysAgo() {
+        Instant fiveDaysAgo = Instant.now().minus(5, ChronoUnit.DAYS);
+        ReportDocument doc = new ReportDocument(
+                Path.of("/ws/doc.md"), "doc.md", "activity", "content", fiveDaysAgo, 512L);
+        String desc = doc.briefDescription();
+        assertTrue(desc.contains("days ago"), "Brief description should say 'N days ago' for older docs");
+    }
+
+    @Test
+    void formatAge_today_returnsToday() {
+        Instant now = Instant.now();
+        assertEquals("today", ReportDocument.formatAge(now));
+    }
+
+    @Test
+    void formatAge_yesterday_returnsYesterday() {
+        Instant yesterday = LocalDate.now().minusDays(1)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant()
+                .plusSeconds(3600);
+        assertEquals("yesterday", ReportDocument.formatAge(yesterday));
+    }
+
+    @Test
+    void formatAge_sevenDaysAgo_returns7DaysAgo() {
+        Instant sevenDaysAgo = LocalDate.now().minusDays(7)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant();
+        assertEquals("7 days ago", ReportDocument.formatAge(sevenDaysAgo));
     }
 
     // --- equality ---

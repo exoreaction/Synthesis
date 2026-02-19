@@ -97,8 +97,12 @@ public class AskCommand implements Callable<Integer> {
     }
 
     private Integer runSingleQuestion() {
+        long startMs = System.nanoTime();
+        boolean metricsSuccess = false;
+        String metricsWs = "unknown";
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
+            metricsWs = workspaceRoot.toString();
 
             // Validate workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
@@ -176,10 +180,14 @@ public class AskCommand implements Callable<Integer> {
                 System.out.println();
             }
 
+            metricsSuccess = true;
             return 0;
         } catch (Exception e) {
             AnsiOutput.printError("Ask failed: " + e.getMessage());
             return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startMs) / 1_000_000;
+            parent.getMetrics().recordAiFeature("ask", metricsWs, elapsed, 0, metricsSuccess, false);
         }
     }
 

@@ -78,8 +78,12 @@ public class PerspectivesCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        long startMs = System.nanoTime();
+        boolean metricsSuccess = false;
+        String metricsWs = "unknown";
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
+            metricsWs = workspaceRoot.toString();
 
             // Validate workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
@@ -148,11 +152,15 @@ public class PerspectivesCommand implements Callable<Integer> {
                 System.out.println();
             }
 
+            metricsSuccess = true;
             return 0;
 
         } catch (Exception e) {
             AnsiOutput.printError("Analysis failed: " + e.getMessage());
             return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startMs) / 1_000_000;
+            parent.getMetrics().recordAiFeature("perspectives", metricsWs, elapsed, 0, metricsSuccess, false);
         }
     }
 

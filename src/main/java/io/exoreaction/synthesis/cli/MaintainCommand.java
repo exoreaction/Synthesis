@@ -89,8 +89,12 @@ public class MaintainCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        long startMs = System.nanoTime();
+        boolean metricsSuccess = false;
+        String metricsWs = "unknown";
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
+            metricsWs = workspaceRoot.toString();
 
             AnsiOutput.printHeader("Synthesis - Maintain Workspace");
 
@@ -217,6 +221,7 @@ public class MaintainCommand implements Callable<Integer> {
             }
 
             System.out.println();
+            metricsSuccess = true;
             return 0;
 
         } catch (Exception e) {
@@ -225,6 +230,9 @@ public class MaintainCommand implements Callable<Integer> {
                 e.printStackTrace();
             }
             return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startMs) / 1_000_000;
+            parent.getMetrics().recordMcpInvocation("maintain", metricsWs, elapsed, null, metricsSuccess, null);
         }
     }
 

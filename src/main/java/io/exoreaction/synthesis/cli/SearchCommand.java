@@ -131,13 +131,20 @@ public class SearchCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        long startMs = System.nanoTime();
+        boolean metricsSuccess = false;
+        String metricsWs = "unknown";
+        int metricsCount = 0;
         try {
             // Multi-workspace search mode
             if (searchAll || (workspaceNames != null && !workspaceNames.isEmpty())) {
-                return performMultiWorkspaceSearch();
+                int r = performMultiWorkspaceSearch();
+                metricsSuccess = (r == 0);
+                return r;
             }
 
             Path workspaceRoot = parent.getWorkspaceRoot();
+            metricsWs = workspaceRoot.toString();
 
             // Validate workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
@@ -149,7 +156,9 @@ public class SearchCommand implements Callable<Integer> {
 
             // Semantic search mode
             if (semantic) {
-                return performSemanticSearch(workspace);
+                int r = performSemanticSearch(workspace);
+                metricsSuccess = (r == 0);
+                return r;
             }
 
             // Keyword search
@@ -193,8 +202,11 @@ public class SearchCommand implements Callable<Integer> {
                     }
                     System.out.println("    - Run " + AnsiOutput.cyan("synthesis scan") + " if index is stale");
                     System.out.println();
+                    metricsSuccess = true;
                     return 0;
                 }
+
+                metricsCount = results.size();
 
                 // Aggregate by sub-workspace if requested
                 if (aggregate) {
@@ -204,10 +216,14 @@ public class SearchCommand implements Callable<Integer> {
                 }
             }
 
+            metricsSuccess = true;
             return 0;
         } catch (Exception e) {
             AnsiOutput.printError("Search failed: " + e.getMessage());
             return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startMs) / 1_000_000;
+            parent.getMetrics().recordSearch(metricsWs, elapsed, metricsCount, query, metricsSuccess);
         }
     }
 

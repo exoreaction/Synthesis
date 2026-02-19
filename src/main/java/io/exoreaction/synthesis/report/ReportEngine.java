@@ -4,6 +4,10 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.research.ResearchPassResult;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -68,6 +72,8 @@ public class ReportEngine {
                 System.err.println("    " + doc.briefDescription());
             }
         }
+
+        warnIfStaleAnchorDocs(documents, period);
 
         if (documents.isEmpty()) {
             String emptyReport = "No business documents found in workspace. " +
@@ -237,6 +243,8 @@ public class ReportEngine {
             }
         }
 
+        warnIfStaleAnchorDocs(documents, period);
+
         if (documents.isEmpty()) {
             String emptyReport = "No documents found for " + entityType + " \"" + entityName + "\". " +
                     "Check that the name matches a directory or file in the workspace. " +
@@ -278,6 +286,30 @@ public class ReportEngine {
         }
 
         return result;
+    }
+
+    /**
+     * Warns to stderr when activity-log anchor documents are older than the report period.
+     *
+     * <p>This warning is always printed (not gated by verbose) so users know their anchor
+     * documents need updating for accurate coverage.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/81">#81</a>
+     */
+    void warnIfStaleAnchorDocs(List<ReportDocument> documents, String period) {
+        Instant cutoff = BusinessDocumentFinder.parsePeriodCutoff(period);
+        for (ReportDocument doc : documents) {
+            String upper = doc.path().getFileName().toString().toUpperCase();
+            if ((upper.contains("ACTIVITY-LOG") || upper.contains("ACTIVITY_LOG"))
+                    && doc.lastModified().isBefore(cutoff)) {
+                long days = ChronoUnit.DAYS.between(
+                        doc.lastModified().atZone(ZoneId.systemDefault()).toLocalDate(),
+                        LocalDate.now());
+                System.err.printf("  \u26A0\uFE0F  %s is %d day%s old (period: %s)"
+                        + " \u2014 update it for complete coverage%n",
+                        doc.relativePath(), days, days == 1 ? "" : "s", period);
+            }
+        }
     }
 
     /**
