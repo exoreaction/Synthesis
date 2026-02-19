@@ -3,10 +3,10 @@
 # eXOReaction Executive Command
 #
 # Smart executive tool that wraps Synthesis dashboard and report commands.
-# Provides a simplified interface for executives and CEOs using Synthesis.
 #
 # Usage:
 #   exo                    → interactive dashboard
+#   exo ask <question>     → ask a question about your knowledge base (AI)
 #   exo report             → weekly CEO briefing
 #   exo decisions          → critical decisions needed
 #   exo pipeline           → pipeline status
@@ -15,16 +15,129 @@
 #   exo product <name>     → product status report
 #   exo <name>             → smart: tries client, then product
 #
-# Setup:
-#   Ensure ~/bin is in your PATH (added by Synthesis installer)
-#   Set SYNTHESIS_WORKSPACE to your business documents directory (default: ~/Documents)
-#
-# Copyright (c) 2026 eXOReaction AS. All rights reserved.
 
 WORKSPACE="${SYNTHESIS_WORKSPACE:-$HOME/Documents}"
 
+# ---------------------------------------------------------------------------
+# exo ask — AI-powered Q&A over your indexed knowledge base
+# ---------------------------------------------------------------------------
+_exo_ask() {
+  local query="$*"
+  if [[ -z "$query" ]]; then
+    echo "Usage: exo ask <question>" >&2
+    exit 1
+  fi
+  if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    ANTHROPIC_API_KEY=$(grep -m1 'ANTHROPIC_API_KEY=' ~/.bashrc 2>/dev/null | cut -d'"' -f2)
+  fi
+  if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    echo "Error: ANTHROPIC_API_KEY is not set." >&2
+    exit 1
+  fi
+
+  echo "Searching knowledge base..." >&2
+
+  # Search and strip ANSI codes
+  local search_raw
+  search_raw=$(synthesis search -d "$WORKSPACE" -l 8 "$query" 2>/dev/null \
+    | sed 's/\x1b\[[0-9;]*m//g')
+
+  # Extract relative file paths
+  local file_paths=()
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]+[0-9]+\.[[:space:]]+\[[A-Z]+\][[:space:]]+(.+\.[a-zA-Z]+)[[:space:]]*$ ]]; then
+      file_paths+=("${BASH_REMATCH[1]}")
+    fi
+  done <<< "$search_raw"
+
+  # Build context from file contents (max 2000 chars each, top 5 files)
+  local context=""
+  local count=0
+  for rel_path in "${file_paths[@]}"; do
+    [[ $count -ge 5 ]] && break
+    local full_path="$WORKSPACE/$rel_path"
+    if [[ -f "$full_path" ]]; then
+      context+="--- $rel_path ---\n$(head -c 2000 "$full_path" 2>/dev/null)\n\n"
+      (( count++ ))
+    fi
+  done
+
+  if [[ -z "$context" ]]; then
+    echo "No relevant files found for: $query" >&2
+    exit 1
+  fi
+
+  echo "" >&2
+  echo "Based on:" >&2
+  for rel_path in "${file_paths[@]:0:5}"; do
+    [[ -f "$WORKSPACE/$rel_path" ]] && echo "  • $rel_path" >&2
+  done
+  echo "" >&2
+
+  # Conversation history (array of {role, content} pairs as plain strings)
+  local history_roles=()
+  local history_contents=()
+
+  _ask_claude() {
+    local user_msg="$1"
+    history_roles+=("user")
+    history_contents+=("$user_msg")
+
+    # Build messages JSON from history
+    local messages
+    messages=$(for i in "${!history_roles[@]}"; do
+      jq -n --arg role "${history_roles[$i]}" --arg content "${history_contents[$i]}" \
+        '{role: $role, content: $content}'
+    done | jq -s '.')
+
+    local response=""
+    response=$(curl -sN https://api.anthropic.com/v1/messages \
+      -H "Content-Type: application/json" \
+      -H "x-api-key: $ANTHROPIC_API_KEY" \
+      -H "anthropic-version: 2023-06-01" \
+      -d "$(jq -n \
+        --arg model "claude-haiku-4-5-20251001" \
+        --argjson messages "$messages" \
+        '{model: $model, max_tokens: 1024, stream: true, messages: $messages}')" \
+      | while IFS= read -r line; do
+          [[ "$line" == data:* ]] || continue
+          data="${line#data: }"
+          [[ "$data" == "[DONE]" ]] && break
+          delta=$(echo "$data" | jq -r '.delta.text // empty' 2>/dev/null)
+          [[ -n "$delta" ]] && printf '%s' "$delta"
+        done)
+
+    printf '%s\n' "$response"
+    history_roles+=("assistant")
+    history_contents+=("$response")
+  }
+
+  # First turn — include context in system-style preamble
+  local first_prompt
+  first_prompt="You are a helpful assistant with access to the user's knowledge base (indexed by Synthesis).
+Answer their question based on the provided context files. Be concise and cite specific files when relevant.
+
+CONTEXT FILES:
+$(printf '%b' "$context")
+QUESTION: $query"
+
+  _ask_claude "$first_prompt"
+
+  # Follow-up loop
+  while true; do
+    echo "" >&2
+    printf '\e[2mFollow-up question (or Enter to exit): \e[0m' >&2
+    local followup
+    read -r followup
+    [[ -z "$followup" ]] && break
+    echo "" >&2
+    _ask_claude "$followup"
+  done
+}
+
 case "${1:-}" in
   "")         exec synthesis dashboard ;;
+  ask)        shift; _exo_ask "$@" ;;
   report)     exec synthesis report -d "$WORKSPACE" -v "${@:2}" ;;
   decisions)  exec synthesis report -d "$WORKSPACE" --topic decisions -v ;;
   pipeline)   exec synthesis report -d "$WORKSPACE" --topic pipeline -v ;;
