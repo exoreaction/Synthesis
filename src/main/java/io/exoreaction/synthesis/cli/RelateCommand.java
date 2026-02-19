@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
+import io.exoreaction.synthesis.graph.TestCoverageAnalyzer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -28,6 +29,7 @@ public class RelateCommand implements Callable<Integer> {
     @Option(names = {"--mermaid"}, description = "Output as Mermaid diagram", defaultValue = "false") private boolean mermaid;
     @Option(names = {"--depth"}, description = "How many levels of relationships to follow (default: 1)", defaultValue = "1") private int depth;
     @Option(names = {"-v", "--verbose"}, description = "Show detailed reference information", defaultValue = "false") private boolean verbose;
+    @Option(names = {"--tests"}, description = "Show test classes that cover this file", defaultValue = "false") private boolean showTests;
 
     private final RelationService relationService = new RelationService();
 
@@ -62,6 +64,12 @@ public class RelateCommand implements Callable<Integer> {
 
             if (mermaid) { System.out.println(relationService.generateMermaid(relationshipMap)); }
             else { printRelationships(relationshipMap, target); }
+            if (showTests) {
+                TestCoverageAnalyzer tca = new TestCoverageAnalyzer();
+                List<SearchResult> af;
+                try (var si = SearchIndex.openReadOnly(workspace.getIndexPath())) { af = si.listAll(null, 5000); }
+                printTestCoverage(tca.findTests(target, af, workspaceRoot));
+            }
             return 0;
         } catch (Exception e) { AnsiOutput.printError("Relate failed: " + e.getMessage()); return 1; }
     }
@@ -99,6 +107,25 @@ public class RelateCommand implements Callable<Integer> {
         int total = map.outgoing().size() + map.incoming().size();
         if (total == 0) System.out.println("  " + AnsiOutput.yellow("This file appears to be orphaned (no references found)."));
         else System.out.println("  " + AnsiOutput.bold("Total connections: " + total));
+        System.out.println();
+    }
+
+    private void printTestCoverage(TestCoverageAnalyzer.TestCoverageResult cov) {
+        System.out.println();
+        if (cov.testClasses().isEmpty()) {
+            System.out.println("  " + AnsiOutput.yellow("No test classes found."));
+            String hint = cov.sourceFile().replaceAll(".*/", "").replace(".java", "Test.java");
+            System.out.println("  " + AnsiOutput.dim("Tip: create " + hint));
+        } else {
+            int n = cov.testClasses().size();
+            int m = cov.testMethodCount();
+            System.out.println("  " + AnsiOutput.bold(AnsiOutput.cyan("Test Coverage:")));
+            System.out.println("  " + n + " class(es), " + m + " @Test method(s)");
+            System.out.println();
+            for (TestCoverageAnalyzer.TestClass tc : cov.testClasses()) {
+                System.out.println("    OK " + tc.relativePath());
+            }
+        }
         System.out.println();
     }
 }
