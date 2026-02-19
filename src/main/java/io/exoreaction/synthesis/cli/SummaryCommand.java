@@ -5,6 +5,9 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.changelog.ChangeEvent;
+import io.exoreaction.synthesis.changelog.ChangeReportGenerator;
+import io.exoreaction.synthesis.changelog.SnapshotManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.summary.*;
@@ -17,6 +20,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -170,8 +179,23 @@ public class SummaryCommand implements Callable<Integer> {
                 // Phase 5: Temporal context (if --since provided)
                 String temporalContext = null;
                 if (since != null && !since.isBlank()) {
-                    temporalContext = "Changes since: " + since + " (temporal analysis available)";
-                    // TODO: Integrate with ChangeReportGenerator for detailed change analysis
+                    Instant sinceInstant = parseSince(since);
+                    if (sinceInstant == null) {
+                        AnsiOutput.printWarning("Could not parse --since value: '" + since +
+                                "'. Use '7d', '24h', '2w', or '2026-01-15'.");
+                    } else {
+                        try {
+                            SynthesisDatabase changeDb = SynthesisDatabase.getDefault();
+                            SnapshotManager snapshots = new SnapshotManager(changeDb);
+                            List<ChangeEvent> events = snapshots.getChangesForWorkspace(
+                                    workspaceRoot.toString(), sinceInstant);
+                            String changeSummary = new ChangeReportGenerator().generateSummary(events);
+                            temporalContext = "Changes since " + since + ": " + changeSummary;
+                        } catch (Exception e) {
+                            temporalContext = "Changes since " + since +
+                                    " (changelog not available — run 'synthesis maintain' first)";
+                        }
+                    }
                 }
 
                 // Create result
@@ -223,6 +247,37 @@ public class SummaryCommand implements Callable<Integer> {
             AnsiOutput.printError("Summary generation failed: " + e.getMessage());
             e.printStackTrace();
             return 1;
+        }
+    }
+
+    /**
+     * Parses a --since value into an Instant.
+     * Supports ISO dates (2026-01-15) and durations (7d, 24h, 2w, 3m).
+     */
+    Instant parseSince(String since) {
+        if (since == null || since.isBlank()) return null;
+        // Try as ISO date (e.g. "2026-01-15")
+        try {
+            LocalDate date = LocalDate.parse(since);
+            return date.atStartOfDay(ZoneId.systemDefault()).toInstant();
+        } catch (DateTimeParseException e) {
+            // Not a date — try duration
+        }
+        // Try as duration (e.g. "7d", "24h", "2w", "3m")
+        try {
+            String numStr = since.substring(0, since.length() - 1);
+            char unit = since.charAt(since.length() - 1);
+            long num = Long.parseLong(numStr);
+            Instant now = Instant.now();
+            return switch (unit) {
+                case 'h' -> now.minus(num, ChronoUnit.HOURS);
+                case 'd' -> now.minus(num, ChronoUnit.DAYS);
+                case 'w' -> now.minus(num * 7, ChronoUnit.DAYS);
+                case 'm' -> now.minus(num * 30, ChronoUnit.DAYS);
+                default -> null;
+            };
+        } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
+            return null;
         }
     }
 
