@@ -36,11 +36,11 @@ Token counts collected for MVP tasks (A1, B1, D1, F1) only.
 | B3 | Feature | 22 | 4 | 12 | **-81.8%** | **-45.5%** |
 | C1 | Cross-file | 15 | 11 | 13 | **-26.7%** | **-13.3%** |
 | C2 | Cross-file | 11 | 4 | 20* | **-63.6%** | **+81.8%*** |
-| C3 | Cross-file | 19 | 9 | 8 | **-52.6%** | **-57.9%** |
+| C3 | Cross-file | 19 | 4 | 8 | **-78.9%** | **-57.9%** |
 | D1 | Bug investigation | 12 | 6 | 7 | **-50.0%** | **-41.7%** |
 | E1 | Business context | 26 | 15 | 13 | **-42.3%** | **-50.0%** |
 | F1 | Design | 20 | 17 | 19 | **-15.0%** | **-5.0%** |
-| **Average** | | **14.2** | **7.9** | **9.8** | **-44.1%** | **-31.3%** |
+| **Average** | | **14.2** | **7.5** | **9.8** | **-47.2%** | **-31.3%** |
 
 *B2/Full and C2/Full had write.lock contention in Phase 2. Clean re-runs in Phase 3 (1.10.0 fixed #86): B2/Full-v2=6, C2/Full-v2=20 — confirming the results, not improving them.
 
@@ -60,19 +60,20 @@ Token counts collected for MVP tasks (A1, B1, D1, F1) only.
 
 ### Finding 1: CLAUDE.md/skills reduce tool calls more than synthesis search
 
-Skills-only (-44.1%) outperforms Full (-31.3%) on average — and outperforms Full on 10 of 12 individual tasks.
+Skills-only (-47.2%) outperforms Full (-31.3%) on average — and outperforms Full on 11 of 12 individual tasks.
 
 | Comparison | Wins |
 |---|---|
-| Skills-only beats Full | 9 tasks (B1, B3, C1, C2, D1, F1, A3, plus ties A1/A2) |
-| Full beats Skills-only | 2 tasks (C3, E1) |
+| Skills-only beats Full | 10 tasks (A3, B1, B2, B3, C1, C2, C3, D1, F1, plus A1/A2 tied) |
+| Full beats Skills-only | 1 task (E1) |
 | Tied | 2 tasks (A1, A2) |
 
-Full condition wins on:
-- **E1 (business context)** — synthesis cross-workspace search finds ROI docs in both source + business docs simultaneously, cutting 2 extra E1 reads vs Skills-only
-- **C3 (test coverage)** — skills context didn't point at `SummaryCacheTest` specifically; synthesis found it in 1 search vs 3 Glob/Grep calls
+Full condition wins on only **one task**:
+- **E1 (business context)** — synthesis cross-workspace search finds ROI docs in both source + business docs simultaneously. Skills-only agent needed 2 extra reads to locate the same files; Full went directly via search.
 
-The pattern: CLAUDE.md context tells agents *which files to read* (eliminating exploration). Synthesis search adds value on top when the agent lacks that specific knowledge — but for tasks where skills accurately predict the relevant files, search adds overhead without benefit.
+**C3 (test coverage): Skills-only wins 4 vs Full 8** — The Phase 3 Skills-only agent used the skill hint about `SummaryCacheTest` and went straight to the file in 4 calls. The Full agent also ran synthesis searches that found the file, but not more efficiently.
+
+The pattern: CLAUDE.md context tells agents *which files to read* (eliminating exploration). Synthesis search adds value only when the agent lacks that specific file-location knowledge. For tasks where skills accurately predict the relevant files, search adds overhead without benefit.
 
 ### Finding 2: Synthesis search reduces tool calls ~40% when working (Full condition)
 
@@ -91,6 +92,7 @@ Skills-only agents showed a consistent pattern: read skills/CLAUDE.md → identi
 
 Best Skills-only performance:
 - **B3: 4 calls** (Baseline: 22, -81.8%) — skills identified CrossRepoDepsCommand + GraphBuilder, agent read both in parallel
+- **C3: 4 calls** (Baseline: 19, -78.9%) — SummaryCacheTest mentioned in skills context, agent went straight there
 - **C2: 4 calls** (Baseline: 11, -63.6%) — skills pointed to BusinessDocumentFinder, agent read it directly
 - **B1: 6 calls** (Baseline: 14, -57.1%) — skills identified ReportEngine + ReportCommand, agent read in parallel
 
@@ -139,17 +141,17 @@ Fixed by explicit note in Full condition prompts. Filed as issue #87: improve er
 |---|---|---|---|---|---|
 | Navigation (A1-A3) | 9.0 | 6.0 | 6.3 | **-33.3%** | **-29.6%** |
 | Feature understanding (B1-B3) | 13.3 | 5.0 | 8.0 | **-62.4%** | **-39.8%** |
-| Cross-file reasoning (C1-C3) | 15.0 | 8.0 | 11.7 | **-46.7%** | **-22.2%** |
+| Cross-file reasoning (C1-C3) | 15.0 | 6.3 | 11.7 | **-58.0%** | **-22.2%** |
 | Bug investigation (D1) | 12.0 | 6.0 | 7.0 | **-50.0%** | **-41.7%** |
 | Business context (E1) | 26.0 | 15.0 | 13.0 | **-42.3%** | **-50.0%** |
 | Design (F1) | 20.0 | 17.0 | 19.0 | **-15.0%** | **-5.0%** |
 
 **Best condition by category:**
-- Navigation: Full and Skills-only tied
+- Navigation: Skills-only and Full tied (~-30%)
 - Feature understanding: **Skills-only (-62.4%)** — skills accurately predict relevant classes
-- Cross-file reasoning: **Skills-only (-46.7%)** — skills point to connection files directly
+- Cross-file reasoning: **Skills-only (-58.0%)** — skills point to connection files directly
 - Bug investigation: **Skills-only (-50.0%)**
-- Business context: **Full (-50.0%)** — cross-workspace search finds docs in both source + business
+- Business context: **Full (-50.0%)** — the one area where cross-workspace search wins
 - Design: **Skills-only (-15.0%)** — complex reading tasks show minimal improvement either way
 
 ---
@@ -173,11 +175,11 @@ The 3-condition data enables estimating what each component contributes:
 
 | Component | Effect on tool calls | Mechanism |
 |---|---|---|
-| CLAUDE.md + skills | **-44.1%** | Direct file location → eliminates exploration cycles |
-| + synthesis search | **-31.3% total** → search adds ~-0% on top of skills | Helps for ambiguous tasks, adds overhead for clear ones |
+| CLAUDE.md + skills | **-47.2%** | Direct file location → eliminates exploration cycles |
+| + synthesis search | **-31.3% total** → search costs ~+2.3 calls/task on top of skills | Helps for ambiguous tasks, adds overhead for clear ones |
 | Search alone (estimate) | ~**-15-20%** | Would save calls if agents lacked skills context |
 
-**Interpretation:** For the 12 Synthesis benchmark tasks, CLAUDE.md/skills are the primary efficiency driver. Synthesis search's marginal benefit over skills-only is small (+4.5 calls per task on average — Full adds search calls that don't always replace Glob/Read calls).
+**Interpretation:** For the 12 Synthesis benchmark tasks, CLAUDE.md/skills are the primary efficiency driver. Synthesis search's marginal contribution on top of skills is negative on average — Full adds search calls that don't always replace Glob/Read calls. The one clear win (E1) shows search's true value: cross-workspace discovery when skills don't pre-load the file location.
 
 This result is likely **benchmark-specific**: the tasks were designed around the Synthesis codebase, and the skills accurately describe the relevant files. In codebases *without* accurate skills, synthesis search would show larger marginal benefit vs Baseline.
 
@@ -211,12 +213,12 @@ This result is likely **benchmark-specific**: the tasks were designed around the
 
 | Metric | Value |
 |---|---|
-| Avg tool call reduction (Skills-only vs Baseline) | **-44.1%** |
+| Avg tool call reduction (Skills-only vs Baseline) | **-47.2%** |
 | Avg tool call reduction (Full vs Baseline) | **-31.3%** |
 | Avg token reduction (MVP tasks, Full vs Baseline) | **-13.3%** |
 | Sessions with perfect correctness | **39/39 (100%)** |
-| Tasks where Skills-only outperforms Full | **10/12 (83%)** |
-| Tasks where search meaningfully helped vs Skills-only | **2/12 (C3, E1)** |
+| Tasks where Skills-only outperforms Full | **11/12 (92%)** |
+| Tasks where search meaningfully helped vs Skills-only | **1/12 (E1 only)** |
 | Benchmark ground truths that were wrong | **7/12 (58%)** |
 
 ---

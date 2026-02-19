@@ -114,12 +114,12 @@ Compare answer against rubric in BENCHMARK-DESIGN.md. Score 0-3 per task.
 | Condition | Avg tool calls | Δ vs Baseline |
 |---|---|---|
 | Baseline | 14.2 | — |
-| Skills-only | 7.9 | **-44.1%** |
+| Skills-only | 7.5 | **-47.2%** |
 | Full | 9.8 | **-31.3%** |
 
-**Surprise finding: Skills-only outperforms Full on 10/12 tasks.**
+**Surprise finding: Skills-only outperforms Full on 11/12 tasks.**
 
-CLAUDE.md context tells agents which files to read → eliminates exploration cycles. Synthesis search adds overhead when agents already know the file locations. Search wins on E1 (cross-workspace business docs) and C3 (test file location not in skills).
+CLAUDE.md context tells agents which files to read → eliminates exploration cycles. Synthesis search adds overhead when agents already know the file locations. Search wins on only 1 task: E1 (cross-workspace business docs — source + Documents simultaneously).
 
 **Key Phase 3 findings:**
 1. CLAUDE.md/skills are the primary efficiency driver, not search
