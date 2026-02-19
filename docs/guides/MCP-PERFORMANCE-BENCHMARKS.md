@@ -149,10 +149,10 @@ Measured across real development sessions comparing AI agent performance with an
 |----------------|-------|---------|------------|----------|
 | Small | 500 | 50 MB | 0.8 MB | 1.6% |
 | Medium | 2,000 | 200 MB | 3.2 MB | 1.6% |
-| Large | 8,934 | 1.0 GB | 11.6 MB | 1.1% |
+| Large | 8,934 | 434 MB | 11.6 MB | 2.7% |
 | Very Large | 50,000 | 5.0 GB | ~65 MB | ~1.3% |
 
-**Key observation:** Index overhead is consistently 1-2% of source content. Lucene's inverted index is highly space-efficient.
+**Key observation:** Index overhead is consistently 2-3% of source content. Lucene's inverted index is highly space-efficient.
 
 ### Memory Usage
 

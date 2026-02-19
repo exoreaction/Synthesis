@@ -12,6 +12,7 @@ import io.exoreaction.synthesis.cli.RelateCommand;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.enrichment.CompanionFileGenerator;
 import io.exoreaction.synthesis.enrichment.EnrichmentLevel;
@@ -26,6 +27,7 @@ import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.logging.Logger;
@@ -285,6 +287,7 @@ public class SynthesisToolHandler {
 
     /**
      * Builds the standard search response from a list of results.
+     * Includes workspace-level freshness metadata (scan age, confidence).
      */
     private ObjectNode buildSearchResponse(List<SearchResult> results, long elapsedMs, String workspace) {
         ObjectNode response = mapper.createObjectNode();
@@ -299,7 +302,64 @@ public class SynthesisToolHandler {
         response.put("searchTime", String.format("%.1fs", elapsedMs / 1000.0));
         response.put("workspace", workspace);
 
+        // Add freshness metadata from scan state
+        addFreshnessMetadata(response, Path.of(workspace));
+
         return response;
+    }
+
+    /**
+     * Adds workspace-level freshness metadata to a search response.
+     * Loads the scan state to determine when the workspace was last scanned,
+     * and computes a confidence score based on scan age.
+     *
+     * <p>Confidence heuristic:
+     * <ul>
+     *   <li>scanAge &lt;= 1 day: 1.0</li>
+     *   <li>scanAge &lt;= 7 days: 0.9</li>
+     *   <li>scanAge &lt;= 30 days: 0.75</li>
+     *   <li>older: 0.5</li>
+     * </ul>
+     */
+    void addFreshnessMetadata(ObjectNode response, Path workspacePath) {
+        try {
+            WorkspaceManager workspace = new WorkspaceManager(workspacePath);
+            Path scanStatePath = workspace.getScanStatePath();
+
+            if (!ScanState.exists(scanStatePath)) {
+                response.put("confidence", 0.5);
+                response.put("scanAgeDays", -1);
+                return;
+            }
+
+            ScanState scanState = ScanState.load(scanStatePath);
+            Instant lastScan = scanState.getLastScanTime();
+
+            if (lastScan != null) {
+                response.put("workspaceLastScan", lastScan.toString());
+                long ageDays = Duration.between(lastScan, Instant.now()).toDays();
+                response.put("scanAgeDays", ageDays);
+                response.put("confidence", computeConfidence(ageDays));
+            } else {
+                response.put("confidence", 0.5);
+                response.put("scanAgeDays", -1);
+            }
+        } catch (Exception e) {
+            // If we can't load scan state, still return the response without freshness
+            LOG.fine("Could not load scan state for freshness metadata: " + e.getMessage());
+            response.put("confidence", 0.5);
+            response.put("scanAgeDays", -1);
+        }
+    }
+
+    /**
+     * Computes a confidence score (0.0-1.0) based on how many days since the last scan.
+     */
+    static double computeConfidence(long scanAgeDays) {
+        if (scanAgeDays <= 1) return 1.0;
+        if (scanAgeDays <= 7) return 0.9;
+        if (scanAgeDays <= 30) return 0.75;
+        return 0.5;
     }
 
     /**
