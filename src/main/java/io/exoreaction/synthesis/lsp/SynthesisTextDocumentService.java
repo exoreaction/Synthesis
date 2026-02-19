@@ -336,7 +336,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                 if (workspace.validate().isPresent()) return locations;
 
                 // Find all files that reference this file
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     List<SearchResult> allFiles = index.listAll(null, 5000);
 
                     RelateCommand relateCmd = new RelateCommand();
@@ -396,7 +396,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                 WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
                 if (workspace.validate().isPresent()) return lenses;
 
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     List<SearchResult> allFiles = index.listAll(null, 5000);
 
                     // Find this file in the index
@@ -495,7 +495,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                         if (ws.validate().isEmpty()) {
                             io.exoreaction.synthesis.architecture.ArchitectureMonitor archMonitor =
                                     new io.exoreaction.synthesis.architecture.ArchitectureMonitor(workspaceRoot);
-                            try (SearchIndex index = new SearchIndex(ws.getIndexPath())) {
+                            try (SearchIndex index = SearchIndex.openReadOnly(ws.getIndexPath())) {
                                 var alerts = archMonitor.analyzeFile(filePath, index);
                                 for (var alert : alerts) {
                                     DiagnosticSeverity severity = switch (alert.severity()) {
@@ -590,7 +590,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
             try {
                 WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
                 if (workspace.validate().isEmpty()) {
-                    try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                    try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                         List<SearchResult> results = index.search(fileName, 5);
                         for (SearchResult result : results) {
                             if (result.fileName().equals(fileName)) {
@@ -617,7 +617,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
             if (workspace.validate().isPresent()) return;
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 List<SearchResult> allFiles = index.listAll(null, 5000);
 
                 SearchResult target = null;

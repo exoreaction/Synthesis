@@ -162,7 +162,7 @@ public class SearchCommand implements Callable<Integer> {
             }
 
             // Keyword search
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 List<SearchResult> results;
                 if (scope != null || mediaType != null || company != null || client != null) {
                     // Use the most comprehensive search method with sub-workspace support
@@ -418,7 +418,7 @@ public class SearchCommand implements Callable<Integer> {
 
             // Get all files and compute similarity
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 allFiles = index.listAll(fileType, limit * 5);
             }
 

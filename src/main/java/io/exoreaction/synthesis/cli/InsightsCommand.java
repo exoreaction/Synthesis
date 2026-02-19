@@ -77,7 +77,7 @@ public class InsightsCommand implements Callable<Integer> {
 
             // Load all files
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 if (company != null && !company.isBlank()) {
                     allFiles = index.listAll(null, repo, company, null, 50000);
                     if (allFiles.isEmpty()) {

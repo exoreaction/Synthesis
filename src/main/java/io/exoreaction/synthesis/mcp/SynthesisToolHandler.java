@@ -145,7 +145,7 @@ public class SynthesisToolHandler {
         Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
 
-        try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+        try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
             List<SearchResult> results;
             if (subWorkspace != null && !subWorkspace.isBlank()) {
                 results = index.searchWithSubWorkspace(query, fileType, null,
@@ -342,7 +342,7 @@ public class SynthesisToolHandler {
         try {
             // Find the target file
             List<SearchResult> targetResults;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 targetResults = index.search(filePath, 10);
             }
 
@@ -356,7 +356,7 @@ public class SynthesisToolHandler {
 
             // Get all files for cross-reference analysis
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 allFiles = index.listAll(null, 5000);
             }
 
@@ -451,7 +451,7 @@ public class SynthesisToolHandler {
         long startTime = System.nanoTime();
         try {
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 allFiles = index.listAll(null, 50000);
             }
 
@@ -590,7 +590,7 @@ public class SynthesisToolHandler {
         response.put("workspace", workspacePath.toString());
 
         // Get document count and type breakdown
-        try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+        try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
             int totalDocs = index.documentCount();
             response.put("totalFiles", totalDocs);
 
@@ -720,7 +720,7 @@ public class SynthesisToolHandler {
 
             DirectedSynthesisEngine engine = new DirectedSynthesisEngine(clientOpt.get(), config.getAi().getMaxTokens());
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 // Search for relevant files
                 List<SearchResult> results = index.search(query, 10);
 
@@ -850,7 +850,7 @@ public class SynthesisToolHandler {
                 int skipped = 0;
                 int errors = 0;
 
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     List<SearchResult> allFiles = index.listAll(null, 50000);
 
                     for (SearchResult file : allFiles) {
@@ -938,7 +938,7 @@ public class SynthesisToolHandler {
 
             CodeExplainer explainer = new CodeExplainer(clientOpt.get(), config.getAi().getMaxTokens());
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 CodeExplainer.ExplanationResult result;
 
                 // Determine mode: file, module, or pattern
@@ -1035,7 +1035,7 @@ public class SynthesisToolHandler {
                 io.exoreaction.synthesis.summary.CodebaseProfile profiler =
                     new io.exoreaction.synthesis.summary.CodebaseProfile();
                 io.exoreaction.synthesis.summary.CodebaseProfile.Profile profile;
-                try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     profile = profiler.generate(index, workspacePath);
                 }
 

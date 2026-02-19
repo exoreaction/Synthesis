@@ -146,7 +146,7 @@ public class ChangedCommand implements Callable<Integer> {
                     System.out.println("  " + AnsiOutput.bold("Search results in changed files:"));
                     System.out.println();
 
-                    try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+                    try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                         List<SearchResult> allResults = index.search(searchQuery, 100);
 
                         List<String> changedPaths = filtered.stream()

@@ -289,7 +289,7 @@ public class MultiWorkspaceSearch {
                 return new GroupedResults(ws, List.of(), 0, validation.get());
             }
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 List<SearchResult> results;
                 if (fileType != null && !fileType.isBlank() && !"ALL".equalsIgnoreCase(fileType)) {
                     results = index.search(query, fileType, limit);
@@ -320,7 +320,7 @@ public class MultiWorkspaceSearch {
                 return new GroupedResults(ws, List.of(), 0, validation.get());
             }
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 List<SearchResult> results;
                 if (subWorkspaceFilter != null && !subWorkspaceFilter.isBlank()) {
                     results = index.searchWithSubWorkspace(query, fileType, null,
@@ -346,7 +346,7 @@ public class MultiWorkspaceSearch {
             Optional<String> validation = workspace.validate();
             if (validation.isPresent()) return matches;
 
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 // Search by filename
                 List<SearchResult> results = index.search(filename, 100);
 

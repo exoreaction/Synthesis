@@ -91,7 +91,7 @@ public class RelateCommand implements Callable<Integer> {
 
             // Find the target file in the index
             List<SearchResult> targetResults;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 targetResults = index.search(targetFile, 10);
             }
 
@@ -108,7 +108,7 @@ public class RelateCommand implements Callable<Integer> {
 
             // Get all indexed files for cross-referencing
             List<SearchResult> allFiles;
-            try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 allFiles = index.listAll(null, 5000);
             }
 

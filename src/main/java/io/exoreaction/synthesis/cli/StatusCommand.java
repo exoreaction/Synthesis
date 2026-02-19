@@ -171,7 +171,7 @@ public class StatusCommand implements Callable<Integer> {
             // Index status
             Path indexPath = workspace.getIndexPath();
             if (Files.exists(indexPath) && hasIndexFiles(indexPath)) {
-                try (SearchIndex index = new SearchIndex(indexPath)) {
+                try (SearchIndex index = SearchIndex.openReadOnly(indexPath)) {
                     int docCount = index.documentCount();
                     long indexSize = getDirectorySize(indexPath);
 
@@ -221,7 +221,7 @@ public class StatusCommand implements Callable<Integer> {
             // Media type breakdown (if available)
             Path indexPath2 = workspace.getIndexPath();
             if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
-                try (SearchIndex index = new SearchIndex(indexPath2)) {
+                try (SearchIndex index = SearchIndex.openReadOnly(indexPath2)) {
                     showMediaStats(index);
 
                     // Sub-workspace breakdown
@@ -776,7 +776,7 @@ public class StatusCommand implements Callable<Integer> {
 
             // Get sub-workspace counts
             try {
-                SearchIndex index = new SearchIndex(synthDir.resolve("index"));
+                SearchIndex index = SearchIndex.openReadOnly(synthDir.resolve("index"));
                 Map<String, Long> counts = index.getSubWorkspaceCounts();
                 if (counts != null && !counts.isEmpty() && counts.size() > 1) {
                     info.subWorkspaceCounts = counts;
