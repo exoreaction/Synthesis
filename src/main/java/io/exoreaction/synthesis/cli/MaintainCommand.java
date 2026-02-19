@@ -249,7 +249,33 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
-            // --- Git Fetch for client codebases ---
+                        // --- Integration: Knowledge Edge scanning ---
+            try {
+                List<Path> skillDirs = new java.util.ArrayList<>();
+                Path skillsDir = workspaceRoot.resolve(".claude").resolve("skills");
+                Path docsDir = workspaceRoot.resolve("docs");
+                if (Files.isDirectory(skillsDir)) skillDirs.add(skillsDir);
+                if (Files.isDirectory(docsDir)) skillDirs.add(docsDir);
+                if (!skillDirs.isEmpty()) {
+                    io.exoreaction.synthesis.graph.KnowledgeEdgeScanner keScanner =
+                        new io.exoreaction.synthesis.graph.KnowledgeEdgeScanner();
+                    try (SearchIndex keIndex = new SearchIndex(workspace.getIndexPath())) {
+                        List<io.exoreaction.synthesis.graph.KnowledgeEdge> keEdges =
+                            keScanner.scan(skillDirs, keIndex, workspaceRoot);
+                        if (!keEdges.isEmpty()) {
+                            SynthesisDatabase keDb = SynthesisDatabase.getDefault();
+                            keScanner.persist(keEdges, keDb.getConnection());
+                        }
+                        System.out.println("  Knowledge edges: " + keEdges.size() + " doc->source link(s) found");
+                    }
+                }
+            } catch (Exception e) {
+                if (verbose) {
+                    System.err.println("  Warning: Knowledge edge scan: " + e.getMessage());
+                }
+            }
+
+// --- Git Fetch for client codebases ---
             if (!skipGitFetch) {
                 fetchClientCodebases(workspaceRoot);
             }
