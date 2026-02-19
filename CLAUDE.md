@@ -18,7 +18,7 @@ AI tools made developers 10x faster at creating code — but comprehension speed
 - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
 - Local-only processing — zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 2,471 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 2,497 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -112,6 +112,7 @@ These skills describe how to USE Synthesis features — valid both when working 
 | `synthesis-relate-dependencies` | `synthesis relate` | What breaks if you change X? |
 | `synthesis-graph-architecture` | `synthesis graph` | Mermaid dependency graphs |
 | `synthesis-insights-metrics` | `synthesis insights` | Index health and metrics |
+| `synthesis-summary` | `synthesis summary` | AI executive summaries (8 perspectives, `--since` temporal context) |
 | `synthesis-perspectives-analysis` | `synthesis perspectives` | Multi-perspective analysis |
 | `synthesis-export-docs` | `synthesis export` | Documentation export |
 | `synthesis-enrich-media` | `synthesis enrich` | Local AI media enrichment |
@@ -157,6 +158,8 @@ These skills describe how to USE Synthesis features — valid both when working 
 - **`synthesis learn`** requires `synthesis org scan` first or errors with "No organizations found".
 - **Staging `_processed` suffix:** `routeTo()` copies file to destination and renames source to `*_processed.*` (not delete). The cron should run `staging ingest && staging route && maintain` — `maintain` alone does NOT trigger staging ingest/route. Use `retentionDays: -1` in tests to force expiry (0 sets `expiresAt = now`, which is not strictly less than `now`).
 - **`staging route` content-intelligence fallback (issue #71):** When `autoClassify: true` (default), unmatched files are classified via `DownloadsClassifier.classifyWithCompanion()` — reads the companion `.synthesis.md` if present. Files above `classificationThreshold` (default 0.5) are auto-routed (`~` prefix in output); below-threshold matches become suggestions. Run `synthesis enrich` first to populate companions for PDFs/images.
+- **`synthesis explain --file <name>` bare filename resolution:** Accepts absolute, workspace-relative, or bare filename. Falls back to `index.search()` if not on disk — exact filename match preferred over score. On failure suggests `synthesis search <name>`.
+- **`synthesis summary --since` temporal context:** Parses `7d`/`24h`/`2w`/`3m`/`2026-01-15`, loads `ChangeEvent`s from `SnapshotManager.getChangesForWorkspace()`, injects compact change summary into the AI prompt (not just the output). Requires `synthesis maintain` to have run at least once to populate snapshots.
 
 ---
 
