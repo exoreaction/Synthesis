@@ -149,34 +149,7 @@ public class SummaryCommand implements Callable<Integer> {
                     profile = profiler.generate(index, workspaceRoot);
                 }
 
-                // Phase 2: AI-enhanced summary (if enabled)
-                String aiSummary = null;
-                String modelUsed = null;
-                if (!noAi) {
-                    SynthesisConfig config = ConfigLoader.load(workspaceRoot);
-                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
-
-                    if (clientOpt.isPresent()) {
-                        SummaryEngine engine = new SummaryEngine(clientOpt.get());
-                        modelUsed = engine.getModel();
-                        if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
-                            System.err.println("  " + AnsiOutput.dim("Generating AI summary with " +
-                                modelUsed + "..."));
-                        }
-                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective);
-                    } else {
-                        // AI not configured - show warning only for terminal output
-                        if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
-                            AnsiOutput.printWarning("AI not configured. Showing metrics-only summary.");
-                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and ANTHROPIC_API_KEY");
-                            System.err.println();
-                        }
-                    }
-                }
-
-                long generationTime = System.currentTimeMillis() - startTime;
-
-                // Phase 5: Temporal context (if --since provided)
+                // Phase 5: Temporal context (computed first so AI can use it)
                 String temporalContext = null;
                 if (since != null && !since.isBlank()) {
                     Instant sinceInstant = parseSince(since);
@@ -197,6 +170,34 @@ public class SummaryCommand implements Callable<Integer> {
                         }
                     }
                 }
+
+                // Phase 2: AI-enhanced summary (if enabled)
+                String aiSummary = null;
+                String modelUsed = null;
+                if (!noAi) {
+                    SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+
+                    if (clientOpt.isPresent()) {
+                        SummaryEngine engine = new SummaryEngine(clientOpt.get());
+                        modelUsed = engine.getModel();
+                        if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
+                            System.err.println("  " + AnsiOutput.dim("Generating AI summary with " +
+                                modelUsed + "..."));
+                        }
+                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective,
+                                temporalContext);
+                    } else {
+                        // AI not configured - show warning only for terminal output
+                        if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
+                            AnsiOutput.printWarning("AI not configured. Showing metrics-only summary.");
+                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and ANTHROPIC_API_KEY");
+                            System.err.println();
+                        }
+                    }
+                }
+
+                long generationTime = System.currentTimeMillis() - startTime;
 
                 // Create result
                 if (temporalContext != null) {
