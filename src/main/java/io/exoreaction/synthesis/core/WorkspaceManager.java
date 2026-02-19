@@ -94,7 +94,11 @@ public class WorkspaceManager {
     /**
      * Validates that the given path is an initialized Synthesis workspace.
      *
-     * @return empty if valid, error message if invalid
+     * <p>When the path is not a workspace, walks up the directory tree to find
+     * the nearest ancestor that is a workspace and includes it in the error message
+     * as a suggestion (see <a href="https://github.com/exoreaction/Synthesis/issues/87">#87</a>).
+     *
+     * @return empty if valid, descriptive error message if invalid
      */
     public Optional<String> validate() {
         if (!Files.exists(workspaceRoot)) {
@@ -106,10 +110,40 @@ public class WorkspaceManager {
 
         Path synthesisDir = workspaceRoot.resolve(SYNTHESIS_DIR);
         if (!Files.exists(synthesisDir)) {
-            return Optional.of("Not a Synthesis workspace (missing " + SYNTHESIS_DIR + "/). Run 'synthesis init' first.");
+            StringBuilder msg = new StringBuilder();
+            msg.append("'").append(workspaceRoot).append("' is not a Synthesis workspace")
+               .append(" (no ").append(SYNTHESIS_DIR).append("/ found).");
+
+            Path ancestor = findAncestorWorkspace(workspaceRoot);
+            if (ancestor != null) {
+                msg.append("\n  Did you mean: ").append(ancestor)
+                   .append("  (found ").append(SYNTHESIS_DIR).append("/ there)");
+            }
+
+            msg.append("\n  Run 'synthesis init' to initialise this directory,")
+               .append(" or 'synthesis list' to see all known workspaces.");
+            return Optional.of(msg.toString());
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Walks up the directory tree from {@code start} to find the nearest ancestor
+     * that contains a {@code .synthesis/} directory.
+     *
+     * @param start the directory to begin searching from (not checked itself)
+     * @return the nearest ancestor workspace path, or {@code null} if none found
+     */
+    Path findAncestorWorkspace(Path start) {
+        Path current = start.getParent();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve(SYNTHESIS_DIR))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return null;
     }
 
     /**
