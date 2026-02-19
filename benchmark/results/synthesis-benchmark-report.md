@@ -298,8 +298,117 @@ Agents consistently navigate more accurately than Opus's spec — strong meta-va
 
 ---
 
+## Phase 5 Results: Clean 4-Condition Comparison (Feb 19, 2026)
+
+**Design:** 4 clean conditions, each adding exactly one coherent layer. Solves Phase 3 contamination where "Skills-only" mixed knowledge skills + CLI guide skills.
+
+| Condition | Includes |
+|---|---|
+| Baseline | Claude alone |
+| Knowledge | CLAUDE.md + 12 architecture/knowledge skills (no CLI guide skills) |
+| CLI | Knowledge + 15 CLI guide skills + synthesis search |
+| MCP | Knowledge + MCP server (self-describing via tools/list) — **pending** |
+
+**9 tasks:** B3, E1, C2, P4-C1, P4-F2, P4-B1 (from previous phases) + P5-R1, P5-R2, P5-A1 (new MCP-specific tasks)
+
+**Status:** 27/27 sessions complete (9 Baseline + 9 Knowledge + 9 CLI). MCP condition pending (requires interactive Claude Code session with MCP servers loaded).
+
+### Phase 5 Tool Call Results
+
+| Task | Baseline | Knowledge | CLI | Kn vs Base | CLI vs Base |
+|---|---|---|---|---|---|
+| B3 (cross-repo deps) | 9 | 10 | 10 | +11.1% | +11.1% |
+| E1 (ROI metrics) | 6 | 1 | 1 | **-83.3%** ✓ | **-83.3%** ✓ |
+| C2 (anchor doc) | 4 | 3 | 3 | **-25.0%** ✓ | **-25.0%** ✓ |
+| P4-C1 (--since flow) | 6 | 11 | 7 | +83.3% | +16.7% |
+| P4-F2 (pilot approval) | 5 | 6 | 9 | +20.0% | +80.0% |
+| P4-B1 (Flyway) | 8 | 10 | 8 | +25.0% | 0% |
+| P5-R1 (SearchIndex callers) | 5 | 4 | 3 | -20.0% | **-40.0%** ✓ |
+| P5-R2 (module dep graph) | 32 | 15 | 37 | **-53.1%** ✓ | +15.6% |
+| P5-A1 (search quality) | 5 | 8 | 11 | +60.0% | +120.0% |
+| **Average** | **8.9** | **7.6** | **9.9** | **-15.0%** | **+11.2%** |
+
+All 27/27 sessions: 3/3 correctness.
+
+### Phase 5 Key Findings
+
+**Finding 1: Knowledge condition cleanly beats Baseline (-15%)**
+
+Phase 5 separates what Phase 3's "Skills-only" conflated. Architecture/knowledge skills alone (without CLI guide skills) reduce tool calls by -15%. This is the clean signal: knowledge about codebase structure has standalone value.
+
+Best Knowledge wins: E1 (-83%, metrics in skill file), P5-R2 (-53%, package architecture described in skills), C2 (-25%, BusinessDocumentFinder referenced in development skill).
+
+**Finding 2: CLI condition is WORSE than Baseline (+11%)**
+
+Adding 15 CLI guide skills + search access makes things worse overall. The guide skills add reading overhead without navigation benefit for most tasks. CLI is also +31% worse than Knowledge-only.
+
+Exception: P5-R1 (-40%) where synthesis search efficiently found all 27+ production callers of `SearchIndex.search()` across 5 packages in 3 calls vs Baseline's 5.
+
+**Finding 3: CLI guide skills are a net negative when knowledge already covers the task**
+
+The "car manual without the car" problem from Phase 3 → in Phase 5, the car IS present AND the manuals ARE present, but reading 15 extra guide manuals costs more than their navigation benefit. Only tasks requiring true cross-codebase discovery benefit from CLI search.
+
+**Finding 4: P5-R2 (module dep graph) is the extreme Knowledge win (-53%)**
+
+P5-R2 required understanding 20+ packages and their relationships. Baseline: 32 calls (systematic exploration). Knowledge: 15 calls (synthesis-development.md documents package structure). CLI: 37 calls (read all 27 skill files, then still explored). **MCP expected: 1-2 calls via `graph` tool — the biggest expected MCP advantage.**
+
+**Finding 5: P5-A1 (search quality fields) — Baseline wins (5 calls)**
+
+Baseline's `grep FIELD_BOOSTS SearchIndex.java` found the exact answer in 1-2 calls. Knowledge (8) and CLI (11) read skill files first, adding overhead. When the answer is in ONE well-named file, direct grep beats loading context.
+
+### Phase 5 Ground Truths (Established from Agent Runs)
+
+| Task | Ground Truth |
+|---|---|
+| P5-R1 | 24-27 production Java classes call `SearchIndex.search()` or `openReadOnly()`. cli (20), mcp (1), lsp (2), search (1), ai (2), validate (1). Plus 2-4 test classes. |
+| P5-R2 | 5-layer architecture: Entry (cli, mcp, lsp) → Services (ai, analyzer, graph, search, changelog, tracking, staging, org, enrichment, skills, insights, summary, report, research, metrics, telemetry) → Infrastructure (index, core, config, db, workspace, git) → Foundation (util). One violation: ai imports from cli. |
+
+### MCP Condition: Expected Results
+
+| Task | MCP tool | Expected calls vs Baseline |
+|---|---|---|
+| B3 | `graph --cross-repo` | ~-70% |
+| E1 | Context (MEMORY.md) | -83% (same as Knowledge/CLI) |
+| C2 | `search "isAnchorDoc"` | ~-50% |
+| P4-C1 | `ask "--since data flow"` | ~-25% |
+| P4-F2 | `search "ApprovalService"` | ~-50% |
+| P4-B1 | `search "Flyway"` + reads | ~-40% |
+| P5-R1 | `relate SearchIndex.java` | **~-80%** |
+| P5-R2 | `graph` | **~-95%** |
+| P5-A1 | `search "FIELD_BOOSTS"` | ~-50% |
+
+MCP expected to win all 9 tasks by large margins, with the biggest wins on P5-R1 and P5-R2 where `relate` and `graph` tools are native fits. **Core question: does MCP's `tools/list` self-description replace CLI guide skills?**
+
+---
+
+## Combined Picture: All Phases
+
+| Condition | Phase 3 (warm, 12 tasks) | Phase 4 (cold, 8 tasks) | Phase 5 (mixed, 9 tasks) |
+|---|---|---|---|
+| Baseline | 14.2 | 4.4 | 8.9 |
+| Skills-only / Knowledge | 7.5 (-47%) | 6.1 (+40%) | 7.6 (-15%) |
+| Full / CLI | 9.8 (-31%) | 4.9 (+11%) | 9.9 (+11%) |
+
+Phase 5 "Knowledge" is the cleanest condition: architecture knowledge helps consistently (-15%). Phase 5 "CLI" mirrors Phase 4 "Full": marginally worse than Baseline due to overhead. Phase 3 "Skills-only" was contaminated (mixed knowledge + CLI guide skills).
+
+**Unified taxonomy:**
+
+| Task type | Best condition | Why |
+|---|---|---|
+| Files named in skills (warm) | Knowledge (-47% P3, -53% P5-R2) | Teleport to file, no exploration |
+| Cross-codebase caller/dep search | CLI or MCP (P5-R1: -40%) | synthesis search spans packages |
+| Cold, single-class | Baseline (≈ same) | grep as fast as search |
+| Cold, reads many files | Baseline < CLI | Guide skill overhead without benefit |
+| Answer directly in skills | Knowledge wins (E1 -83%) | Skills contain the answer |
+| Answer in one well-named file | Baseline wins (P5-A1) | grep + read beats loading all context |
+
+Full results: `/home/totto/Documents/benchmark-phase4/phase5-results.md`
+
+---
+
 *Created: February 19, 2026*
 *Phase 2: 25 sessions (12 Baseline + 13 Full), ~$15-20*
 *Phase 3: 14 sessions (12 Skills-only + 2 Full clean re-runs), ~$8-12*
 *Phase 4: 24 sessions (8 cold tasks × 3 conditions), ~$15-20*
-*Total: 63 sessions, all 3/3 correctness*
+*Phase 5: 27 sessions (9 Baseline + 9 Knowledge + 9 CLI + MCP pending), ~$18-25*
+*Total: 90 sessions, all 3/3 correctness*

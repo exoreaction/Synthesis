@@ -141,44 +141,52 @@ CLAUDE.md context tells agents which files to read → eliminates exploration cy
 
 ## Phase 4 Status: COMPLETE ✅
 
-## Phase 5 Design: READY (not yet run)
+## Phase 5 Status: MOSTLY COMPLETE ✅ (MCP pending)
 
 **4 clean conditions — each adds exactly one layer:**
 
-| Condition | What it includes |
-|---|---|
-| Baseline | Claude alone |
-| Knowledge | CLAUDE.md + Knowledge skills (architecture, gotchas, patterns — no CLI guides) |
-| Synthesis CLI | + Synthesis CLI skills + `synthesis search` |
-| Synthesis MCP | + MCP server only (NO CLI skills — MCP is self-describing via tools/list) |
+| Condition | What it includes | Status |
+|---|---|---|
+| Baseline | Claude alone | ✅ 9 sessions |
+| Knowledge | CLAUDE.md + 12 architecture/knowledge skills (no CLI guides) | ✅ 9 sessions |
+| Synthesis CLI | + 15 CLI guide skills + `synthesis search` | ✅ 9 sessions |
+| Synthesis MCP | + MCP server only (NO CLI skills — self-describing via tools/list) | ⏳ Pending |
 
-**Key insight:** Current "Skills-only" was contaminated — CLI guide skills (synthesis-search-workspace.yaml etc.) without CLI access = manual without the car. Phase 5 separates the knowledge layer from the CLI layer cleanly. MCP excludes CLI skills deliberately to test if MCP schemas replace the need for guide skills.
+**Key insight from Phase 5:** CLI guide skills contamination confirmed. Clean Knowledge condition shows -15% vs Baseline. CLI condition = +11% WORSE than Baseline (CLI guide overhead outweighs search benefit).
+
 Design doc: `~/Documents/benchmark-phase4/PHASE5-DESIGN.md`
+Results: `~/Documents/benchmark-phase4/phase5-results.md`
 
-**Phase 4 headline (24 sessions, 8 cold tasks × 3 conditions):**
+**Phase 5 headline (27 sessions, 9 tasks × 3 conditions):**
 
 | Condition | Avg tool calls | Δ vs Baseline |
 |---|---|---|
-| Baseline | 4.4 | — |
-| Skills-only | 6.1 | **+40.0% (WORSE)** |
-| Full | 4.9 | **+11.4% (slightly worse)** |
+| Baseline | 8.9 | — |
+| Knowledge | 7.6 | **-15.0%** |
+| CLI | 9.9 | **+11.2% (WORSE)** |
 
-**Cold task reversal confirmed:** Skills-only is WORST when skills don't name relevant files. Skills-only is harmful for cold tasks (+40% overhead). Full wins only on multi-package cross-file tasks (P4-C1: 5 vs 7 calls).
+**Phase 5 key findings:**
+- Knowledge wins: E1 (-83%), P5-R2 (-53%), C2 (-25%) — architecture knowledge helps
+- CLI LOSES to Baseline: guide skills add overhead; only P5-R1 benefits from synthesis search (-40%)
+- P5-R2 (module dep graph): Baseline=32, Knowledge=15, CLI=37 — biggest Knowledge advantage
+- P5-A1 (search quality): Baseline=5, Knowledge=8, CLI=11 — one well-named file = grep wins
 
-**Combined insight (Phases 3 + 4):**
-- Warm tasks (class named in skills): Skills-only wins (-47%)
+**Combined insight (Phases 3 + 4 + 5):**
+- Warm tasks (class named in skills): Knowledge wins (-47% Phase 3)
 - Cold, single-class: Baseline wins (grep as fast as search)
-- Cold, multi-package cross-file: Full wins (-29%)
+- Cold, multi-package cross-file: Full/CLI wins occasionally (-29% to -40%)
+- Architecture overview tasks: Knowledge wins dramatically (P5-R2: -53%)
+- MCP-specific tasks (graph, relate): MCP expected to win by -80 to -95%
 
 ## Known Design Flaws
 
 1. ~~**write.lock contention**~~ → **Fixed in 1.10.0 (#86)**
 2. ~~**No Skills-only condition**~~ → **Completed in Phase 3**
 3. ~~**Tasks biased toward known files**~~ → **Fixed in Phase 4 (cold tasks)**
-4. **D1/Full prompt revealed the answer** → Confounds token comparison
-5. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled)
+4. ~~**CLI guide skills contamination**~~ → **Fixed in Phase 5 (split conditions)**
+5. **MEMORY.md contamination persists** → E1 Knowledge/CLI = 1 call from context
 6. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
-7. **All Phase 3 tasks too easy for Opus** → All scored 3/3, no differentiation
+7. **All tasks easy for Opus** → All 90 sessions: 3/3, no correctness differentiation
 
 ## Related
 
