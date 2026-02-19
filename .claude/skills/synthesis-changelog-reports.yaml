@@ -202,6 +202,9 @@ instructions: |
   - **Retention:** Snapshots are retained for 90 days
   - **Comparison:** Changelogs compare against the most recent previous snapshot
   - **First run:** If no snapshot exists, one is automatically taken
+  - **Activity log:** `synthesis maintain --update-activity-log` auto-appends a draft entry to
+    `ACTIVITY-LOG.md` (newest-first) using the same change-event data; creates the file if absent.
+    Gracefully degrades to structured diff when no API key is present; skips if today's entry exists.
 
   ---
 
