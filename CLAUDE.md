@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 17+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.8.4-SNAPSHOT, Feb 2026)
+**Status:** Production-ready (v1.9.5, Feb 2026)
 
 ---
 
@@ -18,7 +18,7 @@ AI tools made developers 10x faster at creating code — but comprehension speed
 - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
 - Local-only processing — zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 2,291 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 2,325 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -59,7 +59,10 @@ synthesis search "keyword"              # Sub-second full-text search
 synthesis relate "filename"             # What breaks if you change this?
 synthesis graph --modules               # Architecture graph (Mermaid)
 synthesis ask "question"                # AI Q&A grounded in indexed files
-synthesis maintain                      # Housekeeping + change tracking
+synthesis maintain                      # Housekeeping + change tracking (also runs staging ingest+route)
+
+# Executive shell wrapper (bin/exo)
+exo ask "question"                      # Conversational RAG: search → sources → streamed answer → follow-up
 synthesis track                         # Track file movements
 synthesis changelog --since 7d          # Cross-workspace change report
 synthesis status                        # Index health + metrics
@@ -83,7 +86,7 @@ synthesis release                       # Release management
 │   ├── enrichment/                    # AI enrichment (media, docs)
 │   ├── staging/                       # Team staging areas
 │   └── tracking/                      # Change tracking, file movements
-├── src/test/                          # JUnit 5 tests (2,291+)
+├── src/test/                          # JUnit 5 tests (2,325+)
 ├── docs/                              # Multi-perspective documentation
 │   └── perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 └── .claude/skills/                    # 25 Claude Code skills (see below)
@@ -103,6 +106,7 @@ These skills describe how to USE Synthesis features — valid both when working 
 |-------|---------|---------|
 | `synthesis-search-workspace` | `synthesis search` | Full-text search across indexed files |
 | `synthesis-ask-workspace` | `synthesis ask` | AI Q&A grounded in actual content |
+| `exo-ask` | `exo ask` | Conversational RAG with sources + follow-up loop (executive-facing) |
 | `synthesis-explain-code` | `synthesis explain` | Natural language code explanations |
 | `synthesis-scoped-search` | `synthesis search --scope` | Targeted search within a subset |
 | `synthesis-relate-dependencies` | `synthesis relate` | What breaks if you change X? |
@@ -145,8 +149,13 @@ These skills describe how to USE Synthesis features — valid both when working 
 
 - **SQLite JDBC:** `getObject(col, Integer.class)` fails for NULL columns — use non-null values in tests or `getLong()`/`getInt()` with null checks
 - **JUnit 5:** `assertDoesNotThrow(() -> new Foo())` is ambiguous — cast to `(Executable)` explicitly
-- **Flyway:** migration files must follow `V{n}__description.sql` naming exactly
+- **Flyway:** migration files must follow `V{n}__description.sql` naming exactly; V7 is intentionally absent/reserved
 - **Never use SNAPSHOT versions** in release artifacts — always bump to a release before tagging
+- **SearchResult constructor field order:** `(path, relativePath, score, fileName, fileType, language, summary, headings, structure, sizeBytes)` — `structure` is position 9 (not 7). Tests that detect method counts must put the structure string in position 9, not 7 (summary).
+- **`synthesis research`** uses claude-haiku and generates prompts for external tools (ChatGPT, NotebookLM) — it does NOT produce standalone analysis reports. Use `synthesis perspectives` for real deep-dives grounded in indexed source files.
+- **`synthesis export-skills`** uses `--overwrite` (not `--install`) to update `~/.claude/skills/`. The `--install` flag belongs to `synthesis learn`.
+- **`synthesis learn`** requires `synthesis org scan` first or errors with "No organizations found".
+- **Staging `_processed` suffix:** `routeTo()` copies file to destination and renames source to `*_processed.*` (not delete). The cron should run `staging ingest && staging route && maintain` — `maintain` alone does NOT trigger staging ingest/route. Use `retentionDays: -1` in tests to force expiry (0 sets `expiresAt = now`, which is not strictly less than `now`).
 
 ---
 
