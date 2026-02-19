@@ -1,0 +1,234 @@
+name: synthesis-summary
+version: 1.0.0
+description: |
+  AI-powered executive summaries of the codebase at multiple abstraction levels.
+  Combines rule-based metrics with Claude analysis, optionally grounded in recent
+  change data via --since temporal context.
+
+trigger_phrases:
+  - "executive summary"
+  - "codebase summary"
+  - "synthesis summary"
+  - "summarize codebase"
+  - "what changed recently"
+  - "recent codebase changes"
+  - "manager briefing"
+  - "architecture summary"
+
+instructions: |
+  # Synthesis Summary - AI-Powered Executive Briefings
+
+  **Purpose:** Generate concise, role-targeted summaries of codebase health. Combines
+  rule-based metrics (Phase 1) with Claude AI analysis (Phase 2) and optionally grounds
+  the AI analysis in real recent-change data (--since, Phase 5).
+  **Requires:** ANTHROPIC_API_KEY for AI-enhanced output (runs metrics-only without it)
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d <workspace> summary [options] 2>/dev/null
+  ```
+
+  ### Options
+
+  | Flag | Values | Default | Purpose |
+  |------|--------|---------|---------|
+  | `--level` / `-l` | `executive`, `manager`, `developer` | `executive` | Detail level |
+  | `--perspective` / `-p` | see below | `general` | Role-specific lens |
+  | `--since` | `7d`, `24h`, `2w`, `3m`, `2026-01-15` | (none) | Include recent changes in AI analysis |
+  | `--format` / `-f` | `terminal`, `markdown`, `json` | `terminal` | Output format |
+  | `--output` / `-o` | file path | stdout | Save output to file |
+  | `--no-ai` | flag | (AI on) | Skip AI, show metrics only |
+  | `--no-cache` | flag | (cache on) | Force fresh generation |
+
+  ---
+
+  ## Detail Levels
+
+  | Level | Audience | Length | Focus |
+  |-------|----------|--------|-------|
+  | `executive` | C-suite | 4-6 sentences | Business risk, ROI, strategic action |
+  | `manager` | Engineering Manager | 2-3 paragraphs | Team velocity, quality, blockers |
+  | `developer` | Senior Dev | 3-5 paragraphs | Code quality, pain points, refactoring |
+
+  ---
+
+  ## Perspectives
+
+  | Perspective | Focus |
+  |-------------|-------|
+  | `general` | Balanced overview across all dimensions |
+  | `executive` | Business risk, ROI, competitive positioning |
+  | `engineering_manager` | Team velocity, technical debt, sprint planning |
+  | `architect` | Coupling, modularity, dependency health |
+  | `security` | Vulnerability surface, compliance, risk |
+  | `devops` | CI/CD health, deployment risk, infra complexity |
+  | `product_manager` | Feature velocity, user-facing risk, release planning |
+  | `developer` | Code quality, hotspots, testing, refactoring |
+
+  ---
+
+  ## Common Examples
+
+  ### 1. Quick executive overview (30 seconds)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary 2>/dev/null
+  ```
+
+  ### 2. Manager briefing (5 minutes)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --level manager 2>/dev/null
+  ```
+
+  ### 3. Architecture summary for an architect
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --level manager --perspective architect 2>/dev/null
+  ```
+
+  ### 4. Summary with recent changes (AI uses real changelog data)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --since 7d 2>/dev/null
+  ```
+
+  **What --since does:**
+  1. Parses the duration/date into an Instant
+  2. Loads `ChangeEvent`s from the changelog DB for this workspace
+  3. Generates a compact change summary ("12 changes (3 added, 8 modified, 1 deleted) | 2 notable")
+  4. Injects the change data into the AI prompt under "Recent Changes" — AI explicitly factors it in
+  5. Displays the change summary in the output under "Recent Changes"
+
+  ### 5. Security-focused briefing with last 2 weeks of changes
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --perspective security --since 2w 2>/dev/null
+  ```
+
+  ### 6. Save Markdown report for sharing
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --level manager --format markdown \
+    --output /tmp/weekly-summary.md 2>/dev/null
+  ```
+
+  ### 7. Metrics-only (no AI, instant)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --no-ai 2>/dev/null
+  ```
+
+  ### 8. Full developer deep-dive
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --level developer --perspective developer \
+    --since 30d 2>/dev/null
+  ```
+
+  ### 9. JSON output (machine-readable)
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+  synthesis -d /home/totto/Documents summary --format json 2>/dev/null
+  ```
+
+  ---
+
+  ## --since Temporal Context (AI-grounded)
+
+  When `--since` is provided, recent change data is fetched from the changelog DB and
+  **injected directly into the AI prompt** — not just displayed alongside it. The AI
+  analysis explicitly considers recent activity when assessing risk and making
+  recommendations.
+
+  **Supported formats:**
+  | Format | Meaning |
+  |--------|---------|
+  | `7d` | Last 7 days |
+  | `24h` | Last 24 hours |
+  | `2w` | Last 2 weeks |
+  | `3m` | Last ~3 months (90 days) |
+  | `2026-01-15` | Since a specific ISO date |
+
+  **Prerequisite:** Changelog data requires `synthesis maintain` to have run (which takes
+  snapshots automatically). If no snapshots exist, a fallback message is shown and the
+  AI runs on metrics alone.
+
+  ---
+
+  ## Caching
+
+  Results are cached by workspace + level + perspective + index fingerprint. Subsequent
+  calls with the same parameters return instantly with a "Loaded from cache" note.
+  Use `--no-cache` to force fresh generation.
+
+  ---
+
+  ## Output Sections (terminal format)
+
+  ```
+  ┌─ Codebase Summary ─── executive / general ────────────────────────────────
+  │
+  │  Scale: 7,118 files · 312 MB · 45 modules · 3 repos
+  │  Quality: 68% docs · 1.2:1 test ratio · 23 dead code candidates
+  │  Architecture: 0 circular deps · 2 layering violations
+  │
+  │  Recent Changes (since 7d): 12 changes (3 added, 8 modified, 1 deleted) | 2 notable
+  │
+  │  AI Analysis:
+  │  The codebase demonstrates strong test coverage and architectural discipline.
+  │  Recent activity is concentrated in the authentication module — two notable
+  │  changes suggest active refactoring that warrants review before the next release.
+  │  Primary risk: 23% orphaned files may hide unmaintained code paths.
+  │
+  └───────────────────────────────────────── (context: 1 documents, 3.2s)
+  ```
+
+  ---
+
+  ## Error Handling
+
+  - **"AI not configured"** — Set `ANTHROPIC_API_KEY` to enable AI analysis
+  - **"Not available in air-gapped edition"** — AI requires network access
+  - **"Workspace not initialized"** — Run `synthesis init` first
+  - **"Could not parse --since value"** — Use `7d`, `24h`, `2w`, `3m`, or `2026-01-15`
+  - **"changelog not available"** — Run `synthesis maintain` first to create snapshots
+
+  ---
+
+  ## Pro Tips
+
+  1. **--since + AI = grounded analysis:** Without `--since`, AI sees only static metrics.
+     With `--since`, it sees real recent activity — much more useful for weekly briefings.
+
+  2. **Weekly briefing workflow:**
+     ```bash
+     synthesis summary --level manager --perspective engineering_manager --since 7d \
+       --format markdown --output /tmp/weekly-$(date +%Y-%m-%d).md
+     ```
+
+  3. **Cache for speed:** The cache is keyed on index fingerprint — re-runs after `scan`
+     automatically invalidate the cache. Runs between scans are instant.
+
+  4. **Pair with changelog:** `summary --since 7d` gives the AI analysis; `changelog --since 7d`
+     gives the raw file-by-file diff. Use both for a full weekly picture.
+
+  5. **Stakeholder formats:** Use `--format markdown` for stakeholder emails, `--format json`
+     for dashboard ingestion, default terminal for quick review.
+
+  ---
+
+  ## Integration with Other Skills
+
+  - "Want raw file changes?" → Use `synthesis-changelog-reports` skill
+  - "Want deep metrics?" → Use `synthesis-insights-metrics` skill
+  - "Want multiple expert viewpoints?" → Use `synthesis-perspectives-analysis` skill
+  - "Want to explain a specific file?" → Use `synthesis-explain-code` skill
+
+  ---
+
+  **Last updated:** February 19, 2026

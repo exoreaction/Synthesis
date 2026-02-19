@@ -1,5 +1,5 @@
 name: synthesis-explain-code
-version: 1.0.0
+version: 1.1.0
 description: |
   AI-powered code explanations using Synthesis.
   Explain files, modules, or architectural patterns in natural language.
@@ -138,11 +138,19 @@ instructions: |
 
   ## How It Works
 
-  1. **File mode:** Reads the target file, finds related files via the index, sends everything to Claude
-  2. **Module mode:** Scans the directory, reads key files, builds structural overview, sends to Claude
-  3. **Pattern mode:** Searches the index for the pattern term, gathers matching files, asks Claude to explain the pattern
+  1. **File mode:** Reads the target file, resolves bidirectional relationships (what it imports + what
+     imports it) via the same analysis engine as `synthesis relate`, gathers sibling files in the
+     same directory for context, then sends everything to Claude for a structured explanation.
+  2. **Module mode:** Scans the directory, reads key files (README, main entry points, pom.xml),
+     builds structural overview, sends to Claude.
+  3. **Pattern mode:** Searches the index for the pattern term, gathers matching files (with content
+     preview for the top 5), asks Claude to explain the cross-cutting pattern.
 
   All modes use workspace index context to ground the explanation in actual code structure.
+
+  **File resolution (--file):** Accepts absolute paths, workspace-relative paths, or bare filenames.
+  If a bare filename like `Login.java` is given and doesn't exist on disk, Synthesis searches the
+  index to find the full path automatically — no need to know the exact directory.
 
   ---
 
@@ -150,7 +158,8 @@ instructions: |
 
   - **"AI not configured"** - Set `ANTHROPIC_API_KEY` environment variable
   - **"Not available in air-gapped edition"** - AI features require network access
-  - **"File not found"** - Check the path; can be absolute, relative to workspace, or filename
+  - **"File not found"** - Check the path; can be absolute, relative to workspace, or bare filename.
+    Synthesis will suggest `synthesis search <name>` to help locate the file.
   - **"Directory not found"** - Module path must be a valid directory
   - **"Specify one of --file, --module, or --pattern"** - Exactly one mode is required
   - **"Specify only one"** - Do not combine modes (e.g., --file and --module together)
@@ -169,7 +178,8 @@ instructions: |
 
   5. **Combine with ask:** Use `explain` for specific files, `ask` for broader questions.
 
-  6. **File resolution:** You can use just a filename (e.g., `Login.java`) - Synthesis will try to resolve it in the workspace.
+  6. **Bare filename resolution:** Pass just `Login.java` — Synthesis first checks disk, then searches
+     the index to resolve the full path. If multiple matches exist, the exact filename match wins.
 
   7. **Large modules:** For very large directories, the explanation focuses on key files (READMEs, main classes, configs).
 
@@ -188,4 +198,4 @@ instructions: |
 
   ---
 
-  **Last updated:** February 16, 2026
+  **Last updated:** February 19, 2026

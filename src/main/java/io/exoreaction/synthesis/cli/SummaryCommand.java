@@ -5,6 +5,9 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.changelog.ChangeEvent;
+import io.exoreaction.synthesis.changelog.ChangeReportGenerator;
+import io.exoreaction.synthesis.changelog.SnapshotManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.summary.*;
@@ -17,6 +20,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -140,6 +145,28 @@ public class SummaryCommand implements Callable<Integer> {
                     profile = profiler.generate(index, workspaceRoot);
                 }
 
+                // Phase 5: Temporal context (computed first so AI can use it)
+                String temporalContext = null;
+                if (since != null && !since.isBlank()) {
+                    Instant sinceInstant = parseSince(since);
+                    if (sinceInstant == null) {
+                        AnsiOutput.printWarning("Could not parse --since value: '" + since +
+                                "'. Use '7d', '24h', '2w', or '2026-01-15'.");
+                    } else {
+                        try {
+                            SynthesisDatabase changeDb = SynthesisDatabase.getDefault();
+                            SnapshotManager snapshots = new SnapshotManager(changeDb);
+                            List<ChangeEvent> events = snapshots.getChangesForWorkspace(
+                                    workspaceRoot.toString(), sinceInstant);
+                            String changeSummary = new ChangeReportGenerator().generateSummary(events);
+                            temporalContext = "Changes since " + since + ": " + changeSummary;
+                        } catch (Exception e) {
+                            temporalContext = "Changes since " + since +
+                                    " (changelog not available — run 'synthesis maintain' first)";
+                        }
+                    }
+                }
+
                 // Phase 2: AI-enhanced summary (if enabled)
                 String aiSummary = null;
                 String modelUsed = null;
@@ -154,7 +181,8 @@ public class SummaryCommand implements Callable<Integer> {
                             System.err.println("  " + AnsiOutput.dim("Generating AI summary with " +
                                 modelUsed + "..."));
                         }
-                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective);
+                        aiSummary = engine.generateSummary(profile, summaryLevel, summaryPerspective,
+                                temporalContext);
                     } else {
                         // AI not configured - show warning only for terminal output
                         if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
@@ -166,13 +194,6 @@ public class SummaryCommand implements Callable<Integer> {
                 }
 
                 long generationTime = System.currentTimeMillis() - startTime;
-
-                // Phase 5: Temporal context (if --since provided)
-                String temporalContext = null;
-                if (since != null && !since.isBlank()) {
-                    temporalContext = "Changes since: " + since + " (temporal analysis available)";
-                    // TODO: Integrate with ChangeReportGenerator for detailed change analysis
-                }
 
                 // Create result
                 if (temporalContext != null) {
@@ -224,6 +245,14 @@ public class SummaryCommand implements Callable<Integer> {
             e.printStackTrace();
             return 1;
         }
+    }
+
+    /**
+     * Parses a --since value into an Instant.
+     * Delegates to {@link ChangedCommand#parseSince} (ISO dates + duration formats).
+     */
+    Instant parseSince(String since) {
+        return ChangedCommand.parseSince(since);
     }
 
     private String formatDuration(long millis) {

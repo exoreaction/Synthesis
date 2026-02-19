@@ -208,7 +208,7 @@ public class ChangedCommand implements Callable<Integer> {
      *
      * @return parsed Instant, or null if unparseable
      */
-    static Instant parseSince(String since) {
+    public static Instant parseSince(String since) {
         if (since == null || since.isBlank()) return null;
 
         // Try as ISO date

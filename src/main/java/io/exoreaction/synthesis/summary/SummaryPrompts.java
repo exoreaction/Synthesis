@@ -16,11 +16,30 @@ public class SummaryPrompts {
     public static String generatePrompt(Profile profile,
                                        SummaryLevel level,
                                        SummaryPerspective perspective) {
+        return generatePrompt(profile, level, perspective, null);
+    }
+
+    /**
+     * Generates a prompt for AI summary, optionally including recent-change context.
+     *
+     * @param temporalContext compact change summary from ChangeReportGenerator (may be null)
+     */
+    public static String generatePrompt(Profile profile,
+                                       SummaryLevel level,
+                                       SummaryPerspective perspective,
+                                       String temporalContext) {
         StringBuilder prompt = new StringBuilder();
 
         // Common context
         prompt.append("You are analyzing a codebase with the following metrics:\n\n");
         appendMetrics(prompt, profile);
+
+        // Recent changes (if --since was provided)
+        if (temporalContext != null && !temporalContext.isBlank()) {
+            prompt.append("\n\n**Recent Changes:**\n");
+            prompt.append(temporalContext).append("\n");
+            prompt.append("Please factor these recent changes into your analysis.\n");
+        }
 
         // Perspective-specific instructions
         prompt.append("\n\n");

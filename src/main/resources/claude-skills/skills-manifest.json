@@ -165,6 +165,13 @@
       "description": "Full-text search across all indexed workspace files"
     },
     {
+      "name": "synthesis-summary",
+      "file": "synthesis-summary.yaml",
+      "command": "summary",
+      "category": "ai",
+      "description": "AI-powered executive summaries with optional temporal context from changelog data"
+    },
+    {
       "name": "synthesis-staging-management",
       "file": "synthesis-staging-management.yaml",
       "command": "staging",

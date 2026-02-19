@@ -28,8 +28,24 @@ public class SummaryEngine {
     public String generateSummary(Profile profile,
                                  SummaryLevel level,
                                  SummaryPerspective perspective) {
-        // Generate perspective-specific prompt
-        String prompt = SummaryPrompts.generatePrompt(profile, level, perspective);
+        return generateSummary(profile, level, perspective, null);
+    }
+
+    /**
+     * Generates an AI summary, optionally grounded in recent change data.
+     *
+     * @param profile the codebase profile with metrics
+     * @param level detail level (executive/manager/developer)
+     * @param perspective role-based perspective
+     * @param temporalContext compact change summary (e.g. "7 changes (3 added, ...)")
+     * @return AI-generated summary text
+     */
+    public String generateSummary(Profile profile,
+                                 SummaryLevel level,
+                                 SummaryPerspective perspective,
+                                 String temporalContext) {
+        // Generate perspective-specific prompt with optional temporal context
+        String prompt = SummaryPrompts.generatePrompt(profile, level, perspective, temporalContext);
 
         // Determine token limit based on level
         int maxTokens = switch (level) {
