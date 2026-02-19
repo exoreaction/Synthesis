@@ -261,6 +261,52 @@ class CompanionFileGeneratorTest {
         assertTrue(content.contains("presentation-slides.pdf"));
     }
 
+    // --- regression tests for issue #80: disk check, not index check ---
+
+    /**
+     * Regression test for issue #80: generate() checks Files.exists() on disk,
+     * not the search index. When companion is on disk → skip; when deleted → generate.
+     */
+    @Test
+    void generate_skipsDiskCheckNotIndexCheck_existingCompanion() throws IOException {
+        Path imageFile = tempDir.resolve("slide.png");
+        Files.createFile(imageFile);
+        // Create companion on disk (simulating it being indexed but also present on disk)
+        Path companion = tempDir.resolve("slide.png.synthesis.md");
+        Files.writeString(companion, "# existing companion");
+
+        FileMetadata metadata = FileMetadata.of(imageFile, tempDir, 1024, Instant.now(), null);
+        AnalysisResult analysis = AnalysisResult.minimal("Slide image", "");
+
+        // Should skip — companion exists on disk
+        Optional<Path> result = generator.generate(metadata, analysis, List.of());
+        assertTrue(result.isEmpty(), "generate() must skip when companion exists on disk");
+    }
+
+    @Test
+    void generate_generatesAfterCompanionDeletedFromDisk() throws IOException {
+        Path imageFile = tempDir.resolve("slide2.png");
+        Files.createFile(imageFile);
+        Path companion = tempDir.resolve("slide2.png.synthesis.md");
+        Files.writeString(companion, "# old companion");
+
+        FileMetadata metadata = FileMetadata.of(imageFile, tempDir, 1024, Instant.now(), null);
+        AnalysisResult analysis = AnalysisResult.minimal("Slide image", "");
+
+        // First call: companion exists — should skip
+        assertTrue(generator.generate(metadata, analysis, List.of()).isEmpty(),
+                "Should skip when companion is on disk");
+
+        // Delete companion from disk
+        Files.delete(companion);
+        assertFalse(Files.exists(companion), "Companion should be gone from disk");
+
+        // Second call: companion gone from disk — should generate (disk check, not index check)
+        Optional<Path> result = generator.generate(metadata, analysis, List.of());
+        assertTrue(result.isPresent(), "generate() must generate when companion is missing from disk");
+        assertTrue(Files.exists(result.get()), "New companion file must exist on disk");
+    }
+
     // --- EnrichmentLevel tests ---
 
     @Test

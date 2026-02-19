@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis;
 
 import io.exoreaction.synthesis.cli.*;
+import io.exoreaction.synthesis.metrics.MetricsCollector;
 import io.exoreaction.synthesis.telemetry.ApprovalConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
@@ -154,6 +155,29 @@ public class SynthesisApp implements Callable<Integer> {
         return Path.of(".").toAbsolutePath().normalize();
     }
 
+    // ---- Metrics ----
+
+    private MetricsCollector metrics;
+
+    /**
+     * Returns the shared MetricsCollector, creating it lazily on first use.
+     * Safe to call from any subcommand via {@code parent.getMetrics()}.
+     */
+    public MetricsCollector getMetrics() {
+        if (metrics == null) {
+            metrics = MetricsCollector.create();
+        }
+        return metrics;
+    }
+
+    /**
+     * Shuts down the MetricsCollector if it was initialized.
+     * Safe to call even if metrics were never used.
+     */
+    public void shutdownMetrics() {
+        if (metrics != null) metrics.shutdown();
+    }
+
     // ---- Edition Detection ----
 
     /** Commands that require AI/cloud connectivity and are disabled in air-gapped mode. */
@@ -239,8 +263,9 @@ public class SynthesisApp implements Callable<Integer> {
         long startTime = System.currentTimeMillis();
 
         int exitCode;
+        SynthesisApp app = new SynthesisApp();
         try {
-            CommandLine cmd = new CommandLine(new SynthesisApp())
+            CommandLine cmd = new CommandLine(app)
                     .setExecutionExceptionHandler((ex, cmdLine, parseResult) -> {
                         System.err.println("Error: " + ex.getMessage());
                         return 1;
@@ -264,6 +289,9 @@ public class SynthesisApp implements Callable<Integer> {
 
         // Allow pending telemetry events to be sent (max 2 seconds)
         telemetry.shutdown();
+
+        // Flush any CLI-recorded metrics
+        app.shutdownMetrics();
 
         System.exit(exitCode);
     }

@@ -20,8 +20,11 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -98,6 +101,20 @@ public class EnrichCommand implements Callable<Integer> {
     )
     private boolean verbose;
 
+    @Option(
+            names = {"--path"},
+            description = "Only enrich files matching this path prefix or glob (repeatable, e.g. 'eXOReaction/' or 'Quadim/**')",
+            arity = "0..*"
+    )
+    private List<String> pathPatterns = new ArrayList<>();
+
+    @Option(
+            names = {"--exclude"},
+            description = "Exclude files matching this glob pattern (repeatable, e.g. 'archive/**')",
+            arity = "0..*"
+    )
+    private List<String> excludePatterns = new ArrayList<>();
+
     /** File types eligible for companion file generation. */
     private static final Set<String> ENRICHABLE_TYPES = Set.of(
             "VIDEO", "IMAGE", "PDF", "AUDIO"
@@ -105,8 +122,12 @@ public class EnrichCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        long startMs = System.nanoTime();
+        boolean metricsSuccess = false;
+        String metricsWs = "unknown";
         try {
             Path workspaceRoot = parent.getWorkspaceRoot();
+            metricsWs = workspaceRoot.toString();
 
             // Validate workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
@@ -132,22 +153,37 @@ public class EnrichCommand implements Callable<Integer> {
                 return 1;
             }
 
+            // Build path matchers for include/exclude filtering
+            FileSystem fs = FileSystems.getDefault();
+            List<PathMatcher> includeMatchers = pathPatterns.stream()
+                    .map(p -> fs.getPathMatcher("glob:" + p))
+                    .toList();
+            List<PathMatcher> excludeMatchers = excludePatterns.stream()
+                    .map(p -> fs.getPathMatcher("glob:" + p))
+                    .toList();
+
             // Filter to enrichable file types
             List<SearchResult> enrichable = allFiles.stream()
                     .filter(f -> f.fileType() != null && ENRICHABLE_TYPES.contains(f.fileType()))
                     .filter(f -> typeFilter == null ||
                             f.fileType().equalsIgnoreCase(typeFilter))
+                    .filter(f -> matchesPathFilter(f.relativePath(), includeMatchers, excludeMatchers))
                     .toList();
 
             if (enrichable.isEmpty()) {
-                AnsiOutput.printInfo("No binary files found to enrich" +
-                        (typeFilter != null ? " (filter: " + typeFilter + ")" : "") + ".");
+                AnsiOutput.printInfo("No binary files found to enrich"
+                        + (typeFilter != null ? " (filter: " + typeFilter + ")" : "")
+                        + (!pathPatterns.isEmpty() ? " (path: " + String.join(", ", pathPatterns) + ")" : "")
+                        + ".");
+                metricsSuccess = true;
                 return 0;
             }
 
             // Stats mode -- show coverage and exit
             if (statsOnly) {
-                return showStats(enrichable, workspaceRoot);
+                int r = showStats(enrichable, workspaceRoot);
+                metricsSuccess = (r == 0);
+                return r;
             }
 
             // Determine enrichment level
@@ -165,9 +201,17 @@ public class EnrichCommand implements Callable<Integer> {
 
             AnsiOutput.printInfo("Enrichment level: " + level.name());
             AnsiOutput.printInfo("Files to process: " + enrichable.size());
+            if (!pathPatterns.isEmpty()) {
+                AnsiOutput.printInfo("Path filter:      " + String.join(", ", pathPatterns));
+            }
+            if (!excludePatterns.isEmpty()) {
+                AnsiOutput.printInfo("Exclude filter:   " + String.join(", ", excludePatterns));
+            }
 
             if (dryRun) {
-                return showDryRun(enrichable, workspaceRoot);
+                int r = showDryRun(enrichable, workspaceRoot);
+                metricsSuccess = (r == 0);
+                return r;
             }
 
             // Create AI client if needed for AI-level enrichment.
@@ -263,12 +307,26 @@ public class EnrichCommand implements Callable<Integer> {
                 AnsiOutput.printInfo("Then 'synthesis search' will find content in binary files.");
             }
 
+            metricsSuccess = (errors == 0);
             return errors > 0 ? 1 : 0;
 
         } catch (Exception e) {
             AnsiOutput.printError("Enrichment failed: " + e.getMessage());
             return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startMs) / 1_000_000;
+            parent.getMetrics().recordMcpInvocation("enrich", metricsWs, elapsed, null, metricsSuccess, null);
         }
+    }
+
+    /**
+     * Returns true if the given relative path should be processed.
+     * A path must match at least one include matcher (if any) and must not match any exclude matcher.
+     */
+    static boolean matchesPathFilter(String relativePath, List<PathMatcher> include, List<PathMatcher> exclude) {
+        Path rel = Path.of(relativePath);
+        if (!include.isEmpty() && include.stream().noneMatch(m -> m.matches(rel))) return false;
+        return exclude.stream().noneMatch(m -> m.matches(rel));
     }
 
     /**

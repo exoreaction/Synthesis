@@ -31,7 +31,7 @@ instructions: |
   **Document discovery:**
   - `BusinessDocumentFinder.java`: keyword matching on filename + path
   - `EntityDocumentFinder.java`: entity-name matching for --product/--client
-  - Period parameter NOT used for filtering — only injected into prompt text (#46)
+  - Period parameter used for: (1) filtering non-anchor docs by age (#46 fixed), (2) staleness warning when ACTIVITY-LOG is older than the period (#81)
 
   **Cache key:** workspace_path + topic + target + period + document_fingerprint
   - Fingerprint = hash of discovered doc paths + mtimes
@@ -246,7 +246,7 @@ instructions: |
   - [ ] ACTIVITY-LOG.md discovered ✅
   - [ ] No personal/events/ content ❌ known issue #45
   - [ ] Content not truncated mid-section ❌ known issue #44
-  - [ ] Period coverage matches requested period (NOTE: doesn't actually filter) ❌ #46
+  - [ ] If ACTIVITY-LOG is older than period, ⚠️ warning prints to stderr (#81) ✅
 
   **Client reports (--client):**
   - [ ] Correct opportunity directory discovered (e.g., opportunity-Mynder/)
@@ -294,6 +294,12 @@ related_skills:
   - executive-report-generator
 
 version_history:
+  - version: 1.2.0
+    date: 2026-02-19
+    changes:
+      - "Document #81: staleness warning for ACTIVITY-LOG anchor docs older than report period"
+      - "Update Activities checklist: ⚠️ warning to stderr now fires automatically"
+      - "Clarify period parameter: both filters docs AND triggers staleness warning"
   - version: 1.1.0
     date: 2026-02-18
     changes:

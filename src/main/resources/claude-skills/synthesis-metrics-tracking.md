@@ -254,9 +254,50 @@ MetricsCollector (service)
   |     +-- fromResultSet() for query deserialization
   |
   +-- Consumers:
-      |-- SynthesisToolHandler  (MCP server - primary data source)
+      |-- SynthesisToolHandler  (MCP server)
+      |-- SynthesisApp.getMetrics()  (CLI - lazy singleton, issue #77)
+      |     |-- SearchCommand      → recordSearch(ws, elapsed, count, query, success)
+      |     |-- EnrichCommand      → recordMcpInvocation("enrich", ...)
+      |     |-- MaintainCommand    → recordMcpInvocation("maintain", ...)
+      |     |-- AskCommand         → recordAiFeature("ask", ...)
+      |     +-- PerspectivesCommand → recordAiFeature("perspectives", ...)
       |-- MetricsCommand        (CLI - view metrics)
       |-- StatusCommand         (CLI - 24h summary in status)
+```
+
+### CLI Metrics Wiring Pattern (issue #77)
+
+CLI commands access the shared collector via `parent.getMetrics()` where `parent` is the
+`SynthesisApp` instance injected by picocli. The collector is initialized lazily on first use
+and shut down after `telemetry.shutdown()` in `SynthesisApp.main()`.
+
+```java
+// In SynthesisApp.java
+public MetricsCollector getMetrics() {
+    if (metrics == null) metrics = MetricsCollector.create();
+    return metrics;
+}
+public void shutdownMetrics() {
+    if (metrics != null) metrics.shutdown();
+}
+
+// In main() — after cmd.execute(args) and telemetry.shutdown():
+app.shutdownMetrics();
+
+// In a command (pattern):
+long startMs = System.nanoTime();
+boolean success = false;
+String ws = "unknown";
+try {
+    ws = parent.getWorkspaceRoot().toString();
+    // ... command logic ...
+    success = true;
+    return 0;
+} catch (Exception e) { return 1; }
+finally {
+    parent.getMetrics().recordSearch(ws,
+        (System.nanoTime() - startMs) / 1_000_000, count, query, success);
+}
 ```
 
 ## Related Files
