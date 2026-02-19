@@ -1,0 +1,100 @@
+name: exo-ask
+version: 1.0.0
+description: |
+  Conversational AI Q&A over your knowledge base via `exo ask`.
+  Executive-facing: zero setup, shows sources, streams answers, supports follow-up questions.
+
+trigger_phrases:
+  - "exo ask"
+  - "ask the knowledge base"
+  - "chat with my data"
+  - "ask about the business"
+  - "question about pipeline"
+  - "ask exo"
+  - "conversational search"
+
+instructions: |
+  # exo ask — Conversational Knowledge Base Q&A
+
+  **Purpose:** Ask natural language questions about your entire knowledge base and get
+  streamed, cited answers with follow-up conversation support.
+
+  **Requires:** `ANTHROPIC_API_KEY` in `~/.bashrc` (loaded automatically if not in environment)
+  **Model:** claude-haiku-4-5-20251001 (fast, cost-effective for Q&A)
+  **Workspace:** `$SYNTHESIS_WORKSPACE` (default: `~/Documents`)
+
+  ---
+
+  ## Usage
+
+  ```bash
+  exo ask "<question>"
+  ```
+
+  ### What happens:
+  1. Searches knowledge base (`synthesis search -l 8`)
+  2. Shows which files were used as sources
+  3. Streams the answer word-by-word
+  4. Prompts for follow-up questions (with full conversation history)
+  5. Press Enter to exit
+
+  ---
+
+  ## Examples
+
+  ```bash
+  # Business status
+  exo ask "what is the status of the Mynder partnership?"
+  exo ask "what are our hottest pipeline opportunities?"
+  exo ask "what did we agree with Item Consulting?"
+
+  # Technical
+  exo ask "how does the Synthesis staging pipeline work?"
+  exo ask "what authentication approach does Quadim use?"
+
+  # Strategic
+  exo ask "what are our main proof points for enterprise clients?"
+  exo ask "what is the Synthesis product positioning?"
+  ```
+
+  ---
+
+  ## vs `synthesis ask`
+
+  | | `exo ask` | `synthesis ask` |
+  |---|---|---|
+  | Interface | Bash script, conversational REPL | Java CLI command |
+  | Sources shown | Yes, before answer | With --verbose |
+  | Streaming | Yes | Yes |
+  | Follow-up | Yes, with history | With --interactive |
+  | Setup | Zero (auto-loads API key) | Requires config |
+  | Best for | Executive Q&A, business context | Deep technical queries |
+
+  ---
+
+  ## Tips
+
+  - **Scope questions** — "what is the Synthesis product?" works better than "explain everything"
+  - **Follow up** — After the first answer, ask "what should be the next step?" — Claude remembers context
+  - **Source quality** — If the listed sources look irrelevant, rephrase the question more specifically
+  - **Workshop demo** — Run live: audience sees sources + streaming answer = trust + wow
+
+  ---
+
+  ## Implementation
+
+  The `exo ask` command is implemented in `bin/exo` (the eXOReaction executive shell wrapper).
+  It uses `synthesis search` for retrieval and the Anthropic Messages API for generation.
+
+  Architecture: **RAG** (Retrieval-Augmented Generation)
+  - Retrieval: `synthesis search -l 8 "$query"` → top 8 results
+  - Augmentation: reads top 5 file contents (max 2000 chars each)
+  - Generation: Claude Haiku with streaming SSE
+
+  ---
+
+  ## Related Skills
+
+  - `synthesis-ask-workspace` — deeper technical queries via Java CLI
+  - `synthesis-search-workspace` — keyword/semantic search without AI
+  - `exoreaction-company-context` — business context for better questions
