@@ -6,7 +6,7 @@ import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.validate.DriftDetector;
 import io.exoreaction.synthesis.validate.DriftDetector.DriftIssue;
-import io.exoreaction.synthesis.validate.IntegrityChecker;
+import io.exoreaction.synthesis.validate.GapDetector;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
@@ -28,7 +28,7 @@ import java.util.stream.Stream;
  *   synthesis validate --skills       # Check .claude/skills/ and CLAUDE.md
  *   synthesis validate --docs         # Check docs/
  *   synthesis validate --all          # Check everything
- *   synthesis validate --integrity   # Verify factual claims in skills
+ *   synthesis validate --gaps         # Find source files with no skill coverage
  * </pre>
  *
  * <p>Exit codes: 0 = no drift found, 1 = drift detected or error.
@@ -52,23 +52,23 @@ public class ValidateCommand implements Callable<Integer> {
     private boolean docs;
 
     @Option(names = {"--all"},
-            description = "Check all documentation (skills + docs + integrity)")
+            description = "Check all documentation (skills + docs + gaps)")
     private boolean all;
 
-    @Option(names = {"--integrity"},
-            description = "Verify factual claims in skill files against the codebase")
-    private boolean integrity;
+    @Option(names = {"--gaps"},
+            description = "Find indexed source files that have no mention in any skill file")
+    private boolean gaps;
 
     @Override
     public Integer call() {
         // Default: check skills (when no specific flag given)
-        if (!skills && !docs && !all && !integrity) {
+        if (!skills && !docs && !all && !gaps) {
             skills = true;
         }
         if (all) {
             skills = true;
             docs = true;
-            integrity = true;
+            gaps = true;
         }
 
         Path workspaceRoot = parent.getWorkspaceRoot();
@@ -108,14 +108,12 @@ public class ValidateCommand implements Callable<Integer> {
                 }
             }
 
-            // Integrity check (--integrity)
-            if (integrity) {
+            // Gap detection (--gaps)
+            if (gaps) {
                 List<Path> skillFiles = collectSkillFiles(workspaceRoot);
-                IntegrityChecker checker = new IntegrityChecker();
-                List<IntegrityChecker.IntegrityIssue> integrityIssues =
-                        checker.checkAll(skillFiles, workspaceRoot);
-                exitCode = Math.max(exitCode,
-                        printIntegrityReport(integrityIssues, skillFiles.size()));
+                GapDetector gapDetector = new GapDetector();
+                List<GapDetector.GapResult> gapResults = gapDetector.detectGaps(index, skillFiles);
+                exitCode = Math.max(exitCode, printGapReport(gapResults, skillFiles.size()));
             }
 
             return exitCode;
@@ -168,31 +166,32 @@ public class ValidateCommand implements Callable<Integer> {
         return driftFiles > 0 ? 1 : 0;
     }
 
-    private int printIntegrityReport(List<IntegrityChecker.IntegrityIssue> issues,
-                                      int totalSkillFiles) {
+    private int printGapReport(List<GapDetector.GapResult> gapResults, int totalSkillFiles) {
         System.out.println();
-        if (issues.isEmpty()) {
-            System.out.println("  \u2713 Integrity Check \u2014 all factual claims verified");
+        if (gapResults.isEmpty()) {
+            System.out.println("  \u2713 Gap Analysis \u2014 all indexed source files have skill coverage");
             System.out.println();
             return 0;
         }
+        System.out.printf("  \u26a0 GAP ANALYSIS: %d source file(s) have no skill coverage:%n%n",
+                gapResults.size());
 
-        System.out.printf("  \u26a0 INTEGRITY CHECK: %d factual claim(s) may be incorrect:%n%n",
-                issues.size());
-
-        for (IntegrityChecker.IntegrityIssue issue : issues) {
-            String relPath;
-            try {
-                relPath = issue.file().getFileName().toString();
-            } catch (Exception e) {
-                relPath = issue.file().toString();
+        // Group by priority
+        int prevPriority = -1;
+        for (GapDetector.GapResult gap : gapResults) {
+            if (gap.priority() != prevPriority) {
+                String label = gap.priority() >= 5 ? "HIGH PRIORITY"
+                        : gap.priority() >= 3 ? "MEDIUM PRIORITY" : "LOW PRIORITY";
+                System.out.println("  " + label + ":");
+                prevPriority = gap.priority();
             }
-            System.out.printf("    [%s] %s:%d%n", issue.ruleName(), relPath, issue.line());
-            System.out.printf("      Claim:  %s%n", issue.claim());
-            System.out.printf("      Actual: %s%n%n", issue.actual());
+            System.out.printf("    %-50s  %s%n",
+                    gap.className() + ".java",
+                    gap.relativePath() != null ? gap.relativePath() : "");
         }
 
-        System.out.printf("  Checked %d skill file(s). Run 'synthesis validate --integrity' to verify claims.%n%n",
+        System.out.println();
+        System.out.printf("  Checked against %d skill file(s). Run 'synthesis validate --gaps' regularly to track coverage.%n%n",
                 totalSkillFiles);
         return 1;
     }
