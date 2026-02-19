@@ -73,6 +73,7 @@ import java.util.concurrent.Callable;
                 RelateCommand.class,
                 InsightsCommand.class,
                 GraphCommand.class,
+                ImpactCommand.class,
                 CrossRepoDepsCommand.class,
                 WatchCommand.class,
                 DiffCommand.class,
