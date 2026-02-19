@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
+import io.exoreaction.synthesis.graph.RelationService;
+import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.index.SearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,7 +14,7 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the RelateCommand (Relationship Mapping).
+ * Tests for the RelateCommand / RelationService (Relationship Mapping).
  */
 class RelateCommandTest {
 
@@ -24,8 +26,8 @@ class RelateCommandTest {
         SearchResult exact = makeResult("src/main/Main.java", "CODE", "Java");
         SearchResult other = makeResult("test/MainTest.java", "CODE", "Java");
 
-        RelateCommand cmd = new RelateCommand();
-        SearchResult match = cmd.findBestMatch(List.of(other, exact), "src/main/Main.java");
+        RelationService svc = new RelationService();
+        SearchResult match = svc.findBestMatch(List.of(other, exact), "src/main/Main.java");
 
         assertEquals("src/main/Main.java", match.relativePath());
     }
@@ -35,8 +37,8 @@ class RelateCommandTest {
         SearchResult match = makeResult("deep/path/Config.yaml", "YAML", null);
         SearchResult other = makeResult("some/other/file.txt", "OTHER", null);
 
-        RelateCommand cmd = new RelateCommand();
-        SearchResult result = cmd.findBestMatch(List.of(other, match), "Config.yaml");
+        RelationService svc = new RelationService();
+        SearchResult result = svc.findBestMatch(List.of(other, match), "Config.yaml");
 
         assertEquals("deep/path/Config.yaml", result.relativePath());
     }
@@ -46,8 +48,8 @@ class RelateCommandTest {
         SearchResult best = makeResult("similar.java", "CODE", "Java");
         SearchResult ok = makeResult("other.java", "CODE", "Java");
 
-        RelateCommand cmd = new RelateCommand();
-        SearchResult result = cmd.findBestMatch(List.of(best, ok), "nonexistent.java");
+        RelationService svc = new RelationService();
+        SearchResult result = svc.findBestMatch(List.of(best, ok), "nonexistent.java");
 
         // Should return first result (highest score)
         assertEquals("similar.java", result.relativePath());
@@ -55,8 +57,8 @@ class RelateCommandTest {
 
     @Test
     void findBestMatchReturnsNullForEmpty() {
-        RelateCommand cmd = new RelateCommand();
-        assertNull(cmd.findBestMatch(List.of(), "anything.java"));
+        RelationService svc = new RelationService();
+        assertNull(svc.findBestMatch(List.of(), "anything.java"));
     }
 
     @Test
@@ -80,9 +82,9 @@ class RelateCommandTest {
         fileNameIndex.put("Repository.java", List.of("src/Repository.java"));
         fileNameIndex.put("Config.java", List.of("src/Config.java"));
 
-        RelateCommand cmd = new RelateCommand();
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("Service.java");
-        cmd.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
+        RelationService svc = new RelationService();
+        RelationshipMap map = new RelationshipMap("Service.java");
+        svc.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
 
         assertFalse(map.outgoing().isEmpty(), "Should find outgoing references from imports");
     }
@@ -107,9 +109,9 @@ class RelateCommandTest {
         fileNameIndex.put("SETUP.md", List.of("docs/SETUP.md"));
         fileNameIndex.put("reference.md", List.of("api/reference.md"));
 
-        RelateCommand cmd = new RelateCommand();
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("README.md");
-        cmd.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
+        RelationService svc = new RelationService();
+        RelationshipMap map = new RelationshipMap("README.md");
+        svc.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
 
         assertFalse(map.outgoing().isEmpty(), "Should find outgoing references from markdown links");
     }
@@ -139,9 +141,9 @@ class RelateCommandTest {
                 "CODE", "Java", "", "", "", Files.size(referencingFile)
         );
 
-        RelateCommand cmd = new RelateCommand();
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("Config.java");
-        cmd.analyzeIncomingRefs(target, List.of(target, referencing), tempDir, map);
+        RelationService svc = new RelationService();
+        RelationshipMap map = new RelationshipMap("Config.java");
+        svc.analyzeIncomingRefs(target, List.of(target, referencing), tempDir, map);
 
         assertTrue(map.incoming().containsKey("Service.java"),
                 "Should find Service.java as referencing Config.java");
@@ -157,9 +159,9 @@ class RelateCommandTest {
                 "CODE", "Java", "", "", "", Files.size(targetFile)
         );
 
-        RelateCommand cmd = new RelateCommand();
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("Self.java");
-        cmd.analyzeIncomingRefs(target, List.of(target), tempDir, map);
+        RelationService svc = new RelationService();
+        RelationshipMap map = new RelationshipMap("Self.java");
+        svc.analyzeIncomingRefs(target, List.of(target), tempDir, map);
 
         assertTrue(map.incoming().isEmpty(),
                 "Should not include self-references");
@@ -170,8 +172,8 @@ class RelateCommandTest {
         Map<String, List<String>> index = new HashMap<>();
         index.put("Config.java", List.of("src/main/Config.java"));
 
-        RelateCommand cmd = new RelateCommand();
-        String resolved = cmd.resolveReference("Config.java", "Service.java", index);
+        RelationService svc = new RelationService();
+        String resolved = svc.resolveReference("Config.java", "Service.java", index);
 
         assertEquals("src/main/Config.java", resolved);
     }
@@ -181,8 +183,8 @@ class RelateCommandTest {
         Map<String, List<String>> index = new HashMap<>();
         index.put("Repository.java", List.of("src/data/Repository.java"));
 
-        RelateCommand cmd = new RelateCommand();
-        String resolved = cmd.resolveReference("com.example.data.Repository", "Service.java", index);
+        RelationService svc = new RelationService();
+        String resolved = svc.resolveReference("com.example.data.Repository", "Service.java", index);
 
         assertEquals("src/data/Repository.java", resolved);
     }
@@ -191,21 +193,21 @@ class RelateCommandTest {
     void resolveReferenceReturnsNullForUnknown() {
         Map<String, List<String>> index = new HashMap<>();
 
-        RelateCommand cmd = new RelateCommand();
-        String resolved = cmd.resolveReference("Unknown.java", "Service.java", index);
+        RelationService svc = new RelationService();
+        String resolved = svc.resolveReference("Unknown.java", "Service.java", index);
 
         assertNull(resolved);
     }
 
     @Test
     void generateMermaidProducesValidDiagram() {
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("Main.java");
+        RelationshipMap map = new RelationshipMap("Main.java");
         map.addOutgoing("Config.java", "imports");
         map.addOutgoing("Service.java", "imports");
         map.addIncoming("Test.java", "references");
 
-        RelateCommand cmd = new RelateCommand();
-        String mermaid = cmd.generateMermaid(map);
+        RelationService svc = new RelationService();
+        String mermaid = svc.generateMermaid(map);
 
         assertTrue(mermaid.contains("```mermaid"), "Should have mermaid code block");
         assertTrue(mermaid.contains("graph LR"), "Should be left-right graph");
@@ -217,7 +219,7 @@ class RelateCommandTest {
 
     @Test
     void relationshipMapMaintainsBidirectionalData() {
-        RelateCommand.RelationshipMap map = new RelateCommand.RelationshipMap("target.java");
+        RelationshipMap map = new RelationshipMap("target.java");
         map.addOutgoing("dep1.java", "imports");
         map.addOutgoing("dep2.java", "references");
         map.addIncoming("user1.java", "references");
