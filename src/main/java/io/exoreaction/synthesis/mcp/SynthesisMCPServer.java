@@ -474,6 +474,12 @@ public class SynthesisMCPServer {
         limit.put("description", "Maximum number of results (1-200)");
         properties.set("limit", limit);
 
+        ObjectNode subWorkspace = mapper.createObjectNode();
+        subWorkspace.put("type", "string");
+        subWorkspace.put("description", "Scope search to a named sub-workspace (e.g. 'eXOReaction', 'Cantara'). " +
+                "Useful in multi-workspace setups to limit results to a specific organisation or project.");
+        properties.set("subWorkspace", subWorkspace);
+
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
         workspace.put("description", "Workspace path (defaults to server's configured workspace)");
