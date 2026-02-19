@@ -141,6 +141,20 @@ CLAUDE.md context tells agents which files to read → eliminates exploration cy
 
 ## Phase 4 Status: COMPLETE ✅
 
+## Phase 5 Design: READY (not yet run)
+
+**4 clean conditions — each adds exactly one layer:**
+
+| Condition | What it includes |
+|---|---|
+| Baseline | Claude alone |
+| Knowledge | CLAUDE.md + Knowledge skills (architecture, gotchas, patterns — no CLI guides) |
+| Synthesis CLI | + Synthesis CLI skills + `synthesis search` |
+| Synthesis MCP | + MCP server only (NO CLI skills — MCP is self-describing via tools/list) |
+
+**Key insight:** Current "Skills-only" was contaminated — CLI guide skills (synthesis-search-workspace.yaml etc.) without CLI access = manual without the car. Phase 5 separates the knowledge layer from the CLI layer cleanly. MCP excludes CLI skills deliberately to test if MCP schemas replace the need for guide skills.
+Design doc: `~/Documents/benchmark-phase4/PHASE5-DESIGN.md`
+
 **Phase 4 headline (24 sessions, 8 cold tasks × 3 conditions):**
 
 | Condition | Avg tool calls | Δ vs Baseline |
