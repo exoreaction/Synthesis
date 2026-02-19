@@ -16,6 +16,7 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.*;
+import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
@@ -251,6 +252,23 @@ public class MaintainCommand implements Callable<Integer> {
             // --- Git Fetch for client codebases ---
             if (!skipGitFetch) {
                 fetchClientCodebases(workspaceRoot);
+            }
+
+            // --- Discover: warn about unindexed git repos in search paths ---
+            try {
+                Set<Path> knownWorkspaces = new HashSet<>(MultiWorkspaceSearch.discoverAllWorkspaces());
+                List<Path> unindexed = DiscoverCommand.findUnindexedGitRepos(knownWorkspaces);
+                if (!unindexed.isEmpty()) {
+                    System.out.println("  INFO: " + unindexed.size()
+                            + " git repo(s) in search paths are not indexed by Synthesis:");
+                    for (Path repo : unindexed) {
+                        System.out.println("    " + repo);
+                    }
+                    System.out.println("  Run 'synthesis discover' to review and initialize them.");
+                    System.out.println();
+                }
+            } catch (Exception e) {
+                // Never fail maintain due to discover check
             }
 
             System.out.println();
