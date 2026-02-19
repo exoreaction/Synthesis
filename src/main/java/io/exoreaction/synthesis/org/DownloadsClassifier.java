@@ -124,6 +124,72 @@ public class DownloadsClassifier {
     }
 
     /**
+     * Classifies a file using both its own content and an enriched companion file.
+     *
+     * <p>Same logic as {@link #classify(Path)}, but if {@code companionFile} is non-null
+     * and exists, also runs content analysis on the companion (which is always text-readable,
+     * even when the main file is a binary PDF or image). This unlocks classification of
+     * PDFs and images via enriched {@code .synthesis.md} companion text.
+     *
+     * @param file          the file to classify
+     * @param companionFile path to the companion {@code .synthesis.md} file, or {@code null}
+     * @return classification result with organization and confidence
+     */
+    public ClassificationResult classifyWithCompanion(Path file, Path companionFile) {
+        List<String> signals = new ArrayList<>();
+
+        // Check if this file should be skipped
+        String ext = getExtension(file).toLowerCase();
+        if (SKIP_EXTENSIONS.contains(ext)) {
+            return new ClassificationResult(null, 0.0, null,
+                    List.of("Software installer, skipped"), true);
+        }
+
+        // Signal 1: Filename analysis
+        Map<String, Double> orgScores = new LinkedHashMap<>();
+        analyzeFilename(file.getFileName().toString(), orgScores, signals);
+
+        // Signal 2: Content analysis (for text-readable files)
+        if (isTextReadable(ext)) {
+            try {
+                analyzeContent(file, orgScores, signals);
+            } catch (IOException e) {
+                signals.add("Content analysis failed: " + e.getMessage());
+            }
+        }
+
+        // Signal 3: Companion file content (always text-readable, enables PDF/image classification)
+        if (companionFile != null && Files.exists(companionFile)) {
+            try {
+                analyzeContent(companionFile, orgScores, signals);
+            } catch (IOException e) {
+                signals.add("Companion analysis failed: " + e.getMessage());
+            }
+        }
+
+        // Find the top-scoring organization
+        String topOrg = null;
+        double topScore = 0.0;
+        for (Map.Entry<String, Double> entry : orgScores.entrySet()) {
+            if (entry.getValue() > topScore) {
+                topScore = entry.getValue();
+                topOrg = entry.getKey();
+            }
+        }
+
+        // Normalize confidence to 0.0-1.0 range
+        double confidence = Math.min(topScore, 1.0);
+
+        // Determine suggested destination
+        Path destination = null;
+        if (topOrg != null) {
+            destination = computeDestination(file, topOrg, ext);
+        }
+
+        return new ClassificationResult(topOrg, confidence, destination, signals, false);
+    }
+
+    /**
      * Analyzes a filename for organization keywords.
      */
     void analyzeFilename(String filename, Map<String, Double> orgScores, List<String> signals) {

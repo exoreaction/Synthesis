@@ -18,7 +18,7 @@ AI tools made developers 10x faster at creating code — but comprehension speed
 - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
 - Local-only processing — zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 2,325 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 2,471 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -86,7 +86,7 @@ synthesis release                       # Release management
 │   ├── enrichment/                    # AI enrichment (media, docs)
 │   ├── staging/                       # Team staging areas
 │   └── tracking/                      # Change tracking, file movements
-├── src/test/                          # JUnit 5 tests (2,325+)
+├── src/test/                          # JUnit 5 tests (2,471+)
 ├── docs/                              # Multi-perspective documentation
 │   └── perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 └── .claude/skills/                    # 25 Claude Code skills (see below)
@@ -156,6 +156,7 @@ These skills describe how to USE Synthesis features — valid both when working 
 - **`synthesis export-skills`** uses `--overwrite` (not `--install`) to update `~/.claude/skills/`. The `--install` flag belongs to `synthesis learn`.
 - **`synthesis learn`** requires `synthesis org scan` first or errors with "No organizations found".
 - **Staging `_processed` suffix:** `routeTo()` copies file to destination and renames source to `*_processed.*` (not delete). The cron should run `staging ingest && staging route && maintain` — `maintain` alone does NOT trigger staging ingest/route. Use `retentionDays: -1` in tests to force expiry (0 sets `expiresAt = now`, which is not strictly less than `now`).
+- **`staging route` content-intelligence fallback (issue #71):** When `autoClassify: true` (default), unmatched files are classified via `DownloadsClassifier.classifyWithCompanion()` — reads the companion `.synthesis.md` if present. Files above `classificationThreshold` (default 0.5) are auto-routed (`~` prefix in output); below-threshold matches become suggestions. Run `synthesis enrich` first to populate companions for PDFs/images.
 
 ---
 

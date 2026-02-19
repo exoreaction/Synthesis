@@ -240,6 +240,56 @@ class DownloadsClassifierTest {
         assertTrue(scores.containsKey("eXOReaction"));
     }
 
+    // --- classifyWithCompanion ---
+
+    @Test
+    void classifyWithCompanion_pdfWithCompanionContent_classifiesCorrectly() throws IOException {
+        // PDF has no org keywords in filename, but companion contains org keyword
+        Path pdfFile = tempDir.resolve("appendix-h.pdf");
+        Files.write(pdfFile, new byte[]{0x25, 0x50, 0x44, 0x46}); // minimal PDF header bytes
+        Path companionFile = tempDir.resolve("appendix-h.pdf.synthesis.md");
+        Files.writeString(companionFile,
+                "# appendix-h.pdf\n## AI Description\nThis document covers the Quadim competence framework.");
+
+        DownloadsClassifier.ClassificationResult result =
+                classifier.classifyWithCompanion(pdfFile, companionFile);
+
+        assertEquals("Quadim", result.organization());
+        assertTrue(result.confidence() > 0);
+        assertFalse(result.shouldSkip());
+        assertTrue(result.signals().stream().anyMatch(s -> s.contains("Companion") || s.contains("Content")));
+    }
+
+    @Test
+    void classifyWithCompanion_nullCompanion_fallsBackToFilenameOnly() throws IOException {
+        // Null companion path — result must match classify() with same filename
+        Path file = tempDir.resolve("Cantara-Xorcery-Docs.pdf");
+        Files.writeString(file, "dummy content");
+
+        DownloadsClassifier.ClassificationResult withCompanion =
+                classifier.classifyWithCompanion(file, null);
+        DownloadsClassifier.ClassificationResult withoutCompanion = classifier.classify(file);
+
+        assertEquals(withoutCompanion.organization(), withCompanion.organization());
+        assertEquals(withoutCompanion.confidence(), withCompanion.confidence(), 0.001);
+        assertFalse(withCompanion.shouldSkip());
+    }
+
+    @Test
+    void classifyWithCompanion_nonExistentCompanion_fallsBackToFilenameOnly() throws IOException {
+        // Companion path given but file does not exist — should behave like classify()
+        Path file = tempDir.resolve("Cantara-Whydah-Proposal.pdf");
+        Files.writeString(file, "dummy content");
+        Path missingCompanion = tempDir.resolve("appendix-h.pdf.synthesis.md"); // does not exist
+
+        DownloadsClassifier.ClassificationResult withCompanion =
+                classifier.classifyWithCompanion(file, missingCompanion);
+        DownloadsClassifier.ClassificationResult withoutCompanion = classifier.classify(file);
+
+        assertEquals(withoutCompanion.organization(), withCompanion.organization());
+        assertEquals(withoutCompanion.confidence(), withCompanion.confidence(), 0.001);
+    }
+
     // --- Signals ---
 
     @Test
