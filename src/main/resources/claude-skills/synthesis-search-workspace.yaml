@@ -1,8 +1,9 @@
 name: synthesis-search-workspace
-version: 1.0.0
+version: 1.1.0
 description: |
   Search across all indexed files in a Synthesis workspace - code, docs, videos, PDFs, configs.
   Uses the Synthesis CLI to query a Lucene full-text index with sub-second response times.
+  Multiple workspaces are indexed; always choose the right -d flag for your task type.
 
 trigger_phrases:
   - "synthesis search"
@@ -19,189 +20,139 @@ instructions: |
   # Synthesis Search Workspace
 
   **Purpose:** Search across all indexed files in a Synthesis workspace using full-text Lucene queries.
-  **Performance:** Sub-second search (<1s typical, 0.4s validated) across 7,000+ files.
-  **Workspace:** `/home/totto/Documents` (7,117 documents indexed, 1.0 GB content)
+  **Performance:** Sub-second search (<1s typical, 0.4s validated) across 38,000+ files across all workspaces.
 
   ---
 
-  ## How to Use
+  ## CRITICAL: Choose the Right Workspace
 
-  Run the Synthesis CLI search command via Bash tool:
+  **Always specify `-d <workspace>` — without it, synthesis defaults to `~/Documents` (business docs only).**
 
-  ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "<query>" [options] 2>/dev/null
-  ```
+  | What you're looking for | Use |
+  |---|---|
+  | Source code (Java, classes, methods) | `synthesis search -d /src/exoreaction "query"` |
+  | Cantara open source code | `synthesis search -d /src/cantara "query"` |
+  | Quadim platform code | `synthesis search -d /src/quadim "query"` |
+  | Elprint client code | `synthesis search -d /src/elprint "query"` |
+  | Business docs, pipeline, clients, strategy | `synthesis search "query"` (defaults to ~/Documents) |
+  | Everything everywhere | `synthesis search --all "query"` |
 
-  **Important:** Always add `2>/dev/null` to suppress SLF4J and pilot approval stderr noise.
+  **Lesson learned (benchmark Feb 19, 2026):** 10/10 synthesis search calls returned wrong results
+  because agents omitted `-d /src/exoreaction`. The source IS indexed — just needs the right flag.
+  Issue #85 filed for auto-detection.
 
   ---
 
   ## Command Syntax
 
-  ```
-  synthesis -d <workspace> search "<query>" [--type TYPE] [--limit N] [--verbose]
-            [--scope SUB-WORKSPACE] [--aggregate] [--all]
-            [--company NAME] [--client NAME] [--repo NAME] [--media-type TYPE]
+  ```bash
+  synthesis -d <workspace> search "<query>" [options] 2>/dev/null
+  # OR (short form, same result):
+  synthesis search -d <workspace> "<query>" [options] 2>/dev/null
   ```
 
-  ### Required Parameters
-  - `<query>` - Search query (supports Lucene syntax)
+  **Important:** Always add `2>/dev/null` to suppress SLF4J and pilot approval stderr noise.
 
-  ### Optional Parameters
-  - `--type TYPE` - Filter by file type: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF, IMAGE, VIDEO, AUDIO
+  ### Options
+  - `--type TYPE` - Filter: MARKDOWN, CODE, YAML, JSON, CONFIG, PDF, IMAGE, VIDEO, AUDIO
   - `--limit N` - Maximum results (default: 20)
-  - `--verbose` or `-v` - Show detailed result information (file size, modification date, etc.)
-  - **`--scope NAME`** - ⭐ NEW: Search within specific sub-workspace (eXOReaction, Quadim, etc.)
-  - **`--aggregate`** - ⭐ NEW: Group results by sub-workspace
-  - `--all` - Search across all workspaces (can combine with --scope)
-  - `--company NAME` - Filter to specific organization (eXOReaction, Quadim, Cantara, etc.)
-  - `--client NAME` - Filter to specific client
+  - `--verbose` / `-v` - Show file size, modification date, language
+  - `--scope NAME` - Search within sub-workspace (eXOReaction, Quadim, etc.)
+  - `--aggregate` - Group results by sub-workspace
+  - `--all` - Search ALL workspaces simultaneously
+  - `--company NAME` - Filter to organization (eXOReaction, Quadim, Cantara)
   - `--repo NAME` - Filter to specific repository
-  - `--media-type TYPE` - Filter by media type: presentation, document, spreadsheet, photo, screenshot, diagram
 
   ---
 
-  ## Query Syntax (Lucene)
+  ## All Available Workspaces
 
-  Synthesis uses Apache Lucene query syntax:
+  | Workspace | Path | Files | Content |
+  |---|---|---|---|
+  | **Documents** | `/home/totto/Documents` | 9,307 | Business docs, pipeline, clients, strategy, marketing |
+  | **exoreaction** | `/src/exoreaction` | 7,477 | eXOReaction source (26 repos, Java, incl. Synthesis) |
+  | **cantara** | `/src/cantara` | 7,990 | Cantara open source (54 repos, Java) |
+  | **quadim** | `/src/quadim` | 6,999 | Quadim platform (38 repos, Java) |
+  | **elprint** | `/src/elprint` | 4,282 | Elprint client (mixed) |
+  | Downloads | `/home/totto/Downloads` | 7 | Staging inbox |
+  | Pictures | `/home/totto/Pictures` | 572 | Screenshots staging |
 
-  | Pattern | Example | Description |
-  |---------|---------|-------------|
-  | Simple term | `authentication` | Files containing "authentication" |
-  | Exact phrase | `"NCI Protocol"` | Files containing exact phrase |
-  | Boolean AND | `testing AND strategy` | Both terms required |
-  | Boolean OR | `Java OR Kotlin` | Either term matches |
-  | NOT | `testing NOT unit` | Exclude term |
-  | Wildcard | `test*` | Prefix matching |
-  | Field query | `language:Java` | Search specific field |
-  | Fuzzy | `autentication~` | Fuzzy matching (typo-tolerant) |
+  Run `synthesis list` to see current state of all workspaces.
 
   ---
 
   ## Common Search Patterns
 
-  ### 1. Find all files about a topic
+  ### Source code — find a class or method
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "authentication" --limit 10 2>/dev/null
+  synthesis search -d /src/exoreaction "SearchCommand" 2>/dev/null
+  synthesis search -d /src/exoreaction "isAnchorDoc" 2>/dev/null
+  synthesis search -d /src/exoreaction "RetentionPolicy" --type CODE 2>/dev/null
   ```
 
-  ### 2. Search only code files
+  ### Source code — understand a feature
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "dependency injection" --type CODE --limit 10 2>/dev/null
+  synthesis search -d /src/exoreaction "multi-pass report" 2>/dev/null
+  synthesis search -d /src/exoreaction "staging ingest route" 2>/dev/null
   ```
 
-  ### 3. Search only documentation
+  ### Business docs — pipeline and clients
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "workshop curriculum" --type MARKDOWN --limit 10 2>/dev/null
+  synthesis search "SpareBank pipeline" 2>/dev/null
+  synthesis search "Mynder retainer" 2>/dev/null
+  synthesis search "isAnchorDoc" 2>/dev/null   # finds docs workspace mentions
   ```
 
-  ### 4. Search PDFs
+  ### Cross-workspace — find anything everywhere
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "compliance" --type PDF --limit 10 2>/dev/null
+  synthesis search --all "anchor document" 2>/dev/null
+  synthesis search --all "retention policy" 2>/dev/null
   ```
 
-  ### 5. Search within a company
+  ### Scoped within sub-workspace
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "microservices" --company Quadim --limit 10 2>/dev/null
-  ```
-
-  ### 6. Search with verbose output (shows file sizes, dates)
-  ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis -d /home/totto/Documents search "pipeline" --verbose --limit 5 2>/dev/null
-  ```
-
-  ### 7. Search within sub-workspace (NEW in v1.4.1)
-  ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
   synthesis search "workshop" --scope eXOReaction 2>/dev/null
+  synthesis search "README" --aggregate 2>/dev/null  # grouped by sub-workspace
   ```
 
-  ### 8. Aggregated search grouped by sub-workspace (NEW in v1.4.1)
+  ### Code with type filter
   ```bash
-  export PATH="$HOME/.synthesis/bin:$PATH"
-  synthesis search "README" --aggregate 2>/dev/null
+  synthesis search -d /src/exoreaction "dependency injection" --type CODE --limit 10 2>/dev/null
   ```
 
   ---
 
-  ## Sub-Workspaces (v1.4.1+)
+  ## Query Syntax (Lucene)
 
-  Documents workspace has **6 sub-workspaces** for organizational hierarchy:
-  - **eXOReaction** (2,932 files) - Main company, clients, products, business docs
-  - **Quadim** (459 files) - SaaS platform company
-  - **Cantara** (857 files) - Open source foundation
-  - **Synthesis** (120 files) - Knowledge infrastructure product docs
-  - **Sunstone-Tech** (5 files) - Legal entity
-  - **T-Hex** (3 files) - Holding company
-
-  **Use `synthesis list` to see tree structure of all sub-workspaces.**
-
-  **Benefits of scoped search:**
-  - Faster (searches subset of files)
-  - More relevant (reduces noise)
-  - Better for large workspaces (>5,000 files)
-
-  ---
-
-  ## Interpreting Results
-
-  Search results typically show:
-  - **File path** (relative to workspace root)
-  - **File type** (MARKDOWN, CODE, PDF, etc.)
-  - **Score** (relevance ranking)
-  - **Preview snippet** (matching text context)
-
-  With `--verbose`, also shows:
-  - File size
-  - Last modified date
-  - Language (for code files)
-  - Organization/company
-
-  ---
-
-  ## Available Workspaces
-
-  | Workspace | Path | Files | Content |
-  |-----------|------|-------|---------|
-  | Documents | `/home/totto/Documents` | 7,117 | Business docs, strategies, clients, marketing |
-
-  Other workspaces can be scanned using `synthesis -d <path> init && synthesis -d <path> scan`.
+  | Pattern | Example | Description |
+  |---|---|---|
+  | Simple term | `authentication` | Files containing "authentication" |
+  | Exact phrase | `"NCI Protocol"` | Exact phrase match |
+  | Boolean AND | `testing AND strategy` | Both terms required |
+  | Boolean OR | `Java OR Kotlin` | Either term matches |
+  | NOT | `testing NOT unit` | Exclude term |
+  | Wildcard | `test*` | Prefix matching |
+  | Fuzzy | `autentication~` | Typo-tolerant |
 
   ---
 
   ## Error Handling
 
-  - **"Index not found"** - Run `synthesis -d /home/totto/Documents scan` first
-  - **"Workspace not initialized"** - Run `synthesis -d /home/totto/Documents init`
-  - **No results** - Try broader query, remove type filter, use wildcards (`test*`)
-  - **SLF4J warnings on stderr** - Normal, suppress with `2>/dev/null`
-  - **Pilot approval warning** - Cosmetic only, commands execute normally
+  - **No results / wrong results** — Wrong workspace! Check table above and add correct `-d` flag
+  - **"Index not found"** — Run `synthesis -d <path> scan` to build index
+  - **"Workspace not initialized"** — Run `synthesis -d <path> init` first
+  - **SLF4J warnings on stderr** — Normal, suppress with `2>/dev/null`
 
   ---
 
-  ## Follow-up Suggestions
+  ## Follow-up Actions
 
-  After searching, suggest these related actions to the user:
-  - "Want to see relationships for one of these files?" -> Use `synthesis-relate-dependencies` skill
-  - "Want to visualize the architecture?" -> Use `synthesis-graph-architecture` skill
-  - "Want to read one of these files?" -> Use the Read tool directly on the file path
-  - "Need to update the index?" -> Run `synthesis -d /home/totto/Documents scan`
+  - "Relationships for this file?" → `synthesis relate <file>`
+  - "What changed recently?" → `synthesis changelog`
+  - "Read the file?" → Use Read tool on the path shown in results
+  - "Which workspace owns this file?" → `synthesis which <filename>`
 
   ---
 
-  **Indexed Content Breakdown:**
-  - MARKDOWN: 2,884 files (strategies, docs, READMEs, plans)
-  - CODE: 2,642 files (JavaScript 1,868, Java 645, SQL 85, Shell 34, Python 10)
-  - JSON: 742 files (configs, data, package manifests)
-  - PDF: 656 files (134 presentations, 522 documents)
-  - YAML: 63 files (configs, skills, CI/CD)
-  - OTHER: 129 files (misc formats)
-
-  **Last indexed:** February 15, 2026
+  **Last updated:** February 19, 2026
+  **Version:** 1.1.0 — Added all source workspaces, workspace routing table, benchmark lesson

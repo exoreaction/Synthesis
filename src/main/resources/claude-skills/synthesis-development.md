@@ -19,6 +19,47 @@ the codebase architecture, and following established patterns.
 - **Tests:** 2540+ (JUnit 5)
 - **License:** MIT
 
+## Environment Setup (Critical for Agents and Subprocesses)
+
+When synthesis is invoked from a spawned agent, Bash subshell, or CI environment, the PATH may
+not include the synthesis binary even though it is installed. Always set PATH explicitly.
+
+```bash
+# Add to start of any agent prompt or script that uses synthesis:
+export PATH="$HOME/bin:/home/totto/bin:$PATH"
+
+# Verify availability:
+which synthesis && synthesis --version 2>/dev/null | head -1
+```
+
+### Workspace Flag is Mandatory
+
+Without `-d`, synthesis defaults to `~/Documents` (business docs) — not the source workspace.
+This caused 10/10 search failures in the Feb 19 benchmark before the fix was discovered.
+
+```bash
+# Source code tasks — ALWAYS specify workspace:
+synthesis search -d /src/exoreaction "SearchCommand" 2>/dev/null
+synthesis search -d /src/exoreaction "isAnchorDoc" 2>/dev/null
+
+# Business docs — default is fine:
+synthesis search "pipeline status" 2>/dev/null
+
+# Everything — use --all:
+synthesis search --all "anchor document" 2>/dev/null
+```
+
+### Confirming a Search Will Work
+
+Before relying on synthesis search in a script or agent:
+```bash
+export PATH="$HOME/bin:/home/totto/bin:$PATH"
+synthesis search -d /src/exoreaction "test" 2>/dev/null | head -3
+# Should show "X results for: test" — if not, check PATH and workspace
+```
+
+---
+
 ## Architecture
 
 ### Package Structure
