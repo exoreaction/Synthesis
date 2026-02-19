@@ -178,6 +178,8 @@ instructions: |
   | `Nh` | N hours ago | `24h` = last 24 hours |
   | `Nd` | N days ago | `7d` = last 7 days (default) |
   | `Nw` | N weeks ago | `2w` = last 2 weeks |
+  | `Nm` | N months ago (~30 days each) | `3m` = last 3 months |
+  | `YYYY-MM-DD` | Since a specific date | `2026-01-15` |
 
   ---
 
@@ -200,6 +202,9 @@ instructions: |
   - **Retention:** Snapshots are retained for 90 days
   - **Comparison:** Changelogs compare against the most recent previous snapshot
   - **First run:** If no snapshot exists, one is automatically taken
+  - **Activity log:** `synthesis maintain --update-activity-log` auto-appends a draft entry to
+    `ACTIVITY-LOG.md` (newest-first) using the same change-event data; creates the file if absent.
+    Gracefully degrades to structured diff when no API key is present; skips if today's entry exists.
 
   ---
 
@@ -258,7 +263,9 @@ instructions: |
   - "Check architecture after changes?" -> Use `synthesis-architecture-monitoring` skill
   - "Understand a changed file?" -> Use `synthesis-explain-code` skill
   - "Ask about the impact?" -> Use `synthesis-perspectives-analysis` skill
+  - "AI summary grounded in recent changes?" -> Use `synthesis summary --since 7d`
+    (fetches the same changelog data and injects it into the AI analysis prompt)
 
   ---
 
-  **Last updated:** February 16, 2026
+  **Last updated:** February 19, 2026

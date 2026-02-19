@@ -15,8 +15,8 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.2.1-SNAPSHOT (as of Feb 15, 2026)
-- **Tests:** 802+ (JUnit 5)
+- **Version:** 1.9.9-SNAPSHOT (as of Feb 19, 2026)
+- **Tests:** 2540+ (JUnit 5)
 - **License:** MIT
 
 ## Architecture
@@ -103,6 +103,15 @@ io.exoreaction.synthesis
   |   |-- CodeExplainer               # AI code explanation
   |   |-- ReadmeGenerator             # AI README generation
   |   +-- EmbeddingService            # (optional) embedding support
+  |
+  |-- changelog/                       # Snapshot-based change tracking
+  |   |-- SnapshotManager             # Take/compare workspace snapshots; getChangesForWorkspace()
+  |   |-- ChangeEvent                 # Record: path, changeType (ADDED/MODIFIED/DELETED/MOVED), significance
+  |   |-- ChangeReportGenerator       # Human-readable cross-workspace change reports
+  |   |-- ActivityLogUpdater          # Auto-appends draft ACTIVITY-LOG.md entries from ChangeEvents
+  |   |-- WorkspaceSnapshot           # Snapshot metadata record
+  |   |-- ChangeSignificance          # Enum: NOISE, NORMAL, NOTABLE, CRITICAL
+  |   +-- SignificanceClassifier      # Classifies events by file type and path patterns
   |
   |-- metrics/                         # Operational metrics
   |   |-- MetricsDatabase             # SQLite + Flyway storage
@@ -311,7 +320,7 @@ Config sections:
 - `search` - Max results, preview length, content preview bytes
 - `ai` - Enabled, model, vision config
 
-## Commands Reference (Updated Feb 15, 2026)
+## Commands Reference (Updated Feb 19, 2026)
 
 ### Core Commands
 | Command | Description |
@@ -352,6 +361,7 @@ Config sections:
 | `synthesis metrics --period 30` | Metrics for last 30 days |
 | `synthesis watch` | Real-time file monitoring |
 | `synthesis maintain` | Incremental index update |
+| `synthesis maintain --update-activity-log` | Auto-append today's draft entry to ACTIVITY-LOG.md |
 | `synthesis diff <ref>` | Git-integrated diff |
 | `synthesis changed --since <d>` | Changed files since date |
 

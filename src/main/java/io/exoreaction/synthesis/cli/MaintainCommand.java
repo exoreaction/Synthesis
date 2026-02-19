@@ -1,8 +1,11 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
+import io.exoreaction.synthesis.changelog.ActivityLogUpdater;
+import io.exoreaction.synthesis.changelog.ChangeEvent;
 import io.exoreaction.synthesis.changelog.SnapshotManager;
 import io.exoreaction.synthesis.changelog.WorkspaceSnapshot;
 import io.exoreaction.synthesis.config.ConfigLoader;
@@ -38,6 +41,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -86,6 +90,13 @@ public class MaintainCommand implements Callable<Integer> {
             defaultValue = "false"
     )
     private boolean skipGitFetch;
+
+    @Option(
+            names = {"--update-activity-log"},
+            description = "Auto-append a draft activity log entry for today from change-tracking data",
+            defaultValue = "false"
+    )
+    private boolean updateActivityLog;
 
     @Override
     public Integer call() {
@@ -211,6 +222,28 @@ public class MaintainCommand implements Callable<Integer> {
                 } catch (Exception e) {
                     if (verbose) {
                         System.err.println("  Warning: Changelog snapshot failed: " + e.getMessage());
+                    }
+                }
+
+                // --- Integration: Activity log update ---
+                if (updateActivityLog) {
+                    try {
+                        SynthesisDatabase synthDb = SynthesisDatabase.getDefault();
+                        SnapshotManager snapshots = new SnapshotManager(synthDb);
+                        List<ChangeEvent> events = snapshots.getChangesForWorkspace(
+                                workspaceRoot.toString(), previousState.getLastScanTime());
+                        Optional<ClaudeClient> aiClient = ClaudeClient.createIfApiKeyAvailable(
+                                "claude-haiku-4-5-20251001");
+                        ActivityLogUpdater updater = new ActivityLogUpdater();
+                        boolean written = updater.update(workspaceRoot, events,
+                                config.getWorkspace().getName(), aiClient);
+                        if (written) {
+                            System.out.println("  \u2713 Activity log updated");
+                        } else {
+                            System.out.println("  \u00b7 Activity log already up to date for today");
+                        }
+                    } catch (Exception e) {
+                        System.err.println("  \u26a0\ufe0f  Could not update activity log: " + e.getMessage());
                     }
                 }
             }
