@@ -8,6 +8,9 @@ import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.org.DownloadsClassifier;
+import io.exoreaction.synthesis.org.OrganizationRegistry;
+import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.staging.StagingManager;
 import io.exoreaction.synthesis.staging.StagingManager.StagedFile;
 import io.exoreaction.synthesis.staging.StagingManager.StagingSummary;
@@ -358,7 +361,7 @@ public class StagingCommand implements Callable<Integer> {
                     return 0;
                 }
 
-                if (!config.getRouting().hasRules()) {
+                if (!config.getRouting().hasRules() && !config.getStaging().isAutoClassify()) {
                     AnsiOutput.printWarning("No routing rules defined. Add 'routing.rules' to your config.yaml.");
                     System.out.println();
                     System.out.println("  Example:");
@@ -403,9 +406,12 @@ public class StagingCommand implements Callable<Integer> {
                 System.out.println();
 
                 int routed = 0;
+                int contentRouted = 0;
                 int skipped = 0;
                 int errors = 0;
+                List<StagedFile> unmatchedFiles = new ArrayList<>();
                 List<String> unmatched = new ArrayList<>();
+                List<String> suggestions = new ArrayList<>();
 
                 for (StagedFile file : pending) {
                     // Skip internal staging files
@@ -435,8 +441,7 @@ public class StagingCommand implements Callable<Integer> {
                     }
 
                     if (matchedRule == null) {
-                        unmatched.add(basename);
-                        skipped++;
+                        unmatchedFiles.add(file);
                         continue;
                     }
 
@@ -484,28 +489,144 @@ public class StagingCommand implements Callable<Integer> {
                     }
                 }
 
-                System.out.println();
-                if (dryRun) {
-                    System.out.printf("  Would route: %s  |  No match: %s%n",
-                            AnsiOutput.green(String.valueOf(routed)),
-                            AnsiOutput.yellow(String.valueOf(skipped)));
+                // Content-intelligence fallback for unmatched files
+                if (config.getStaging().isAutoClassify() && !unmatchedFiles.isEmpty()) {
+                    OrganizationRegistry orgRegistry = loadOrgRegistry(workspaceRoot);
+                    if (orgRegistry != null && orgRegistry.hasOrganizations()) {
+                        DownloadsClassifier classifier = new DownloadsClassifier(orgRegistry);
+                        double threshold = config.getStaging().getClassificationThreshold();
+                        for (StagedFile unmatchedFile : unmatchedFiles) {
+                            String relPath = unmatchedFile.relativePath();
+                            String unmatchedBasename = Path.of(relPath).getFileName().toString();
+                            Path filePath = workspaceRoot.resolve(relPath);
+                            Path companionPath = workspaceRoot.resolve(relPath + ".synthesis.md");
+                            DownloadsClassifier.ClassificationResult cr =
+                                    classifier.classifyWithCompanion(filePath, companionPath);
+                            if (cr.shouldSkip()) {
+                                skipped++;
+                                continue;
+                            }
+                            // Persist classification to DB (best-effort)
+                            try {
+                                staging.classify(unmatchedFile, classifier);
+                            } catch (Exception ignored) {}
+                            if (cr.isConfident(threshold)) {
+                                Path destFile = cr.suggestedDestination();
+                                if (destFile == null) {
+                                    unmatched.add(unmatchedBasename);
+                                    skipped++;
+                                    continue;
+                                }
+                                if (dryRun) {
+                                    System.out.printf("  %s %s%n",
+                                            AnsiOutput.cyan("~"),
+                                            AnsiOutput.bold(unmatchedBasename));
+                                    System.out.printf("     content: %s (%.0f%%)%n",
+                                            AnsiOutput.dim(cr.organization()),
+                                            cr.confidence() * 100);
+                                    System.out.printf("     dest: %s%n",
+                                            AnsiOutput.cyan(destFile.toString()));
+                                    System.out.println();
+                                    contentRouted++;
+                                } else {
+                                    try {
+                                        boolean success = staging.routeTo(unmatchedFile, destFile, copyCompanions);
+                                        if (success) {
+                                            contentRouted++;
+                                            if (verbose) {
+                                                System.out.printf("  %s %s → %s %s%n",
+                                                        AnsiOutput.cyan("~"),
+                                                        AnsiOutput.bold(unmatchedBasename),
+                                                        AnsiOutput.dim(destFile.toString()),
+                                                        AnsiOutput.dim("(content: " + cr.organization() + ")"));
+                                            } else {
+                                                System.out.printf("  %s %s %s%n",
+                                                        AnsiOutput.cyan("~"),
+                                                        unmatchedBasename,
+                                                        AnsiOutput.dim("(content: " + cr.organization() + ")"));
+                                            }
+                                        } else {
+                                            errors++;
+                                            AnsiOutput.printError("Failed to route: " + unmatchedBasename);
+                                        }
+                                    } catch (Exception e) {
+                                        errors++;
+                                        AnsiOutput.printError("Error routing " + unmatchedBasename
+                                                + ": " + e.getMessage());
+                                    }
+                                }
+                            } else if (cr.organization() != null) {
+                                suggestions.add(String.format("%s → %s (%.0f%% — below %.0f%% threshold)",
+                                        unmatchedBasename, cr.organization(),
+                                        cr.confidence() * 100,
+                                        threshold * 100));
+                                skipped++;
+                            } else {
+                                unmatched.add(unmatchedBasename);
+                                skipped++;
+                            }
+                        }
+                    } else {
+                        // No org registry — all unmatched files stay unmatched
+                        for (StagedFile unmatchedFile : unmatchedFiles) {
+                            unmatched.add(Path.of(unmatchedFile.relativePath()).getFileName().toString());
+                            skipped++;
+                        }
+                    }
                 } else {
-                    System.out.printf("  Routed: %s  |  No match: %s%s%n",
-                            AnsiOutput.green(String.valueOf(routed)),
-                            AnsiOutput.yellow(String.valueOf(skipped)),
-                            errors > 0 ? "  |  Errors: " + AnsiOutput.red(String.valueOf(errors)) : "");
-                }
-
-                if (!unmatched.isEmpty() && verbose) {
-                    System.out.println();
-                    System.out.println("  Unmatched files (no routing rule):");
-                    for (String name : unmatched) {
-                        System.out.println("    " + AnsiOutput.dim(name));
+                    // autoClassify disabled — move all unmatched to the display list
+                    for (StagedFile unmatchedFile : unmatchedFiles) {
+                        unmatched.add(Path.of(unmatchedFile.relativePath()).getFileName().toString());
+                        skipped++;
                     }
                 }
 
                 System.out.println();
-                if (!dryRun && routed > 0) {
+                int totalRouted = routed + contentRouted;
+                String routedStr;
+                if (contentRouted > 0 && routed > 0) {
+                    routedStr = totalRouted + " (" + routed + " by rule, " + contentRouted + " by content)";
+                } else if (contentRouted > 0) {
+                    routedStr = totalRouted + " (by content)";
+                } else {
+                    routedStr = String.valueOf(routed);
+                }
+                if (dryRun) {
+                    System.out.printf("  Would route: %s  |  Suggestions: %s  |  No match: %s%n",
+                            AnsiOutput.green(routedStr),
+                            AnsiOutput.yellow(String.valueOf(suggestions.size())),
+                            AnsiOutput.yellow(String.valueOf(unmatched.size())));
+                } else {
+                    System.out.printf("  Routed: %s  |  Suggestions: %s  |  No match: %s%s%n",
+                            AnsiOutput.green(routedStr),
+                            AnsiOutput.yellow(String.valueOf(suggestions.size())),
+                            AnsiOutput.yellow(String.valueOf(unmatched.size())),
+                            errors > 0 ? "  |  Errors: " + AnsiOutput.red(String.valueOf(errors)) : "");
+                }
+
+                if (!suggestions.isEmpty() && verbose) {
+                    System.out.println();
+                    System.out.println("  Content suggestions (below threshold — review manually):");
+                    for (String s : suggestions) {
+                        System.out.println("    " + AnsiOutput.cyan("?") + " " + s);
+                    }
+                }
+
+                if (!unmatched.isEmpty() && verbose) {
+                    System.out.println();
+                    System.out.println("  Unmatched files (no routing rule or content match):");
+                    for (String name : unmatched) {
+                        System.out.println("    " + AnsiOutput.dim(name));
+                    }
+                    if (config.getStaging().isAutoClassify()) {
+                        System.out.println();
+                        System.out.println("  " + AnsiOutput.dim(
+                                "Tip: Run 'synthesis enrich' to extract PDF/image content for better classification."));
+                    }
+                }
+
+                System.out.println();
+                if (!dryRun && totalRouted > 0) {
                     System.out.println("  " + AnsiOutput.dim("Run 'synthesis scan' to update the index."));
                     System.out.println();
                 }
@@ -515,6 +636,51 @@ public class StagingCommand implements Callable<Integer> {
                 AnsiOutput.printError("Routing failed: " + e.getMessage());
                 return 1;
             }
+        }
+
+        /**
+         * Loads the OrganizationRegistry for content-based routing.
+         * Searches the workspace root and common locations.
+         */
+        private OrganizationRegistry loadOrgRegistry(Path workspaceRoot) {
+            // Try the workspace root
+            Path orgsFile = workspaceRoot.resolve(".synthesis").resolve("organizations.json");
+            if (Files.exists(orgsFile)) {
+                try {
+                    OrganizationRegistry registry = new OrganizationRegistry(workspaceRoot);
+                    registry.load();
+                    if (registry.hasOrganizations()) return registry;
+                } catch (Exception ignored) {}
+            }
+
+            // Try ~/Documents
+            Path docsPath = Path.of(System.getProperty("user.home"), "Documents");
+            orgsFile = docsPath.resolve(".synthesis").resolve("organizations.json");
+            if (Files.exists(orgsFile)) {
+                try {
+                    OrganizationRegistry registry = new OrganizationRegistry(docsPath);
+                    registry.load();
+                    if (registry.hasOrganizations()) return registry;
+                } catch (Exception ignored) {}
+            }
+
+            // Try all discovered workspaces
+            try {
+                WorkspaceDiscoveryConfig discoveryConfig = WorkspaceDiscoveryConfig.load();
+                for (Path searchPath : discoveryConfig.getSearchPaths()) {
+                    if (!Files.exists(searchPath)) continue;
+                    orgsFile = searchPath.resolve(".synthesis").resolve("organizations.json");
+                    if (Files.exists(orgsFile)) {
+                        try {
+                            OrganizationRegistry registry = new OrganizationRegistry(searchPath);
+                            registry.load();
+                            if (registry.hasOrganizations()) return registry;
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            return null;
         }
     }
 
