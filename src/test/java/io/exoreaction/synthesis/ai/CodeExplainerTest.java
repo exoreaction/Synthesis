@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.ai;
 
-import io.exoreaction.synthesis.cli.RelateCommand;
-import io.exoreaction.synthesis.cli.RelateCommand.RelationshipMap;
+import io.exoreaction.synthesis.graph.RelationService;
+import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.index.SearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for {@link CodeExplainer}.
  *
- * <p>Tests the relationship-gathering logic by exercising {@link RelateCommand}
+ * <p>Tests the relationship-gathering logic by exercising {@link RelationService}
  * directly — the same path {@code CodeExplainer.gatherRelationships()} uses —
  * without requiring a real AI client.
  */
@@ -25,7 +25,7 @@ class CodeExplainerTest {
     @TempDir
     Path tempDir;
 
-    // --- gatherRelationships (via RelateCommand directly) ---
+    // --- gatherRelationships (via RelationService directly) ---
 
     @Test
     void gatherRelationships_javaFileWithImports_detectsOutgoingRefs() throws IOException {
@@ -45,7 +45,7 @@ class CodeExplainerTest {
         fileNameIndex.put("Repository.java", List.of("src/Repository.java"));
         fileNameIndex.put("Config.java", List.of("src/Config.java"));
 
-        RelateCommand relater = new RelateCommand();
+        RelationService relater = new RelationService();
         RelationshipMap map = new RelationshipMap(target.relativePath());
         relater.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
 
@@ -72,7 +72,7 @@ class CodeExplainerTest {
         SearchResult target = makeResult(serviceFile, "Service.java", "CODE", "Java");
         SearchResult controller = makeResult(controllerFile, "Controller.java", "CODE", "Java");
 
-        RelateCommand relater = new RelateCommand();
+        RelationService relater = new RelationService();
         RelationshipMap map = new RelationshipMap(target.relativePath());
         relater.analyzeIncomingRefs(target, List.of(target, controller), tempDir, map);
 
@@ -87,7 +87,7 @@ class CodeExplainerTest {
 
         SearchResult target = makeResult(isolatedFile, "Isolated.java", "CODE", "Java");
 
-        RelateCommand relater = new RelateCommand();
+        RelationService relater = new RelationService();
         RelationshipMap map = new RelationshipMap(target.relativePath());
         relater.analyzeOutgoingRefs(target, tempDir, map, Collections.emptyMap());
         relater.analyzeIncomingRefs(target, List.of(target), tempDir, map);
@@ -109,7 +109,7 @@ class CodeExplainerTest {
         Map<String, List<String>> fileNameIndex = new HashMap<>();
         fileNameIndex.put("INSTALL.md", List.of("docs/INSTALL.md"));
 
-        RelateCommand relater = new RelateCommand();
+        RelationService relater = new RelationService();
         RelationshipMap map = new RelationshipMap(target.relativePath());
         relater.analyzeOutgoingRefs(target, tempDir, map, fileNameIndex);
 

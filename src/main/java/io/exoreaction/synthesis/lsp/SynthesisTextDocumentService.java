@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.lsp;
 
-import io.exoreaction.synthesis.cli.RelateCommand;
+import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
@@ -339,7 +339,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                 try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                     List<SearchResult> allFiles = index.listAll(null, 5000);
 
-                    RelateCommand relateCmd = new RelateCommand();
+                    RelationService relateCmd = new RelationService();
                     SearchResult target = null;
                     for (SearchResult r : allFiles) {
                         if (r.path().equals(filePath) ||
@@ -350,7 +350,7 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                     }
 
                     if (target != null) {
-                        RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(target.relativePath());
+                        RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(target.relativePath());
                         relateCmd.analyzeIncomingRefs(target, allFiles, workspaceRoot, relMap);
 
                         for (String relPath : relMap.incoming().keySet()) {
@@ -409,14 +409,14 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                     }
 
                     if (target != null) {
-                        RelateCommand relateCmd = new RelateCommand();
+                        RelationService relateCmd = new RelationService();
                         Map<String, List<String>> fileNameIndex = new HashMap<>();
                         for (SearchResult f : allFiles) {
                             fileNameIndex.computeIfAbsent(f.fileName(), k -> new ArrayList<>())
                                     .add(f.relativePath());
                         }
 
-                        RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(target.relativePath());
+                        RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(target.relativePath());
                         relateCmd.analyzeOutgoingRefs(target, workspaceRoot, relMap, fileNameIndex);
                         relateCmd.analyzeIncomingRefs(target, allFiles, workspaceRoot, relMap);
 
@@ -629,14 +629,14 @@ public class SynthesisTextDocumentService implements TextDocumentService {
                 }
 
                 if (target != null) {
-                    RelateCommand relateCmd = new RelateCommand();
+                    RelationService relateCmd = new RelationService();
                     Map<String, List<String>> fileNameIndex = new HashMap<>();
                     for (SearchResult f : allFiles) {
                         fileNameIndex.computeIfAbsent(f.fileName(), k -> new ArrayList<>())
                                 .add(f.relativePath());
                     }
 
-                    RelateCommand.RelationshipMap relMap = new RelateCommand.RelationshipMap(target.relativePath());
+                    RelationService.RelationshipMap relMap = new RelationService.RelationshipMap(target.relativePath());
                     relateCmd.analyzeOutgoingRefs(target, workspaceRoot, relMap, fileNameIndex);
                     relateCmd.analyzeIncomingRefs(target, allFiles, workspaceRoot, relMap);
 
