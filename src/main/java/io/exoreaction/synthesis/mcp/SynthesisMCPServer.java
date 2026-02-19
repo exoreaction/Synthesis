@@ -731,6 +731,14 @@ public class SynthesisMCPServer {
         format.put("description", "Output format");
         properties.set("format", format);
 
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        since.put("description", "Include recent changes in the AI analysis. " +
+                "Supports durations (7d, 24h, 2w, 3m) and ISO dates (2026-01-15). " +
+                "Loads changelog data and injects it into the AI prompt. " +
+                "Bypasses cache — always generates fresh results.");
+        properties.set("since", since);
+
         ObjectNode noAi = mapper.createObjectNode();
         noAi.put("type", "boolean");
         noAi.put("default", false);
