@@ -1,23 +1,28 @@
 name: synthesis-staging-management
-version: 1.0.0
+version: 1.1.0
 description: |
   Manage temporary/incoming files in staging workspaces (Downloads, Screenshots).
-  Track, classify, promote, and expire staged files with retention policies.
+  Track, classify, promote, route, and expire staged files with retention policies.
+  Supports content-intelligence routing: files are auto-routed by org keyword
+  classification even when the filename alone gives no hint (e.g. "Appendix H.pdf").
 
 trigger_phrases:
   - "staging files"
   - "manage downloads"
   - "classify downloads"
+  - "route downloads"
+  - "auto route files"
   - "promote file"
   - "expired files"
   - "staging stats"
   - "cleanup staging"
   - "review downloads"
+  - "route staged files"
 
 instructions: |
   # Synthesis Staging Management
 
-  **New in v1.4.1:** Manage temporary/incoming files with time-based retention and promotion workflows.
+  Manage temporary/incoming files with time-based retention, auto-classification, and content-intelligent routing.
 
   ---
 
@@ -95,26 +100,79 @@ instructions: |
 
   **Purpose:** Register newly downloaded files in the staging database.
 
+  ### 7. Route Files to Permanent Destinations
+  ```bash
+  # Dry-run — see what would happen
+  synthesis -d /home/totto/Downloads staging route --dry-run --verbose 2>/dev/null
+
+  # Route for real
+  synthesis -d /home/totto/Downloads staging route 2>/dev/null
+  ```
+
+  **How routing works (two-pass):**
+
+  **Pass 1 — filename pattern rules** (defined in `routing.rules` in config.yaml):
+  - Glob patterns matched against the file's basename
+  - First matching rule wins; file is copied to `destination` directory
+  - Source is renamed to `*_processed.*` (not deleted)
+  - `→` prefix in output
+
+  **Pass 2 — content intelligence fallback** (when `autoClassify: true`):
+  - Files not matched by any rule go through `DownloadsClassifier.classifyWithCompanion()`
+  - Reads filename keywords **and** the enriched `.synthesis.md` companion file (if present)
+  - This unlocks classification of files like `Appendix H.pdf` whose filename has no org hint
+  - Files above `classificationThreshold` (default 0.5) are auto-routed — `~` prefix in output
+  - Files below the threshold get a suggestion but aren't moved — `?` in verbose mode
+  - Files with no org match stay unmatched
+
+  **Output example:**
+  ```
+  → Synthesis-Proposal-2026.pdf          # matched by rule
+  ~ Appendix-H.pdf  (content: Merkabit)  # classified via companion content
+
+  Routed: 2 (1 by rule, 1 by content)  |  Suggestions: 1  |  No match: 0
+  ```
+
+  **To get the best content-routing results, enrich first:**
+  ```bash
+  synthesis -d /home/totto/Downloads enrich --type pdf 2>/dev/null
+  synthesis -d /home/totto/Downloads staging route 2>/dev/null
+  ```
+
   ---
 
   ## Staging Workflows
 
-  ### Workflow 1: Daily Download Review
+  ### Workflow 1: Automated Routing (Recommended Daily Cron)
+  ```bash
+  # The full pipeline — run in order
+  synthesis -d /home/totto/Downloads staging ingest 2>/dev/null   # register new files
+  synthesis -d /home/totto/Downloads enrich --type pdf 2>/dev/null # extract PDF content
+  synthesis -d /home/totto/Downloads staging route 2>/dev/null     # route by rule + content
+  synthesis -d /home/totto/Downloads maintain 2>/dev/null          # housekeeping
+  ```
+
+  Or via the wrapper:
+  ```bash
+  synthesis maintain  # runs ingest + route + housekeeping
+  ```
+
+  ### Workflow 2: Daily Download Review
   ```bash
   # 1. Check what's new
   synthesis -d /home/totto/Downloads staging list 2>/dev/null
 
-  # 2. View stats
-  synthesis -d /home/totto/Downloads staging stats 2>/dev/null
+  # 2. Preview routing (dry-run with verbose suggestions)
+  synthesis -d /home/totto/Downloads staging route --dry-run --verbose 2>/dev/null
 
-  # 3. Promote important files
+  # 3. Route for real
+  synthesis -d /home/totto/Downloads staging route 2>/dev/null
+
+  # 4. Manually promote any remaining files
   synthesis -d /home/totto/Downloads staging promote "proposal.pdf" --to documents --dest "eXOReaction/clients/ItemConsulting/" 2>/dev/null
-
-  # 4. Check for expired files
-  synthesis -d /home/totto/Downloads staging expire --dry-run 2>/dev/null
   ```
 
-  ### Workflow 2: Weekly Cleanup
+  ### Workflow 3: Weekly Cleanup
   ```bash
   # 1. Find expired files (dry-run)
   synthesis -d /home/totto/Downloads staging expire --dry-run 2>/dev/null
@@ -126,7 +184,7 @@ instructions: |
   synthesis -d /home/totto/Downloads scan 2>/dev/null
   ```
 
-  ### Workflow 3: Screenshot Management
+  ### Workflow 4: Screenshot Management
   ```bash
   # List screenshots by age
   synthesis -d /home/totto/Pictures staging list 2>/dev/null
@@ -147,9 +205,19 @@ instructions: |
   staging:
     enabled: true
     retentionDays: 30              # Auto-expire after 30 days
-    autoClassify: true             # Run DownloadsClassifier
-    classificationThreshold: 0.5   # Min confidence
+    autoClassify: true             # Enable content-intelligence routing fallback
+    classificationThreshold: 0.5   # Min confidence to auto-route (0.0-1.0)
     cleanupExpired: false          # Manual cleanup
+
+  routing:
+    copyCompanions: true           # Move .synthesis.md alongside routed files
+    rules:
+      - name: "Synthesis docs"
+        patterns: ["Synthesis_*.pdf", "synthesis-*.md"]
+        destination: "/home/totto/Documents/eXOReaction/products/synthesis/"
+      - name: "Invoices"
+        patterns: ["*invoice*.pdf", "*faktura*.pdf"]
+        destination: "/home/totto/Documents/eXOReaction/finance/invoices/"
   ```
 
   **Pictures/Screenshots** (`/home/totto/Pictures/.synthesis/config.yaml`):
@@ -163,20 +231,35 @@ instructions: |
 
   ---
 
-  ## Auto-Classification
+  ## Auto-Classification & Content Routing
 
   **Downloads workspace** has auto-classification enabled via `DownloadsClassifier`:
 
   **What it does:**
-  - Analyzes file names and content
-  - Maps files to organizations (eXOReaction, Quadim, Cantara)
-  - Suggests destination paths
+  - Analyses filename keywords against the organization registry
+  - Reads text content (markdown, txt, etc.) for additional signals
+  - **Reads `.synthesis.md` companion files** — this is the key for PDFs and images whose
+    filenames give no hint (e.g., `Appendix H.pdf`, `Screenshot_1234.png`)
+  - Maps files to organizations via keyword index
+  - Suggests destination paths based on org + file type
   - Flags software installers for skipping (.deb, .exe, .dmg)
 
-  **Example:**
+  **Signals used (in order):**
+  1. Filename keywords (weight: 0.5 per match)
+  2. File content — text-readable files only (weight: 0.3 per org)
+  3. Companion `.synthesis.md` content — always text-readable (weight: 0.3 per org)
+
+  **Example — filename has a hint:**
   - File: `elprint-invoice-2026-02.pdf`
-  - Classification: Organization = eXOReaction, Client = Elprint
-  - Suggestion: `eXOReaction/clients/Elprint/finance/invoices/`
+  - Classified as: eXOReaction → `eXOReaction/clients/Elprint/business/`
+
+  **Example — filename has NO hint (issue #71 scenario):**
+  - File: `Appendix H.pdf`
+  - Companion `Appendix H.pdf.synthesis.md` contains: "Merkabit consulting engagement…"
+  - Classified as: Merkabit → `Merkabit/business/Appendix H.pdf`
+  - Without companion: would fall through to "No match"
+
+  **Tip:** Run `synthesis enrich --type pdf` before routing to maximise companion coverage.
 
   ---
 
@@ -246,10 +329,12 @@ instructions: |
 
   ## Error Handling
 
-  - **"Staging not configured"** - Add `staging:` section to workspace config
-  - **"No files found"** - Run `staging ingest` to register new files
-  - **Promotion fails** - Check destination path exists, check permissions
-  - **Classification confidence low** - Manually specify destination with `--dest`
+  - **"Staging not configured"** — Add `staging:` section to workspace config
+  - **"No routing rules defined"** — Either add `routing.rules` to config, or ensure `autoClassify: true` for content routing
+  - **"No files found"** — Run `staging ingest` to register new files
+  - **Promotion fails** — Check destination path exists, check permissions
+  - **Classification confidence low / files stay unmatched** — Run `synthesis enrich --type pdf` first to populate companion files; then re-route
+  - **Wrong org classified** — Check keyword index: `synthesis org list`; add/remove keywords from organization config
 
   ---
 

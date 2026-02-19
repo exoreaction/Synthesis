@@ -1,5 +1,5 @@
 {
-  "version": "1.8.4",
+  "version": "1.9.5",
   "generatedBy": "Synthesis",
   "description": "Bundled Claude Code skills for Synthesis knowledge infrastructure",
   "skills": [
@@ -169,7 +169,7 @@
       "file": "synthesis-staging-management.yaml",
       "command": "staging",
       "category": "operations",
-      "description": "Manage temporary files in staging workspaces"
+      "description": "Manage temporary files in staging workspaces with content-intelligent routing"
     },
     {
       "name": "synthesis-subworkspace-navigation",
