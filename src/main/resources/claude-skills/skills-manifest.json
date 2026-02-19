@@ -1,203 +1,277 @@
 {
-  "version": "1.9.9",
+  "version": "1.10.3",
   "generatedBy": "Synthesis",
   "description": "Bundled Claude Code skills for Synthesis knowledge infrastructure",
   "skills": [
+    {
+      "name": "synthesis-agent-patterns",
+      "file": "synthesis-agent-patterns.md",
+      "command": "agent",
+      "category": "development",
+      "description": "Agent interaction patterns and conventions for Synthesis",
+      "tier": 1,
+      "triggers": ["agent", "patterns", "conventions", "development"]
+    },
     {
       "name": "synthesis-architecture-monitoring",
       "file": "synthesis-architecture-monitoring.yaml",
       "command": "architecture",
       "category": "analysis",
-      "description": "Monitor architecture quality and detect anti-patterns"
+      "description": "Monitor architecture quality and detect anti-patterns",
+      "tier": 2,
+      "triggers": ["architecture", "monitoring", "anti-pattern", "quality"]
     },
     {
       "name": "synthesis-ask-workspace",
       "file": "synthesis-ask-workspace.yaml",
       "command": "ask",
       "category": "ai",
-      "description": "AI-powered workspace Q&A"
+      "description": "AI-powered workspace Q&A",
+      "tier": 2,
+      "triggers": ["ask", "question", "ai", "workspace"]
+    },
+    {
+      "name": "synthesis-benchmark",
+      "file": "synthesis-benchmark.md",
+      "command": "benchmark",
+      "category": "development",
+      "description": "Benchmark methodology and results for Synthesis evaluation",
+      "tier": 3,
+      "triggers": ["benchmark", "performance", "evaluation"]
     },
     {
       "name": "synthesis-changelog-reports",
       "file": "synthesis-changelog-reports.yaml",
       "command": "changelog",
       "category": "tracking",
-      "description": "Cross-workspace change reporting with snapshots and executive summaries"
+      "description": "Cross-workspace change reporting with snapshots and executive summaries",
+      "tier": 2,
+      "triggers": ["changelog", "changes", "report", "tracking"]
     },
     {
       "name": "synthesis-context",
       "file": "synthesis-context.yaml",
       "command": "context",
       "category": "context",
-      "description": "Synthesis company and product context (auto-loaded)"
+      "description": "Synthesis company and product context (auto-loaded)",
+      "tier": 2,
+      "triggers": ["context", "company", "product"]
     },
     {
       "name": "synthesis-database-migrations",
       "file": "synthesis-database-migrations.md",
       "command": "migrations",
       "category": "development",
-      "description": "Flyway database migration patterns for Synthesis"
+      "description": "Flyway database migration patterns for Synthesis",
+      "tier": 2,
+      "triggers": ["database", "migration", "flyway", "sqlite"]
     },
     {
       "name": "synthesis-development",
       "file": "synthesis-development.md",
       "command": "development",
       "category": "development",
-      "description": "Synthesis development guide and conventions"
+      "description": "Synthesis development guide and conventions",
+      "tier": 1,
+      "triggers": ["development", "architecture", "patterns", "contribute"]
     },
     {
       "name": "synthesis-enrich-media",
       "file": "synthesis-enrich-media.yaml",
       "command": "enrich",
       "category": "media",
-      "description": "Make binary media files searchable with companion metadata"
+      "description": "Make binary media files searchable with companion metadata",
+      "tier": 2,
+      "triggers": ["enrich", "media", "video", "audio", "image", "pdf"]
     },
     {
       "name": "synthesis-explain-code",
       "file": "synthesis-explain-code.yaml",
       "command": "explain",
       "category": "ai",
-      "description": "AI-powered code explanations"
+      "description": "AI-powered code explanations",
+      "tier": 2,
+      "triggers": ["explain", "code", "understand"]
     },
     {
       "name": "synthesis-export-docs",
       "file": "synthesis-export-docs.yaml",
       "command": "export",
       "category": "documentation",
-      "description": "Export workspace index as documentation in multiple formats"
+      "description": "Export workspace index as documentation in multiple formats",
+      "tier": 2,
+      "triggers": ["export", "documentation", "docs"]
     },
     {
       "name": "synthesis-graph-architecture",
       "file": "synthesis-graph-architecture.yaml",
       "command": "graph",
       "category": "visualization",
-      "description": "Generate visual architecture diagrams with Mermaid or DOT"
+      "description": "Generate visual architecture diagrams with Mermaid or DOT",
+      "tier": 2,
+      "triggers": ["graph", "diagram", "mermaid", "architecture", "dependency"]
     },
     {
       "name": "synthesis-insights-metrics",
       "file": "synthesis-insights-metrics.yaml",
       "command": "insights",
       "category": "analysis",
-      "description": "Deep codebase analysis with actionable metrics"
+      "description": "Deep codebase analysis with actionable metrics",
+      "tier": 2,
+      "triggers": ["insights", "metrics", "analysis", "health"]
     },
     {
       "name": "synthesis-interactive-cli",
       "file": "synthesis-interactive-cli.md",
       "command": "ask --interactive",
       "category": "ai",
-      "description": "Interactive multi-turn AI conversations about workspace content"
+      "description": "Interactive multi-turn AI conversations about workspace content",
+      "tier": 2,
+      "triggers": ["interactive", "cli", "conversation"]
     },
     {
       "name": "synthesis-learn-skills",
       "file": "synthesis-learn-skills.yaml",
       "command": "learn",
       "category": "ai",
-      "description": "Auto-generate Claude Code skills from workspace knowledge"
+      "description": "Auto-generate Claude Code skills from workspace knowledge",
+      "tier": 2,
+      "triggers": ["learn", "skills", "generate"]
     },
     {
       "name": "synthesis-linkedin-campaign",
       "file": "synthesis-linkedin-campaign.yaml",
       "command": "linkedin",
       "category": "marketing",
-      "description": "Execute 9-week LinkedIn campaign for Synthesis"
+      "description": "Execute 9-week LinkedIn campaign for Synthesis",
+      "tier": 3,
+      "triggers": ["linkedin", "campaign", "marketing"]
     },
     {
       "name": "synthesis-metrics-tracking",
       "file": "synthesis-metrics-tracking.md",
       "command": "metrics",
       "category": "development",
-      "description": "MCP tool metrics tracking and performance analysis"
-    },
-    {
-      "name": "synthesis-pilot-dist",
-      "file": "synthesis-pilot-dist.yaml",
-      "command": "pilot",
-      "category": "operations",
-      "description": "Create personalized Synthesis pilot distribution zip for a named recipient"
-    },
-    {
-      "name": "synthesis-report-verification",
-      "file": "synthesis-report-verification.yaml",
-      "command": "report",
-      "category": "development",
-      "description": "Verify report command quality, document discovery, and write report module tests"
+      "description": "MCP tool metrics tracking and performance analysis",
+      "tier": 2,
+      "triggers": ["metrics", "tracking", "performance", "mcp"]
     },
     {
       "name": "synthesis-perspectives-analysis",
       "file": "synthesis-perspectives-analysis.yaml",
       "command": "perspectives",
       "category": "ai",
-      "description": "Multi-perspective directed synthesis analysis"
+      "description": "Multi-perspective directed synthesis analysis",
+      "tier": 2,
+      "triggers": ["perspectives", "analysis", "directed"]
+    },
+    {
+      "name": "synthesis-pilot-dist",
+      "file": "synthesis-pilot-dist.yaml",
+      "command": "pilot",
+      "category": "operations",
+      "description": "Create personalized Synthesis pilot distribution zip for a named recipient",
+      "tier": 2,
+      "triggers": ["pilot", "distribution", "onboarding"]
     },
     {
       "name": "synthesis-product-context",
       "file": "synthesis-product-context.yaml",
       "command": "context",
       "category": "context",
-      "description": "Comprehensive Synthesis product context (auto-loaded)"
+      "description": "Comprehensive Synthesis product context (auto-loaded)",
+      "tier": 1,
+      "triggers": ["product", "context", "business", "overview"]
     },
     {
       "name": "synthesis-relate-dependencies",
       "file": "synthesis-relate-dependencies.yaml",
       "command": "relate",
       "category": "analysis",
-      "description": "Show bidirectional file relationships and dependencies"
+      "description": "Show bidirectional file relationships and dependencies",
+      "tier": 2,
+      "triggers": ["relate", "dependency", "impact", "relationship"]
     },
     {
       "name": "synthesis-release-manager",
       "file": "synthesis-release-manager.yaml",
       "command": "release",
       "category": "development",
-      "description": "Manage Synthesis releases, PRs, and version updates"
+      "description": "Manage Synthesis releases, PRs, and version updates",
+      "tier": 2,
+      "triggers": ["release", "version", "deploy"]
+    },
+    {
+      "name": "synthesis-report-verification",
+      "file": "synthesis-report-verification.yaml",
+      "command": "report",
+      "category": "development",
+      "description": "Verify report command quality, document discovery, and write report module tests",
+      "tier": 2,
+      "triggers": ["report", "verification", "quality"]
     },
     {
       "name": "synthesis-scoped-search",
       "file": "synthesis-scoped-search.yaml",
       "command": "search --scope",
       "category": "search",
-      "description": "Search within specific sub-workspaces"
+      "description": "Search within specific sub-workspaces",
+      "tier": 2,
+      "triggers": ["search", "scope", "subworkspace"]
     },
     {
       "name": "synthesis-search-workspace",
       "file": "synthesis-search-workspace.yaml",
       "command": "search",
       "category": "search",
-      "description": "Full-text search across all indexed workspace files"
-    },
-    {
-      "name": "synthesis-summary",
-      "file": "synthesis-summary.yaml",
-      "command": "summary",
-      "category": "ai",
-      "description": "AI-powered executive summaries with optional temporal context from changelog data"
+      "description": "Full-text search across all indexed workspace files",
+      "tier": 1,
+      "triggers": ["search", "find", "query", "lookup"]
     },
     {
       "name": "synthesis-staging-management",
       "file": "synthesis-staging-management.yaml",
       "command": "staging",
       "category": "operations",
-      "description": "Manage temporary files in staging workspaces with content-intelligent routing"
+      "description": "Manage temporary files in staging workspaces with content-intelligent routing",
+      "tier": 2,
+      "triggers": ["staging", "files", "route", "ingest"]
     },
     {
       "name": "synthesis-subworkspace-navigation",
       "file": "synthesis-subworkspace-navigation.yaml",
       "command": "list",
       "category": "navigation",
-      "description": "Navigate and explore sub-workspace hierarchies"
+      "description": "Navigate and explore sub-workspace hierarchies",
+      "tier": 2,
+      "triggers": ["subworkspace", "navigate", "list", "hierarchy"]
+    },
+    {
+      "name": "synthesis-summary",
+      "file": "synthesis-summary.yaml",
+      "command": "summary",
+      "category": "ai",
+      "description": "AI-powered executive summaries with optional temporal context from changelog data",
+      "tier": 2,
+      "triggers": ["summary", "executive", "overview", "since"]
     },
     {
       "name": "synthesis-track-movements",
       "file": "synthesis-track-movements.yaml",
       "command": "track",
       "category": "tracking",
-      "description": "Track file movements with hash-based detection"
+      "description": "Track file movements with hash-based detection",
+      "tier": 2,
+      "triggers": ["track", "movement", "rename", "move"]
     },
     {
       "name": "synthesis-workspace-management",
       "file": "synthesis-workspace-management.md",
       "command": "init",
       "category": "operations",
-      "description": "Workspace creation, configuration, and management"
+      "description": "Workspace creation, configuration, and management",
+      "tier": 2,
+      "triggers": ["workspace", "init", "scan", "manage"]
     }
   ]
 }
