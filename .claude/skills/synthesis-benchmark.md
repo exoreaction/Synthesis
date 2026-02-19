@@ -107,6 +107,26 @@ For business docs: synthesis search "query" 2>/dev/null
 
 Compare answer against rubric in BENCHMARK-DESIGN.md. Score 0-3 per task.
 
+## Phase 3 Results: 3-Condition Comparison (Feb 19, 2026)
+
+39 sessions total (12 Baseline + 12 Skills-only + 13 Full + 2 Full clean re-runs). All 3/3 correctness.
+
+| Condition | Avg tool calls | Δ vs Baseline |
+|---|---|---|
+| Baseline | 14.2 | — |
+| Skills-only | 7.9 | **-44.1%** |
+| Full | 9.8 | **-31.3%** |
+
+**Surprise finding: Skills-only outperforms Full on 10/12 tasks.**
+
+CLAUDE.md context tells agents which files to read → eliminates exploration cycles. Synthesis search adds overhead when agents already know the file locations. Search wins on E1 (cross-workspace business docs) and C3 (test file location not in skills).
+
+**Key Phase 3 findings:**
+1. CLAUDE.md/skills are the primary efficiency driver, not search
+2. Search adds most value for "cold discovery" tasks where skills don't name the files
+3. All 39 sessions: 3/3 correctness — efficiency without correctness loss
+4. Clean re-runs of B2/C2 with #86 fixed confirm results (not lock artifacts)
+
 ## MVP Results Summary (3 runs, Feb 19, 2026)
 
 | Run | Setup | Avg Δ tokens | Avg Δ tool calls | Notes |
@@ -115,32 +135,25 @@ Compare answer against rubric in BENCHMARK-DESIGN.md. Score 0-3 per task.
 | Run 1b | `-d /src/exoreaction`, inconsistent PATH | -13.6% | -4.2% | Mixed — B1 CLI unavailable |
 | Run 2 | `-d /src/exoreaction` + explicit PATH | -13.3% | -9.3% | B1 still failed (wrong path) |
 
-**All 12 Full-condition sessions: 3/3 correctness.** B1 search consistently failed across all 3 runs.
-
 **B1 root cause (resolved):** B1 agent used `/home/totto/src/exoreaction` as `-d` path. That directory has no `.synthesis/` index → exit code 1. Fix: explicit note in prompts about two-paths distinction.
 
-**Key finding:** CLAUDE.md/skills reliably save 12-20% tokens (robust). Working search adds -28-42% tool call reduction (sensitive to correct `-d` path).
+## Phase 3 Status: COMPLETE ✅
 
-## Phase 3 Status: UNBLOCKED ✅
+**Phase 4 plan:**
+1. "Cold discovery" tasks — tasks where CLAUDE.md doesn't help, to show search's true value
+2. Token counts for all 12 tasks across all 3 conditions
+3. Harder tasks where Opus may score < 3/3
+4. 4-point rubric: differentiate "correct but shallow" from "correct and comprehensive"
 
-**#86 fixed in 1.10.0** — `SearchIndex.openReadOnly()` eliminates write.lock contention.
-Parallel agents can now search simultaneously without lock failures.
-
-**Phase 3 plan:**
-1. Add Skills-only condition (isolate CLAUDE.md vs search contributions)
-2. Run agents in parallel — no lock issues on 1.10.0+
-3. Collect token counts for all 12 tasks (currently only MVP tasks have tokens)
-4. Add harder tasks where Opus may score < 3/3
-5. 4-point rubric: differentiate "correct but shallow" from "correct and comprehensive"
-
-## Known Design Flaws (to fix in Phase 3)
+## Known Design Flaws
 
 1. ~~**write.lock contention**~~ → **Fixed in 1.10.0 (#86)**
-2. **No Skills-only condition** → Can't separate CLAUDE.md vs search contributions
+2. ~~**No Skills-only condition**~~ → **Completed in Phase 3**
 3. **D1/Full prompt revealed the answer** → Confounds token comparison
 4. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled)
 5. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
 6. **All tasks too easy for Opus** → All scored 3/3, no differentiation
+7. **Tasks biased toward known files** → Skills-only wins most tasks; need cold discovery tasks
 
 ## Related
 
