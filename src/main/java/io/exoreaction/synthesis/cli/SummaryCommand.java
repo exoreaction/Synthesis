@@ -111,10 +111,13 @@ public class SummaryCommand implements Callable<Integer> {
             SummaryPerspective summaryPerspective = SummaryPerspective.fromString(perspective);
 
             // Phase 3: Check cache (if enabled)
+            // Bypass cache when --since is provided: temporal context is dynamic
+            // and must always reflect the current change window.
             String indexFingerprint = SummaryCache.generateIndexFingerprint(workspace.getIndexPath());
             SummaryResult result = null;
+            boolean useCache = !noCache && (since == null || since.isBlank());
 
-            if (!noCache) {
+            if (useCache) {
                 try {
                     SynthesisDatabase db = SynthesisDatabase.getDefault();
                     Connection conn = db.getConnection();
@@ -207,8 +210,8 @@ public class SummaryCommand implements Callable<Integer> {
                         profile, summaryLevel, summaryPerspective, generationTime);
                 }
 
-                // Phase 3: Store in cache
-                if (!noCache) {
+                // Phase 3: Store in cache (skip for temporal results — they are always fresh)
+                if (useCache) {
                     try {
                         SynthesisDatabase db = SynthesisDatabase.getDefault();
                         Connection conn = db.getConnection();

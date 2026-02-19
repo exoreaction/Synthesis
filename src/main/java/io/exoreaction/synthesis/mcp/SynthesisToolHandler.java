@@ -1005,12 +1005,13 @@ public class SynthesisToolHandler {
             io.exoreaction.synthesis.summary.SummaryPerspective summaryPerspective =
                 io.exoreaction.synthesis.summary.SummaryPerspective.fromString(perspective);
 
-            // Phase 3: Check cache
+            // Phase 3: Check cache (bypass when 'since' is provided — temporal results are always fresh)
             String indexFingerprint = io.exoreaction.synthesis.summary.SummaryCache
                 .generateIndexFingerprint(workspace.getIndexPath());
             io.exoreaction.synthesis.summary.SummaryResult result = null;
+            boolean useCache = !noCache && (since == null || since.isBlank());
 
-            if (!noCache) {
+            if (useCache) {
                 try {
                     io.exoreaction.synthesis.db.SynthesisDatabase db =
                         io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
@@ -1092,8 +1093,8 @@ public class SynthesisToolHandler {
                         profile, summaryLevel, summaryPerspective, generationTime);
                 }
 
-                // Store in cache
-                if (!noCache) {
+                // Store in cache (skip for temporal results — they are always fresh)
+                if (useCache) {
                     try {
                         io.exoreaction.synthesis.db.SynthesisDatabase db =
                             io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();

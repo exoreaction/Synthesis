@@ -85,4 +85,22 @@ class SummaryCommandTest {
         assertNull(cmd.parseSince("5x"), "Should return null for unknown unit");
         assertNull(cmd.parseSince("5y"), "Should return null for unsupported unit");
     }
+
+    // --- parseSince delegates to ChangedCommand ---
+
+    @Test
+    void parseSince_delegatesToChangedCommand_deterministicInputs() {
+        // Null, blank and invalid inputs all return null from both callers
+        assertNull(cmd.parseSince(null));
+        assertNull(cmd.parseSince(""));
+        assertNull(cmd.parseSince("invalid"));
+        assertNull(cmd.parseSince("5x"));
+
+        // ISO date is deterministic — both calls must return the same Instant
+        assertEquals(
+            io.exoreaction.synthesis.cli.ChangedCommand.parseSince("2026-01-15"),
+            cmd.parseSince("2026-01-15"),
+            "ISO date parse must agree with ChangedCommand"
+        );
+    }
 }
