@@ -94,27 +94,25 @@ then parallelized 6 reads simultaneously. 13 calls vs 15 Baseline (-13.3%).
 
 ---
 
-## Pattern 6: Sequential Searches Avoid Lock Contention
+## Pattern 6: Parallel Search Is Now Safe (1.10.0+)
 
-Lucene's IndexWriter holds an exclusive `write.lock`. Multiple simultaneous `synthesis search`
-calls from parallel agents will fail with "lock held by another program" (exit code 1, no results).
+**✅ Fixed in 1.10.0 (#86)** — `SearchIndex.openReadOnly()` opens via `DirectoryReader`
+with no write.lock. Multiple agents can search the same index simultaneously.
 
 ```bash
-# Safe — sequential:
+# Safe in 1.10.0+ — all these can run in parallel:
 synthesis search -d /src/exoreaction "first query" 2>/dev/null
 synthesis search -d /src/exoreaction "second query" 2>/dev/null
-
-# Risky — parallel (in background or concurrent agents):
-# May fail silently — fallback to Glob/Grep if exit code 1
 ```
 
-**If synthesis search fails unexpectedly, check exit code:**
+**If synthesis search still fails unexpectedly, check exit code:**
 ```bash
 synthesis search -d /src/exoreaction "query" 2>/dev/null
-echo "exit: $?"  # 0 = success, 1 = lock or workspace error
+echo "exit: $?"  # 0 = success, 1 = wrong workspace path or index missing
 ```
 
-Issue #86 filed for read-only search support. Until fixed, run searches sequentially.
+On older versions (<1.10.0): lock contention caused 3/8 parallel tasks to fail in
+the Phase 2 benchmark. Upgrade to 1.10.0 to eliminate this entirely.
 
 ---
 

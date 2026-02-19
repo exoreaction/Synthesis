@@ -15,7 +15,7 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.9.9-SNAPSHOT (as of Feb 19, 2026)
+- **Version:** 1.10.1-SNAPSHOT (as of Feb 19, 2026)
 - **Tests:** 2,540+ (JUnit 5)
 - **License:** MIT
 
@@ -274,7 +274,7 @@ cd /src/exoreaction/Synthesis
 mvn exec:java -Dexec.mainClass="io.exoreaction.synthesis.SynthesisApp" -Dexec.args="status"
 
 # Via JAR
-java -jar target/synthesis-1.8.4-SNAPSHOT-jar-with-dependencies.jar status
+java -jar target/synthesis-1.10.1-SNAPSHOT-jar-with-dependencies.jar status
 ```
 
 ### Adding a New CLI Command
@@ -412,7 +412,11 @@ Config sections:
 ### AI & Enrichment Commands
 | Command | Description |
 |---------|-------------|
+| `synthesis summary` | AI executive briefing (4-6 sentences, grounded in metrics) |
+| `synthesis summary --level manager --since 7d` | Manager briefing with real changelog data injected |
+| `synthesis summary --perspective architect` | Role-specific lens (8 perspectives available) |
 | `synthesis enrich [file]` | Local media enrichment (Whisper, Tesseract) |
+| `synthesis enrich --path <dir>` | Target enrichment to specific subdirectory |
 | `synthesis explain <file>` | AI code explanation |
 | `synthesis learn` | Generate Claude Code skills |
 | `synthesis learn --install` | Install skills to ~/.claude/skills/ |

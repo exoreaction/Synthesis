@@ -121,19 +121,34 @@ Compare answer against rubric in BENCHMARK-DESIGN.md. Score 0-3 per task.
 
 **Key finding:** CLAUDE.md/skills reliably save 12-20% tokens (robust). Working search adds -28-42% tool call reduction (sensitive to correct `-d` path).
 
-## Known Design Flaws (fix before Phase 2)
+## Phase 3 Status: UNBLOCKED ✅
 
-1. **Wrong workspace in Full prompts** → Missing `-d` (Run 1) or wrong path `/home/totto/src/exoreaction` (B1 failure)
-2. **D1/Full prompt revealed the answer** → Confounds token comparison
-3. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled accelerant)
-4. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
-5. **All tasks too easy for Opus** → All scored 3/3, no differentiation
+**#86 fixed in 1.10.0** — `SearchIndex.openReadOnly()` eliminates write.lock contention.
+Parallel agents can now search simultaneously without lock failures.
+
+**Phase 3 plan:**
+1. Add Skills-only condition (isolate CLAUDE.md vs search contributions)
+2. Run agents in parallel — no lock issues on 1.10.0+
+3. Collect token counts for all 12 tasks (currently only MVP tasks have tokens)
+4. Add harder tasks where Opus may score < 3/3
+5. 4-point rubric: differentiate "correct but shallow" from "correct and comprehensive"
+
+## Known Design Flaws (to fix in Phase 3)
+
+1. ~~**write.lock contention**~~ → **Fixed in 1.10.0 (#86)**
+2. **No Skills-only condition** → Can't separate CLAUDE.md vs search contributions
+3. **D1/Full prompt revealed the answer** → Confounds token comparison
+4. **MEMORY.md in Baseline** → D1/Baseline found answer in MEMORY.md (uncontrolled)
+5. **BENCHMARK-DESIGN.md in source tree** → F1/Full agent read it (contamination)
+6. **All tasks too easy for Opus** → All scored 3/3, no differentiation
 
 ## Related
 
 - `synthesis-search-workspace` skill — workspace routing table and `-d` flag guide
-- GitHub issues: #81 (stale anchor detection), #82 (auto-update activity log), #85 (workspace auto-discovery)
+- `synthesis-agent-patterns` skill — 8 patterns for agents using synthesis
+- GitHub issues: #85 (workspace auto-discovery), #87 (workspace error message), #88 (drift detection)
 - BENCHMARK-DESIGN.md — full task rubrics and statistical design
+- `benchmark/results/synthesis-benchmark-report.md` — clean final report
 
 ---
 

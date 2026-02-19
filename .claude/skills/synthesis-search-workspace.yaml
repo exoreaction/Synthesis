@@ -52,9 +52,9 @@ instructions: |
   # Should show "X results for: test" — if not, wrong path or index missing
   ```
 
-  **Parallel search contention:** Running multiple `synthesis search` calls simultaneously may fail
-  with "lock held by another program" (Lucene write.lock). If this happens, run searches sequentially
-  or fall back to Glob/Grep. Issue #86 filed for read-only search support.
+  **Parallel search:** ✅ Fixed in 1.10.0 (#86) — `SearchIndex.openReadOnly()` uses
+  `DirectoryReader` with no write.lock. Multiple agents can now search the same index
+  simultaneously without contention.
 
   ---
 
