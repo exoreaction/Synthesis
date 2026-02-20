@@ -134,4 +134,94 @@ class DirectorySignalExtractorTest {
 
         assertEquals(1, signals.fileCount(), "Subdirectory should not be counted");
     }
+
+    // ---- #178: new token patterns ----
+
+    @Test
+    void extract_automationTokens_infersAutomationType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("finish-overnight.sh"));
+        Files.createFile(tempDir.resolve("run-deploy.sh"));
+        Files.createFile(tempDir.resolve("automation-setup.sh"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("automation"),
+                "Expected 'automation' in types, got: " + signals.inferredTypes());
+        assertTrue(signals.inferredTypes().contains("scripts"),
+                "Expected 'scripts' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_guideToken_infersGuideType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("getting-started-guide.md"));
+        Files.createFile(tempDir.resolve("user-guide.md"));
+        Files.createFile(tempDir.resolve("quick-guide.md"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("guide"),
+                "Expected 'guide' in types, got: " + signals.inferredTypes());
+        assertTrue(signals.inferredTypes().contains("documentation"),
+                "Expected 'documentation' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_executiveToken_infersExecutiveType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("executive-report-2026-02-18.md"));
+        Files.createFile(tempDir.resolve("executive-summary-q1.md"));
+        Files.createFile(tempDir.resolve("executive-brief.pdf"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("executive"),
+                "Expected 'executive' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_reportToken_infersReportType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("weekly-overview.md"));
+        Files.createFile(tempDir.resolve("sprint-digest.md"));
+        Files.createFile(tempDir.resolve("monthly-summary.md"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("report"),
+                "Expected 'report' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_templateToken_infersTemplateType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("meeting-template.md"));
+        Files.createFile(tempDir.resolve("report-template.md"));
+        Files.createFile(tempDir.resolve("project-template.yaml"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("template"),
+                "Expected 'template' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_runbookToken_infersRunbookType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("deploy-runbook.md"));
+        Files.createFile(tempDir.resolve("incident-playbook.md"));
+        Files.createFile(tempDir.resolve("ops-checklist.md"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("runbook") || signals.inferredTypes().contains("operations"),
+                "Expected 'runbook' or 'operations' in types, got: " + signals.inferredTypes());
+    }
+
+    @Test
+    void extract_artifactToken_infersArtifactType(@TempDir Path tempDir) throws IOException {
+        Files.createFile(tempDir.resolve("data-export.zip"));
+        Files.createFile(tempDir.resolve("build-artifact.tar"));
+        Files.createFile(tempDir.resolve("dist-package.zip"));
+
+        DirectorySignals signals = extractor.extract(tempDir);
+
+        assertTrue(signals.inferredTypes().contains("artifact"),
+                "Expected 'artifact' in types, got: " + signals.inferredTypes());
+    }
 }

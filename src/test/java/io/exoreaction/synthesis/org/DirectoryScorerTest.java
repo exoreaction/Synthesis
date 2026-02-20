@@ -267,4 +267,104 @@ class DirectoryScorerTest {
         assertFalse(results.get(0).blocked(), "First candidate should not be blocked");
         assertTrue(results.get(1).blocked(), "Second candidate should be blocked");
     }
+
+    // ---- #177: EXTENSION_TYPE_MAP additions ----
+
+    private DirectoryCandidate candidate(Path dir, List<String> types, List<String> formats) {
+        DirectoryIdentity identity = new DirectoryIdentity(
+                types, formats, List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        return new DirectoryCandidate(dir, identity);
+    }
+
+    @Test
+    void score_zipFile_matchesArtifactDirectory() {
+        Path dir = tempDir.resolve("artifacts");
+        Path file = tempDir.resolve("exports.zip");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("artifact"), List.of("zip")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() > 0,
+                "zip should match artifact type, score=" + results.get(0).contentScore());
+    }
+
+    @Test
+    void score_xlsxFile_matchesDataDirectory() {
+        Path dir = tempDir.resolve("data");
+        Path file = tempDir.resolve("report.xlsx");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("spreadsheet", "data"), List.of("xlsx")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() >= 0.5,
+                "xlsx should match spreadsheet/data, score=" + results.get(0).contentScore());
+    }
+
+    @Test
+    void score_yamlFile_matchesAutomationDirectory() {
+        Path dir = tempDir.resolve("automation");
+        Path file = tempDir.resolve("deploy.yaml");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("automation", "config"), List.of("yaml", "yml")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() >= 0.5,
+                "yaml should match automation/config, score=" + results.get(0).contentScore());
+    }
+
+    @Test
+    void score_csvFile_matchesDataDirectory() {
+        Path dir = tempDir.resolve("data");
+        Path file = tempDir.resolve("metrics.csv");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("data"), List.of("csv")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() >= 0.5,
+                "csv should match data type, score=" + results.get(0).contentScore());
+    }
+
+    @Test
+    void score_sqlFile_matchesDatabaseDirectory() {
+        Path dir = tempDir.resolve("database");
+        Path file = tempDir.resolve("schema.sql");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("data", "database"), List.of("sql")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() >= 0.5,
+                "sql should match database type, score=" + results.get(0).contentScore());
+    }
+
+    @Test
+    void score_docxFile_matchesDocumentDirectory() {
+        Path dir = tempDir.resolve("documents");
+        Path file = tempDir.resolve("proposal.docx");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+        List<DirectoryCandidate> candidates = List.of(
+                candidate(dir, List.of("document"), List.of("docx")));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).contentScore() >= 0.5,
+                "docx should match document type, score=" + results.get(0).contentScore());
+    }
 }
