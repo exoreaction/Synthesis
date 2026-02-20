@@ -97,4 +97,70 @@ class DirectoryNameVocabularyTest {
         assertTrue(result.get().acceptsFormats().contains("sh"));
         assertTrue(result.get().acceptsFormats().contains("py"));
     }
+
+    // ---- #176: new vocabulary entries ----
+
+    @Test
+    void inferFromName_guidesDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("guides", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'guides'");
+        assertTrue(result.get().acceptsTypes().contains("guide"));
+        assertTrue(result.get().acceptsTypes().contains("documentation"));
+        assertTrue(result.get().acceptsFormats().contains("md"));
+        assertTrue(result.get().acceptsFormats().contains("pdf"));
+        assertEquals(0.8, result.get().confidence(), 0.001);
+    }
+
+    @Test
+    void inferFromName_executiveReportsDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("executive-reports", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'executive-reports'");
+        assertTrue(result.get().acceptsTypes().contains("executive"));
+        assertTrue(result.get().acceptsTypes().contains("report"));
+        assertTrue(result.get().acceptsFormats().contains("md"));
+        assertEquals(0.85, result.get().confidence(), 0.001);
+    }
+
+    @Test
+    void inferFromName_knowledgeInfrastructureDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("knowledge-infrastructure", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'knowledge-infrastructure'");
+        assertTrue(result.get().acceptsTypes().contains("knowledge"));
+        assertTrue(result.get().acceptsTypes().contains("infrastructure"));
+        assertTrue(result.get().acceptsFormats().contains("md"));
+        assertEquals(0.7, result.get().confidence(), 0.001);
+    }
+
+    @Test
+    void inferFromName_templatesDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("templates", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'templates'");
+        assertTrue(result.get().acceptsTypes().contains("template"));
+        assertTrue(result.get().acceptsFormats().contains("md"));
+        assertEquals(0.75, result.get().confidence(), 0.001);
+    }
+
+    @Test
+    void inferFromName_runbooksDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("runbooks", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'runbooks'");
+        assertTrue(result.get().acceptsTypes().contains("runbook"));
+        assertTrue(result.get().acceptsTypes().contains("operations"));
+        assertTrue(result.get().acceptsFormats().contains("md"));
+        assertEquals(0.85, result.get().confidence(), 0.001);
+    }
+
+    @Test
+    void inferFromName_playbooksDir() {
+        Optional<DirectoryIdentity> result = vocabulary.inferFromName("playbooks", workspaceScope());
+
+        assertTrue(result.isPresent(), "Expected identity for 'playbooks'");
+        assertTrue(result.get().acceptsTypes().contains("runbook"));
+        assertTrue(result.get().acceptsTypes().contains("operations"));
+    }
 }

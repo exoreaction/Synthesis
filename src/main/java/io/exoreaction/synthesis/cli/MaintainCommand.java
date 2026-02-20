@@ -106,6 +106,13 @@ public class MaintainCommand implements Callable<Integer> {
     )
     private boolean sync;
 
+    @Option(
+            names = {"--rebalance"},
+            description = "Move archive files that score ≥ 0.5 against a directory identity back to active directories",
+            defaultValue = "false"
+    )
+    private boolean rebalance;
+
     @Override
     public Integer call() {
         long startMs = System.nanoTime();
@@ -268,6 +275,24 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
+            // --- Integration: Archive rebalance ---
+            if (rebalance) {
+                try {
+                    Path archiveDir = workspaceRoot.resolve("archive");
+                    if (Files.isDirectory(archiveDir)) {
+                        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspaceRoot, null);
+                        int moved = rebalanceArchive(archiveDir, router, workspaceRoot);
+                        if (moved > 0) {
+                            System.out.println("  Rebalance: " + moved + " file(s) moved from archive to active directories");
+                        } else {
+                            System.out.println("  Rebalance: no archive files qualify for active directory routing");
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("  Warning: Archive rebalance failed: " + e.getMessage());
+                }
+            }
+
             // --- Integration: Knowledge Edge scanning ---
             try {
                 List<Path> skillDirs = new java.util.ArrayList<>();
@@ -353,6 +378,42 @@ public class MaintainCommand implements Callable<Integer> {
             long elapsed = (System.nanoTime() - startMs) / 1_000_000;
             parent.getMetrics().recordMcpInvocation("maintain", metricsWs, elapsed, null, metricsSuccess, null);
         }
+    }
+
+    /**
+     * Walks the archive directory and moves any file that scores ≥ 0.7 against
+     * a non-ambiguous identity-declared directory back into that active directory.
+     *
+     * @return the number of files moved
+     */
+    int rebalanceArchive(Path archiveDir, DirectoryIdentityRouter router, Path workspaceRoot)
+            throws IOException {
+        int moved = 0;
+        List<Path> archiveFiles = new ArrayList<>();
+        try (Stream<Path> walk = Files.walk(archiveDir)) {
+            walk.filter(Files::isRegularFile).forEach(archiveFiles::add);
+        }
+        for (Path file : archiveFiles) {
+            Optional<DirectoryIdentityRouter.RouteResult> routed = router.route(file, 0.5);
+            if (routed.isPresent() && !routed.get().ambiguous()) {
+                Path dest = routed.get().directory();
+                Files.createDirectories(dest);
+                try {
+                    Files.move(file, dest.resolve(file.getFileName()));
+                    if (verbose) {
+                        System.out.println("    " + workspaceRoot.relativize(file)
+                                + " → " + workspaceRoot.relativize(dest));
+                    }
+                    moved++;
+                } catch (IOException e) {
+                    if (verbose) {
+                        System.err.println("    Could not move " + file.getFileName()
+                                + ": " + e.getMessage());
+                    }
+                }
+            }
+        }
+        return moved;
     }
 
     private int runFullScan(WorkspaceManager workspace, SynthesisConfig config, Path workspaceRoot) throws IOException {

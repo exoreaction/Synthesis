@@ -14,13 +14,18 @@ import java.util.*;
  */
 public class DirectoryNameVocabulary {
 
-    private static final double INFERRED_CONFIDENCE = 0.6;
+    private static final double DEFAULT_CONFIDENCE = 0.6;
     private static final String INFERRED_SOURCE = "inferred from directory name";
 
     /**
-     * An identity template holding content types and accepted formats.
+     * An identity template holding content types, accepted formats, and per-entry confidence.
      */
-    private record IdentityTemplate(List<String> types, List<String> formats) {}
+    private record IdentityTemplate(List<String> types, List<String> formats, double confidence) {
+        /** Convenience constructor using the default confidence (0.6). */
+        IdentityTemplate(List<String> types, List<String> formats) {
+            this(types, formats, DEFAULT_CONFIDENCE);
+        }
+    }
 
     /** Map from normalized name (lowercase, separators stripped) to template. */
     private static final Map<String, IdentityTemplate> VOCABULARY;
@@ -102,7 +107,7 @@ public class DirectoryNameVocabulary {
 
         // Automation / scripts
         IdentityTemplate automation = new IdentityTemplate(
-                List.of("automation", "scripts"), List.of("sh", "py", "md"));
+                List.of("automation", "scripts"), List.of("sh", "py", "md"), 0.8);
         map.put("automation", automation);
         map.put("scripts", automation);
 
@@ -110,6 +115,37 @@ public class DirectoryNameVocabulary {
         IdentityTemplate reports = new IdentityTemplate(
                 List.of("report"), List.of("md", "pdf", "docx"));
         map.put("reports", reports);
+
+        // Guides / tutorials (#176)
+        IdentityTemplate guides = new IdentityTemplate(
+                List.of("guide", "documentation"), List.of("md", "pdf"), 0.8);
+        map.put("guides", guides);
+        map.put("tutorials", guides);
+        map.put("howtos", guides);
+
+        // Executive reports (#176)
+        IdentityTemplate executiveReports = new IdentityTemplate(
+                List.of("executive", "report"), List.of("md", "pdf"), 0.85);
+        map.put("executivereports", executiveReports);
+        map.put("execreports", executiveReports);
+
+        // Knowledge infrastructure (#176)
+        IdentityTemplate knowledge = new IdentityTemplate(
+                List.of("knowledge", "infrastructure"), List.of("md"), 0.7);
+        map.put("knowledgeinfrastructure", knowledge);
+        map.put("knowledge", knowledge);
+
+        // Templates (#176)
+        IdentityTemplate templates = new IdentityTemplate(
+                List.of("template"), List.of("md", "yaml"), 0.75);
+        map.put("templates", templates);
+
+        // Runbooks / playbooks (#176)
+        IdentityTemplate runbooks = new IdentityTemplate(
+                List.of("runbook", "operations"), List.of("md"), 0.85);
+        map.put("runbooks", runbooks);
+        map.put("playbooks", runbooks);
+        map.put("ops", runbooks);
 
         VOCABULARY = Collections.unmodifiableMap(map);
     }
@@ -123,7 +159,7 @@ public class DirectoryNameVocabulary {
      *
      * @param directoryName the name of the directory (not the full path)
      * @param scope         the resolved organizational scope for the directory
-     * @return an optional identity with confidence 0.6, or empty if unrecognized
+     * @return an optional identity with the template's confidence, or empty if unrecognized
      */
     public Optional<DirectoryIdentity> inferFromName(String directoryName, ScopeResolver.ResolvedScope scope) {
         if (directoryName == null || directoryName.isBlank()) {
@@ -144,7 +180,7 @@ public class DirectoryNameVocabulary {
                 scope.level(),
                 scope.organization(),
                 scope.entity(),
-                INFERRED_CONFIDENCE,
+                template.confidence(),
                 Instant.now(),
                 INFERRED_SOURCE,
                 ""

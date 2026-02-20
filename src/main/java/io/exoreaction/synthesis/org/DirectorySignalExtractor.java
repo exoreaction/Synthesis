@@ -184,8 +184,35 @@ public class DirectorySignalExtractor {
             if (token.contains("presentation") || token.contains("slide") || token.contains("deck")) {
                 types.add("presentation");
             }
-            if (token.equals("report") || token.equals("analysis") || token.equals("summary")) {
+            if (token.equals("report") || token.equals("analysis") || token.equals("summary")
+                    || token.equals("overview") || token.equals("digest")) {
                 types.add("report");
+            }
+            if (token.contains("automation") || token.contains("automate")
+                    || token.equals("script") || token.equals("cron")
+                    || token.equals("run") || token.equals("finish")) {
+                types.add("automation");
+                types.add("scripts");
+            }
+            if (token.contains("guide") || token.contains("howto")
+                    || token.contains("tutorial") || token.contains("walkthrough")) {
+                types.add("guide");
+                types.add("documentation");
+            }
+            if (token.equals("executive") || token.equals("exec")
+                    || token.equals("cto") || token.equals("ceo") || token.equals("board")) {
+                types.add("executive");
+            }
+            if (token.equals("template") || token.equals("boilerplate") || token.equals("skeleton")) {
+                types.add("template");
+            }
+            if (token.equals("runbook") || token.equals("playbook") || token.equals("ops")) {
+                types.add("runbook");
+                types.add("operations");
+            }
+            if (token.equals("export") || token.equals("artifact")
+                    || token.equals("build") || token.equals("dist")) {
+                types.add("artifact");
             }
         }
     }

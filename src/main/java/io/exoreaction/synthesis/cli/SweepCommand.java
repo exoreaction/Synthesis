@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
+import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -168,9 +170,13 @@ public class SweepCommand implements Callable<Integer> {
             }
         }
 
+        // Create identity router for the second routing pass (skipped when --archive-only)
+        DirectoryIdentityRouter identityRouter = archiveOnly ? null
+                : new DirectoryIdentityRouter(workspaceRoot, null);
+
         // Compute per-file destinations
         Map<SweepCandidate, Path> destinations =
-                resolveDestinations(candidates, workspaceRoot, rules, ruleMatchers, archiveDest);
+                resolveDestinations(candidates, workspaceRoot, rules, ruleMatchers, archiveDest, identityRouter);
 
         // Group and print
         printCandidates(candidates, workspaceRoot, destinations, archiveDest);
@@ -302,6 +308,8 @@ public class SweepCommand implements Callable<Integer> {
      * Resolves the destination directory for each candidate.
      * Files matching routing rules go to the rule's destination (relative to workspace root
      * if not absolute); unmatched files fall back to {@code archiveFallback}.
+     *
+     * <p>Backward-compatible overload (no identity router): used by existing tests.
      */
     static Map<SweepCandidate, Path> resolveDestinations(
             List<SweepCandidate> candidates,
@@ -309,9 +317,25 @@ public class SweepCommand implements Callable<Integer> {
             List<RoutingRule> rules,
             List<List<PathMatcher>> ruleMatchers,
             Path archiveFallback) {
+        return resolveDestinations(candidates, workspaceRoot, rules, ruleMatchers, archiveFallback, null);
+    }
+
+    /**
+     * Resolves the destination directory for each candidate, using directory identity routing
+     * as a fallback between config rules and the archive.
+     *
+     * @param identityRouter optional router (null = skip identity routing, as in --archive-only)
+     */
+    static Map<SweepCandidate, Path> resolveDestinations(
+            List<SweepCandidate> candidates,
+            Path workspaceRoot,
+            List<RoutingRule> rules,
+            List<List<PathMatcher>> ruleMatchers,
+            Path archiveFallback,
+            DirectoryIdentityRouter identityRouter) {
         Map<SweepCandidate, Path> result = new LinkedHashMap<>();
         for (SweepCandidate c : candidates) {
-            result.put(c, resolveDestination(c.path(), workspaceRoot, rules, ruleMatchers, archiveFallback));
+            result.put(c, resolveDestination(c.path(), workspaceRoot, rules, ruleMatchers, archiveFallback, identityRouter));
         }
         return result;
     }
@@ -325,12 +349,36 @@ public class SweepCommand implements Callable<Integer> {
      *   <li>Companion keyword matching ({@code <file>.synthesis.md}) per rule</li>
      *   <li>Archive fallback if no rule matches</li>
      * </ol>
+     *
+     * <p>Backward-compatible overload (no identity router): used by existing tests.
      */
     static Path resolveDestination(Path file, Path workspaceRoot,
                                     List<RoutingRule> rules,
                                     List<List<PathMatcher>> ruleMatchers,
                                     Path archiveFallback) {
-        if (rules.isEmpty()) return archiveFallback;
+        return resolveDestination(file, workspaceRoot, rules, ruleMatchers, archiveFallback, null);
+    }
+
+    /**
+     * Determines the destination directory for a single file.
+     *
+     * <p>Evaluation order:
+     * <ol>
+     *   <li>Glob patterns from each routing rule (filename only)</li>
+     *   <li>Companion keyword matching ({@code <file>.synthesis.md}) per rule</li>
+     *   <li>Directory identity routing (if {@code identityRouter} is non-null and a
+     *       non-ambiguous candidate scores ≥ 0.5)</li>
+     *   <li>Archive fallback if nothing matches</li>
+     * </ol>
+     *
+     * @param identityRouter optional router (null = skip identity routing)
+     */
+    static Path resolveDestination(Path file, Path workspaceRoot,
+                                    List<RoutingRule> rules,
+                                    List<List<PathMatcher>> ruleMatchers,
+                                    Path archiveFallback,
+                                    DirectoryIdentityRouter identityRouter) {
+        if (rules.isEmpty() && identityRouter == null) return archiveFallback;
         Path basename = file.getFileName();
         for (int i = 0; i < rules.size(); i++) {
             RoutingRule rule = rules.get(i);
@@ -346,6 +394,13 @@ public class SweepCommand implements Callable<Integer> {
                 if (StagingCommand.companionMatchesKeywords(companionPath, rule.getKeywords())) {
                     return toAbsoluteDest(rule.getDestination(), workspaceRoot);
                 }
+            }
+        }
+        // Pass 2: directory identity routing (config rules take precedence)
+        if (identityRouter != null) {
+            Optional<DirectoryIdentityRouter.RouteResult> routed = identityRouter.route(file, 0.5);
+            if (routed.isPresent() && !routed.get().ambiguous()) {
+                return routed.get().directory();
             }
         }
         return archiveFallback;

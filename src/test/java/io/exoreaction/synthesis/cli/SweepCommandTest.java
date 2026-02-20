@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
+import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -370,6 +371,113 @@ class SweepCommandTest {
                 SweepCommand.resolveDestinations(List.of(c), workspace, List.of(), List.of(), archive);
 
         assertEquals(archive, result.get(c));
+    }
+
+    // -------------------------------------------------------------------------
+    // resolveDestination — directory identity routing (#175)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void resolveDestination_identityRouter_routesToIdentityDir() throws IOException {
+        // Set up a directory with a .synthesis.md declaring it accepts "scripts" / "sh"
+        Path scriptDir = Files.createDirectories(workspace.resolve("automation"));
+        Files.writeString(scriptDir.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"automation\"\n      - \"scripts\"\n"
+                + "    formats:\n      - \"sh\"\n      - \"py\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                + "    organization: null\n    entity: null\n  confidence: 0.7\n---\n");
+
+        Path file = workspace.resolve("run-batch.sh");
+        Files.writeString(file, "#!/bin/bash");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        Path result = SweepCommand.resolveDestination(
+                file, workspace, List.of(), List.of(), archive, router);
+
+        assertEquals(scriptDir, result,
+                "sh file should be routed to the automation dir via identity routing");
+    }
+
+    @Test
+    void resolveDestination_configRulePrecedesIdentityRouter() throws IOException {
+        // Identity dir accepts markdown
+        Path identityDir = Files.createDirectories(workspace.resolve("docs"));
+        Files.writeString(identityDir.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"documentation\"\n"
+                + "    formats:\n      - \"md\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                + "    organization: null\n    entity: null\n  confidence: 0.6\n---\n");
+
+        // Config rule routes *.md to a different directory
+        Path configDest = workspace.resolve("archive/reports");
+        Path file = workspace.resolve("TONIGHT-NOTES.md");
+        Files.writeString(file, "notes");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        RoutingRule rule = buildRule("Reports", List.of("*.md"), List.of(), "archive/reports");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+
+        Path result = SweepCommand.resolveDestination(
+                file, workspace, List.of(rule), matchers, archive, router);
+
+        assertEquals(configDest, result,
+                "Config rule should take precedence over directory identity router");
+    }
+
+    @Test
+    void resolveDestination_noIdentityMatch_fallsBackToArchive() throws IOException {
+        // Identity dir only accepts presentations, not markdown
+        Path presentationsDir = Files.createDirectories(workspace.resolve("presentations"));
+        Files.writeString(presentationsDir.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"presentation\"\n"
+                + "    formats:\n      - \"pptx\"\n      - \"pdf\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                + "    organization: null\n    entity: null\n  confidence: 0.7\n---\n");
+
+        Path file = workspace.resolve("TONIGHT-NOTES.md");
+        Files.writeString(file, "notes");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        Path result = SweepCommand.resolveDestination(
+                file, workspace, List.of(), List.of(), archive, router);
+
+        assertEquals(archive, result,
+                "No identity match for .md in presentation dir; should fall back to archive");
+    }
+
+    @Test
+    void resolveDestinations_withRouter_identityRoutesUnmatchedFiles() throws IOException {
+        // Set up identity dir accepting markdown/documentation
+        Path docsDir = Files.createDirectories(workspace.resolve("knowledge-infrastructure"));
+        Files.writeString(docsDir.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"documentation\"\n"
+                + "    formats:\n      - \"md\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                + "    organization: null\n    entity: null\n  confidence: 0.6\n---\n");
+
+        // .sh gets config rule; .md goes to identity router
+        Path sh = workspace.resolve("run.sh");
+        Files.writeString(sh, "#!/bin/bash");
+        Path md = workspace.resolve("2024-REPORT.md");
+        Files.writeString(md, "# Report");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        SweepCommand.SweepCandidate cSh = new SweepCommand.SweepCandidate(
+                sh, SweepCommand.Category.SCRIPTS, "script", 60);
+        SweepCommand.SweepCandidate cMd = new SweepCommand.SweepCandidate(
+                md, SweepCommand.Category.COMPLETED_REPORTS, "dated", 60);
+
+        RoutingRule rule = buildRule("Scripts", List.of("*.sh"), List.of(), "automation");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+
+        Map<SweepCommand.SweepCandidate, Path> result =
+                SweepCommand.resolveDestinations(
+                        List.of(cSh, cMd), workspace, List.of(rule), matchers, archive, router);
+
+        assertEquals(workspace.resolve("automation"), result.get(cSh),
+                ".sh should be config-routed to automation");
+        assertEquals(docsDir, result.get(cMd),
+                ".md should be identity-routed to knowledge-infrastructure");
     }
 
     // -------------------------------------------------------------------------

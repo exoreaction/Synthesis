@@ -80,14 +80,28 @@ public class DirectoryScorer {
     private static final Map<String, Set<String>> EXTENSION_TYPE_MAP = Map.ofEntries(
             Map.entry("sh", Set.of("automation", "scripts")),
             Map.entry("bash", Set.of("automation", "scripts")),
-            Map.entry("py", Set.of("automation", "scripts")),
-            Map.entry("md", Set.of("documentation", "meeting-notes", "report", "business")),
+            Map.entry("py", Set.of("automation", "scripts", "code")),
+            Map.entry("md", Set.of("documentation", "meeting-notes", "report", "business", "guide")),
             Map.entry("pdf", Set.of("documentation", "report", "presentation", "invoice", "financial", "contract", "legal")),
             Map.entry("png", Set.of("media", "visual")),
             Map.entry("jpg", Set.of("media", "visual")),
             Map.entry("jpeg", Set.of("media", "visual")),
+            Map.entry("gif", Set.of("media", "visual")),
+            Map.entry("mp4", Set.of("media", "visual")),
             Map.entry("pptx", Set.of("presentation", "slides")),
-            Map.entry("ppt", Set.of("presentation", "slides"))
+            Map.entry("ppt", Set.of("presentation", "slides")),
+            Map.entry("docx", Set.of("document")),
+            Map.entry("doc", Set.of("document")),
+            Map.entry("xlsx", Set.of("spreadsheet", "data")),
+            Map.entry("xls", Set.of("spreadsheet", "data")),
+            Map.entry("csv", Set.of("data", "spreadsheet")),
+            Map.entry("json", Set.of("data", "config")),
+            Map.entry("yaml", Set.of("config", "automation")),
+            Map.entry("yml", Set.of("config", "automation")),
+            Map.entry("sql", Set.of("data", "database")),
+            Map.entry("zip", Set.of("archive", "artifact")),
+            Map.entry("tar", Set.of("archive", "artifact")),
+            Map.entry("gz", Set.of("archive", "artifact"))
     );
 
     private final ScopeChecker scopeChecker;
