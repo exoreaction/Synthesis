@@ -127,7 +127,7 @@ synthesis release                       # Release management
 
 ## Skills Navigation
 
-**Skills directory:** `.claude/skills/` (25 skills)
+**Skills directory:** `.claude/skills/` (31 skills — 2 new added Feb 19, 2026: `synthesis-knowledge-integrity`, `synthesis-task-routing`)
 
 ### Using Synthesis as a Tool (also available globally)
 
@@ -151,6 +151,15 @@ These skills describe how to USE Synthesis features — valid both when working 
 | `synthesis-report-verification` | `synthesis report` | Verify and generate reports |
 | `synthesis-changelog-reports` | `synthesis changelog` | Cross-workspace change reports |
 | `synthesis-subworkspace-navigation` | `synthesis list` | Navigate multiple workspaces |
+
+### Benchmark & Knowledge Integrity (NEW: Feb 19, 2026)
+
+| Skill | Purpose |
+|-------|---------|
+| `synthesis-benchmark` | Full benchmark history, conditions, results, design flaws |
+| `synthesis-knowledge-integrity` | Three failure modes (stale/silent/ambiguous), trust calibration, roadmap |
+| `synthesis-task-routing` | Task-shape taxonomy: when each approach wins (routing tier) |
+| `synthesis-agent-patterns` | 8 patterns for agents using synthesis effectively |
 
 ### Product Context
 
@@ -191,6 +200,33 @@ These skills describe how to USE Synthesis features — valid both when working 
 - **`staging route` content-intelligence fallback (issue #71):** When `autoClassify: true` (default), unmatched files are classified via `DownloadsClassifier.classifyWithCompanion()` — reads the companion `.synthesis.md` if present. Files above `classificationThreshold` (default 0.5) are auto-routed (`~` prefix in output); below-threshold matches become suggestions. Run `synthesis enrich` first to populate companions for PDFs/images.
 - **`synthesis explain --file <name>` bare filename resolution:** Accepts absolute, workspace-relative, or bare filename. Falls back to `index.search()` if not on disk — exact filename match preferred over score. On failure suggests `synthesis search <name>`.
 - **`synthesis summary --since` temporal context:** Parses `7d`/`24h`/`2w`/`3m`/`2026-01-15`, loads `ChangeEvent`s from `SnapshotManager.getChangesForWorkspace()`, injects compact change summary into the AI prompt (not just the output). Requires `synthesis maintain` to have run at least once to populate snapshots.
+
+---
+
+## Knowledge Integrity Direction (Feb 19, 2026)
+
+A Phase 5 benchmark session identified a product direction shift: from retrieval to knowledge integrity.
+
+**The insight:** All 90 benchmark sessions scored 3/3 correctness, but agents with skills sometimes
+got faster but less complete/current answers than agents exploring from scratch. Skills can contain
+stale data, miss undocumented patterns, or provide structural facts without semantic intent.
+
+**Three failure modes:**
+1. **Stale** — skill says X, source now says X + more
+2. **Silent** — complex patterns exist in code, no skill documents them
+3. **Ambiguous** — same fact, missing intent ("V7 missing" vs "V7 intentionally reserved")
+
+**Product direction:** `synthesis verify` (#93), `synthesis gaps` (#94), confidence metadata (#95/#102),
+unified knowledge graph (#100→#101→#102).
+
+**Key quote (Opus analysis, Feb 19):**
+> *"The market for faster search is crowded. The market for trustworthy AI context is empty."*
+
+**Documentation:**
+- Opus analysis: `~/Documents/benchmark-phase4/opus-knowledge-integrity-analysis-2026-02-19.md`
+- Session chronicle: `~/Documents/benchmark-phase4/SESSION-CHRONICLE-2026-02-19.md`
+- Phase 5 results: `~/Documents/benchmark-phase4/phase5-results.md`
+- GitHub issues filed: #93–#113 (20 issues from this session)
 
 ---
 
