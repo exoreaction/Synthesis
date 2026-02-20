@@ -18,7 +18,7 @@ AI tools made developers 10x faster at creating code — but comprehension speed
 - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
 - Local-only processing — zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 2,497 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 2,751 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
