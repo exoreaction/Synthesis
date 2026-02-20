@@ -113,6 +113,27 @@ public class MaintainCommand implements Callable<Integer> {
     )
     private boolean rebalance;
 
+    @Option(
+            names = {"--dry-run"},
+            description = "Preview all 9 maintenance phases without making changes",
+            defaultValue = "false"
+    )
+    private boolean dryRun;
+
+    @Option(
+            names = {"--skip-downloads"},
+            description = "Skip phases 1 and 2 (ingest + route from staging areas)",
+            defaultValue = "false"
+    )
+    private boolean skipDownloads;
+
+    @Option(
+            names = {"--quiet"},
+            description = "Show summary line only (for cron jobs)",
+            defaultValue = "false"
+    )
+    private boolean quiet;
+
     @Override
     public Integer call() {
         long startMs = System.nanoTime();
@@ -122,8 +143,6 @@ public class MaintainCommand implements Callable<Integer> {
             Path workspaceRoot = parent.getWorkspaceRoot();
             metricsWs = workspaceRoot.toString();
 
-            AnsiOutput.printHeader("Synthesis - Maintain Workspace");
-
             // Validate workspace
             WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
             var validation = workspace.validate();
@@ -132,8 +151,17 @@ public class MaintainCommand implements Callable<Integer> {
                 return 1;
             }
 
-            // Load config and previous scan state
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+
+            // --- New 9-phase orchestrator path (unless --report is set) ---
+            if (!reportOnly) {
+                return runOrchestrator(workspaceRoot, config, startMs);
+            }
+
+            // --- Legacy report-only path (kept for backward compat) ---
+            AnsiOutput.printHeader("Synthesis - Maintain Workspace");
+
+            // Load config and previous scan state
             Path scanStatePath = workspace.getScanStatePath();
 
             if (!ScanState.exists(scanStatePath)) {
@@ -379,6 +407,107 @@ public class MaintainCommand implements Callable<Integer> {
             parent.getMetrics().recordMcpInvocation("maintain", metricsWs, elapsed, null, metricsSuccess, null);
         }
     }
+
+    // =========================================================================
+    // Orchestrator integration
+    // =========================================================================
+
+    /**
+     * Runs the 9-phase orchestrator and prints formatted results.
+     *
+     * @return exit code (0 = success, 1 = any phase failed)
+     */
+    private Integer runOrchestrator(Path workspaceRoot, SynthesisConfig config,
+                                     long startNanos) {
+        try {
+            MaintainOptions opts = new MaintainOptions(
+                    dryRun, verbose, skipDownloads, skipGitFetch,
+                    quiet, updateActivityLog, sync, rebalance);
+
+            MaintainOrchestrator orchestrator =
+                    new MaintainOrchestrator(workspaceRoot, opts, config);
+            MaintainResult result = orchestrator.run();
+
+            // Print results
+            printMaintainResult(result, workspaceRoot);
+
+            boolean metricsSuccess = result.allSucceeded();
+            return metricsSuccess ? 0 : 1;
+        } catch (Exception e) {
+            AnsiOutput.printError("Maintain failed: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+            return 1;
+        } finally {
+            long elapsed = (System.nanoTime() - startNanos) / 1_000_000;
+            parent.getMetrics().recordMcpInvocation(
+                    "maintain", workspaceRoot.toString(), elapsed, null, true, null);
+        }
+    }
+
+    /**
+     * Formats and prints the 9-phase result table.
+     *
+     * <pre>
+     *   [1/9] Ingest ......................... 3 new files ingested
+     *   [2/9] Route .......................... 2 file(s) routed
+     *   ...
+     *   Done in 4.2s  |  3 changes applied
+     * </pre>
+     */
+    private void printMaintainResult(MaintainResult result, Path workspaceRoot) {
+        if (!quiet) {
+            System.out.println();
+            AnsiOutput.printHeader("Synthesis - Maintain Workspace");
+            AnsiOutput.printInfo("Workspace: " + workspaceRoot);
+            System.out.println();
+        }
+
+        for (PhaseResult phase : result.phases()) {
+            if (quiet && phase.changeCount() == 0 && phase.succeeded()) {
+                continue; // Skip unchanged phases in quiet mode
+            }
+
+            String prefix = dryRun ? "(preview) " : "";
+            String phaseName = prefix + phase.name();
+            String tag = String.format("  [%d/9] %-" + (dryRun ? "20" : "10") + "s", phase.phaseNumber(), phaseName);
+
+            // Pad with dots to align the summary
+            int targetWidth = 45;
+            int dotsNeeded = Math.max(3, targetWidth - tag.length());
+            String dots = ".".repeat(dotsNeeded);
+
+            String status;
+            if (!phase.succeeded()) {
+                status = AnsiOutput.red("FAILED: " + phase.error());
+            } else if (phase.summary().startsWith("skipped")) {
+                status = AnsiOutput.dim(phase.summary());
+            } else {
+                status = phase.summary();
+            }
+
+            System.out.println(tag + " " + dots + " " + status);
+
+            // Verbose details
+            if (verbose && !phase.details().isEmpty()) {
+                for (String detail : phase.details()) {
+                    System.out.println("         " + AnsiOutput.dim(detail));
+                }
+            }
+        }
+
+        System.out.println();
+        double elapsedSec = result.elapsedMs() / 1000.0;
+        String changeSuffix = result.totalChanges() == 1 ? " change" : " changes";
+        System.out.printf("  Done in %.1fs  |  %d%s applied%n",
+                elapsedSec, result.totalChanges(), changeSuffix);
+        System.out.println();
+    }
+
+    // =========================================================================
+    // Rebalance (used by orchestrator phase 5 and legacy --rebalance flag)
+    // =========================================================================
 
     /**
      * Walks the archive directory and moves any file that scores ≥ 0.7 against
