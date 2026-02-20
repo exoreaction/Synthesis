@@ -6,7 +6,7 @@ Use this skill when deciding HOW to approach a task involving the Synthesis code
 This is a routing tier skill — it should always be loaded so agents start with the right
 strategy rather than discovering it through failed attempts.
 
-This taxonomy is empirically derived from 117 benchmark sessions (Phases 3–5, Feb 2026).
+This taxonomy is empirically derived from 128 benchmark sessions (Phases 3–6, Feb 2026).
 
 ---
 
@@ -31,17 +31,39 @@ Example: "How does `retentionDays=0` work?" → Read `MaintenanceService.java` d
 
 ---
 
+### "Find the implementation of concept X" (concept named in a skill)
+**Condition:** Task asks to find/explain/trace how a named feature or concept works, AND that
+concept is explicitly mentioned in a skill or CLAUDE.md by name.
+
+→ **Strategy: Warm task — read the relevant skill section first, then drill into source.**
+The concept is already mapped in skills. Reading the skill first avoids cold discovery overhead.
+Example: "How does the `staging route` companion file handling work?" → CLAUDE.md and
+`synthesis-staging-management` skill name the class and mechanism → read those first.
+
+**Warning:** Don't confuse with cold "find callers" tasks. If the task requires discovering
+*who else* uses the concept (not just *how* it works), that's cross-package — use search.
+
+**Benchmark (Phase 6):** C2 — classifying a named-in-skill concept as "cold" cost +200%
+tool calls vs Knowledge. Reading the skill first would have matched Knowledge performance.
+
+---
+
 ### "Find all callers / cross-package dependency / who uses X"
 **Condition:** Task requires finding references across multiple packages simultaneously.
+Signals: "who calls", "all callers of", "who uses", "find all references to", "find all usages of".
 
-→ **Strategy: `synthesis search` first.**
+→ **Strategy: `synthesis search` first. Do NOT use grep.**
 ```bash
 export PATH="$HOME/bin:/home/totto/bin:$PATH"
+synthesis search -d /src/exoreaction "MethodName" 2>/dev/null
 synthesis search -d /src/exoreaction "ClassName" 2>/dev/null
 ```
-Synthesis searches all packages simultaneously. grep requires knowing where to look.
+Synthesis searches all packages simultaneously. grep requires knowing all directories to look in.
+Using grep for cross-package callers will miss files — you don't know in advance which packages
+reference the method.
 
-**Benchmark:** P5-R1 — CLI found 27 callers across 5 packages in 3 calls. Baseline: 5 calls.
+**Benchmark:** P5-R1 — synthesis search found callers across 5 packages in 3 calls.
+Phase 6 confirmed: agents that fell back to grep missed packages and needed corrective calls.
 
 ---
 
@@ -125,7 +147,8 @@ Searches all indexed workspaces. E1 (ROI task): only condition where CLI won via
 | Task signal | Strategy | Command pattern |
 |---|---|---|
 | Named class in skills | Read directly | `Read path/ClassName.java` |
-| "Who calls X" / callers | `synthesis search` | `synthesis search -d /src/exoreaction "ClassName"` |
+| Concept named in skill (how does X work?) | Skill first, then source | Read skill section → `Read` relevant source |
+| "Who calls X" / "all callers of" | `synthesis search` (NOT grep) | `synthesis search -d /src/exoreaction "MethodName"` |
 | Architecture overview | Skill first, verify if precise | `synthesis-development` skill → selective reads |
 | Single well-named class | Grep → Read | `Glob **/*Name*.java` → `Read` |
 | Design / new feature | Direct exploration | CLAUDE.md → skill → source reads |
@@ -168,6 +191,6 @@ because routing gives agents search access on cross-package tasks where it wins.
 
 ---
 
-*Created: February 19, 2026*
-*Empirically derived from Phase 5 benchmark (27 sessions, 9 tasks × 3 conditions)*
+*Created: February 19, 2026 | Updated: February 20, 2026 (Phase 6 findings)*
+*Empirically derived from Phases 3–6 benchmark (128 sessions total)*
 *This is a routing tier skill — it should always be loaded, not loaded on demand*

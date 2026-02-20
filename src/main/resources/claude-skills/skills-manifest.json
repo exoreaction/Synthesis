@@ -1,5 +1,5 @@
 {
-  "version": "1.10.3",
+  "version": "1.10.5",
   "generatedBy": "Synthesis",
   "description": "Bundled Claude Code skills for Synthesis knowledge infrastructure",
   "skills": [
@@ -121,6 +121,15 @@
       "triggers": ["insights", "metrics", "analysis", "health"]
     },
     {
+      "name": "synthesis-knowledge-integrity",
+      "file": "synthesis-knowledge-integrity.md",
+      "command": "integrity",
+      "category": "development",
+      "description": "Know when to trust skills vs verify against source — anti-drift patterns",
+      "tier": 1,
+      "triggers": ["integrity", "stale", "drift", "verify", "trust"]
+    },
+    {
       "name": "synthesis-interactive-cli",
       "file": "synthesis-interactive-cli.md",
       "command": "ask --interactive",
@@ -236,6 +245,15 @@
       "description": "Manage temporary files in staging workspaces with content-intelligent routing",
       "tier": 2,
       "triggers": ["staging", "files", "route", "ingest"]
+    },
+    {
+      "name": "synthesis-task-routing",
+      "file": "synthesis-task-routing.md",
+      "command": "route",
+      "category": "development",
+      "description": "Routing tier skill — when each search/read strategy wins (always load this)",
+      "tier": 1,
+      "triggers": ["routing", "strategy", "search", "read", "approach"]
     },
     {
       "name": "synthesis-subworkspace-navigation",
