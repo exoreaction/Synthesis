@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -110,5 +113,35 @@ class StagingCommandUtilsTest {
     void formatDuration_multipleMinutes_allReturnMinutes(int minutes) {
         String result = StagingCommand.formatDuration(Duration.ofMinutes(minutes));
         assertEquals(minutes + "m", result);
+    }
+
+    // --- isCompanionFile ---
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "report.pdf.synthesis.md",
+        "photo.png.synthesis.md",
+        "data.csv.synthesis.md",
+        "document.docx.synthesis.md",
+        ".synthesis.md"
+    })
+    void isCompanionFile_returnsTrueForSynthesisMdSuffix(String name) {
+        assertTrue(StagingCommand.isCompanionFile(name),
+                name + " should be identified as a companion file");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "report.pdf",
+        "photo.png",
+        "notes.md",
+        "synthesis.md",
+        "report.pdf.synthesis",
+        "file.synthesis.md.bak",
+        ""
+    })
+    void isCompanionFile_returnsFalseForNonCompanionFiles(String name) {
+        assertFalse(StagingCommand.isCompanionFile(name),
+                name + " should NOT be identified as a companion file");
     }
 }

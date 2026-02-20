@@ -425,6 +425,10 @@ public class StagingCommand implements Callable<Integer> {
                     if (basename.contains("_processed")) {
                         continue;
                     }
+                    // Skip companion metadata files — they travel with their parent via copyCompanions
+                    if (StagingCommand.isCompanionFile(basename)) {
+                        continue;
+                    }
                     Path basenameAsPath = Path.of(basename);
 
                     // Find first matching rule
@@ -1061,6 +1065,8 @@ public class StagingCommand implements Callable<Integer> {
                                     // Skip already-processed files (renamed by routing)
                                     String basename = p.getFileName().toString();
                                     if (basename.contains("_processed")) return false;
+                                    // Skip companion metadata files — they travel with their parent
+                                    if (isCompanionFile(basename)) return false;
                                     // Skip files matching workspace excludePatterns
                                     for (PathMatcher matcher : excludeMatchers) {
                                         if (matcher.matches(p) || matcher.matches(Path.of(rel))) {
@@ -1280,6 +1286,20 @@ public class StagingCommand implements Callable<Integer> {
     // -----------------------------------------------------------------------
     // Utility methods
     // -----------------------------------------------------------------------
+
+    /**
+     * Returns true if the given filename is a Synthesis companion metadata file.
+     *
+     * <p>Companion files (*.synthesis.md) are created by {@code synthesis enrich} and
+     * travel alongside their parent file when routed. They must never be treated as
+     * independent routing candidates.
+     *
+     * @param basename the file's base name (not a full path)
+     * @return true if this file is a companion metadata file
+     */
+    static boolean isCompanionFile(String basename) {
+        return basename.endsWith(".synthesis.md");
+    }
 
     static String formatInstant(Instant instant) {
         if (instant == null) return "never";
