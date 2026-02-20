@@ -226,6 +226,7 @@ unified knowledge graph (#100→#101→#102).
 - Opus analysis: `~/Documents/benchmark-phase4/opus-knowledge-integrity-analysis-2026-02-19.md`
 - Session chronicle: `~/Documents/benchmark-phase4/SESSION-CHRONICLE-2026-02-19.md`
 - Phase 5 results: `~/Documents/benchmark-phase4/phase5-results.md`
+- Phase 6 results: `~/Documents/benchmark-phase4/phase6-results.md` — Fixed CLI: **-23.8% vs Baseline** (beats Knowledge at -15%)
 - GitHub issues filed: #93–#113 (20 issues from this session)
 
 ---
