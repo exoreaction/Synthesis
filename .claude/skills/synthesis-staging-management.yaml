@@ -1,5 +1,5 @@
 name: synthesis-staging-management
-version: 1.1.0
+version: 1.2.0
 description: |
   Manage temporary/incoming files in staging workspaces (Downloads, Screenshots).
   Track, classify, promote, route, and expire staged files with retention policies.
@@ -133,11 +133,24 @@ instructions: |
   Routed: 2 (1 by rule, 1 by content)  |  Suggestions: 1  |  No match: 0
   ```
 
-  **To get the best content-routing results, enrich first:**
+  **For images with unpredictable names (UUID exports, hash-named browser saves):**
+
+  Use `--enrich-first` to generate companion files on-the-fly before the classification pass:
+  ```bash
+  synthesis -d /home/totto/Downloads staging route --enrich-first 2>/dev/null
+  ```
+  This enriches unmatched IMAGE and PDF files automatically (AI level if API key available,
+  BASIC otherwise), then retries content-intelligence classification with the new companions.
+  No separate `enrich` step needed — works as a single command.
+
+  **For PDFs you want to enrich first in a separate step:**
   ```bash
   synthesis -d /home/totto/Downloads enrich --type pdf 2>/dev/null
   synthesis -d /home/totto/Downloads staging route 2>/dev/null
   ```
+
+  **Note:** `.synthesis.md` companion files are automatically excluded from routing candidates.
+  They travel alongside their parent file when the parent is routed (`copyCompanions: true`).
 
   ---
 
@@ -146,10 +159,9 @@ instructions: |
   ### Workflow 1: Automated Routing (Recommended Daily Cron)
   ```bash
   # The full pipeline — run in order
-  synthesis -d /home/totto/Downloads staging ingest 2>/dev/null   # register new files
-  synthesis -d /home/totto/Downloads enrich --type pdf 2>/dev/null # extract PDF content
-  synthesis -d /home/totto/Downloads staging route 2>/dev/null     # route by rule + content
-  synthesis -d /home/totto/Downloads maintain 2>/dev/null          # housekeeping
+  synthesis -d /home/totto/Downloads staging ingest 2>/dev/null              # register new files
+  synthesis -d /home/totto/Downloads staging route --enrich-first 2>/dev/null # enrich + route
+  synthesis -d /home/totto/Downloads maintain 2>/dev/null                    # housekeeping
   ```
 
   Or via the wrapper:
