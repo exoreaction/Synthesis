@@ -386,7 +386,7 @@ public class MaintainCommand implements Callable<Integer> {
      *
      * @return the number of files moved
      */
-    int rebalanceArchive(Path archiveDir, DirectoryIdentityRouter router, Path workspaceRoot)
+    public int rebalanceArchive(Path archiveDir, DirectoryIdentityRouter router, Path workspaceRoot)
             throws IOException {
         int moved = 0;
         List<Path> archiveFiles = new ArrayList<>();

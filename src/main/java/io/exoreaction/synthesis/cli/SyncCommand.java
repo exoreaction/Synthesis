@@ -13,7 +13,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -24,6 +27,13 @@ import java.util.stream.Stream;
  * <p>Walks workspace directories, infers directory identity using
  * {@link DirectoryNameVocabulary} and {@link DirectorySignalExtractor},
  * and writes directory-level {@code .synthesis.md} files.
+ *
+ * <p>Precedence rules for {@code .synthesis.md} generation:
+ * <ol>
+ *   <li>Hand-edited files (source: "manual") — NEVER overwritten (unless {@code --force})</li>
+ *   <li>Config sub-workspace entries → synthesized with source "config entry" (confidence 0.95)</li>
+ *   <li>Inferred identities (source: "inferred from N files") — always regeneratable</li>
+ * </ol>
  *
  * <p>Usage:
  * <pre>
@@ -79,6 +89,15 @@ public class SyncCommand implements Callable<Integer> {
 
         List<String> excludePatterns = config.getScan().getEffectiveExcludePatterns(workspaceRoot);
 
+        // Build map: normalized absolute path → SubWorkspaceConfig
+        Map<Path, SynthesisConfig.SubWorkspaceConfig> configSubWorkspaces = new HashMap<>();
+        for (SynthesisConfig.SubWorkspaceConfig sw : config.getSubWorkspaces()) {
+            if (sw.getPath() != null && !sw.getPath().isBlank()) {
+                Path normalized = workspaceRoot.resolve(sw.getPath()).normalize();
+                configSubWorkspaces.put(normalized, sw);
+            }
+        }
+
         // Load org registry (if available)
         OrganizationRegistry registry = loadOrgRegistry(workspaceRoot);
         ScopeResolver scopeResolver = new ScopeResolver(registry);
@@ -116,6 +135,68 @@ public class SyncCommand implements Callable<Integer> {
                     existing = parser.parse(synthesisFile);
                 }
 
+                // --- Precedence 1: MANUAL source — never overwrite (unless --force) ---
+                if (exists && existing != null && "manual".equals(existing.source()) && !force) {
+                    if (verbose) {
+                        System.out.println("  [MANUAL] " + workspaceRoot.relativize(dir)
+                                + " (skipping — source: manual)");
+                    }
+                    unchanged++;
+                    continue;
+                }
+
+                // --- Precedence 2: CONFIG ENTRY — generate from config sub-workspace ---
+                SynthesisConfig.SubWorkspaceConfig configEntry = configSubWorkspaces.get(dir);
+                if (configEntry != null && !force) {
+                    List<String> configTypes = deriveTypesFromConfigEntry(configEntry);
+                    DirectoryIdentity configIdentity = new DirectoryIdentity(
+                            configTypes,
+                            List.of(),   // formats (not specified in config)
+                            List.of(),   // patterns
+                            ScopeLevel.ORGANIZATION,
+                            extractOrgFromPath(workspaceRoot, dir, configEntry),
+                            extractEntityFromPath(workspaceRoot, dir, configEntry),
+                            0.95,        // high confidence: explicitly configured
+                            null,
+                            "config entry",
+                            configEntry.getDescription() != null ? configEntry.getDescription() : ""
+                    );
+
+                    // Write if no existing, or if existing is not manual
+                    if (!exists || (existing != null && !"manual".equals(existing.source()))) {
+                        // Check if anything actually changed
+                        if (exists && existing != null && isEquivalent(existing, configIdentity)) {
+                            unchanged++;
+                            if (verbose) {
+                                System.out.println("  [UNCHANGED] " + workspaceRoot.relativize(dir));
+                            }
+                            continue;
+                        }
+                        if (!dryRun) {
+                            parser.write(synthesisFile, configIdentity);
+                        }
+                        String relativePath = workspaceRoot.relativize(dir).toString();
+                        if (dryRun) {
+                            if (verbose) {
+                                printDetail(relativePath, configIdentity,
+                                        exists ? "DRY update" : "DRY create");
+                            } else {
+                                System.out.println("  [DRY] Would "
+                                        + (exists ? "update" : "create") + ": " + relativePath);
+                            }
+                        } else {
+                            if (verbose) {
+                                printDetail(relativePath, configIdentity,
+                                        exists ? "CONFIG" : "CONFIG");
+                            }
+                        }
+                        if (exists) updated++; else created++;
+                    }
+                    continue;  // Don't do inference for config-registered dirs
+                }
+
+                // --- Precedence 3: INFERENCE --- 
+
                 // Run vocabulary inference
                 Optional<DirectoryIdentity> vocabResult =
                         vocabulary.inferFromName(dir.getFileName().toString(), scope);
@@ -146,6 +227,19 @@ public class SyncCommand implements Callable<Integer> {
                         && discovered.confidence() == 0.0
                         && vocabResult.isEmpty()) {
                     continue;
+                }
+
+                // Ensure inferred identity has source set
+                if (discovered.source() == null || discovered.source().isEmpty()) {
+                    discovered = new DirectoryIdentity(
+                            discovered.acceptsTypes(), discovered.acceptsFormats(),
+                            discovered.acceptsPatterns(),
+                            discovered.scopeLevel(), discovered.scopeOrganization(),
+                            discovered.scopeEntity(),
+                            discovered.confidence(), discovered.lastSynced(),
+                            "inferred from " + signals.fileCount() + " files",
+                            discovered.description()
+                    );
                 }
 
                 // Merge with existing if applicable
@@ -231,6 +325,45 @@ public class SyncCommand implements Callable<Integer> {
     }
 
     // ---- Internal helpers ----
+
+    /**
+     * Derives a list of type strings from a {@link SynthesisConfig.SubWorkspaceConfig}.
+     * The config type is expanded into semantic types; tags are also included.
+     */
+    List<String> deriveTypesFromConfigEntry(SynthesisConfig.SubWorkspaceConfig entry) {
+        String type = entry.getType() != null ? entry.getType() : "general";
+        List<String> types = new ArrayList<>(entry.getTags());
+        switch (type) {
+            case "source-code" -> types.addAll(List.of("source", "code"));
+            case "documents" -> types.add("document");
+            case "client" -> types.add("client");
+            case "staging" -> types.add("staging");
+            case "general" -> types.add("knowledge");
+            default -> types.add(type);
+        }
+        return types;
+    }
+
+    /**
+     * Extracts the organization hint from a config entry.
+     * Uses the entry's name as the org, if set.
+     */
+    String extractOrgFromPath(Path workspaceRoot, Path dir,
+                              SynthesisConfig.SubWorkspaceConfig entry) {
+        if (entry.getName() != null && !entry.getName().isEmpty()) {
+            return entry.getName();
+        }
+        return null;
+    }
+
+    /**
+     * Extracts the entity hint from a config entry.
+     * Returns null (kept simple for now).
+     */
+    String extractEntityFromPath(Path workspaceRoot, Path dir,
+                                 SynthesisConfig.SubWorkspaceConfig entry) {
+        return null;
+    }
 
     /**
      * Builds a {@link DirectoryIdentity} from extracted signals and resolved scope.
