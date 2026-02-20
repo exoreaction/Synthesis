@@ -107,7 +107,9 @@ import java.util.concurrent.Callable;
                 DiscoverCommand.class,
                 ValidateCommand.class,
                 TraceCommand.class,
-                HealthCommand.class
+                HealthCommand.class,
+                PruneCommand.class,
+                SweepCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
