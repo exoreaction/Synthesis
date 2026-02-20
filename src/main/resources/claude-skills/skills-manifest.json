@@ -283,6 +283,15 @@
       "triggers": ["track", "movement", "rename", "move"]
     },
     {
+      "name": "synthesis-workspace-cleanup",
+      "file": "synthesis-workspace-cleanup.yaml",
+      "command": "sweep",
+      "category": "operations",
+      "description": "Workspace hygiene: health checks, sweep, prune, ttl, scatter/consolidate, naming, archive audit",
+      "tier": 2,
+      "triggers": ["cleanup", "sweep", "prune", "health", "ttl", "scatter", "consolidate", "naming", "archive", "hygiene"]
+    },
+    {
       "name": "synthesis-workspace-management",
       "file": "synthesis-workspace-management.md",
       "command": "init",

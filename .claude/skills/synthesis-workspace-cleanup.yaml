@@ -1,0 +1,257 @@
+name: synthesis-workspace-cleanup
+description: >
+  Use this skill when you need to audit, clean up, or reorganize a Synthesis workspace.
+  Covers health checks, empty-directory pruning, stale-file archival, entity fragmentation
+  analysis, naming convention audits, TTL rules, and archive auditing.
+
+---
+
+# Synthesis Workspace Cleanup Commands
+
+Synthesis v1.11.0 ships a suite of hygiene commands for keeping knowledge workspaces tidy.
+All commands support `--dry-run` and are non-destructive by default.
+
+---
+
+## synthesis health — Workspace Health Audit
+
+Audits the workspace and reports a health score (0–100).
+
+```bash
+synthesis health                # audit only (read-only)
+synthesis health --fix-config   # auto-fix phantom sub-workspace paths in config
+synthesis health --format json  # machine-readable output
+```
+
+**Checks performed:**
+| Code | Severity | Description |
+|------|----------|-------------|
+| E001 | ERROR    | Phantom sub-workspaces (configured paths that don't exist) |
+| E002 | ERROR    | Build artifacts at root (target/, node_modules/, __pycache__/) |
+| W001 | WARNING  | Empty directories (no files anywhere in subtree) |
+| W002 | WARNING  | ≥5 loose root-level files (not dirs, not hidden) |
+| I001 | INFO     | Archive percentage (large archive/ dirs noted) |
+
+**Score formula:** `100 − 15 × errors − 5 × warnings`
+**Grades:** A (90+), B (75+), C (60+), D (40+), F (<40)
+
+**`--fix-config`**: fuzzy-matches phantom paths against actual directories using
+Levenshtein distance (≤ 3 chars), updates `.synthesis/config.yaml` in-place via
+raw YAML map mutation (preserves comments).
+
+---
+
+## synthesis prune — Remove Empty Directories
+
+Recursively removes directories that contain no regular files (anywhere in subtree).
+
+```bash
+synthesis prune             # scan only — shows what would be removed
+synthesis prune --dry-run   # explicit dry-run (same as default)
+synthesis prune --yes       # prune without prompting
+synthesis prune --path reports/  # limit to a sub-path
+
+# Safety exclusions (always skipped):
+# - Dot-directories (.git, .synthesis, etc.)
+# - Directories containing a README.md
+# - Paths referenced in config sub-workspaces
+```
+
+Directories are removed deepest-first to allow parent removal in the same pass.
+
+---
+
+## synthesis sweep — Archive Stale Root-Level Files
+
+Identifies and archives stale files at the workspace root level.
+
+```bash
+synthesis sweep --dry-run          # preview (shows ROUTABLE and ARCHIVE groups)
+synthesis sweep --days 14          # lower age threshold (default: 30)
+synthesis sweep --yes              # archive without prompting
+synthesis sweep --archive-only     # skip routing, send everything to archive/
+```
+
+**File categories swept:**
+- **EPHEMERAL** — session names: `TONIGHT-*`, `*-COMPLETE.md`, `*-PLAN.md`, `*-STATUS.md`, `READY-TO-*`, `PRE-FLIGHT*`
+- **SCRIPTS** — `.sh`/`.bash` files older than `--days`
+- **ARTIFACTS** — archives (`.zip`, `.tar.gz`, `.7z`, `.rar`, etc.) regardless of age
+- **COMPLETED REPORTS** — dated names (`2024-*`, `*-2025-COMPLETE`, etc.) older than `--days`
+
+**Routing intelligence (default):** Before archiving, sweep evaluates each file against
+workspace routing rules (same pipeline as `staging route`):
+1. Glob pattern match on filename
+2. Companion `.synthesis.md` keyword match (if `synthesis enrich` has been run)
+3. Falls back to `archive/swept-{date}/` if no rule matches
+
+Dry-run output shows two groups:
+```
+  ROUTABLE (destination found):
+    run-overnight.sh         → knowledge-infrastructure/automation/
+    2024-DISCOVERY-REPORT.md → eXOReaction/business/reports/
+
+  ARCHIVE (no meaningful destination):
+    TONIGHT-NOTES.md         → archive/swept-2026-02-20/
+```
+
+Add sweep-specific rules to your config's `routing.rules` section — the same rules
+used by `staging route` are evaluated here too.
+
+---
+
+## synthesis scatter — Find Fragmented Entity Directories
+
+Detects when content about the same entity is spread across multiple locations.
+
+```bash
+synthesis scatter "Item Consulting"   # check one entity
+synthesis scatter --all               # scan entire workspace (top 20 by file count)
+synthesis scatter --all --top 10      # limit results
+synthesis scatter --all --min-files 3 # only report entities with ≥3 files per location
+```
+
+**Output example:**
+```
+  Item Consulting — 3 locations (47 files total)
+    marketing/item-consulting/     (23 files)
+    business/item-consulting/      (18 files)
+    prospects/item-consulting/     (6 files)
+  → Consider: synthesis consolidate "Item Consulting"
+```
+
+Detection logic: normalizes entity names (camelCase, hyphen, space → common form),
+uses Levenshtein distance ≤ 2 for fuzzy matching across directory names.
+
+---
+
+## synthesis consolidate — Merge Fragmented Entity Directories
+
+Action companion to `synthesis scatter` — moves fragmented directories to a single
+canonical location.
+
+```bash
+synthesis consolidate "Item Consulting"           # dry-run preview
+synthesis consolidate "Item Consulting" --execute  # actually move files
+synthesis consolidate "Item Consulting" --target clients/ItemConsulting  # explicit destination
+synthesis consolidate "Item Consulting" --symlinks  # leave symlinks at old locations
+```
+
+**Target resolution (auto):**
+1. If a `clients/` or `company/clients/` directory exists → `clients/<CamelCase>/`
+2. Otherwise → parent of the largest source directory
+
+**Cross-reference updates:** After moving, scans all `.md` files for links to old paths
+and rewrites them to the new path (skips hidden dirs).
+
+**Migration script:** Use `--dry-run` (default) to generate a bash script showing
+all `mkdir -p` + `mv` operations before executing.
+
+---
+
+## synthesis naming — Naming Convention Audit
+
+Analysis-only command that reports naming inconsistencies. Never moves anything.
+
+```bash
+synthesis naming                    # full audit
+synthesis naming --scope reports/   # limit scope
+synthesis naming --format json      # machine-readable
+```
+
+**Checks:**
+- **Singular/plural collisions** — `client/` and `clients/` at the same level
+- **Semantic duplicates** — directory names within Levenshtein distance 3 (e.g., `workshop/` vs `workshops/`)
+- **Convention drift** — mixed kebab-case, snake_case, CamelCase, SCREAMING_CASE in the same parent
+
+---
+
+## synthesis ttl — File TTL Rules
+
+Register glob-pattern rules that declare when specific files should be cleaned up.
+
+```bash
+# Register a rule
+synthesis ttl set "TONIGHT-*.md" --days 3
+synthesis ttl set "finish-overnight.sh" --days 7
+
+# List active rules
+synthesis ttl list
+
+# Check what's expired (dry-run)
+synthesis ttl check
+
+# Move expired files to archive
+synthesis ttl check --archive
+```
+
+Rules are stored in `.synthesis/ttl-rules.yaml`. Pattern is a glob (e.g., `TONIGHT-*.md`,
+`*.tmp`). Expiry = `createdAt + days`. Root-level files only.
+
+**YAML format:**
+```yaml
+rules:
+  - pattern: "TONIGHT-*.md"
+    days: 3
+    createdAt: "2026-02-20"
+  - pattern: "finish-overnight.sh"
+    days: 7
+    createdAt: "2026-02-20"
+```
+
+---
+
+## synthesis archive audit — Duplicate and Space Audit
+
+Audits the `archive/` directory for space savings opportunities.
+
+```bash
+synthesis archive audit            # full audit
+synthesis archive audit --top 20   # show top 20 large directories
+synthesis archive audit --format json
+synthesis archive audit --manifest archive-report.md  # write report to file
+```
+
+**Reports:**
+- **Duplicate files** — identical content (SHA-256), shows wasted space
+- **Build artifacts** — `target/`, `node_modules/`, `__pycache__/`, `.gradle/` in archive
+- **Largest directories** — sorted by size, with file counts
+
+---
+
+## Recommended Workflow
+
+```bash
+# 1. Health check first
+synthesis health
+
+# 2. Fix config issues
+synthesis health --fix-config
+
+# 3. Remove empty directories
+synthesis prune --yes
+
+# 4. Archive stale root files (dry-run first)
+synthesis sweep --dry-run
+synthesis sweep --yes
+
+# 5. Check TTL-ruled files
+synthesis ttl check --archive
+
+# 6. Find fragmented entities
+synthesis scatter --all
+
+# 7. Consolidate top offender
+synthesis consolidate "Entity Name" --execute
+
+# 8. Audit archive for space savings
+synthesis archive audit
+```
+
+---
+
+## Related Commands
+
+- `synthesis maintain` — housekeeping, change tracking, staging ingest/route
+- `synthesis staging route` — route Downloads files using routing rules (shares rule evaluation with `sweep`)
+- `synthesis enrich` — generate `.synthesis.md` companions for PDFs/images (enables content-based routing in sweep)
+- `synthesis prune` — empty-directory cleanup (safe to run frequently)

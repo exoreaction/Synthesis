@@ -178,6 +178,7 @@ These skills describe how to USE Synthesis features — valid both when working 
 | `synthesis-metrics-tracking` | How metrics are collected and reported |
 | `synthesis-pilot-dist` | Pilot distribution and user onboarding |
 | `synthesis-staging-management` | Team staging area management |
+| `synthesis-workspace-cleanup` | Workspace hygiene: sweep, prune, health, ttl, scatter/consolidate, naming, archive-audit |
 | `synthesis-workspace-management` | Workspace lifecycle (init, scan, maintain) |
 | `synthesis-track-movements` | File movement tracking implementation |
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
