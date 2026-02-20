@@ -309,6 +309,62 @@ class StagingManagerTest {
     }
 
     // -------------------------------------------------------------------------
+    // ingest after routing — regression tests for issue #146
+    // -------------------------------------------------------------------------
+
+    /**
+     * Regression: a re-downloaded file with the same basename as a previously
+     * routed file must NOT be silently skipped.
+     *
+     * Before the fix, ingest() used INSERT OR REPLACE, so the promoted record
+     * was overwritten and the re-ingested file appeared pending — that part was
+     * fine at the DB level. The bug was in IngestSub, which built its skip-set
+     * from ALL staging records (including promoted), so the new file was never
+     * passed to ingest() at all. This test verifies the DB contract: ingest()
+     * on a promoted path resets it to "pending".
+     */
+    @Test
+    void ingest_afterRoutedFile_createsFreshPendingRecord() throws SQLException, IOException {
+        // Set up: ingest and route a file
+        Path source = tempDir.resolve("report.pdf");
+        Files.writeString(source, "original content");
+        StagingManager.StagedFile original = manager.ingest("report.pdf", "Inbox", 16, "PDF", "hash1");
+        manager.routeTo(original, tempDir.resolve("dest/report.pdf"), false);
+
+        // Verify it is now promoted
+        assertEquals(1, manager.list("promoted").size());
+        assertEquals(0, manager.list("pending").size());
+
+        // Re-ingest same path (simulates a re-downloaded file with the same name)
+        StagingManager.StagedFile reingested = manager.ingest("report.pdf", "Inbox", 20, "PDF", "hash2");
+
+        // Must be pending again, not promoted
+        assertEquals("pending", reingested.status());
+        assertEquals(20, reingested.fileSize());
+        assertEquals("hash2", reingested.contentHash());
+
+        // DB should have exactly one record for this path, and it must be pending
+        List<StagingManager.StagedFile> pending = manager.list("pending");
+        assertEquals(1, pending.size());
+        assertEquals("report.pdf", pending.get(0).relativePath());
+    }
+
+    /**
+     * Complement: a pending file must still be deduplicated (not re-queued)
+     * so that ordinary duplicate-detection keeps working.
+     */
+    @Test
+    void ingest_pendingFileIngestedAgain_replacesInsteadOfDuplicating() throws SQLException {
+        manager.ingest("file.pdf", "Inbox", 100, "PDF", "hashA");
+        manager.ingest("file.pdf", "Inbox", 200, "PDF", "hashB");
+
+        List<StagingManager.StagedFile> pending = manager.list("pending");
+        long count = pending.stream().filter(f -> f.relativePath().equals("file.pdf")).count();
+        assertEquals(1, count, "Re-ingesting a pending file must replace, not duplicate");
+        assertEquals(200, pending.get(0).fileSize(), "File size should be updated to latest ingest");
+    }
+
+    // -------------------------------------------------------------------------
     // processExpired
     // -------------------------------------------------------------------------
 
