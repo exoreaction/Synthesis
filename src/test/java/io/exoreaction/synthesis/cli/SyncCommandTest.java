@@ -263,6 +263,122 @@ class SyncCommandTest {
     }
 
     // -------------------------------------------------------------------------
+    // #172 — verbose dry-run shows identity detail
+    // -------------------------------------------------------------------------
+
+    @Test
+    void call_dryRunVerbose_showsIdentityDetail() throws Exception {
+        initWorkspace(tempDir);
+        Path meetings = Files.createDirectories(tempDir.resolve("meetings"));
+        Files.writeString(meetings.resolve("standup.md"), "# Standup");
+
+        String output = runSync(tempDir, "--dry-run", "--verbose");
+
+        assertFalse(Files.exists(meetings.resolve(".synthesis.md")),
+                ".synthesis.md should NOT be created in dry-run mode");
+        assertTrue(output.contains("[DRY CREATE]") || output.contains("[DRY UPDATE]"),
+                "Verbose dry-run output should contain [DRY CREATE] or [DRY UPDATE]. Output: " + output);
+        assertTrue(output.contains("meeting-notes"),
+                "Verbose dry-run output should show inferred types. Output: " + output);
+        assertTrue(output.contains("confidence="),
+                "Verbose dry-run output should show confidence. Output: " + output);
+    }
+
+    @Test
+    void call_dryRunNoVerbose_showsTerseLine() throws Exception {
+        initWorkspace(tempDir);
+        Path meetings = Files.createDirectories(tempDir.resolve("meetings"));
+        Files.writeString(meetings.resolve("standup.md"), "# Standup");
+
+        String output = runSync(tempDir, "--dry-run");
+
+        assertTrue(output.contains("[DRY] Would create:"),
+                "Non-verbose dry-run should show terse line. Output: " + output);
+        assertFalse(output.contains("confidence="),
+                "Non-verbose dry-run should NOT show identity detail. Output: " + output);
+    }
+
+    // -------------------------------------------------------------------------
+    // #173 — skip Java package paths and deep archive subtrees
+    // -------------------------------------------------------------------------
+
+    @Test
+    void isCodePackagePath_javaSourceTree_returnsTrue() throws Exception {
+        Path root = tempDir;
+        Path javaDir = Files.createDirectories(
+                root.resolve("clients/my-app/src/main/java/com/example"));
+        assertTrue(SyncCommand.isCodePackagePath(root, javaDir),
+                "Deep Java package path should be excluded");
+    }
+
+    @Test
+    void isCodePackagePath_srcMainJavaBoundary_returnsTrue() throws Exception {
+        Path root = tempDir;
+        Path javaRoot = Files.createDirectories(root.resolve("project/src/main/java"));
+        assertTrue(SyncCommand.isCodePackagePath(root, javaRoot),
+                "src/main/java boundary should be excluded");
+    }
+
+    @Test
+    void isCodePackagePath_semanticDir_returnsFalse() throws Exception {
+        Path root = tempDir;
+        Path semanticDir = Files.createDirectories(root.resolve("eXOReaction/business/meetings"));
+        assertFalse(SyncCommand.isCodePackagePath(root, semanticDir),
+                "Semantic business directory should not be excluded");
+    }
+
+    @Test
+    void isDeepInsideArchive_twoLevelsDeep_returnsFalse() throws Exception {
+        Path root = tempDir;
+        Path shallowArchive = Files.createDirectories(root.resolve("archive/2022-commits"));
+        assertFalse(SyncCommand.isDeepInsideArchive(root, shallowArchive),
+                "archive/2022-commits (1 level deep) should NOT be excluded");
+    }
+
+    @Test
+    void isDeepInsideArchive_threeOrMoreLevelsDeep_returnsTrue() throws Exception {
+        Path root = tempDir;
+        Path deepArchive = Files.createDirectories(
+                root.resolve("archive/2022-commits/some-project/deep-subdir"));
+        assertTrue(SyncCommand.isDeepInsideArchive(root, deepArchive),
+                "archive/2022/some-project/deep-subdir (3 levels deep) should be excluded");
+    }
+
+    @Test
+    void isDeepInsideArchive_notInArchive_returnsFalse() throws Exception {
+        Path root = tempDir;
+        Path normal = Files.createDirectories(root.resolve("business/proposals/deep/nested"));
+        assertFalse(SyncCommand.isDeepInsideArchive(root, normal),
+                "Non-archive deep path should not be excluded");
+    }
+
+    @Test
+    void call_skipsJavaPackageDirs() throws Exception {
+        initWorkspace(tempDir);
+        Path javaDir = Files.createDirectories(
+                tempDir.resolve("project/src/main/java/com/example"));
+        Files.writeString(javaDir.resolve("Foo.java"), "public class Foo {}");
+
+        runSync(tempDir);
+
+        assertFalse(Files.exists(javaDir.resolve(".synthesis.md")),
+                "Java package directory should not get a .synthesis.md file");
+    }
+
+    @Test
+    void call_skipsDeepArchiveDirs() throws Exception {
+        initWorkspace(tempDir);
+        Path deepArchive = Files.createDirectories(
+                tempDir.resolve("archive/old/nested/deep"));
+        Files.writeString(deepArchive.resolve("notes.md"), "Old notes");
+
+        runSync(tempDir);
+
+        assertFalse(Files.exists(deepArchive.resolve(".synthesis.md")),
+                "Deep archive directory should not get a .synthesis.md file");
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

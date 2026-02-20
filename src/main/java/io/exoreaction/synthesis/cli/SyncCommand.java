@@ -100,6 +100,8 @@ public class SyncCommand implements Callable<Integer> {
                     .filter(dir -> !isHiddenDir(dir))
                     .filter(dir -> !isSynthesisDir(dir))
                     .filter(dir -> !matchesExcludePattern(dir, workspaceRoot, excludePatterns))
+                    .filter(dir -> !isCodePackagePath(workspaceRoot, dir))
+                    .filter(dir -> !isDeepInsideArchive(workspaceRoot, dir))
                     .toList();
 
             for (Path dir : directories) {
@@ -168,7 +170,11 @@ public class SyncCommand implements Callable<Integer> {
                 if (exists && existing != null) {
                     // Updating existing
                     if (dryRun) {
-                        System.out.println("  [DRY] Would update: " + relativePath);
+                        if (verbose) {
+                            printDetail(relativePath, result, "DRY update");
+                        } else {
+                            System.out.println("  [DRY] Would update: " + relativePath);
+                        }
                     } else {
                         parser.write(synthesisFile, result);
                         if (verbose) {
@@ -179,7 +185,11 @@ public class SyncCommand implements Callable<Integer> {
                 } else {
                     // Creating new
                     if (dryRun) {
-                        System.out.println("  [DRY] Would create: " + relativePath);
+                        if (verbose) {
+                            printDetail(relativePath, result, "DRY create");
+                        } else {
+                            System.out.println("  [DRY] Would create: " + relativePath);
+                        }
                     } else {
                         parser.write(synthesisFile, result);
                         if (verbose) {
@@ -339,6 +349,39 @@ public class SyncCommand implements Callable<Integer> {
         } catch (Exception ignored) {}
 
         return null;
+    }
+
+    /**
+     * Returns true if the path is inside a Java/resource source tree.
+     * These are code organisation directories, not routing targets.
+     */
+    static boolean isCodePackagePath(Path workspaceRoot, Path dir) {
+        String rel = workspaceRoot.relativize(dir).toString().replace('\\', '/');
+        return rel.contains("/src/main/java/")
+                || rel.contains("/src/test/java/")
+                || rel.contains("/src/main/resources/")
+                || rel.contains("/src/test/resources/")
+                || rel.endsWith("/src/main/java")
+                || rel.endsWith("/src/test/java")
+                || rel.endsWith("/src/main/resources")
+                || rel.endsWith("/src/test/resources");
+    }
+
+    /**
+     * Returns true if the path is more than 2 levels deep inside any {@code archive/} directory.
+     * Allows {@code archive/} (level 0) and direct children like {@code archive/2022/} (level 1),
+     * but excludes deeper subtrees such as browser-saved HTML artefacts.
+     */
+    static boolean isDeepInsideArchive(Path workspaceRoot, Path dir) {
+        Path rel = workspaceRoot.relativize(dir);
+        int depthBelowArchive = 0;
+        for (int i = rel.getNameCount() - 1; i >= 0; i--) {
+            if (rel.getName(i).toString().equals("archive")) {
+                return depthBelowArchive > 2;
+            }
+            depthBelowArchive++;
+        }
+        return false;
     }
 
     /**
