@@ -98,6 +98,7 @@ import java.util.concurrent.Callable;
                 TrackCommand.class,
                 ChangelogCommand.class,
                 StagingCommand.class,
+                DownloadsCommand.class,
                 MigrateReposCommand.class,
                 ExportSkillsCommand.class,
                 UpcomingCommand.class,
@@ -284,6 +285,9 @@ public class SynthesisApp implements Callable<Integer> {
                         return 1;
                     });
 
+            // Install grouped command help renderer
+            installGroupedHelpRenderer(cmd);
+
             // In air-gapped mode, remove AI-dependent commands
             if (airGapped) {
                 for (String aiCommand : AI_COMMAND_NAMES) {
@@ -307,6 +311,100 @@ public class SynthesisApp implements Callable<Integer> {
         app.shutdownMetrics();
 
         System.exit(exitCode);
+    }
+
+    private static final java.util.LinkedHashMap<String, java.util.List<String>> HELP_GROUPS;
+    static {
+        HELP_GROUPS = new java.util.LinkedHashMap<>();
+        HELP_GROUPS.put("Core:", java.util.List.of(
+            "search", "maintain", "health", "init", "scan", "downloads"
+        ));
+        HELP_GROUPS.put("Analysis:", java.util.List.of(
+            "ask", "analyze", "relate", "insights", "perspectives",
+            "summary", "research", "explain", "architecture", "impact"
+        ));
+        HELP_GROUPS.put("Change Tracking:", java.util.List.of(
+            "watch", "diff", "changed", "track", "changelog"
+        ));
+        HELP_GROUPS.put("Workspace:", java.util.List.of(
+            "staging", "sweep", "prune", "ttl", "archive", "sync",
+            "consolidate", "scatter", "naming"
+        ));
+        HELP_GROUPS.put("Admin:", java.util.List.of(
+            "update", "telemetry", "credentials", "org", "learn",
+            "status", "export", "graph", "cross-repo-deps", "which",
+            "list", "discover", "validate", "report", "upcoming",
+            "extract-slides", "migrate-repos", "export-skills", "trace",
+            "metrics", "dashboard", "enrich"
+        ));
+    }
+
+    /**
+     * Installs the grouped command list renderer on the given {@link CommandLine}.
+     * Called from {@link #main(String[])} and available for testing.
+     */
+    public static void installGroupedHelpRenderer(CommandLine cmd) {
+        cmd.getHelpSectionMap().put(
+            picocli.CommandLine.Model.UsageMessageSpec.SECTION_KEY_COMMAND_LIST,
+            help -> renderGroupedCommandList(help)
+        );
+    }
+
+    private static String renderGroupedCommandList(picocli.CommandLine.Help help) {
+        java.util.Map<String, picocli.CommandLine> subcommands = help.commandSpec().subcommands();
+        if (subcommands.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder();
+        java.util.Set<String> rendered = new java.util.HashSet<>();
+
+        // Column width for command names
+        int nameWidth = 16;
+
+        for (java.util.Map.Entry<String, java.util.List<String>> group : HELP_GROUPS.entrySet()) {
+            String groupHeader = group.getKey();
+            java.util.List<String> groupCommands = group.getValue();
+
+            // Check if any commands from this group are registered
+            boolean hasAny = groupCommands.stream().anyMatch(subcommands::containsKey);
+            if (!hasAny) continue;
+
+            sb.append("  ").append(groupHeader).append(System.lineSeparator());
+
+            for (String cmdName : groupCommands) {
+                picocli.CommandLine sub = subcommands.get(cmdName);
+                if (sub == null) continue;
+                String desc = "";
+                String[] descLines = sub.getCommandSpec().usageMessage().description();
+                if (descLines != null && descLines.length > 0) {
+                    desc = descLines[0];
+                    // Truncate to 50 chars
+                    if (desc.length() > 50) desc = desc.substring(0, 47) + "...";
+                }
+                sb.append(String.format("    %-" + nameWidth + "s %s%n", cmdName, desc));
+                rendered.add(cmdName);
+            }
+            sb.append(System.lineSeparator());
+        }
+
+        // Catch any commands not in any group
+        boolean hasOther = subcommands.keySet().stream().anyMatch(n -> !rendered.contains(n));
+        if (hasOther) {
+            sb.append("  Other:").append(System.lineSeparator());
+            subcommands.entrySet().stream()
+                .filter(e -> !rendered.contains(e.getKey()))
+                .sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(e -> {
+                    String desc = "";
+                    String[] descLines = e.getValue().getCommandSpec().usageMessage().description();
+                    if (descLines != null && descLines.length > 0) {
+                        desc = descLines[0];
+                        if (desc.length() > 50) desc = desc.substring(0, 47) + "...";
+                    }
+                    sb.append(String.format("    %-" + nameWidth + "s %s%n", e.getKey(), desc));
+                });
+        }
+
+        return sb.toString();
     }
 
     /**

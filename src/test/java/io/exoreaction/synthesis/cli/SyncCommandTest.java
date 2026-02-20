@@ -8,6 +8,7 @@ import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -400,9 +401,10 @@ class SyncCommandTest {
         try {
             SyncCommand cmd = new SyncCommand();
             SynthesisApp app = new SynthesisApp();
-            // Use picocli to parse the -d flag to set workspace root
-            CommandLine appCmd = new CommandLine(app);
-            appCmd.parseArgs("-d", workspaceRoot.toString());
+            // Set workspace root directly via reflection to avoid picocli subcommand sharing issues
+            Field rootField = SynthesisApp.class.getDeclaredField("workspaceRoot");
+            rootField.setAccessible(true);
+            rootField.set(app, workspaceRoot.toAbsolutePath().normalize());
             cmd.setParent(app);
 
             // Parse extra args on the SyncCommand itself
