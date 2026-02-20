@@ -15,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class IntegrityCheckerTest {
 
-    private static final Path WORKSPACE_ROOT = Path.of("/src/exoreaction/Synthesis");
+    /** Maven surefire sets the working directory to the project base dir (where pom.xml lives). */
+    private static final Path WORKSPACE_ROOT = Path.of("").toAbsolutePath();
 
     @TempDir
     Path tempDir;
