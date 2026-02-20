@@ -1,11 +1,16 @@
 package io.exoreaction.synthesis.cli;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.Stream;
 
 import java.time.Duration;
@@ -143,5 +148,68 @@ class StagingCommandUtilsTest {
     void isCompanionFile_returnsFalseForNonCompanionFiles(String name) {
         assertFalse(StagingCommand.isCompanionFile(name),
                 name + " should NOT be identified as a companion file");
+    }
+
+    // --- companionMatchesKeywords ---
+
+    @Test
+    void companionMatchesKeywords_returnsTrueWhenKeywordFound(@TempDir Path tmp) throws IOException {
+        Path companion = tmp.resolve("image.png.synthesis.md");
+        Files.writeString(companion,
+                "Type: diagram\nOrganizations: Synthesis, eXOReaction\nKeywords: synthesis, architecture");
+
+        assertTrue(StagingCommand.companionMatchesKeywords(companion, List.of("Synthesis")),
+                "Should match keyword 'Synthesis' (exact case)");
+    }
+
+    @Test
+    void companionMatchesKeywords_isCaseInsensitive(@TempDir Path tmp) throws IOException {
+        Path companion = tmp.resolve("image.png.synthesis.md");
+        Files.writeString(companion, "Organizations: Synthesis, eXOReaction");
+
+        assertTrue(StagingCommand.companionMatchesKeywords(companion, List.of("synthesis")),
+                "Should match 'synthesis' against 'Synthesis' (case-insensitive)");
+        assertTrue(StagingCommand.companionMatchesKeywords(companion, List.of("EXOREACTION")),
+                "Should match 'EXOREACTION' against 'eXOReaction' (case-insensitive)");
+    }
+
+    @Test
+    void companionMatchesKeywords_orLogic_anyMatchSuffices(@TempDir Path tmp) throws IOException {
+        Path companion = tmp.resolve("doc.pdf.synthesis.md");
+        Files.writeString(companion, "Organizations: Merkabit\nTopic: consulting");
+
+        assertTrue(StagingCommand.companionMatchesKeywords(companion,
+                List.of("synthesis", "merkabit", "quadim")),
+                "Should return true when any keyword matches (OR logic)");
+    }
+
+    @Test
+    void companionMatchesKeywords_returnsFalseWhenNoKeywordFound(@TempDir Path tmp) throws IOException {
+        Path companion = tmp.resolve("photo.png.synthesis.md");
+        Files.writeString(companion, "Type: photo\nOrganizations: none\nKeywords: nature, landscape");
+
+        assertFalse(StagingCommand.companionMatchesKeywords(companion,
+                List.of("synthesis", "exoreaction")),
+                "Should return false when no keyword is present in companion");
+    }
+
+    @Test
+    void companionMatchesKeywords_returnsFalseWhenCompanionMissing(@TempDir Path tmp) {
+        Path missingCompanion = tmp.resolve("no-companion.png.synthesis.md");
+
+        assertFalse(StagingCommand.companionMatchesKeywords(missingCompanion,
+                List.of("synthesis")),
+                "Should return false when companion file does not exist");
+    }
+
+    @Test
+    void companionMatchesKeywords_handlesMultiwordKeyword(@TempDir Path tmp) throws IOException {
+        Path companion = tmp.resolve("infographic.png.synthesis.md");
+        Files.writeString(companion,
+                "Description: Skill-Driven Development infographic showing human-AI collaboration.");
+
+        assertTrue(StagingCommand.companionMatchesKeywords(companion,
+                List.of("Skill-Driven Development")),
+                "Should match multi-word keyword phrase");
     }
 }

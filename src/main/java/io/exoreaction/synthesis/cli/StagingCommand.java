@@ -417,6 +417,7 @@ public class StagingCommand implements Callable<Integer> {
                 System.out.println();
 
                 int routed = 0;
+                int keywordRouted = 0;
                 int contentRouted = 0;
                 int skipped = 0;
                 int errors = 0;
@@ -442,14 +443,26 @@ public class StagingCommand implements Callable<Integer> {
                     }
                     Path basenameAsPath = Path.of(basename);
 
-                    // Find first matching rule
+                    // Find first matching rule: patterns first, then companion keywords
                     RoutingRule matchedRule = null;
+                    boolean matchedByKeyword = false;
                     for (int i = 0; i < rules.size(); i++) {
+                        RoutingRule rule = rules.get(i);
+                        // Pass 1a: filename glob patterns
                         List<PathMatcher> matchers = ruleMatchers.get(i);
                         for (PathMatcher matcher : matchers) {
                             if (matcher.matches(basenameAsPath)) {
-                                matchedRule = rules.get(i);
+                                matchedRule = rule;
                                 break;
+                            }
+                        }
+                        if (matchedRule != null) break;
+                        // Pass 1b: companion content keywords
+                        if (rule.hasKeywords()) {
+                            Path companionPath = workspaceRoot.resolve(relPath + ".synthesis.md");
+                            if (companionMatchesKeywords(companionPath, rule.getKeywords())) {
+                                matchedRule = rule;
+                                matchedByKeyword = true;
                             }
                         }
                         if (matchedRule != null) break;
@@ -464,11 +477,14 @@ public class StagingCommand implements Callable<Integer> {
                     Path destDir = Path.of(matchedRule.getDestination());
                     Path destFile = destDir.resolve(basename);
 
+                    String matchLabel = matchedByKeyword
+                            ? AnsiOutput.dim(" (keyword: " + matchedRule.getName() + ")")
+                            : AnsiOutput.dim(" (rule: " + matchedRule.getName() + ")");
                     if (dryRun) {
                         System.out.printf("  %s %s%n",
                                 AnsiOutput.green("→"),
                                 AnsiOutput.bold(basename));
-                        System.out.printf("     rule: %s%n", AnsiOutput.dim(matchedRule.getName()));
+                        System.out.printf("     %s%n", matchLabel.stripLeading());
                         System.out.printf("     dest: %s%n", AnsiOutput.cyan(destFile.toString()));
                         // Check for companion
                         Path companionPath = workspaceRoot.resolve(relPath + ".synthesis.md");
@@ -477,21 +493,23 @@ public class StagingCommand implements Callable<Integer> {
                                     AnsiOutput.dim(basename + ".synthesis.md → will be moved"));
                         }
                         System.out.println();
-                        routed++;
+                        if (matchedByKeyword) keywordRouted++; else routed++;
                     } else {
                         try {
                             boolean success = staging.routeTo(file, destFile, copyCompanions);
                             if (success) {
-                                routed++;
+                                if (matchedByKeyword) keywordRouted++; else routed++;
                                 if (verbose) {
-                                    System.out.printf("  %s %s → %s%n",
+                                    System.out.printf("  %s %s → %s%s%n",
                                             AnsiOutput.green("✓"),
                                             AnsiOutput.bold(basename),
-                                            AnsiOutput.dim(destFile.toString()));
+                                            AnsiOutput.dim(destFile.toString()),
+                                            matchLabel);
                                 } else {
-                                    System.out.printf("  %s %s%n",
+                                    System.out.printf("  %s %s%s%n",
                                             AnsiOutput.green("✓"),
-                                            basename);
+                                            basename,
+                                            matchedByKeyword ? matchLabel : "");
                                 }
                             } else {
                                 errors++;
@@ -602,15 +620,14 @@ public class StagingCommand implements Callable<Integer> {
                 }
 
                 System.out.println();
-                int totalRouted = routed + contentRouted;
-                String routedStr;
-                if (contentRouted > 0 && routed > 0) {
-                    routedStr = totalRouted + " (" + routed + " by rule, " + contentRouted + " by content)";
-                } else if (contentRouted > 0) {
-                    routedStr = totalRouted + " (by content)";
-                } else {
-                    routedStr = String.valueOf(routed);
-                }
+                int totalRouted = routed + keywordRouted + contentRouted;
+                List<String> breakdown = new ArrayList<>();
+                if (routed > 0) breakdown.add(routed + " by rule");
+                if (keywordRouted > 0) breakdown.add(keywordRouted + " by keyword");
+                if (contentRouted > 0) breakdown.add(contentRouted + " by content");
+                String routedStr = breakdown.size() > 1
+                        ? totalRouted + " (" + String.join(", ", breakdown) + ")"
+                        : String.valueOf(totalRouted);
                 if (dryRun) {
                     System.out.printf("  Would route: %s  |  Suggestions: %s  |  No match: %s%n",
                             AnsiOutput.green(routedStr),
@@ -1388,6 +1405,35 @@ public class StagingCommand implements Callable<Integer> {
      */
     static boolean isCompanionFile(String basename) {
         return basename.endsWith(".synthesis.md");
+    }
+
+    /**
+     * Returns true if the companion file's content contains any of the given keywords
+     * (case-insensitive, OR logic — any single hit is sufficient).
+     *
+     * <p>Reads at most the first 5,000 characters to match the behaviour of
+     * {@code DownloadsClassifier.analyzeContent()}. Returns false silently if
+     * the companion does not exist or cannot be read.
+     *
+     * @param companionFile path to the {@code .synthesis.md} companion file
+     * @param keywords      keywords to search for (must not be null or empty)
+     * @return true if at least one keyword is found in the companion content
+     */
+    static boolean companionMatchesKeywords(Path companionFile, List<String> keywords) {
+        if (!Files.exists(companionFile)) return false;
+        try {
+            byte[] bytes = Files.readAllBytes(companionFile);
+            int limit = Math.min(bytes.length, 5_000);
+            String content = new String(bytes, 0, limit).toLowerCase();
+            for (String keyword : keywords) {
+                if (content.contains(keyword.toLowerCase())) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            // best-effort — missing or unreadable companion → no match
+        }
+        return false;
     }
 
     static String formatInstant(Instant instant) {
