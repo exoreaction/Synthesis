@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -174,6 +175,9 @@ public class WorkspaceFixture {
     /** Specification for a file at workspace root level. */
     private record RootFileSpec(String name, String content, int ageDays) {}
 
+    /** Specification for a TTL rule entry in {@code .synthesis/ttl-rules.yaml}. */
+    private record TtlRuleSpec(String name, List<String> patterns, int days) {}
+
     // =========================================================================
     // Builder
     // =========================================================================
@@ -184,6 +188,7 @@ public class WorkspaceFixture {
         private final List<RoutingRuleSpec> routingRules = new ArrayList<>();
         private final List<DirectorySpec> directories = new ArrayList<>();
         private final List<RootFileSpec> rootFiles = new ArrayList<>();
+        private final List<TtlRuleSpec> ttlRules = new ArrayList<>();
         private String workspaceName = "test-workspace";
 
         public Builder(Path tempDir) {
@@ -207,6 +212,22 @@ public class WorkspaceFixture {
         public Builder routingRule(String name, List<String> includeGlobs,
                                    List<String> excludeGlobs, String destination) {
             routingRules.add(new RoutingRuleSpec(name, includeGlobs, excludeGlobs, destination));
+            return this;
+        }
+
+        /**
+         * Adds a TTL rule to the generated {@code .synthesis/ttl-rules.yaml}.
+         *
+         * <p>The {@code createdAt} is set to {@code days + 1} days ago so the rule
+         * is also considered expired by {@link io.exoreaction.synthesis.cli.TtlCommand}'s
+         * own {@code isExpired()} check.
+         *
+         * @param name     human-readable rule name (not persisted in YAML, for test clarity)
+         * @param patterns glob patterns that match file names (e.g. {@code "TONIGHT-*.md"})
+         * @param days     files older than this many days are considered expired
+         */
+        public Builder withTtlRule(String name, List<String> patterns, int days) {
+            ttlRules.add(new TtlRuleSpec(name, patterns, days));
             return this;
         }
 
@@ -271,6 +292,11 @@ public class WorkspaceFixture {
             // 2. Write config.yaml
             writeConfigYaml(synthDir);
 
+            // 2b. Write ttl-rules.yaml if rules are present
+            if (!ttlRules.isEmpty()) {
+                writeTtlRules(synthDir, ttlRules);
+            }
+
             // 3. Create sub-directories (and their identity files)
             for (DirectorySpec dirSpec : directories) {
                 Path dir = root.resolve(dirSpec.relativePath());
@@ -296,6 +322,33 @@ public class WorkspaceFixture {
             }
 
             return new WorkspaceFixture(root);
+        }
+
+        // ------------------------------------------------------------------
+        // TTL rules YAML writer
+        // ------------------------------------------------------------------
+
+        /**
+         * Writes {@code .synthesis/ttl-rules.yaml} with the configured TTL rules.
+         *
+         * <p>Each pattern in each {@link TtlRuleSpec} becomes a separate rule entry.
+         * The {@code createdAt} is set far enough in the past that the rule is also
+         * considered expired by the old {@code TtlRule.isExpired()} check.
+         */
+        private void writeTtlRules(Path synthDir, List<TtlRuleSpec> rules) throws IOException {
+            Path rulesFile = synthDir.resolve("ttl-rules.yaml");
+            StringBuilder sb = new StringBuilder("rules:\n");
+            for (TtlRuleSpec rule : rules) {
+                for (String pattern : rule.patterns()) {
+                    sb.append("- pattern: \"").append(pattern).append("\"\n");
+                    sb.append("  days: ").append(rule.days()).append("\n");
+                    // createdAt far in past so TtlRule.isExpired() also considers it expired
+                    sb.append("  createdAt: \"")
+                      .append(LocalDate.now().minusDays((long) rule.days() + 1))
+                      .append("\"\n");
+                }
+            }
+            Files.writeString(rulesFile, sb.toString());
         }
 
         // ------------------------------------------------------------------

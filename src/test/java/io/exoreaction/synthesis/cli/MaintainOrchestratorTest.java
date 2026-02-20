@@ -213,7 +213,7 @@ class MaintainOrchestratorTest {
         SynthesisConfig config = loadConfig(root);
 
         MaintainOptions opts = new MaintainOptions(
-                false, false, true, false, false, false, false, false);
+                false, false, true, false, false, false, false, false, false);
 
         MaintainOrchestrator orchestrator = new MaintainOrchestrator(root, opts, config);
         MaintainResult result = orchestrator.run();
@@ -509,6 +509,7 @@ class MaintainOrchestratorTest {
         assertFalse(opts.skipDownloads());
         assertFalse(opts.skipGit());
         assertFalse(opts.quiet());
+        assertFalse(opts.json());
         assertFalse(opts.updateActivityLog());
         assertFalse(opts.sync());
         assertFalse(opts.rebalance());
