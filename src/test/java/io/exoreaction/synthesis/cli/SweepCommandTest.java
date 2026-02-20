@@ -1,17 +1,22 @@
 package io.exoreaction.synthesis.cli;
 
+import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -233,11 +238,170 @@ class SweepCommandTest {
     }
 
     // -------------------------------------------------------------------------
+    // resolveDestination
+    // -------------------------------------------------------------------------
+
+    @Test
+    void resolveDestination_noRules_returnsArchiveFallback() throws IOException {
+        Path file = workspace.resolve("TONIGHT-NOTES.md");
+        Files.writeString(file, "notes");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        Path result = SweepCommand.resolveDestination(file, workspace, List.of(), List.of(), archive);
+
+        assertEquals(archive, result);
+    }
+
+    @Test
+    void resolveDestination_globPatternMatches_returnsRuleDestination() throws IOException {
+        Path file = workspace.resolve("run-overnight.sh");
+        Files.writeString(file, "#!/bin/bash");
+        Path archive = workspace.resolve("archive/swept-today");
+        Path automation = workspace.resolve("knowledge-infrastructure/automation");
+
+        RoutingRule rule = buildRule("Shell scripts", List.of("*.sh"), List.of(), "knowledge-infrastructure/automation");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+
+        Path result = SweepCommand.resolveDestination(file, workspace, List.of(rule), matchers, archive);
+
+        assertEquals(automation, result);
+    }
+
+    @Test
+    void resolveDestination_globPatternNoMatch_returnsArchive() throws IOException {
+        Path file = workspace.resolve("TONIGHT-NOTES.md");
+        Files.writeString(file, "notes");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        RoutingRule rule = buildRule("Shell scripts", List.of("*.sh"), List.of(), "automation");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+
+        Path result = SweepCommand.resolveDestination(file, workspace, List.of(rule), matchers, archive);
+
+        assertEquals(archive, result);
+    }
+
+    @Test
+    void resolveDestination_companionKeywordMatches_returnsRuleDestination() throws IOException {
+        Path file = workspace.resolve("EXECUTIVE-UPDATE.md");
+        Files.writeString(file, "update");
+        // Create a companion file with matching keyword
+        Path companion = workspace.resolve("EXECUTIVE-UPDATE.md.synthesis.md");
+        Files.writeString(companion, "This document is about business reports and quarterly results.");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        RoutingRule rule = buildRule("Business docs", List.of(), List.of("business", "quarterly"), "eXOReaction/business");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+
+        Path result = SweepCommand.resolveDestination(file, workspace, List.of(rule), matchers, archive);
+
+        assertEquals(workspace.resolve("eXOReaction/business"), result);
+    }
+
+    @Test
+    void resolveDestination_noCompanion_patternTakesPrecedence() throws IOException {
+        Path file = workspace.resolve("build.sh");
+        Files.writeString(file, "#!/bin/bash");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        RoutingRule ruleByPattern = buildRule("Scripts", List.of("*.sh"), List.of(), "automation");
+        RoutingRule ruleByKeyword = buildRule("Docs", List.of(), List.of("build"), "docs");
+        List<RoutingRule> rules = List.of(ruleByPattern, ruleByKeyword);
+        List<List<PathMatcher>> matchers = buildMatchers(rules);
+
+        Path result = SweepCommand.resolveDestination(file, workspace, rules, matchers, archive);
+
+        assertEquals(workspace.resolve("automation"), result);
+    }
+
+    @Test
+    void resolveDestination_absoluteDestination_usedAsIs() throws IOException {
+        Path file = workspace.resolve("export.zip");
+        Files.writeString(file, "data");
+        Path archive = workspace.resolve("archive/swept-today");
+        Path absoluteDest = Path.of("/tmp/exports");
+
+        RoutingRule rule = buildRule("Archives", List.of("*.zip"), List.of(), absoluteDest.toString());
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+
+        Path result = SweepCommand.resolveDestination(file, workspace, List.of(rule), matchers, archive);
+
+        assertEquals(absoluteDest, result);
+    }
+
+    // -------------------------------------------------------------------------
+    // resolveDestinations
+    // -------------------------------------------------------------------------
+
+    @Test
+    void resolveDestinations_mixedCandidates_routesAndArchives() throws IOException {
+        Path sh = workspace.resolve("run.sh");
+        Files.writeString(sh, "#!/bin/bash");
+        Path md = workspace.resolve("TONIGHT-NOTES.md");
+        Files.writeString(md, "notes");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        SweepCommand.SweepCandidate cSh = new SweepCommand.SweepCandidate(
+                sh, SweepCommand.Category.SCRIPTS, "script", 60);
+        SweepCommand.SweepCandidate cMd = new SweepCommand.SweepCandidate(
+                md, SweepCommand.Category.EPHEMERAL, "ephemeral", 60);
+        List<SweepCommand.SweepCandidate> candidates = List.of(cSh, cMd);
+
+        RoutingRule rule = buildRule("Scripts", List.of("*.sh"), List.of(), "automation");
+        List<List<PathMatcher>> matchers = buildMatchers(List.of(rule));
+
+        Map<SweepCommand.SweepCandidate, Path> result =
+                SweepCommand.resolveDestinations(candidates, workspace, List.of(rule), matchers, archive);
+
+        assertEquals(workspace.resolve("automation"), result.get(cSh));
+        assertEquals(archive, result.get(cMd));
+    }
+
+    @Test
+    void resolveDestinations_noRules_allGoToArchive() throws IOException {
+        Path sh = workspace.resolve("run.sh");
+        Files.writeString(sh, "#!/bin/bash");
+        Path archive = workspace.resolve("archive/swept-today");
+
+        SweepCommand.SweepCandidate c = new SweepCommand.SweepCandidate(
+                sh, SweepCommand.Category.SCRIPTS, "script", 60);
+
+        Map<SweepCommand.SweepCandidate, Path> result =
+                SweepCommand.resolveDestinations(List.of(c), workspace, List.of(), List.of(), archive);
+
+        assertEquals(archive, result.get(c));
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
     private void setOldModifiedTime(Path path, int daysAgo) throws IOException {
         Instant old = Instant.now().minus(daysAgo, ChronoUnit.DAYS);
         Files.setLastModifiedTime(path, FileTime.from(old));
+    }
+
+    /** Builds a RoutingRule via its setters (SnakeYAML-style). */
+    private static RoutingRule buildRule(String name, List<String> patterns,
+                                         List<String> keywords, String destination) {
+        RoutingRule rule = new RoutingRule();
+        rule.setName(name);
+        rule.setPatterns(patterns);
+        rule.setKeywords(keywords);
+        rule.setDestination(destination);
+        return rule;
+    }
+
+    /** Builds PathMatcher lists for each rule's patterns. */
+    private static List<List<PathMatcher>> buildMatchers(List<RoutingRule> rules) {
+        List<List<PathMatcher>> result = new ArrayList<>();
+        for (RoutingRule rule : rules) {
+            List<PathMatcher> pm = new ArrayList<>();
+            for (String pattern : rule.getPatterns()) {
+                pm.add(FileSystems.getDefault().getPathMatcher("glob:" + pattern));
+            }
+            result.add(pm);
+        }
+        return result;
     }
 }

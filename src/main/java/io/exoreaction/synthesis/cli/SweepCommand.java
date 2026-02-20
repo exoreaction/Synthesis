@@ -1,14 +1,19 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,8 +41,11 @@ import java.util.stream.Stream;
  *   <li><b>COMPLETED REPORTS</b>: dated file names (year-prefixed or year-suffixed)
  * </ul>
  *
- * <p>Files are moved to {@code archive/swept-{date}/} inside the workspace.
+ * <p>Files are first routed using the workspace routing rules (same pipeline as
+ * {@code staging route}). Unmatched files fall back to
+ * {@code archive/swept-{date}/} inside the workspace.
  * Use {@code --dry-run} to preview without moving.
+ * Use {@code --archive-only} to skip routing and send all files to archive.
  */
 @Command(
         name = "sweep",
@@ -67,6 +75,12 @@ public class SweepCommand implements Callable<Integer> {
             description = "Move all candidates without prompting"
     )
     private boolean autoConfirm;
+
+    @Option(
+            names = {"--archive-only"},
+            description = "Skip routing intelligence and send all files directly to archive (legacy behaviour)"
+    )
+    private boolean archiveOnly;
 
     // -------------------------------------------------------------------------
     // Types
@@ -128,13 +142,38 @@ public class SweepCommand implements Callable<Integer> {
             return 0;
         }
 
-        // Group by category and print
-        printCandidates(candidates, workspaceRoot);
-
-        Path destination = workspaceRoot.resolve("archive")
+        // Archive fallback destination
+        Path archiveDest = workspaceRoot.resolve("archive")
                 .resolve("swept-" + LocalDate.now());
-        System.out.printf("Destination: %s%n%n",
-                workspaceRoot.relativize(destination));
+
+        // Load routing rules (unless --archive-only)
+        List<RoutingRule> rules = List.of();
+        List<List<PathMatcher>> ruleMatchers = List.of();
+        if (!archiveOnly) {
+            try {
+                SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+                List<RoutingRule> loaded = config.getRouting().getRules();
+                List<List<PathMatcher>> matchers = new ArrayList<>();
+                for (RoutingRule rule : loaded) {
+                    List<PathMatcher> pm = new ArrayList<>();
+                    for (String pattern : rule.getPatterns()) {
+                        pm.add(FileSystems.getDefault().getPathMatcher("glob:" + pattern));
+                    }
+                    matchers.add(pm);
+                }
+                rules = loaded;
+                ruleMatchers = matchers;
+            } catch (Exception e) {
+                // No config or routing section — fall back to archive-only behaviour
+            }
+        }
+
+        // Compute per-file destinations
+        Map<SweepCandidate, Path> destinations =
+                resolveDestinations(candidates, workspaceRoot, rules, ruleMatchers, archiveDest);
+
+        // Group and print
+        printCandidates(candidates, workspaceRoot, destinations, archiveDest);
 
         if (dryRun) {
             System.out.println(AnsiOutput.dim("  Dry run — no changes made. Remove --dry-run to apply."));
@@ -149,53 +188,81 @@ public class SweepCommand implements Callable<Integer> {
             Scanner scanner = new Scanner(System.in);
             String ans = scanner.nextLine().trim().toLowerCase();
             switch (ans) {
-                case "y", "yes" -> moveFiles(candidates, destination);
-                case "select" -> selectiveMove(candidates, destination, scanner);
+                case "y", "yes" -> moveFiles(candidates, destinations);
+                case "select" -> selectiveMove(candidates, destinations, scanner);
                 default -> { System.out.println("  Aborted. No changes made."); return 0; }
             }
         } else {
-            moveFiles(candidates, destination);
+            moveFiles(candidates, destinations);
         }
 
         return 0;
     }
 
-    private void printCandidates(List<SweepCandidate> candidates, Path workspaceRoot) {
-        // Group by category (preserve insertion order)
-        Map<Category, List<SweepCandidate>> byCategory = new LinkedHashMap<>();
-        for (Category cat : Category.values()) byCategory.put(cat, new ArrayList<>());
-        for (SweepCandidate c : candidates) byCategory.get(c.category()).add(c);
-
+    private void printCandidates(List<SweepCandidate> candidates, Path workspaceRoot,
+                                  Map<SweepCandidate, Path> destinations, Path archiveDest) {
         DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        System.out.printf("  Candidates for archival (%d file%s):%n%n",
+        System.out.printf("  Candidates (%d file%s):%n%n",
                 candidates.size(), candidates.size() == 1 ? "" : "s");
 
-        int index = 1;
-        for (var entry : byCategory.entrySet()) {
-            List<SweepCandidate> group = entry.getValue();
-            if (group.isEmpty()) continue;
+        // Split into ROUTABLE and ARCHIVE groups (preserving candidate order within each group)
+        List<SweepCandidate> routable = new ArrayList<>();
+        List<SweepCandidate> archive = new ArrayList<>();
+        for (SweepCandidate c : candidates) {
+            Path dest = destinations.get(c);
+            if (dest != null && !dest.equals(archiveDest)) {
+                routable.add(c);
+            } else {
+                archive.add(c);
+            }
+        }
 
-            System.out.println("  " + AnsiOutput.bold(entry.getKey().label) + ":");
-            for (SweepCandidate c : group) {
+        int index = 1;
+        if (!routable.isEmpty()) {
+            System.out.println("  " + AnsiOutput.bold("ROUTABLE") + AnsiOutput.dim(" (destination found):"));
+            for (SweepCandidate c : routable) {
+                Path dest = destinations.get(c);
+                String relDest = workspaceRoot.relativize(dest).toString();
+                Instant modified = getModifiedTime(c.path());
+                String dateStr = modified != null
+                        ? dateFmt.format(modified.atZone(ZoneId.systemDefault()).toLocalDate())
+                        : "unknown";
+                System.out.printf("    [%2d] %-48s  %s → %s%n",
+                        index++,
+                        c.path().getFileName(),
+                        dateStr,
+                        AnsiOutput.green(relDest));
+            }
+            System.out.println();
+        }
+
+        if (!archive.isEmpty()) {
+            String archiveRelPath = workspaceRoot.relativize(archiveDest).toString();
+            System.out.println("  " + AnsiOutput.bold("ARCHIVE") + AnsiOutput.dim(" (no meaningful destination):"));
+            for (SweepCandidate c : archive) {
                 Instant modified = getModifiedTime(c.path());
                 String dateStr = modified != null
                         ? dateFmt.format(modified.atZone(ZoneId.systemDefault()).toLocalDate())
                         : "unknown";
                 String ageStr = c.agedays() > 0 ? "  (" + c.agedays() + " days ago)" : "";
-                System.out.printf("    [%2d] %-48s  %s%s%n",
+                System.out.printf("    [%2d] %-48s  %s → %s%s%n",
                         index++,
                         c.path().getFileName(),
                         dateStr,
+                        AnsiOutput.dim(archiveRelPath),
                         ageStr);
             }
             System.out.println();
         }
     }
 
-    private void moveFiles(List<SweepCandidate> candidates, Path destination) throws IOException {
-        Files.createDirectories(destination);
+    private void moveFiles(List<SweepCandidate> candidates,
+                           Map<SweepCandidate, Path> destinations) throws IOException {
         int moved = 0;
         for (SweepCandidate c : candidates) {
+            Path destination = destinations.get(c);
+            if (destination == null) continue;
+            Files.createDirectories(destination);
             Path target = destination.resolve(c.path().getFileName());
             try {
                 Files.move(c.path(), target);
@@ -204,11 +271,11 @@ public class SweepCommand implements Callable<Integer> {
                 System.err.printf("  Could not move %s: %s%n", c.path().getFileName(), e.getMessage());
             }
         }
-        System.out.printf("%n  Moved %d file%s to %s%n%n",
-                moved, moved == 1 ? "" : "s", destination);
+        System.out.printf("%n  Moved %d file%s%n%n", moved, moved == 1 ? "" : "s");
     }
 
-    private void selectiveMove(List<SweepCandidate> candidates, Path destination,
+    private void selectiveMove(List<SweepCandidate> candidates,
+                                Map<SweepCandidate, Path> destinations,
                                 Scanner scanner) throws IOException {
         System.out.print("  Enter numbers to move (e.g. 1,3,5 or 1-5): ");
         System.out.flush();
@@ -223,8 +290,70 @@ public class SweepCommand implements Callable<Integer> {
         if (toMove.isEmpty()) {
             System.out.println("  No files selected.");
         } else {
-            moveFiles(toMove, destination);
+            moveFiles(toMove, destinations);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Routing helpers (package-visible for tests)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolves the destination directory for each candidate.
+     * Files matching routing rules go to the rule's destination (relative to workspace root
+     * if not absolute); unmatched files fall back to {@code archiveFallback}.
+     */
+    static Map<SweepCandidate, Path> resolveDestinations(
+            List<SweepCandidate> candidates,
+            Path workspaceRoot,
+            List<RoutingRule> rules,
+            List<List<PathMatcher>> ruleMatchers,
+            Path archiveFallback) {
+        Map<SweepCandidate, Path> result = new LinkedHashMap<>();
+        for (SweepCandidate c : candidates) {
+            result.put(c, resolveDestination(c.path(), workspaceRoot, rules, ruleMatchers, archiveFallback));
+        }
+        return result;
+    }
+
+    /**
+     * Determines the destination directory for a single file.
+     *
+     * <p>Evaluation order:
+     * <ol>
+     *   <li>Glob patterns from each routing rule (filename only)</li>
+     *   <li>Companion keyword matching ({@code <file>.synthesis.md}) per rule</li>
+     *   <li>Archive fallback if no rule matches</li>
+     * </ol>
+     */
+    static Path resolveDestination(Path file, Path workspaceRoot,
+                                    List<RoutingRule> rules,
+                                    List<List<PathMatcher>> ruleMatchers,
+                                    Path archiveFallback) {
+        if (rules.isEmpty()) return archiveFallback;
+        Path basename = file.getFileName();
+        for (int i = 0; i < rules.size(); i++) {
+            RoutingRule rule = rules.get(i);
+            // Pass 1a: filename glob patterns
+            for (PathMatcher matcher : ruleMatchers.get(i)) {
+                if (matcher.matches(basename)) {
+                    return toAbsoluteDest(rule.getDestination(), workspaceRoot);
+                }
+            }
+            // Pass 1b: companion content keywords
+            if (rule.hasKeywords()) {
+                Path companionPath = Path.of(file.toString() + ".synthesis.md");
+                if (StagingCommand.companionMatchesKeywords(companionPath, rule.getKeywords())) {
+                    return toAbsoluteDest(rule.getDestination(), workspaceRoot);
+                }
+            }
+        }
+        return archiveFallback;
+    }
+
+    private static Path toAbsoluteDest(String destination, Path workspaceRoot) {
+        Path dest = Path.of(destination);
+        return dest.isAbsolute() ? dest : workspaceRoot.resolve(dest);
     }
 
     // -------------------------------------------------------------------------
