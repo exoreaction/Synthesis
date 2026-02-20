@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 17+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.9.5, Feb 2026)
+**Status:** Production-ready (v1.10.5, Feb 2026)
 
 ---
 
@@ -18,7 +18,7 @@ AI tools made developers 10x faster at creating code — but comprehension speed
 - Cross-repo dependency graphs (58 repos, 429 dependencies in <31 seconds)
 - Local-only processing — zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 2,497 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 2,751 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -197,7 +197,7 @@ These skills describe how to USE Synthesis features — valid both when working 
 - **`synthesis export-skills`** uses `--overwrite` (not `--install`) to update `~/.claude/skills/`. The `--install` flag belongs to `synthesis learn`.
 - **`synthesis learn`** requires `synthesis org scan` first or errors with "No organizations found".
 - **Staging `_processed` suffix:** `routeTo()` copies file to destination and renames source to `*_processed.*` (not delete). The cron should run `staging ingest && staging route && maintain` — `maintain` alone does NOT trigger staging ingest/route. Use `retentionDays: -1` in tests to force expiry (0 sets `expiresAt = now`, which is not strictly less than `now`).
-- **`staging route` content-intelligence fallback (issue #71):** When `autoClassify: true` (default), unmatched files are classified via `DownloadsClassifier.classifyWithCompanion()` — reads the companion `.synthesis.md` if present. Files above `classificationThreshold` (default 0.5) are auto-routed (`~` prefix in output); below-threshold matches become suggestions. Run `synthesis enrich` first to populate companions for PDFs/images.
+- **`staging route` content-intelligence fallback (issue #71):** When `autoClassify: true` (default), unmatched files are classified via `DownloadsClassifier.classifyWithCompanion()` — reads the companion `.synthesis.md` if present. Files above `classificationThreshold` (default 0.5) are auto-routed (`~` prefix in output); below-threshold matches become suggestions. Use `staging route --enrich-first` to generate companions on-the-fly for unmatched IMAGE/PDF files before the classification pass (replaces the separate `synthesis enrich` step for images with UUID/hash names).
 - **`synthesis explain --file <name>` bare filename resolution:** Accepts absolute, workspace-relative, or bare filename. Falls back to `index.search()` if not on disk — exact filename match preferred over score. On failure suggests `synthesis search <name>`.
 - **`synthesis summary --since` temporal context:** Parses `7d`/`24h`/`2w`/`3m`/`2026-01-15`, loads `ChangeEvent`s from `SnapshotManager.getChangesForWorkspace()`, injects compact change summary into the AI prompt (not just the output). Requires `synthesis maintain` to have run at least once to populate snapshots.
 
