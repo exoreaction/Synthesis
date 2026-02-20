@@ -307,17 +307,68 @@ All metrics extracted from Claude Code JSONL session logs at:
 
 | Metric | Scale | Scorer |
 |---|---|---|
-| Correctness | 0-3 (rubric above) | Blind scoring against ground truth |
+| Correctness (structural) | 0-3 (rubric above) | Blind scoring against ground truth |
+| Correctness (multi-axis) | 0-12 (4×3, see below) | Post-hoc review |
 | Hallucinations | Count of false claims | Post-hoc review |
 | Partial credit | Noted for borderline cases | Qualitative annotation |
+
+### Multi-Axis Correctness Rubric (Phase 5+)
+
+**Context:** Phase 5 showed all 27 sessions scored 3/3 on the original 0-3 structural rubric — no
+differentiation was possible despite meaningfully different answer quality. The 4-axis rubric
+resolves this by separately measuring *what* was found, *how fresh* it was, *how deep* the
+analysis went, and *whether engineering intent was understood*.
+
+A perfect answer scores **12/12 (4 axes × 3 points each)**. The original structural score is
+preserved as Axis 1 for backward compatibility.
+
+| Axis | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| **Structural** (original) | Wrong or missing | Partially correct | Mostly correct | Fully correct |
+| **Currency** | Wrong data version | Stale (>7 days old) | Recent (<7 days) | Current (same day / exact commit) |
+| **Depth** | Surface facts only | Key facts, no patterns | Most patterns found | Anomalies + architectural intent |
+| **Semantic** | Structural observation only | Partial intent captured | Clear intent stated | Intent + implications for decisions |
+
+**Scoring guidance:**
+- **Structural:** Does the answer contain the correct facts? (same as original rubric)
+- **Currency:** Are metrics, file counts, version numbers, dates from the current codebase state?
+  - Score 3 = data matches codebase at session date; Score 0 = data from wrong version
+- **Depth:** Does the answer go beyond the obvious? Anomalies = things NOT in any skill file
+  (e.g., a circular dependency not documented anywhere, an architectural smell)
+- **Semantic:** Does the answer explain *why* something is true, not just *that* it is?
+  - Example: "V7 is intentionally reserved" (3) vs "V7 is missing" (1) — same observation, different implication
+
+**Phase 5 retroactive scores:**
+
+| Task | Condition | Structural | Currency | Depth | Semantic | Total |
+|---|---|---|---|---|---|---|
+| P5-R2 (module dep graph) | Baseline | 3 | 3 | 3 | 2 | **11** |
+| P5-R2 | Knowledge | 3 | 3 | 1 | 2 | **9** |
+| P5-R2 | CLI | 3 | 3 | 3 | 2 | **11** |
+| E1 (ROI metrics) | Baseline | 3 | 2 | 2 | 2 | **9** |
+| E1 | Knowledge | 3 | 3 | 2 | 2 | **10** |
+| E1 | CLI | 3 | 2 | 2 | 2 | **9** |
+| P4-B1 (Flyway) | Baseline | 3 | 3 | 2 | 1 | **9** |
+| P4-B1 | Knowledge | 3 | 3 | 2 | 3 | **11** |
+| P4-B1 | CLI | 3 | 3 | 2 | 1 | **9** |
+
+**Key insight from retroactive scoring:** Knowledge condition wins on Semantic for Flyway task
+(CLAUDE.md explains V7 is *intentionally* reserved; other conditions only observe it is missing).
+Knowledge condition loses on Depth for P5-R2 (synthesis-development.md provides the clean 4-layer
+narrative but agents stop there, missing the `ai→cli` violation and RelateCommand utility smell
+that systematic exploration reveals).
+
+**Phase 6+ scoring:** Use the 12-point scale for all tasks. Report both structural (for backward
+compatibility with Phase 5 results) and multi-axis scores.
 
 ### Correctness Scoring Protocol
 
 1. Run session, save transcript
 2. Score blindly (without knowing which condition) if possible
 3. Compare against ground truth checklist (above)
-4. Record score + notes on what was correct/incorrect
+4. Record structural score (0-3) + multi-axis score (0-12) + notes
 5. For disputed scores: discuss and average
+6. Note *which* axis is responsible for score differences — this is the key insight per task
 
 ---
 
