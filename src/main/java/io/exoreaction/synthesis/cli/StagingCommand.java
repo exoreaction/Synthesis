@@ -1145,8 +1145,11 @@ public class StagingCommand implements Callable<Integer> {
                     AnsiOutput.printInfo("Scanning staging area: " + swConfig.getName()
                             + " (" + swConfig.getPath() + ")");
 
-                    // Get existing staged files for this sub-workspace
-                    List<StagedFile> existing = staging.list(null);
+                    // Get pending staged files for this sub-workspace.
+                    // Only pending entries block re-ingestion — promoted/expired records
+                    // must NOT prevent a new file with the same basename from being picked
+                    // up (e.g. NotebookLM always exports as "unnamed (N).png"; fix #146).
+                    List<StagedFile> existing = staging.list("pending");
                     java.util.Set<String> existingPaths = new java.util.HashSet<>();
                     for (StagedFile f : existing) {
                         if (f.subWorkspace().equals(swConfig.getName())) {
