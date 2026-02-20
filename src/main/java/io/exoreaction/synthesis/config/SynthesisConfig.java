@@ -492,11 +492,20 @@ public class SynthesisConfig {
     }
 
     /**
-     * A single routing rule that maps filename glob patterns to a destination directory.
+     * A single routing rule that maps files to a destination directory.
+     *
+     * <p>A rule can match in two ways (checked in order, first match wins):
+     * <ol>
+     *   <li><b>patterns</b> — glob patterns matched against the file's basename</li>
+     *   <li><b>keywords</b> — strings matched (case-insensitive) against the
+     *       companion {@code .synthesis.md} file content, enabling routing of
+     *       UUID-named or generically-named images enriched via vision (#142)</li>
+     * </ol>
      */
     public static class RoutingRule {
         private String name = "";
         private List<String> patterns = new ArrayList<>();
+        private List<String> keywords = new ArrayList<>();
         private String destination = "";
 
         /** Human-readable name for this rule (shown in route output). */
@@ -506,6 +515,17 @@ public class SynthesisConfig {
         /** Glob patterns matched against the file's basename (e.g., "Synthesis_*.pdf"). */
         public List<String> getPatterns() { return patterns; }
         public void setPatterns(List<String> patterns) { this.patterns = patterns != null ? patterns : new ArrayList<>(); }
+
+        /**
+         * Keywords matched (case-insensitive) against the companion .synthesis.md content.
+         * Any single keyword hit is sufficient to route the file (OR logic).
+         * Checked only when no pattern matched. E.g., ["Synthesis", "knowledge graph"].
+         */
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords != null ? keywords : new ArrayList<>(); }
+
+        /** Returns true if this rule has at least one keyword to match against. */
+        public boolean hasKeywords() { return !keywords.isEmpty(); }
 
         /** Absolute path to the destination directory. */
         public String getDestination() { return destination; }
