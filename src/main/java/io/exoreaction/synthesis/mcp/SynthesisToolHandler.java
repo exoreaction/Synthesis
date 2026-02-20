@@ -469,6 +469,47 @@ public class SynthesisToolHandler {
             stats.put("totalConnections", relationshipMap.outgoing().size() + relationshipMap.incoming().size());
             response.set("stats", stats);
 
+            // Knowledge graph enrichment — documentation coverage and confidence
+            try {
+                io.exoreaction.synthesis.db.SynthesisDatabase keDb =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+                io.exoreaction.synthesis.graph.KnowledgeEnricher enricher =
+                    new io.exoreaction.synthesis.graph.KnowledgeEnricher();
+                io.exoreaction.synthesis.graph.KnowledgeEnricher.EnrichmentResult enrichment =
+                    enricher.enrichForSource(target.relativePath(), keDb.getConnection());
+
+                ObjectNode docNode = mapper.createObjectNode();
+                docNode.put("hasGap", enrichment.hasGap());
+                docNode.put("overallConfidence", enrichment.overallConfidence());
+                ArrayNode skills = mapper.createArrayNode();
+                for (Map.Entry<String, List<io.exoreaction.synthesis.graph.KnowledgeEdge>> e
+                        : enrichment.bySkill().entrySet()) {
+                    ObjectNode skillNode = mapper.createObjectNode();
+                    skillNode.put("skillPath", e.getKey());
+                    String worstConf = e.getValue().stream()
+                        .map(io.exoreaction.synthesis.graph.KnowledgeEdge::confidence)
+                        .min(java.util.Comparator.comparingInt(c -> switch (c) {
+                            case "HIGH" -> 3; case "MEDIUM" -> 2; case "LOW" -> 1; default -> 0;
+                        })).orElse("NONE");
+                    skillNode.put("confidence", worstConf);
+                    int maxDrift = e.getValue().stream()
+                        .mapToInt(io.exoreaction.synthesis.graph.KnowledgeEdge::driftDays)
+                        .max().orElse(0);
+                    skillNode.put("driftDays", maxDrift);
+                    ArrayNode entities = mapper.createArrayNode();
+                    e.getValue().stream()
+                        .map(io.exoreaction.synthesis.graph.KnowledgeEdge::entityName)
+                        .filter(n -> n != null && !n.isBlank())
+                        .forEach(entities::add);
+                    skillNode.set("coveredEntities", entities);
+                    skills.add(skillNode);
+                }
+                docNode.set("skills", skills);
+                response.set("documentation", docNode);
+            } catch (Exception ignored) {
+                // Enrichment is best-effort; never fail relate
+            }
+
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
             int totalConnections = relationshipMap.outgoing().size() + relationshipMap.incoming().size();
             metrics.recordMcpInvocation("relate", workspacePath.toString(), elapsedMs,

@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.graph.CrossFormatLinker;
+import io.exoreaction.synthesis.graph.KnowledgeEnricher;
 import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.graph.TestCoverageAnalyzer;
@@ -65,7 +66,10 @@ public class RelateCommand implements Callable<Integer> {
             }
 
             if (mermaid) { System.out.println(relationService.generateMermaid(relationshipMap)); }
-            else { printRelationships(relationshipMap, target); }
+            else {
+                printRelationships(relationshipMap, target);
+                printKnowledgeEnrichment(target.relativePath(), workspace);
+            }
             if (crossFormatLinker.isSqlFile(target) || crossFormatLinker.isYamlFile(target)) {
                 printCrossFormatLinks(target, allFiles, workspaceRoot);
             }
@@ -113,6 +117,40 @@ public class RelateCommand implements Callable<Integer> {
         if (total == 0) System.out.println("  " + AnsiOutput.yellow("This file appears to be orphaned (no references found)."));
         else System.out.println("  " + AnsiOutput.bold("Total connections: " + total));
         System.out.println();
+    }
+
+    private void printKnowledgeEnrichment(String sourcePath, io.exoreaction.synthesis.core.WorkspaceManager workspace) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            KnowledgeEnricher enricher = new KnowledgeEnricher();
+            KnowledgeEnricher.EnrichmentResult result =
+                enricher.enrichForSource(sourcePath, db.getConnection());
+
+            System.out.println("  " + AnsiOutput.bold(AnsiOutput.cyan("Documentation:")));
+            System.out.println();
+            if (result.hasGap()) {
+                System.out.println("  " + AnsiOutput.yellow("No skill/doc coverage found.") +
+                    " Consider creating a skill for this file.");
+            } else {
+                System.out.println("  Overall confidence: " +
+                    AnsiOutput.bold(confidenceColor(result.overallConfidence())));
+                System.out.println();
+                System.out.println(enricher.formatForCli(result));
+            }
+            System.out.println();
+        } catch (Exception e) {
+            // Knowledge enrichment is best-effort; never fail relate
+        }
+    }
+
+    private String confidenceColor(String confidence) {
+        return switch (confidence) {
+            case "HIGH"   -> AnsiOutput.green("HIGH");
+            case "MEDIUM" -> AnsiOutput.yellow("MEDIUM");
+            case "LOW"    -> AnsiOutput.yellow("LOW");
+            default       -> AnsiOutput.red(confidence);
+        };
     }
 
     private void printCrossFormatLinks(SearchResult target, List<SearchResult> allFiles, Path workspaceRoot) {
