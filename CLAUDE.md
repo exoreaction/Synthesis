@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 17+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.10.5, Feb 2026)
+**Status:** Production-ready (v1.10.6, Feb 2026)
 
 ---
 
