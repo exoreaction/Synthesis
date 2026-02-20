@@ -12,8 +12,11 @@ import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.enrichment.CompanionFileGenerator;
 import io.exoreaction.synthesis.enrichment.EnrichmentLevel;
+import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
+import io.exoreaction.synthesis.org.DirectoryScorer;
 import io.exoreaction.synthesis.org.DownloadsClassifier;
 import io.exoreaction.synthesis.org.OrganizationRegistry;
+import io.exoreaction.synthesis.org.RoutingHints;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.staging.StagingManager;
 import io.exoreaction.synthesis.staging.StagingManager.StagedFile;
@@ -74,6 +77,8 @@ import java.util.stream.Stream;
                 StagingCommand.ListSub.class,
                 StagingCommand.PromoteSub.class,
                 StagingCommand.RouteSub.class,
+                StagingCommand.ResolveSub.class,
+                StagingCommand.HintsSub.class,
                 StagingCommand.RenameSub.class,
                 StagingCommand.IngestSub.class,
                 StagingCommand.ExpireSub.class,
@@ -94,6 +99,8 @@ public class StagingCommand implements Callable<Integer> {
         System.out.println("    list      List staged files");
         System.out.println("    promote   Promote a file to a permanent sub-workspace");
         System.out.println("    route     Route files to permanent destinations using config rules");
+        System.out.println("    resolve   Route a staged file to a specific directory");
+        System.out.println("    hints     List and manage routing hints");
         System.out.println("    rename    Rename files to descriptive names using companion AI descriptions");
         System.out.println("    ingest    Scan staging areas and register new files");
         System.out.println("    expire    Process expired files");
@@ -533,6 +540,81 @@ public class StagingCommand implements Callable<Integer> {
                     if (orgRegistry != null && orgRegistry.hasOrganizations()) {
                         DownloadsClassifier classifier = new DownloadsClassifier(orgRegistry);
                         double threshold = config.getStaging().getClassificationThreshold();
+
+                        // Directory identity routing (before DownloadsClassifier)
+                        List<StagedFile> dirIdentityUnmatched = new ArrayList<>();
+                        DirectoryIdentityRouter dirIdentityRouter =
+                                new DirectoryIdentityRouter(workspaceRoot, orgRegistry);
+                        for (StagedFile unmatchedFile : unmatchedFiles) {
+                            String dirIdRelPath = unmatchedFile.relativePath();
+                            String dirIdBasename = Path.of(dirIdRelPath).getFileName().toString();
+                            Path dirIdFilePath = workspaceRoot.resolve(dirIdRelPath);
+                            Optional<DirectoryIdentityRouter.RouteResult> routeResult =
+                                    dirIdentityRouter.route(dirIdFilePath, threshold);
+                            if (routeResult.isPresent()) {
+                                DirectoryIdentityRouter.RouteResult result = routeResult.get();
+                                if (result.ambiguous()) {
+                                    // Leave in staging -- ambiguous match
+                                    if (verbose) {
+                                        List<DirectoryScorer.ScoredCandidate> allScored =
+                                                dirIdentityRouter.scoreAll(dirIdFilePath);
+                                        System.out.printf("  ? %s %s%n",
+                                                AnsiOutput.bold(dirIdBasename),
+                                                AnsiOutput.yellow("(ambiguous)"));
+                                        for (int ai = 0; ai < Math.min(3, allScored.size()); ai++) {
+                                            DirectoryScorer.ScoredCandidate sc = allScored.get(ai);
+                                            if (!sc.blocked()) {
+                                                System.out.printf("     %s (%.2f): %s%n",
+                                                        sc.directory().getFileName(), sc.totalScore(),
+                                                        String.join(", ", sc.reasons()));
+                                            }
+                                        }
+                                    }
+                                    dirIdentityUnmatched.add(unmatchedFile);
+                                } else {
+                                    // Route it — resolve full destination file path
+                                    Path destFile = result.directory().resolve(dirIdBasename);
+                                    if (dryRun) {
+                                        System.out.printf("  %s %s%n",
+                                                AnsiOutput.cyan("~"),
+                                                AnsiOutput.bold(dirIdBasename));
+                                        System.out.printf("     %s%n",
+                                                AnsiOutput.dim("(" + result.scoreLabel() + ")"));
+                                        System.out.printf("     dest: %s%n",
+                                                AnsiOutput.cyan(destFile.toString()));
+                                        System.out.println();
+                                        contentRouted++;
+                                    } else {
+                                        try {
+                                            boolean success = staging.routeTo(
+                                                    unmatchedFile, destFile, copyCompanions);
+                                            if (success) {
+                                                contentRouted++;
+                                                if (verbose) {
+                                                    System.out.printf("  %s %s → %s %s%n",
+                                                            AnsiOutput.cyan("~"),
+                                                            AnsiOutput.bold(dirIdBasename),
+                                                            AnsiOutput.dim(destFile.toString()),
+                                                            AnsiOutput.dim("(" + result.scoreLabel() + ")"));
+                                                } else {
+                                                    System.out.printf("  %s %s %s%n",
+                                                            AnsiOutput.cyan("~"), dirIdBasename,
+                                                            AnsiOutput.dim("(" + result.scoreLabel() + ")"));
+                                                }
+                                            } else {
+                                                errors++;
+                                            }
+                                        } catch (Exception e) {
+                                            errors++;
+                                        }
+                                    }
+                                }
+                            } else {
+                                dirIdentityUnmatched.add(unmatchedFile);
+                            }
+                        }
+                        unmatchedFiles = dirIdentityUnmatched;
+
                         for (StagedFile unmatchedFile : unmatchedFiles) {
                             String relPath = unmatchedFile.relativePath();
                             String unmatchedBasename = Path.of(relPath).getFileName().toString();
@@ -791,6 +873,316 @@ public class StagingCommand implements Callable<Integer> {
             } catch (Exception ignored) {}
 
             return null;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: resolve
+    // -----------------------------------------------------------------------
+
+    /**
+     * Routes a staged file to a specific directory, optionally learning a routing hint.
+     *
+     * <p>Unlike {@link RouteSub} which uses config rules, {@code resolve} is manual:
+     * the user specifies exactly where a file should go. With {@code --learn}, the
+     * resolution is saved as a {@link RoutingHints.RoutingHint} for future automatic routing.
+     *
+     * <p>Usage:
+     * <pre>
+     *   synthesis staging resolve myfile.pdf --to /path/to/dir
+     *   synthesis staging resolve myfile.pdf --to /path/to/dir --also /other/dir
+     *   synthesis staging resolve myfile.pdf --to /path/to/dir --learn
+     * </pre>
+     *
+     * @since v1.9.9
+     */
+    @Command(name = "resolve",
+            description = "Route a staged file to a specific directory, optionally learning a routing hint",
+            mixinStandardHelpOptions = true)
+    static class ResolveSub implements Callable<Integer> {
+
+        @ParentCommand
+        private StagingCommand parent;
+
+        @Parameters(index = "0", description = "Relative path of the staged file to resolve")
+        private String filePath;
+
+        @Option(names = {"--to"}, required = true, description = "Destination directory")
+        private Path destination;
+
+        @Option(names = {"--also"}, description = "Additional destination directory (cross-organization copy)")
+        private Path also;
+
+        @Option(names = {"--learn"},
+                description = "Save this resolution as a routing hint for future files",
+                defaultValue = "false")
+        private boolean learn;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+
+                if (!config.getStaging().isEnabled()) {
+                    AnsiOutput.printError("Staging is not enabled.");
+                    return 1;
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                StagingManager staging = new StagingManager(db, config.getStaging(), workspaceRoot);
+
+                // Find the staged file
+                List<StagedFile> pending = staging.list("pending");
+                StagedFile targetFile = null;
+                for (StagedFile f : pending) {
+                    if (f.relativePath().equals(filePath)) {
+                        targetFile = f;
+                        break;
+                    }
+                }
+
+                if (targetFile == null) {
+                    AnsiOutput.printError("Staged file not found (or not in 'pending' status): "
+                            + filePath);
+                    return 1;
+                }
+
+                // Validate destination
+                if (!Files.isDirectory(destination)) {
+                    Files.createDirectories(destination);
+                }
+
+                // Route to --to
+                String basename = Path.of(targetFile.relativePath()).getFileName().toString();
+                Path destFile = destination.resolve(basename);
+                boolean copyCompanions = config.getRouting().isCopyCompanions();
+
+                boolean success = staging.routeTo(targetFile, destFile, copyCompanions);
+                if (!success) {
+                    AnsiOutput.printError("Failed to route: " + filePath);
+                    return 1;
+                }
+
+                AnsiOutput.printSuccess("Resolved: " + basename + " -> " + destFile);
+
+                // Handle --also: copy the file to a second destination
+                if (also != null) {
+                    if (!Files.isDirectory(also)) {
+                        Files.createDirectories(also);
+                    }
+                    Path alsoFile = also.resolve(basename);
+                    // Copy from destination (since source is now _processed)
+                    Files.copy(destFile, alsoFile, StandardCopyOption.REPLACE_EXISTING);
+
+                    // Also copy companion if it exists
+                    if (copyCompanions) {
+                        Path companionDest = Path.of(destFile + ".synthesis.md");
+                        if (Files.exists(companionDest)) {
+                            Path alsoCompanion = Path.of(alsoFile + ".synthesis.md");
+                            Files.copy(companionDest, alsoCompanion, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+
+                    AnsiOutput.printSuccess("Also copied to: " + alsoFile);
+                }
+
+                // Handle --learn: save routing hint
+                if (learn) {
+                    String pattern = RoutingHints.derivePattern(basename);
+                    RoutingHints routingHints = new RoutingHints(workspaceRoot);
+                    try {
+                        routingHints.load();
+                    } catch (IOException e) {
+                        // Start fresh if hints file is corrupt
+                    }
+                    routingHints.addOrUpdate(new RoutingHints.RoutingHint(
+                            pattern, destination.toAbsolutePath().toString(),
+                            Instant.now(), 0));
+                    AnsiOutput.printInfo("Learned hint: " + pattern + " -> " + destination);
+                }
+
+                System.out.println();
+                System.out.println("  " + AnsiOutput.dim("Run 'synthesis scan' to update the index."));
+                System.out.println();
+                return 0;
+
+            } catch (Exception e) {
+                AnsiOutput.printError("Resolve failed: " + e.getMessage());
+                return 1;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: hints
+    // -----------------------------------------------------------------------
+
+    /**
+     * Lists and manages routing hints learned from {@code resolve --learn}.
+     *
+     * <p>Without options, lists all saved hints. Use {@code --delete N} to remove
+     * a hint by its 1-based index, or {@code --promote N} to convert it to a
+     * permanent routing rule in config.yaml.
+     *
+     * @since v1.9.9
+     */
+    @Command(name = "hints",
+            description = "List and manage routing hints learned from resolve --learn",
+            mixinStandardHelpOptions = true)
+    static class HintsSub implements Callable<Integer> {
+
+        @ParentCommand
+        private StagingCommand parent;
+
+        @Option(names = {"--promote"},
+                description = "Promote hint #N to permanent routing rule in config.yaml")
+        private Integer promote;
+
+        @Option(names = {"--delete"}, description = "Delete hint #N")
+        private Integer delete;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+
+                RoutingHints routingHints = new RoutingHints(workspaceRoot);
+                routingHints.load();
+                List<RoutingHints.RoutingHint> hints = routingHints.getHints();
+
+                if (delete != null) {
+                    if (hints.isEmpty()) {
+                        AnsiOutput.printWarning("No hints to delete.");
+                        return 0;
+                    }
+                    if (delete < 1 || delete > hints.size()) {
+                        AnsiOutput.printError("Invalid hint index: " + delete
+                                + " (have " + hints.size() + " hints)");
+                        return 1;
+                    }
+                    RoutingHints.RoutingHint removed = hints.get(delete - 1);
+                    routingHints.delete(delete);
+                    AnsiOutput.printSuccess("Deleted hint [" + delete + "]: "
+                            + removed.filenamePattern());
+                    return 0;
+                }
+
+                if (promote != null) {
+                    if (hints.isEmpty()) {
+                        AnsiOutput.printWarning("No hints to promote.");
+                        return 0;
+                    }
+                    if (promote < 1 || promote > hints.size()) {
+                        AnsiOutput.printError("Invalid hint index: " + promote
+                                + " (have " + hints.size() + " hints)");
+                        return 1;
+                    }
+                    RoutingHints.RoutingHint hint = hints.get(promote - 1);
+
+                    // Append the new rule to config.yaml
+                    Path configFile = workspaceRoot.resolve("config.yaml");
+                    if (!Files.exists(configFile)) {
+                        AnsiOutput.printError("config.yaml not found at " + workspaceRoot);
+                        return 1;
+                    }
+
+                    String configContent = Files.readString(configFile);
+
+                    // Build a YAML rule entry
+                    String ruleName = "hint-" + hint.filenamePattern()
+                            .replace("*", "")
+                            .replace(".", "-")
+                            .replaceAll("-+", "-")
+                            .replaceAll("^-|-$", "");
+                    String ruleYaml = String.format(
+                            "%n    - name: \"%s\"%n      patterns: [\"%s\"]%n      destination: \"%s\"%n",
+                            ruleName, hint.filenamePattern(), hint.destinationPath());
+
+                    // Try to insert after existing rules section, or create routing section
+                    if (configContent.contains("routing:") && configContent.contains("rules:")) {
+                        // Append after the last rule entry (find last "destination:" line in rules)
+                        int rulesIdx = configContent.indexOf("rules:");
+                        // Find the next top-level key or end of file
+                        // Simple approach: append the rule text right after "rules:" line content
+                        int rulesLineEnd = configContent.indexOf('\n', rulesIdx);
+                        if (rulesLineEnd < 0) rulesLineEnd = configContent.length();
+
+                        // Find the end of existing rules entries
+                        String afterRules = configContent.substring(rulesLineEnd);
+                        // Look for next non-rule-entry line (not starting with spaces/dash)
+                        int insertPos = rulesLineEnd + afterRules.length(); // default: end
+                        String[] lines = afterRules.split("\n");
+                        int offset = rulesLineEnd;
+                        boolean inRules = true;
+                        for (String line : lines) {
+                            offset += line.length() + 1;
+                            if (line.isBlank()) continue;
+                            // If we hit a non-indented line, we've left the rules block
+                            if (inRules && !line.startsWith(" ") && !line.startsWith("\t")
+                                    && !line.trim().startsWith("-") && !line.trim().startsWith("#")) {
+                                insertPos = offset - line.length() - 1;
+                                break;
+                            }
+                        }
+                        configContent = configContent.substring(0, insertPos)
+                                + ruleYaml
+                                + configContent.substring(insertPos);
+                    } else if (configContent.contains("routing:")) {
+                        // routing section exists but no rules
+                        int routingIdx = configContent.indexOf("routing:");
+                        int routingLineEnd = configContent.indexOf('\n', routingIdx);
+                        if (routingLineEnd < 0) routingLineEnd = configContent.length();
+                        String insert = "\n  rules:" + ruleYaml;
+                        configContent = configContent.substring(0, routingLineEnd)
+                                + insert
+                                + configContent.substring(routingLineEnd);
+                    } else {
+                        // No routing section at all — append at end
+                        configContent += String.format(
+                                "%nrouting:%n  rules:" + ruleYaml);
+                    }
+
+                    Files.writeString(configFile, configContent);
+
+                    // Delete the hint from hints file
+                    routingHints.delete(promote);
+
+                    AnsiOutput.printSuccess("Promoted hint [" + promote + "] to routing rule in config.yaml:");
+                    System.out.println("    pattern: " + hint.filenamePattern());
+                    System.out.println("    dest:    " + hint.destinationPath());
+                    return 0;
+                }
+
+                // Default: list hints
+                if (hints.isEmpty()) {
+                    System.out.println();
+                    System.out.println("  No routing hints. Use 'synthesis staging resolve --learn' to learn hints.");
+                    System.out.println();
+                    return 0;
+                }
+
+                System.out.println();
+                System.out.printf("  Routing hints (%d):%n", hints.size());
+                System.out.println();
+                for (int i = 0; i < hints.size(); i++) {
+                    RoutingHints.RoutingHint hint = hints.get(i);
+                    String learnedDate = hint.learnedAt() != null
+                            ? hint.learnedAt().toString().substring(0, 10) : "unknown";
+                    System.out.printf("  [%d] %s -> %s  (hit: %d, learned: %s)%n",
+                            i + 1,
+                            AnsiOutput.bold(hint.filenamePattern()),
+                            AnsiOutput.cyan(hint.destinationPath()),
+                            hint.hitCount(),
+                            learnedDate);
+                }
+                System.out.println();
+
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Hints operation failed: " + e.getMessage());
+                return 1;
+            }
         }
     }
 

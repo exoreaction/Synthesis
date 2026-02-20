@@ -1,0 +1,353 @@
+package io.exoreaction.synthesis.cli;
+
+import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.org.*;
+import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.ParentCommand;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.stream.Stream;
+
+/**
+ * Discovers and bootstraps directory identity metadata ({@code .synthesis.md} files).
+ *
+ * <p>Walks workspace directories, infers directory identity using
+ * {@link DirectoryNameVocabulary} and {@link DirectorySignalExtractor},
+ * and writes directory-level {@code .synthesis.md} files.
+ *
+ * <p>Usage:
+ * <pre>
+ *   synthesis sync                 # Sync all directories in workspace
+ *   synthesis sync --dry-run       # Show what would be created/updated
+ *   synthesis sync --dir path      # Sync only a specific directory tree
+ *   synthesis sync --force         # Overwrite existing .synthesis.md files
+ *   synthesis sync --verbose       # Show per-directory detail
+ * </pre>
+ */
+@Command(
+        name = "sync",
+        description = "Discover and bootstrap directory identity metadata (.synthesis.md files)",
+        mixinStandardHelpOptions = true
+)
+public class SyncCommand implements Callable<Integer> {
+
+    @ParentCommand
+    private SynthesisApp parent;
+
+    @Option(names = {"--dry-run"}, description = "Show what would be created/updated without writing")
+    private boolean dryRun;
+
+    @Option(names = {"--verbose", "-v"}, description = "Show per-directory detail")
+    private boolean verbose;
+
+    @Option(names = {"--dir"}, description = "Sync only a specific directory (not full workspace)")
+    private Path targetDir;
+
+    @Option(names = {"--force"}, description = "Overwrite existing .synthesis.md files (reset to inferred)")
+    private boolean force;
+
+    @Override
+    public Integer call() throws Exception {
+        Path workspaceRoot = parent.getWorkspaceRoot();
+        return syncWorkspace(workspaceRoot);
+    }
+
+    /**
+     * Runs the sync algorithm on the given workspace root.
+     * Package-private for use from {@link MaintainCommand}.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @return exit code (0 = success)
+     */
+    int syncWorkspace(Path workspaceRoot) throws Exception {
+        SynthesisConfig config;
+        try {
+            config = ConfigLoader.load(workspaceRoot);
+        } catch (IOException e) {
+            config = new SynthesisConfig();
+        }
+
+        List<String> excludePatterns = config.getScan().getEffectiveExcludePatterns(workspaceRoot);
+
+        // Load org registry (if available)
+        OrganizationRegistry registry = loadOrgRegistry(workspaceRoot);
+        ScopeResolver scopeResolver = new ScopeResolver(registry);
+
+        DirectoryIdentityParser parser = new DirectoryIdentityParser();
+        DirectoryNameVocabulary vocabulary = new DirectoryNameVocabulary();
+        DirectorySignalExtractor extractor = new DirectorySignalExtractor();
+
+        Path scanRoot = targetDir != null ? targetDir : workspaceRoot;
+
+        int created = 0;
+        int updated = 0;
+        int unchanged = 0;
+
+        try (Stream<Path> walk = Files.walk(scanRoot)) {
+            List<Path> directories = walk
+                    .filter(Files::isDirectory)
+                    .filter(dir -> !dir.equals(scanRoot))
+                    .filter(dir -> !isHiddenDir(dir))
+                    .filter(dir -> !isSynthesisDir(dir))
+                    .filter(dir -> !matchesExcludePattern(dir, workspaceRoot, excludePatterns))
+                    .toList();
+
+            for (Path dir : directories) {
+                Path synthesisFile = dir.resolve(".synthesis.md");
+                ScopeResolver.ResolvedScope scope = scopeResolver.resolve(dir);
+
+                boolean exists = Files.exists(synthesisFile) && !force;
+
+                // Parse existing identity if present
+                DirectoryIdentity existing = null;
+                if (exists) {
+                    existing = parser.parse(synthesisFile);
+                }
+
+                // Run vocabulary inference
+                Optional<DirectoryIdentity> vocabResult =
+                        vocabulary.inferFromName(dir.getFileName().toString(), scope);
+
+                // Run signal extraction
+                DirectorySignalExtractor.DirectorySignals signals = extractor.extract(dir);
+
+                // Skip if empty dir with no vocabulary match
+                if (signals.fileCount() == 0 && vocabResult.isEmpty()) {
+                    continue;
+                }
+
+                // Build discovered identity from signals
+                DirectoryIdentity signalsIdentity = buildIdentityFromSignals(signals, scope);
+
+                // Merge vocabulary and signals
+                DirectoryIdentity discovered;
+                if (vocabResult.isPresent()) {
+                    discovered = parser.merge(vocabResult.get(), signalsIdentity);
+                } else {
+                    discovered = signalsIdentity;
+                }
+
+                // Skip if result has no meaningful data
+                if (discovered.acceptsTypes().isEmpty()
+                        && discovered.acceptsFormats().isEmpty()
+                        && discovered.acceptsPatterns().isEmpty()
+                        && discovered.confidence() == 0.0
+                        && vocabResult.isEmpty()) {
+                    continue;
+                }
+
+                // Merge with existing if applicable
+                DirectoryIdentity result;
+                if (exists && existing != null) {
+                    result = parser.merge(existing, discovered);
+                    // Check if anything actually changed
+                    if (isEquivalent(existing, result)) {
+                        unchanged++;
+                        if (verbose) {
+                            System.out.println("  [UNCHANGED] "
+                                    + workspaceRoot.relativize(dir));
+                        }
+                        continue;
+                    }
+                } else {
+                    result = discovered;
+                }
+
+                // Write or report
+                String relativePath = workspaceRoot.relativize(dir).toString();
+                if (exists && existing != null) {
+                    // Updating existing
+                    if (dryRun) {
+                        System.out.println("  [DRY] Would update: " + relativePath);
+                    } else {
+                        parser.write(synthesisFile, result);
+                        if (verbose) {
+                            printDetail(relativePath, result, "updated");
+                        }
+                    }
+                    updated++;
+                } else {
+                    // Creating new
+                    if (dryRun) {
+                        System.out.println("  [DRY] Would create: " + relativePath);
+                    } else {
+                        parser.write(synthesisFile, result);
+                        if (verbose) {
+                            printDetail(relativePath, result, "created");
+                        }
+                    }
+                    created++;
+                }
+            }
+        }
+
+        int total = created + updated + unchanged;
+        System.out.println("Synced: " + total + " directories ("
+                + created + " created, " + updated + " updated, " + unchanged + " unchanged)");
+
+        return 0;
+    }
+
+    // ---- Package-private setters for testing and MaintainCommand integration ----
+
+    void setParent(SynthesisApp parent) {
+        this.parent = parent;
+    }
+
+    void setVerbose(boolean verbose) {
+        this.verbose = verbose;
+    }
+
+    void setDryRun(boolean dryRun) {
+        this.dryRun = dryRun;
+    }
+
+    void setTargetDir(Path targetDir) {
+        this.targetDir = targetDir;
+    }
+
+    void setForce(boolean force) {
+        this.force = force;
+    }
+
+    // ---- Internal helpers ----
+
+    /**
+     * Builds a {@link DirectoryIdentity} from extracted signals and resolved scope.
+     */
+    static DirectoryIdentity buildIdentityFromSignals(
+            DirectorySignalExtractor.DirectorySignals signals,
+            ScopeResolver.ResolvedScope scope) {
+
+        return new DirectoryIdentity(
+                signals.inferredTypes(),
+                signals.inferredFormats(),
+                signals.inferredPatterns(),
+                scope.level(),
+                scope.organization(),
+                scope.entity(),
+                signals.confidence(),
+                Instant.now(),
+                "inferred from " + signals.fileCount() + " files",
+                ""
+        );
+    }
+
+    /**
+     * Checks whether two identities are functionally equivalent
+     * (ignoring lastSynced which always changes).
+     */
+    static boolean isEquivalent(DirectoryIdentity a, DirectoryIdentity b) {
+        return a.acceptsTypes().equals(b.acceptsTypes())
+                && a.acceptsFormats().equals(b.acceptsFormats())
+                && a.acceptsPatterns().equals(b.acceptsPatterns())
+                && a.scopeLevel() == b.scopeLevel()
+                && java.util.Objects.equals(a.scopeOrganization(), b.scopeOrganization())
+                && java.util.Objects.equals(a.scopeEntity(), b.scopeEntity())
+                && Double.compare(a.confidence(), b.confidence()) == 0
+                && java.util.Objects.equals(a.source(), b.source())
+                && java.util.Objects.equals(a.description(), b.description());
+    }
+
+    /**
+     * Returns true if the directory name starts with a dot (hidden directory).
+     */
+    private static boolean isHiddenDir(Path dir) {
+        return dir.getFileName() != null
+                && dir.getFileName().toString().startsWith(".");
+    }
+
+    /**
+     * Returns true if the directory is named {@code .synthesis}.
+     */
+    private static boolean isSynthesisDir(Path dir) {
+        return dir.getFileName() != null
+                && dir.getFileName().toString().equals(".synthesis");
+    }
+
+    /**
+     * Returns true if the directory matches any of the exclude patterns.
+     * Matches against the directory name relative to workspace root.
+     */
+    private static boolean matchesExcludePattern(Path dir, Path workspaceRoot, List<String> excludePatterns) {
+        String relativePath = workspaceRoot.relativize(dir).toString();
+        for (String pattern : excludePatterns) {
+            // Match directory name against simple patterns
+            // e.g. "**/node_modules/**" should exclude node_modules dirs
+            String cleanPattern = pattern.replace("**/", "").replace("/**", "");
+            String dirName = dir.getFileName().toString();
+            if (dirName.equals(cleanPattern)) {
+                return true;
+            }
+            // Also check if relative path contains the pattern directory
+            if (relativePath.contains(cleanPattern + "/") || relativePath.endsWith(cleanPattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Loads the OrganizationRegistry, searching workspace root and common locations.
+     */
+    private OrganizationRegistry loadOrgRegistry(Path workspaceRoot) {
+        // Try the workspace root
+        Path orgsFile = workspaceRoot.resolve(".synthesis").resolve("organizations.json");
+        if (Files.exists(orgsFile)) {
+            try {
+                OrganizationRegistry registry = new OrganizationRegistry(workspaceRoot);
+                registry.load();
+                if (registry.hasOrganizations()) return registry;
+            } catch (Exception ignored) {}
+        }
+
+        // Try ~/Documents
+        Path docsPath = Path.of(System.getProperty("user.home"), "Documents");
+        orgsFile = docsPath.resolve(".synthesis").resolve("organizations.json");
+        if (Files.exists(orgsFile)) {
+            try {
+                OrganizationRegistry registry = new OrganizationRegistry(docsPath);
+                registry.load();
+                if (registry.hasOrganizations()) return registry;
+            } catch (Exception ignored) {}
+        }
+
+        // Try all discovered workspaces
+        try {
+            WorkspaceDiscoveryConfig config = WorkspaceDiscoveryConfig.load();
+            for (Path searchPath : config.getSearchPaths()) {
+                if (!Files.exists(searchPath)) continue;
+                orgsFile = searchPath.resolve(".synthesis").resolve("organizations.json");
+                if (Files.exists(orgsFile)) {
+                    try {
+                        OrganizationRegistry registry = new OrganizationRegistry(searchPath);
+                        registry.load();
+                        if (registry.hasOrganizations()) return registry;
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    /**
+     * Prints per-directory detail for verbose mode.
+     */
+    private void printDetail(String relativePath, DirectoryIdentity identity, String action) {
+        System.out.println("  [" + action.toUpperCase() + "] " + relativePath
+                + " (types=" + identity.acceptsTypes()
+                + ", formats=" + identity.acceptsFormats()
+                + ", confidence=" + identity.confidence() + ")");
+    }
+}

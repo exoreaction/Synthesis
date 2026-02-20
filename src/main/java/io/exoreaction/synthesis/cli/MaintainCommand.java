@@ -99,6 +99,13 @@ public class MaintainCommand implements Callable<Integer> {
     )
     private boolean updateActivityLog;
 
+    @Option(
+            names = {"--sync"},
+            description = "Run directory identity sync after maintenance (discover .synthesis.md files)",
+            defaultValue = "false"
+    )
+    private boolean sync;
+
     @Override
     public Integer call() {
         long startMs = System.nanoTime();
@@ -246,6 +253,18 @@ public class MaintainCommand implements Callable<Integer> {
                     } catch (Exception e) {
                         System.err.println("  \u26a0\ufe0f  Could not update activity log: " + e.getMessage());
                     }
+                }
+            }
+
+            // --- Integration: Directory identity sync ---
+            if (sync) {
+                try {
+                    SyncCommand syncCmd = new SyncCommand();
+                    syncCmd.setParent(parent);
+                    syncCmd.setVerbose(false);
+                    syncCmd.syncWorkspace(workspaceRoot);
+                } catch (Exception e) {
+                    System.err.println("  Warning: Could not sync directory identities: " + e.getMessage());
                 }
             }
 
