@@ -275,6 +275,29 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
+// --- Integration: Knowledge Edge Reconciliation ---
+            try {
+                List<String> changedPaths = new ArrayList<>();
+                for (var fm : changes.added())    changedPaths.add(fm.relativePath());
+                for (var fm : changes.modified()) changedPaths.add(fm.relativePath());
+                if (!changedPaths.isEmpty()) {
+                    SynthesisDatabase reconcileDb = SynthesisDatabase.getDefault();
+                    io.exoreaction.synthesis.graph.KnowledgeReconciler reconciler =
+                        new io.exoreaction.synthesis.graph.KnowledgeReconciler();
+                    List<io.exoreaction.synthesis.graph.KnowledgeReconciler.ReconcileResult> degraded =
+                        reconciler.reconcile(changedPaths, reconcileDb.getConnection(), workspaceRoot);
+                    for (var r : degraded) {
+                        System.out.println("  \u26a0 Knowledge edge degraded: "
+                            + r.sourcePath() + " [" + r.oldConfidence() + " -> " + r.newConfidence()
+                            + ", " + r.driftDays() + "d drift] — update " + r.skillPath());
+                    }
+                }
+            } catch (Exception e) {
+                if (verbose) {
+                    System.err.println("  Warning: Knowledge edge reconciliation: " + e.getMessage());
+                }
+            }
+
 // --- Git Fetch for client codebases ---
             if (!skipGitFetch) {
                 fetchClientCodebases(workspaceRoot);
