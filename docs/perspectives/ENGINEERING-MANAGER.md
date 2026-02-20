@@ -32,7 +32,20 @@ Generates a health report including:
 - Dead code candidates (files with zero incoming references)
 - Test coverage gaps (source files without test counterparts)
 
-### 2. Architecture Quality Metrics
+### 2. Workspace Health Score
+
+```bash
+synthesis health
+```
+
+New in v1.11.1 -- a quantitative workspace hygiene metric. Returns a score (0-100) with letter grade (A through F). Detects phantom config paths, build artifacts at root, empty directories, and loose files. Useful as an engineering excellence metric across teams.
+
+```bash
+synthesis health --format json    # Machine-readable for dashboards
+synthesis health --fix-config     # Auto-repair detected config issues
+```
+
+### 3. Architecture Quality Metrics
 
 ```bash
 synthesis architecture
@@ -49,7 +62,7 @@ Detects anti-patterns automatically:
 | Test coverage gaps | Source without test | Quality risk |
 | High coupling | Files with 20+ incoming refs | Change = widespread breakage |
 
-### 3. Quantitative Metrics
+### 4. Quantitative Metrics
 
 ```bash
 synthesis metrics
@@ -57,7 +70,7 @@ synthesis metrics
 
 Performance and usage statistics for your Synthesis installation, useful for tracking adoption across the team.
 
-### 4. Cross-Repository Visibility
+### 5. Cross-Repository Visibility
 
 ```bash
 synthesis cross-repo-deps
@@ -67,14 +80,119 @@ Maps dependencies between repositories. Shows which repos depend on which others
 
 Real example: 58 repositories, 429 cross-dependencies mapped in under 31 seconds.
 
-### 5. Change Tracking
+### 6. AI-Powered Temporal Summaries
+
+```bash
+synthesis summary --since 7d       # What happened this week (AI-generated)
+synthesis summary --since 24h      # What happened today
+synthesis summary --since 2w       # Last two weeks (sprint summary)
+synthesis summary --since 3m       # Quarterly review context
+```
+
+New in v1.9.5 -- temporal summaries use actual change data from `maintain` snapshots. The `--since` flag loads `ChangeEvent` data and injects it into the AI prompt, so the summary is grounded in what actually changed, not just the current state. Supports durations (`7d`, `24h`, `2w`, `3m`) and ISO dates (`2026-02-01`).
+
+Requires `synthesis maintain` to have run at least once to populate snapshots.
+
+### 7. Change Tracking and Velocity
 
 ```bash
 synthesis changelog                           # Cross-workspace change summary
+synthesis changelog --since 7d                # Last 7 days
+synthesis changelog --weekly                  # Executive weekly report
+synthesis changelog --significance critical   # Only critical changes
 synthesis changed --since 2026-02-01          # What changed since a date
 ```
 
-Track what is changing across your codebase over time. Useful for sprint reviews, release notes, and understanding team activity.
+Track what is changing across your codebase over time. Useful for sprint reviews, release notes, and understanding team activity. Significance filtering separates noise from signal -- mass deletions (>10 files) are flagged as CRITICAL automatically.
+
+### 8. Change Impact Analysis
+
+```bash
+synthesis impact src/core/AuthService.java    # Co-change analysis
+```
+
+Before approving changes, understand the blast radius. Shows which files tend to change together, helping you assess risk before merging.
+
+---
+
+## Automated Housekeeping
+
+New in v1.11.1, Synthesis provides a suite of commands to keep workspaces clean without manual effort.
+
+### Sweep: Automated Stale File Cleanup
+
+```bash
+synthesis sweep --dry-run          # Preview what would be cleaned up
+synthesis sweep --yes              # Execute cleanup
+synthesis sweep --days 14          # Lower age threshold (default: 30 days)
+synthesis sweep --archive-only     # Skip smart routing, archive everything
+```
+
+Identifies and handles stale root-level files: session scripts, ephemeral docs, dated reports, archives. With directory identities configured (`synthesis sync`), sweep routes files to the right directory instead of blindly archiving.
+
+### Prune: Remove Orphaned Index Entries and Empty Directories
+
+```bash
+synthesis prune --yes              # Remove empty directories
+synthesis prune --path reports/    # Limit to a sub-path
+```
+
+### TTL: Automatic File Expiry
+
+```bash
+synthesis ttl set "TONIGHT-*.md" --days 3     # Expires after 3 days
+synthesis ttl set "*.tmp" --days 1            # Short-lived temp files
+synthesis ttl list                             # Show active rules
+synthesis ttl check --archive                  # Archive expired files
+```
+
+Register glob-pattern rules that declare when specific files should be cleaned up. Run `ttl check --archive` in a cron job for hands-off lifecycle management.
+
+### Consolidate: Merge Fragmented Content
+
+```bash
+synthesis scatter --all                        # Find content spread across locations
+synthesis consolidate "Entity Name"            # Preview merge
+synthesis consolidate "Entity Name" --execute  # Execute merge
+```
+
+Detects when content about the same entity (client, project, topic) is spread across multiple directories. The consolidate command merges them and updates cross-references in markdown files.
+
+### The Self-Organizing Workspace
+
+The recommended automation sequence for clean workspaces:
+
+```bash
+synthesis maintain --sync --update-activity-log   # Index + sync + activity log
+synthesis sweep --yes                              # Clean up stale files
+synthesis ttl check --archive                      # Archive expired files
+```
+
+Set this up as a cron job or systemd timer and workspaces stay organized automatically.
+
+---
+
+## Activity Log and Automated Reporting
+
+```bash
+synthesis maintain --update-activity-log
+```
+
+Auto-generates dated entries in `ACTIVITY-LOG.md` using actual change data. This provides:
+- Automated daily/weekly activity summaries without manual effort
+- Audit trail of what happened in the workspace
+- Input to `synthesis report --topic activities` for status reporting
+
+Gracefully degrades to a structured diff when no API key is present. Skips if today's entry already exists.
+
+Combined with temporal summaries:
+
+```bash
+synthesis summary --since 7d         # AI summary grounded in the week's actual changes
+synthesis changelog --weekly         # Cross-workspace change report for stakeholders
+```
+
+This gives you two complementary views: the AI narrative (summary) and the factual change list (changelog).
 
 ---
 
@@ -145,6 +263,7 @@ Embed Synthesis into existing workflows:
 - **Code review:** "Did you check `relate` before changing this shared service?"
 - **Sprint planning:** Generate module graph to identify coupling risks
 - **Architecture decisions:** Show dependency graph for proposed changes
+- **Change risk:** Run `synthesis impact <file>` before approving shared-service changes
 
 **Success signal:** First refactoring where zero surprise bugs occurred because dependencies were mapped.
 
@@ -166,10 +285,32 @@ Track these metrics weekly. Baselines are industry averages for AI-augmented tea
 | Bugs from missed deps | 4/sprint | 0-1 | Tag in issue tracker |
 | New dev time to productivity | 3-4 weeks | 3-5 days | Track onboarding duration |
 | Cross-repo awareness | None | Complete | Can developers explain inter-service deps? |
+| Workspace health score | Untracked | 80+ (B+) | `synthesis health --format json` |
 
 ---
 
 ## Generating Team Reports
+
+### Temporal AI Summaries (Recommended)
+
+For status reports grounded in actual recent changes:
+
+```bash
+synthesis summary --since 7d                   # Weekly AI summary
+synthesis summary --since 2w                   # Sprint summary
+synthesis summary --since 3m                   # Quarterly summary
+synthesis summary --since 7d -o weekly.md      # Save to file
+```
+
+These use actual change data from snapshots, so the AI narrative reflects what really happened.
+
+### Cross-Workspace Change Reports
+
+```bash
+synthesis changelog --weekly                   # Executive weekly report
+synthesis changelog --format markdown -o changes.md   # Save for sharing
+synthesis changelog --significance notable     # Filter to important changes only
+```
 
 ### Codebase Research Reports
 
@@ -251,6 +392,7 @@ Add to your PR template:
 ```markdown
 ## Impact Analysis
 - [ ] Ran `synthesis relate` on changed shared services
+- [ ] Ran `synthesis impact` on high-risk files
 - [ ] Verified all incoming references are updated
 - [ ] No new circular dependencies introduced
 ```
@@ -263,13 +405,34 @@ Before each sprint:
 synthesis architecture                     # Check for new anti-patterns
 synthesis graph --modules --format mermaid  # Updated architecture view
 synthesis insights                          # Codebase health check
+synthesis health                            # Workspace hygiene score
+synthesis summary --since 2w               # AI summary of last sprint's changes
+```
+
+### Sprint Reviews
+
+```bash
+synthesis summary --since 2w               # AI narrative of the sprint
+synthesis changelog --since 2w             # Detailed change list
+synthesis changed --since 2026-02-01       # Files changed this sprint
 ```
 
 ### Retrospectives
 
 ```bash
 synthesis changed --since 2026-02-01       # What changed this sprint
-synthesis changelog                         # Cross-workspace changes
+synthesis changelog --since 2w             # Cross-workspace changes
+synthesis impact <most-changed-file>       # Was the riskiest change managed well?
+```
+
+### Weekly Status Reporting
+
+Set up a Monday morning routine:
+
+```bash
+synthesis maintain --sync --update-activity-log   # Refresh everything
+synthesis summary --since 7d -o weekly-summary.md  # AI summary for stakeholders
+synthesis changelog --weekly                       # Factual change list
 ```
 
 ---
@@ -277,22 +440,47 @@ synthesis changelog                         # Cross-workspace changes
 ## Quick Reference
 
 ```
+# Visibility & Health
 synthesis insights                          # Codebase health report
 synthesis architecture                      # Anti-pattern detection
+synthesis health                            # Workspace health score (0-100)
 synthesis metrics                           # Performance statistics
 synthesis cross-repo-deps                   # Cross-repo dependency map
 synthesis graph --modules                   # Architecture overview
+
+# Temporal Intelligence
+synthesis summary --since 7d               # AI summary of last week
+synthesis summary --since 2w               # Sprint summary
 synthesis changelog                         # Cross-workspace change report
+synthesis changelog --weekly                # Executive weekly report
 synthesis changed --since 2026-01-01        # Files changed since date
+synthesis impact <file>                     # Co-change / blast radius analysis
+
+# Housekeeping & Automation
+synthesis maintain --sync --update-activity-log   # Full maintenance cycle
+synthesis sweep --dry-run                   # Preview stale file cleanup
+synthesis sweep --yes                       # Execute cleanup
+synthesis prune --yes                       # Remove empty directories
+synthesis ttl set "*.tmp" --days 1          # Register TTL rule
+synthesis ttl check --archive               # Archive expired files
+synthesis consolidate "Entity" --execute    # Merge fragmented content
+synthesis discover                          # Find unindexed git repos
+
+# Deep Analysis
 synthesis research --topic architecture     # Deep architecture analysis
 synthesis research --estimate               # Cost preview
 synthesis summary                           # Executive summary
 synthesis perspectives "question"           # Multi-angle analysis
+
+# Team Tools
 synthesis learn                             # Generate Claude Code skills
 synthesis export                            # Export index for sharing
+synthesis org                               # Organization registry
 ```
 
 ---
+
+**Version:** v1.11.1 (Feb 2026) | ~2,500 tests passing
 
 **Related guides:**
 - [Developer Guide](./DEVELOPER.md) -- for your team members
