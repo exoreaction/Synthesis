@@ -2,12 +2,16 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
+import io.exoreaction.synthesis.core.FileMetadata;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.enrichment.CompanionFileGenerator;
+import io.exoreaction.synthesis.enrichment.EnrichmentLevel;
 import io.exoreaction.synthesis.org.DownloadsClassifier;
 import io.exoreaction.synthesis.org.OrganizationRegistry;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
@@ -27,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -349,6 +354,12 @@ public class StagingCommand implements Callable<Integer> {
                 defaultValue = "false")
         private boolean verbose;
 
+        @Option(names = {"--enrich-first"},
+                description = "Enrich unmatched images/PDFs before content-intelligence pass"
+                        + " (generates companion .synthesis.md files on the fly)",
+                defaultValue = "false")
+        private boolean enrichFirst;
+
         @Override
         public Integer call() {
             try {
@@ -495,6 +506,11 @@ public class StagingCommand implements Callable<Integer> {
 
                 // Content-intelligence fallback for unmatched files
                 if (config.getStaging().isAutoClassify() && !unmatchedFiles.isEmpty()) {
+                    // --enrich-first: generate companions for IMAGE/PDF files before classifying
+                    if (enrichFirst && !dryRun) {
+                        enrichUnmatchedFiles(unmatchedFiles, workspaceRoot, config, verbose);
+                    }
+
                     OrganizationRegistry orgRegistry = loadOrgRegistry(workspaceRoot);
                     if (orgRegistry != null && orgRegistry.hasOrganizations()) {
                         DownloadsClassifier classifier = new DownloadsClassifier(orgRegistry);
@@ -639,6 +655,79 @@ public class StagingCommand implements Callable<Integer> {
             } catch (Exception e) {
                 AnsiOutput.printError("Routing failed: " + e.getMessage());
                 return 1;
+            }
+        }
+
+        /**
+         * Generates companion {@code .synthesis.md} files for unmatched IMAGE and PDF
+         * staging files that do not already have one.
+         *
+         * <p>Uses {@link CompanionFileGenerator} with the best available enrichment level
+         * (AI if an API key is configured, otherwise BASIC). This gives the subsequent
+         * content-intelligence pass ({@link DownloadsClassifier#classifyWithCompanion})
+         * real content to work with for files whose names carry no semantic signal
+         * (UUID exports, hash-named browser saves, etc.).
+         *
+         * @param unmatchedFiles files that did not match any routing rule
+         * @param workspaceRoot  workspace root path
+         * @param config         workspace configuration (for AI settings)
+         * @param verbose        if true, print per-file enrichment status
+         */
+        private void enrichUnmatchedFiles(List<StagedFile> unmatchedFiles, Path workspaceRoot,
+                                          SynthesisConfig config, boolean verbose) {
+            List<StagedFile> enrichable = unmatchedFiles.stream()
+                    .filter(f -> "IMAGE".equals(f.fileType()) || "PDF".equals(f.fileType()))
+                    .filter(f -> !Files.exists(workspaceRoot.resolve(f.relativePath() + ".synthesis.md")))
+                    .toList();
+
+            if (enrichable.isEmpty()) return;
+
+            EnrichmentLevel level = EnrichmentLevel.maxAvailable();
+            ClaudeClient aiClient = null;
+            if (level.hasAI()) {
+                Optional<ClaudeClient> opt = ClaudeClient.create(config.getAi());
+                if (opt.isEmpty()) {
+                    opt = ClaudeClient.createIfApiKeyAvailable(config.getAi().getModel());
+                }
+                aiClient = opt.orElse(null);
+                if (aiClient == null) {
+                    level = EnrichmentLevel.BASIC;
+                }
+            }
+
+            CompanionFileGenerator generator = new CompanionFileGenerator(level, false, aiClient);
+            AnalyzerRegistry analyzers = new AnalyzerRegistry();
+            int enriched = 0;
+
+            System.out.println();
+            AnsiOutput.printInfo("Enriching " + enrichable.size() + " unmatched image/PDF file(s) before classification...");
+
+            for (StagedFile file : enrichable) {
+                Path filePath = workspaceRoot.resolve(file.relativePath());
+                if (!Files.exists(filePath)) continue;
+                try {
+                    BasicFileAttributes attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
+                    FileMetadata metadata = FileMetadata.of(
+                            filePath, workspaceRoot, attrs.size(),
+                            attrs.lastModifiedTime().toInstant(), null);
+                    Optional<Path> companion = generator.generate(metadata, analyzers.analyze(metadata),
+                            List.of());
+                    if (companion.isPresent()) {
+                        enriched++;
+                        if (verbose) {
+                            System.out.println("  + companion: " + companion.get().getFileName());
+                        }
+                    }
+                } catch (Exception e) {
+                    if (verbose) {
+                        AnsiOutput.printWarning("Could not enrich " + file.relativePath()
+                                + ": " + e.getMessage());
+                    }
+                }
+            }
+
+            if (enriched > 0) {
+                System.out.printf("  Enriched %d file(s) — level: %s%n%n", enriched, level.name());
             }
         }
 
