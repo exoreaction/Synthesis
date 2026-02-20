@@ -234,7 +234,7 @@ public class MaintainCommand implements Callable<Integer> {
                         List<ChangeEvent> events = snapshots.getChangesForWorkspace(
                                 workspaceRoot.toString(), previousState.getLastScanTime());
                         Optional<ClaudeClient> aiClient = ClaudeClient.createIfApiKeyAvailable(
-                                "claude-haiku-4-5-20251001");
+                                config.getAi().getModel());
                         ActivityLogUpdater updater = new ActivityLogUpdater();
                         boolean written = updater.update(workspaceRoot, events,
                                 config.getWorkspace().getName(), aiClient);
@@ -249,7 +249,7 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
-                        // --- Integration: Knowledge Edge scanning ---
+            // --- Integration: Knowledge Edge scanning ---
             try {
                 List<Path> skillDirs = new java.util.ArrayList<>();
                 Path skillsDir = workspaceRoot.resolve(".claude").resolve("skills");
@@ -275,7 +275,7 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
-// --- Integration: Knowledge Edge Reconciliation ---
+            // --- Integration: Knowledge Edge Reconciliation ---
             try {
                 List<String> changedPaths = new ArrayList<>();
                 for (var fm : changes.added())    changedPaths.add(fm.relativePath());
@@ -298,7 +298,7 @@ public class MaintainCommand implements Callable<Integer> {
                 }
             }
 
-// --- Git Fetch for client codebases ---
+            // --- Git Fetch for client codebases ---
             if (!skipGitFetch) {
                 fetchClientCodebases(workspaceRoot);
             }
