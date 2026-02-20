@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.graph.CrossFormatLinker;
 import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.graph.TestCoverageAnalyzer;
@@ -32,6 +33,7 @@ public class RelateCommand implements Callable<Integer> {
     @Option(names = {"--tests"}, description = "Show test classes that cover this file", defaultValue = "false") private boolean showTests;
 
     private final RelationService relationService = new RelationService();
+    private final CrossFormatLinker crossFormatLinker = new CrossFormatLinker();
 
     @Override
     public Integer call() {
@@ -64,6 +66,9 @@ public class RelateCommand implements Callable<Integer> {
 
             if (mermaid) { System.out.println(relationService.generateMermaid(relationshipMap)); }
             else { printRelationships(relationshipMap, target); }
+            if (crossFormatLinker.isSqlFile(target) || crossFormatLinker.isYamlFile(target)) {
+                printCrossFormatLinks(target, allFiles, workspaceRoot);
+            }
             if (showTests) {
                 TestCoverageAnalyzer tca = new TestCoverageAnalyzer();
                 List<SearchResult> af;
@@ -108,6 +113,33 @@ public class RelateCommand implements Callable<Integer> {
         if (total == 0) System.out.println("  " + AnsiOutput.yellow("This file appears to be orphaned (no references found)."));
         else System.out.println("  " + AnsiOutput.bold("Total connections: " + total));
         System.out.println();
+    }
+
+    private void printCrossFormatLinks(SearchResult target, List<SearchResult> allFiles, Path workspaceRoot) {
+        try {
+            List<CrossFormatLinker.CrossFormatLink> links;
+            String sectionTitle;
+            if (crossFormatLinker.isSqlFile(target)) {
+                links = crossFormatLinker.findSqlToJavaLinks(target, allFiles, workspaceRoot);
+                sectionTitle = "SQL Migration Cross-Format Links";
+            } else {
+                links = crossFormatLinker.findYamlToJavaLinks(target, allFiles, workspaceRoot);
+                sectionTitle = "YAML Config Cross-Format Links";
+            }
+            System.out.println();
+            if (links.isEmpty()) {
+                System.out.println("  " + AnsiOutput.dim("No cross-format Java references found."));
+            } else {
+                System.out.println("  " + AnsiOutput.bold(AnsiOutput.cyan(sectionTitle + ":")) + " " + links.size() + " file(s)");
+                System.out.println();
+                for (CrossFormatLinker.CrossFormatLink link : links) {
+                    System.out.println("    " + AnsiOutput.green("~>") + " " + link.targetPath() + AnsiOutput.dim(" [" + link.linkType() + ": " + link.entityName() + "]"));
+                }
+            }
+            System.out.println();
+        } catch (Exception e) {
+            System.out.println("  " + AnsiOutput.dim("Cross-format analysis unavailable: " + e.getMessage()));
+        }
     }
 
     private void printTestCoverage(TestCoverageAnalyzer.TestCoverageResult cov) {
