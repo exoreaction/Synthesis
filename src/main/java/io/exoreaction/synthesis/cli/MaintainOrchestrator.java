@@ -19,11 +19,16 @@ import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -357,9 +362,22 @@ public class MaintainOrchestrator {
         syncCmd.setDryRun(options.dryRun());
         syncCmd.setVerbose(false);
 
-        // SyncCommand.syncWorkspace prints output — we accept this for now since
-        // the orchestrator's primary contract is that PhaseResults carry the data
-        int exitCode = syncCmd.syncWorkspace(workspaceRoot);
+        // SyncCommand.syncWorkspace prints to stdout; suppress it in quiet/json modes
+        // so that the caller's output format is not polluted
+        PrintStream savedOut = null;
+        if (options.quiet() || options.json()) {
+            savedOut = System.out;
+            System.setOut(new PrintStream(OutputStream.nullOutputStream()));
+        }
+        int exitCode;
+        try {
+            exitCode = syncCmd.syncWorkspace(workspaceRoot);
+        } finally {
+            if (savedOut != null) {
+                System.setOut(savedOut);
+            }
+        }
+
         if (exitCode != 0) {
             return PhaseResult.failed(3, "Sync", "sync exited with code " + exitCode);
         }
@@ -489,38 +507,67 @@ public class MaintainOrchestrator {
                     "no TTL rules defined", List.of());
         }
 
-        List<Path> expiredFiles = TtlCommand.findExpiredFiles(workspaceRoot, rules);
+        // Find files expired by FILE AGE (not rule creation date)
+        List<Path> expiredFiles = findExpiredByFileAge(workspaceRoot, rules);
         if (expiredFiles.isEmpty()) {
             return PhaseResult.success(6, "Expire", 0,
                     "no expired files", List.of());
         }
 
         if (options.dryRun()) {
-            List<String> details = new ArrayList<>();
-            for (Path f : expiredFiles) {
-                details.add(f.getFileName().toString());
-            }
+            List<String> details = expiredFiles.stream()
+                    .map(f -> "[would] " + f.getFileName() + " → archive/expired-" + LocalDate.now() + "/")
+                    .collect(java.util.stream.Collectors.toList());
             return PhaseResult.success(6, "Expire", expiredFiles.size(),
-                    expiredFiles.size() + " file(s) would be archived", details);
+                    expiredFiles.size() + " file(s) would be archived by TTL rules", details);
         }
 
-        // Archive expired files
-        Path destination = workspaceRoot.resolve("archive")
-                .resolve("expired-" + LocalDate.now());
-        Files.createDirectories(destination);
-
+        Path dest = workspaceRoot.resolve("archive").resolve("expired-" + LocalDate.now());
+        Files.createDirectories(dest);
         int archived = 0;
         for (Path file : expiredFiles) {
             try {
-                Path target = destination.resolve(file.getFileName());
-                Files.move(file, target);
+                Files.move(file, dest.resolve(file.getFileName()));
                 archived++;
             } catch (IOException e) {
                 // Skip individual file failures
             }
         }
         return PhaseResult.success(6, "Expire", archived,
-                archived + " file(s) archived", List.of());
+                archived + " file(s) archived by TTL rules", List.of());
+    }
+
+    /**
+     * Finds files matching TTL rule patterns whose {@code lastModified} age exceeds the
+     * rule's {@code days} limit.  Checks only direct children of {@code workspaceRoot}
+     * (same scope as {@link TtlCommand#findExpiredFiles}).
+     *
+     * @param workspaceRoot workspace root directory
+     * @param rules         TTL rules to apply
+     * @return sorted list of expired file paths
+     */
+    static List<Path> findExpiredByFileAge(Path workspaceRoot, List<TtlCommand.TtlRule> rules)
+            throws IOException {
+        List<Path> matched = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(workspaceRoot)) {
+            List<Path> rootFiles = stream.filter(Files::isRegularFile)
+                    .collect(java.util.stream.Collectors.toList());
+            for (TtlCommand.TtlRule rule : rules) {
+                Instant threshold = Instant.now().minus(rule.days(), ChronoUnit.DAYS);
+                for (Path file : rootFiles) {
+                    if (TtlCommand.matchesPattern(file, rule.pattern())) {
+                        Instant lastMod = Files.getLastModifiedTime(file).toInstant();
+                        if (lastMod.isBefore(threshold)) {
+                            if (!matched.contains(file)) {
+                                matched.add(file);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        matched.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        return matched;
     }
 
     // =========================================================================

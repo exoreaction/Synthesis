@@ -28,6 +28,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.BufferedReader;
+import java.io.OutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Writer;
@@ -44,6 +45,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
@@ -133,6 +136,13 @@ public class MaintainCommand implements Callable<Integer> {
             defaultValue = "false"
     )
     private boolean quiet;
+
+    @Option(
+            names = {"--json"},
+            description = "Machine-readable JSON output (for monitoring)",
+            defaultValue = "false"
+    )
+    private boolean json;
 
     @Override
     public Integer call() {
@@ -422,17 +432,29 @@ public class MaintainCommand implements Callable<Integer> {
         try {
             MaintainOptions opts = new MaintainOptions(
                     dryRun, verbose, skipDownloads, skipGitFetch,
-                    quiet, updateActivityLog, sync, rebalance);
+                    quiet, json, updateActivityLog, sync, rebalance);
 
             MaintainOrchestrator orchestrator =
                     new MaintainOrchestrator(workspaceRoot, opts, config);
-            MaintainResult result = orchestrator.run();
 
-            // Print results
-            printMaintainResult(result, workspaceRoot);
+            // In quiet/json mode, suppress stdout from orchestrator phases
+            // (e.g. SyncCommand, DirectoryScanner progress bars) so only our
+            // formatted output reaches the caller.
+            MaintainResult result;
+            if (quiet || json) {
+                java.io.PrintStream saved = System.out;
+                System.setOut(new java.io.PrintStream(java.io.OutputStream.nullOutputStream()));
+                try {
+                    result = orchestrator.run();
+                } finally {
+                    System.setOut(saved);
+                }
+            } else {
+                result = orchestrator.run();
+            }
 
-            boolean metricsSuccess = result.allSucceeded();
-            return metricsSuccess ? 0 : 1;
+            // Print results and get exit code
+            return printMaintainResult(result, workspaceRoot);
         } catch (Exception e) {
             AnsiOutput.printError("Maintain failed: " + e.getMessage());
             if (verbose) {
@@ -455,20 +477,32 @@ public class MaintainCommand implements Callable<Integer> {
      *   ...
      *   Done in 4.2s  |  3 changes applied
      * </pre>
+     *
+     * <p>When {@code --quiet} is set, prints exactly one line:
+     * <pre>
+     *   2026-02-20T14:32:01Z  OK  9 phases, 17 changes, 4.2s  health=-1
+     * </pre>
+     *
+     * <p>When {@code --json} is set, prints a single JSON object to stdout.
      */
-    private void printMaintainResult(MaintainResult result, Path workspaceRoot) {
-        if (!quiet) {
-            System.out.println();
-            AnsiOutput.printHeader("Synthesis - Maintain Workspace");
-            AnsiOutput.printInfo("Workspace: " + workspaceRoot);
-            System.out.println();
+    private int printMaintainResult(MaintainResult result, Path workspaceRoot) {
+        // --json mode: machine-readable output
+        if (json) {
+            return printJsonResult(result, workspaceRoot);
         }
 
-        for (PhaseResult phase : result.phases()) {
-            if (quiet && phase.changeCount() == 0 && phase.succeeded()) {
-                continue; // Skip unchanged phases in quiet mode
-            }
+        // --quiet mode: single summary line
+        if (quiet) {
+            return printQuietResult(result);
+        }
 
+        // Normal table output
+        System.out.println();
+        AnsiOutput.printHeader("Synthesis - Maintain Workspace");
+        AnsiOutput.printInfo("Workspace: " + workspaceRoot);
+        System.out.println();
+
+        for (PhaseResult phase : result.phases()) {
             String prefix = dryRun ? "(preview) " : "";
             String phaseName = prefix + phase.name();
             String tag = String.format("  [%d/9] %-" + (dryRun ? "20" : "10") + "s", phase.phaseNumber(), phaseName);
@@ -503,6 +537,65 @@ public class MaintainCommand implements Callable<Integer> {
         System.out.printf("  Done in %.1fs  |  %d%s applied%n",
                 elapsedSec, result.totalChanges(), changeSuffix);
         System.out.println();
+
+        // --dry-run footer
+        if (dryRun) {
+            System.out.println("  " + "─".repeat(55));
+            System.out.println("  No changes made. Remove --dry-run to apply.");
+            System.out.println();
+        }
+
+        return result.allSucceeded() ? 0 : 1;
+    }
+
+    /**
+     * Prints a single summary line for {@code --quiet} mode.
+     * Format: {@code {ISO_INSTANT}  {OK|ERROR}  {N} phases, {C} changes, {T}s  health=-1}
+     */
+    private int printQuietResult(MaintainResult result) {
+        String status = result.allSucceeded() ? "OK" : "ERROR";
+        String summary = String.format("%d phases, %d changes, %.1fs  health=-1",
+                result.phases().size(),
+                result.totalChanges(),
+                result.elapsedMs() / 1000.0);
+        System.out.println(Instant.now().toString() + "  " + status + "  " + summary);
+        return dryRun ? 0 : (result.allSucceeded() ? 0 : 1);
+    }
+
+    /**
+     * Prints a JSON object for {@code --json} mode.
+     */
+    private int printJsonResult(MaintainResult result, Path workspaceRoot) {
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper =
+                    new com.fasterxml.jackson.databind.ObjectMapper();
+
+            Map<String, Object> output = new LinkedHashMap<>();
+            output.put("timestamp", Instant.now().toString());
+            output.put("workspace", workspaceRoot.getFileName().toString());
+            output.put("status", result.allSucceeded() ? "OK" : "ERROR");
+            output.put("durationMs", result.elapsedMs());
+            output.put("health", -1);
+
+            List<Map<String, Object>> phases = new ArrayList<>();
+            for (PhaseResult phase : result.phases()) {
+                Map<String, Object> p = new LinkedHashMap<>();
+                p.put("name", phase.name());
+                p.put("status", phase.succeeded() ? "OK" : "ERROR");
+                p.put("changes", phase.changeCount());
+                if (!phase.succeeded() && phase.error() != null) {
+                    p.put("error", phase.error());
+                }
+                phases.add(p);
+            }
+            output.put("phases", phases);
+            output.put("pending", 0);
+
+            System.out.println(mapper.writeValueAsString(output));
+        } catch (Exception e) {
+            System.err.println("{\"error\":\"" + e.getMessage() + "\"}");
+        }
+        return result.allSucceeded() ? 0 : 1;
     }
 
     // =========================================================================
