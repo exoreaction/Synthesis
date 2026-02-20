@@ -14,9 +14,12 @@ Your IDE shows you one project. You work across ten. Grep is slow, finds only te
 |------|-----------------|----------------|
 | Find a file by content | `grep -r` across repos (5-15 seconds) | `synthesis search` (<1 second) |
 | Find what depends on a file | IDE "Find Usages" (one project) | `synthesis relate` (all projects) |
+| See what changes together | Manual git log archaeology | `synthesis impact` (co-change analysis) |
 | Understand a new codebase | Read files for hours | `synthesis ask "how does auth work?"` |
 | Check what changed | `git log` per repo | `synthesis changed --since 2026-01-01` |
 | Get an architecture overview | Ask a colleague or read stale docs | `synthesis graph --modules` |
+| Clean up stale files | Manual scanning and moving | `synthesis sweep --dry-run` |
+| Check workspace health | Eyeball it | `synthesis health` |
 
 ---
 
@@ -28,7 +31,7 @@ Your IDE shows you one project. You work across ten. Grep is slow, finds only te
 curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash
 ```
 
-Verify: `synthesis --version` should print `Synthesis 1.8.0-SNAPSHOT`.
+Verify: `synthesis --version` should print `Synthesis 1.11.1`.
 
 ### Initialize and Scan
 
@@ -61,6 +64,22 @@ synthesis scan
 Incremental scan -- only processes new or modified files. Takes 1-5 seconds.
 
 Or run `synthesis watch` in a background terminal for continuous auto-indexing as you edit files.
+
+### Run Maintenance
+
+```bash
+synthesis maintain
+```
+
+Beyond updating the index, `maintain` now powers several subsystems: it populates the co-change graph from git history, builds knowledge graph edges linking docs to the source files they reference, and takes snapshots for change tracking.
+
+Add flags for additional automation:
+
+```bash
+synthesis maintain --update-activity-log   # Auto-append today's changes to ACTIVITY-LOG.md
+synthesis maintain --sync                  # Write/update directory identity files after maintenance
+synthesis maintain --rebalance             # Move misplaced archive files back to active dirs
+```
 
 ### Search for Anything
 
@@ -122,6 +141,18 @@ Shows:
 
 The incoming list is your "blast radius" -- everything that might break if you change this file.
 
+### Co-Change Analysis: What Actually Changes Together
+
+Static dependencies (`relate`) tell you what *could* break. Co-change analysis tells you what *actually* changes together in practice:
+
+```bash
+synthesis impact src/api/UserController.java
+```
+
+`impact` uses historical commit co-occurrence data to show which files are modified together with the target file. This reveals coupling that import analysis cannot see -- config files that always need updating, test files that need changes, documentation that drifts when the source changes.
+
+Use this before refactoring: if two files always change together but have no direct import relationship, there is hidden coupling you need to understand before separating them.
+
 ### Generate a Mermaid Diagram
 
 ```bash
@@ -137,6 +168,115 @@ synthesis relate src/api/UserController.java --depth 2
 ```
 
 Follows relationships two levels deep: what this file depends on, and what *those* files depend on.
+
+---
+
+## Workspace Hygiene
+
+Synthesis v1.11.1 includes a full suite of workspace cleanup commands. These are particularly useful for document-heavy workspaces where files accumulate at the root level, but they work equally well for code projects.
+
+### Health Check
+
+```bash
+synthesis health
+```
+
+Audits your workspace and reports a health score (0-100). Detects phantom sub-workspace paths, build artifacts at root, empty directories, and loose files. Grades range from A (90+) to F (<40).
+
+```bash
+synthesis health --fix-config    # Auto-fix phantom sub-workspace paths in config
+```
+
+### Naming Consistency
+
+```bash
+synthesis naming
+```
+
+Reports naming inconsistencies across your workspace: singular/plural collisions (`client/` vs `clients/`), semantic duplicates (`workshop/` vs `workshops/`), and convention drift (mixed kebab-case and CamelCase in the same parent). Analysis only -- never moves anything.
+
+### Prune Empty Directories
+
+```bash
+synthesis prune --dry-run        # Preview what would be removed
+synthesis prune --yes            # Prune without prompting
+```
+
+Recursively removes directories that contain no regular files. Skips dot-directories, directories with a README.md, and paths referenced in config.
+
+### Sweep Stale Files
+
+```bash
+synthesis sweep --dry-run        # Preview: shows ROUTABLE and ARCHIVE groups
+synthesis sweep --yes            # Execute routing + archival
+synthesis sweep --archive-only   # Skip routing, send everything to archive/
+```
+
+Scans root-level files for stale items (session scripts, ephemeral docs, dated reports, archives) and routes them intelligently using the Directory Identity System before falling back to archival. Dry-run output shows which files would be routed to active directories and which would go to `archive/`.
+
+### TTL Rules for Ephemeral Files
+
+```bash
+synthesis ttl set "TONIGHT-*.md" --days 3    # Auto-expire in 3 days
+synthesis ttl set "*.tmp" --days 1           # Temp files expire in 1 day
+synthesis ttl check                          # See what's expired
+synthesis ttl check --archive               # Move expired files to archive
+```
+
+### Find and Fix Fragmentation
+
+```bash
+synthesis scatter --all                      # Find content spread across multiple dirs
+synthesis consolidate "Entity Name"          # Preview consolidation
+synthesis consolidate "Entity Name" --execute  # Actually move files
+```
+
+---
+
+## The Directory Identity System
+
+New in v1.11.1, the Directory Identity System lets each directory declare what kind of files it accepts. This is the foundation for intelligent file routing in `sweep`, `maintain --rebalance`, and `staging route`.
+
+### How It Works
+
+Run `synthesis sync` to have Synthesis analyze your workspace directories and write identity files:
+
+```bash
+synthesis sync
+```
+
+This creates or updates `.synthesis.md` files in each directory with YAML front matter:
+
+```yaml
+---
+synthesis:
+  accepts:
+    types:
+      - "documentation"
+      - "meeting-notes"
+    formats:
+      - "md"
+      - "pdf"
+    patterns:
+      - "*meeting*"
+  scope:
+    level: "WORKSPACE"
+    organization: null
+    entity: null
+  confidence: 0.8
+  last_synced: "2026-02-19T..."
+  source: "directory sync"
+---
+```
+
+Synthesis infers types from well-known directory names (like "meetings", "docs", "automation") and from the patterns of existing files. The `DirectoryIdentityRouter` then scores any file against all candidate directories to find the best destination.
+
+### Practical Uses
+
+- **`synthesis sweep`** routes stale files to matching directories before archiving
+- **`synthesis maintain --rebalance`** moves misplaced archive files back to identity-matched active directories (score >= 0.5)
+- **`synthesis maintain --sync`** updates identity files after maintenance
+- **Scope bonuses** ensure organization-scoped directories score higher for files belonging to that organization (+0.24 bonus), and entity-scoped directories score even higher (+0.40 bonus)
 
 ---
 
@@ -188,6 +328,14 @@ synthesis cross-repo-deps
 
 Maps dependencies between repositories. Useful for monorepos and microservice architectures. Outputs a summary of which repos depend on which others.
 
+### Discover Unindexed Repositories
+
+```bash
+synthesis discover
+```
+
+Finds git repositories in your search paths that are not yet indexed by Synthesis. Useful for making sure your cross-repo dependency map is complete.
+
 ---
 
 ## Git Integration
@@ -208,13 +356,23 @@ synthesis watch
 
 Runs in the foreground, monitors your workspace for file changes, and automatically updates the index. Search always returns current results.
 
-### Incremental Maintenance
+### Activity Log
 
 ```bash
-synthesis maintain
+synthesis maintain --update-activity-log
 ```
 
-Detects changes since the last scan and updates the index. Lighter than `scan` -- good for automation.
+Auto-appends a dated entry to `ACTIVITY-LOG.md` at your workspace root listing Added/Modified/Removed files with an optional AI narrative. Idempotent -- skips if today already has an entry. Useful for daily standups or weekly reports.
+
+### Temporal Summaries
+
+```bash
+synthesis summary --since 7d                    # What happened this week
+synthesis summary --since 24h                   # What happened today
+synthesis summary --level manager --since 2w    # Manager briefing, last 2 weeks
+```
+
+Uses changelog data from `maintain` snapshots to inject temporal context into the AI prompt -- the summary reflects actual recent changes, not just a static index snapshot.
 
 ---
 
@@ -260,14 +418,27 @@ synthesis list --type source      # Filter by workspace type
 Make images, videos, and PDFs searchable by generating companion files:
 
 ```bash
-synthesis enrich                  # Generate companions for all binary files
-synthesis enrich --type video     # Only for videos
-synthesis enrich --level ai       # Use AI for rich descriptions (requires API key)
-synthesis enrich --dry-run        # Preview what would be generated
-synthesis scan                    # Re-scan to index the new companion files
+synthesis enrich                           # Generate companions for all binary files
+synthesis enrich --type video              # Only for videos
+synthesis enrich --level ai                # Use AI for rich descriptions (requires API key)
+synthesis enrich --dry-run                 # Preview what would be generated
+synthesis enrich --path "docs/**"          # Target a specific subtree
+synthesis enrich --exclude "archive/**"    # Exclude paths
+synthesis scan                             # Re-scan to index the new companion files
 ```
 
-Companion files are markdown files (e.g., `demo.mp4.synthesis.md`) that contain metadata, descriptions, and related file references.
+Companion files are markdown files (e.g., `demo.mp4.synthesis.md`) that contain metadata, descriptions, and related file references. These companions also enable content-based routing in `sweep` and `staging route`.
+
+---
+
+## Organization Management
+
+```bash
+synthesis org scan                  # Auto-discover organizations from workspace content
+synthesis org list                  # Show companies, clients, products
+```
+
+Organization data powers scope bonuses in the Directory Identity System and enables content-based classification in `staging route`.
 
 ---
 
@@ -355,6 +526,13 @@ synthesis credentials set ANTHROPIC_API_KEY sk-ant-...   # Store key
 
 Also verify `ai.enabled: true` in `.synthesis/config.yaml`.
 
+### Workspace health issues
+
+```bash
+synthesis health                  # Diagnose problems
+synthesis health --fix-config     # Auto-fix config issues
+```
+
 ---
 
 ## Command Quick Reference
@@ -367,8 +545,9 @@ synthesis search "query"                # Search everything
 synthesis search --all "query"          # Search all workspaces
 synthesis ask "question"                # AI-powered Q&A
 synthesis explain <file>                # AI file explanation
-synthesis relate <file>                 # Show dependencies
+synthesis relate <file>                 # Show static dependencies
 synthesis relate <file> --mermaid       # Mermaid diagram
+synthesis impact <file>                 # Co-change analysis (dynamic coupling)
 synthesis graph --modules               # Architecture overview
 synthesis insights                      # Codebase health
 synthesis architecture                  # Anti-pattern detection
@@ -376,14 +555,35 @@ synthesis diff HEAD~5                   # Recent changes
 synthesis changed --since 2026-01-01    # Files changed since date
 synthesis watch                         # Auto-update on changes
 synthesis maintain                      # Manual incremental update
+synthesis maintain --update-activity-log # Append today's changes to ACTIVITY-LOG.md
+synthesis maintain --sync               # Update directory identity files
+synthesis maintain --rebalance          # Recover misplaced archive files
 synthesis cross-repo-deps               # Cross-repo dependencies
+synthesis discover                      # Find unindexed git repos
 synthesis which <file>                  # Find which workspace has a file
 synthesis status                        # Workspace health
+synthesis health                        # Workspace health diagnostics
+synthesis health --fix-config           # Auto-fix config issues
+synthesis naming                        # Naming consistency audit
+synthesis prune                         # Remove empty directories
+synthesis sweep --dry-run               # Preview stale file routing
+synthesis sweep --yes                   # Execute stale file routing + archival
+synthesis consolidate "entity"          # Merge fragmented directories
+synthesis scatter --all                 # Find fragmented entities
+synthesis ttl set "*.tmp" --days 1      # Set file expiry rules
+synthesis ttl check --archive           # Move expired files to archive
+synthesis sync                          # Write directory identity files
+synthesis archive audit                 # Audit archive for savings
 synthesis enrich                        # Make binary files searchable
+synthesis enrich --path "docs/**"       # Target enrichment to subtree
+synthesis summary --since 7d            # Temporal AI summary
+synthesis org scan                      # Discover organizations
 synthesis credentials status            # Check API key
 ```
 
 ---
+
+**Synthesis v1.11.1 -- ~2,500 tests passing -- February 2026**
 
 **Related guides:**
 - [Architecture Guide](./ARCHITECT.md) -- deep dependency analysis
