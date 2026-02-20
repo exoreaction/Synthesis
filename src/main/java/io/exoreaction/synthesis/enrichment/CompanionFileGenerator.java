@@ -273,11 +273,13 @@ public class CompanionFileGenerator {
             sb.append("\n");
         }
 
-        // AI Vision description
-        if (level.hasAI() && aiClient != null) {
+        // Vision analysis (routing-focused: organizations, topic, visible text).
+        // Null-client guard is inside generateVisionDescription() so test subclasses
+        // can inject a response by overriding that method.
+        if (level.hasAI()) {
             String visionDescription = generateVisionDescription(metadata);
             if (visionDescription != null && !visionDescription.isEmpty()) {
-                sb.append("## AI Description\n");
+                sb.append("## Vision Analysis\n");
                 sb.append(visionDescription).append("\n\n");
             }
         }
@@ -410,12 +412,19 @@ public class CompanionFileGenerator {
     // --- AI enrichment ---
 
     /**
-     * Uses Claude Vision to generate a description of an image file.
+     * Uses Claude Vision to generate a routing-focused description of an image file.
+     *
+     * <p>The prompt explicitly asks for organization/product names and topic keywords so that
+     * {@code DownloadsClassifier.analyzeContent()} can match the companion against the org
+     * registry and push confidence above the routing threshold.
+     *
+     * <p>Protected (not private) to allow test subclasses to inject a known response
+     * without requiring a live API key.
      *
      * @param metadata the image file metadata
-     * @return AI-generated description, or null if vision analysis fails
+     * @return structured AI-generated description, or null if vision analysis fails
      */
-    private String generateVisionDescription(FileMetadata metadata) {
+    protected String generateVisionDescription(FileMetadata metadata) {
         if (aiClient == null) return null;
 
         String ext = metadata.extension().toLowerCase();
@@ -424,11 +433,19 @@ public class CompanionFileGenerator {
         try {
             return aiClient.generateFromImage(
                     metadata.path(),
-                    "Describe this image concisely for a search index. Include what the image shows, "
-                    + "what type of image it is (screenshot, diagram, photo, chart), key text visible, "
-                    + "and technical details if relevant. Respond with 2-4 sentences followed by "
-                    + "Keywords: keyword1, keyword2, ...",
-                    512);
+                    "Analyze this image for a knowledge management routing system. "
+                    + "Respond with exactly these labeled sections:\n"
+                    + "Type: [screenshot/diagram/photo/chart/slide/infographic/other]\n"
+                    + "Title: [main title or heading visible in the image, or 'none']\n"
+                    + "Organizations: [product, company, or team names visible "
+                    + "(e.g., GitHub, Synthesis, Merkabit) — comma-separated, or 'none']\n"
+                    + "Topic: [subject area, e.g., software architecture, finance, AI tools]\n"
+                    + "Description: [2-3 sentences describing what this image shows]\n"
+                    + "Keywords: [8-12 comma-separated keywords including all visible "
+                    + "organization names, technologies, and topics]\n"
+                    + "IMPORTANT: Extract the exact names of all products, organizations, "
+                    + "and technologies that are legible in the image.",
+                    600);
         } catch (Exception e) {
             // Vision analysis is best-effort; don't fail enrichment
             return null;
