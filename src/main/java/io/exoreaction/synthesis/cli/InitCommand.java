@@ -1,10 +1,12 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
-import io.exoreaction.synthesis.core.RepositoryManager;
-import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.core.*;
+import io.exoreaction.synthesis.index.FileIndexer;
+import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.*;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
 import io.exoreaction.synthesis.telemetry.TelemetryConfig;
@@ -19,7 +21,9 @@ import picocli.CommandLine.ParentCommand;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -136,6 +140,13 @@ public class InitCommand implements Callable<Integer> {
     )
     private boolean autoDiscover;
 
+    @Option(
+            names = {"-y", "--yes"},
+            description = "Non-interactive mode — accept all defaults (alias for --no-interactive)",
+            defaultValue = "false"
+    )
+    private boolean yes;
+
     // Visible for testing: custom I/O for interactive confirmation
     private BufferedReader customInput;
     private PrintStream customOutput;
@@ -152,6 +163,11 @@ public class InitCommand implements Callable<Integer> {
     public Integer call() {
         try {
             AnsiOutput.printHeader("Synthesis - Initialize Workspace");
+
+            // --yes is an alias for --no-interactive
+            if (yes) {
+                noInteractive = true;
+            }
 
             // Resolve directory: positional arg > parent -d option > current directory
             Path targetDir;
@@ -216,28 +232,191 @@ public class InitCommand implements Callable<Integer> {
             // Register installation for pilot program (mandatory)
             handlePilotRegistration();
 
-            // Print next steps
-            System.out.println();
-            System.out.println("  Next steps:");
-            if (!skipOrgScan) {
-                System.out.println("    1. Run " + AnsiOutput.cyan("synthesis learn")
-                        + " to generate Claude Code skills");
-            }
-            System.out.println("    " + (skipOrgScan ? "1" : "2") + ". Run "
-                    + AnsiOutput.cyan("synthesis scan") + " to index your workspace");
-            System.out.println("    " + (skipOrgScan ? "2" : "3") + ". Run "
-                    + AnsiOutput.cyan("synthesis search <query>") + " to find files");
-            if (skipOrgScan) {
-                System.out.println("    3. Run " + AnsiOutput.cyan("synthesis org scan")
-                        + " to discover organizations");
-            }
-            System.out.println();
+            // 5-phase guided workspace setup
+            runGuidedSetup(targetDir, config);
 
             return 0;
         } catch (Exception e) {
             AnsiOutput.printError("Failed to initialize workspace: " + e.getMessage());
             return 1;
         }
+    }
+
+    // =========================================================================
+    // Guided 5-phase workspace setup
+    // =========================================================================
+
+    /**
+     * Runs the 5-phase guided setup after workspace initialization.
+     *
+     * <p>Each phase is best-effort: a failure in one phase never prevents the
+     * remaining phases from running. This ensures that even a minimal workspace
+     * (no files, no config) completes init cleanly.
+     *
+     * <ol>
+     *   <li>Detect workspace structure (count dirs/files)</li>
+     *   <li>Detect staging areas (e.g., ~/Downloads)</li>
+     *   <li>Generate directory identities (SyncCommand)</li>
+     *   <li>Build initial index (DirectoryScanner + FileIndexer)</li>
+     *   <li>Run first workspace maintenance (MaintainOrchestrator)</li>
+     * </ol>
+     */
+    void runGuidedSetup(Path workspaceRoot, SynthesisConfig config) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Setting up your workspace"));
+        System.out.println();
+
+        // Phase 1: Detect workspace structure
+        System.out.print("  [1/5] Detecting workspace structure...");
+        System.out.flush();
+        long dirCount = 0;
+        long fileCount = 0;
+        try {
+            try (java.util.stream.Stream<Path> stream = Files.walk(workspaceRoot, 2)) {
+                List<Path> entries = stream
+                        .filter(p -> !p.equals(workspaceRoot))
+                        .filter(p -> {
+                            String n = p.getFileName().toString();
+                            return !n.startsWith(".") && !n.equals("archive");
+                        })
+                        .toList();
+                dirCount = entries.stream().filter(Files::isDirectory).count();
+                fileCount = entries.stream().filter(Files::isRegularFile).count();
+            }
+            System.out.println("  " + dirCount + " director" + (dirCount == 1 ? "y" : "ies")
+                    + ", " + fileCount + " file" + (fileCount == 1 ? "" : "s"));
+        } catch (Exception e) {
+            System.out.println("  done");
+        }
+
+        // Phase 2: Detect staging areas (e.g. ~/Downloads)
+        System.out.print("  [2/5] Detecting staging areas...");
+        System.out.flush();
+        Path downloadsPath = detectDownloadsPath();
+        if (downloadsPath != null) {
+            System.out.println("  " + downloadsPath);
+        } else {
+            System.out.println("  none detected");
+        }
+
+        // Phase 3: Generate directory identities
+        System.out.print("  [3/5] Generating directory identities...");
+        System.out.flush();
+        try {
+            SyncCommand syncCmd = new SyncCommand();
+            syncCmd.setDryRun(false);
+            syncCmd.setVerbose(false);
+            PrintStream savedOut = System.out;
+            System.setOut(new PrintStream(OutputStream.nullOutputStream()));
+            try {
+                syncCmd.syncWorkspace(workspaceRoot);
+            } finally {
+                System.setOut(savedOut);
+            }
+            System.out.println("  done");
+        } catch (Exception e) {
+            System.out.println("  skipped");
+        }
+
+        // Phase 4: Build initial index
+        System.out.print("  [4/5] Building initial index...");
+        System.out.flush();
+        try {
+            int indexed = runInitialScan(workspaceRoot, config);
+            if (indexed == 0) {
+                System.out.println("  nothing to index yet");
+            } else {
+                System.out.println("  " + indexed + " file" + (indexed == 1 ? "" : "s") + " indexed");
+            }
+        } catch (Exception e) {
+            System.out.println("  skipped");
+        }
+
+        // Phase 5: Run first workspace maintenance
+        System.out.print("  [5/5] Running first workspace maintenance...");
+        System.out.flush();
+        try {
+            MaintainOrchestrator orchestrator = new MaintainOrchestrator(
+                    workspaceRoot, MaintainOptions.defaults().withSkipDownloads(true), config);
+            MaintainResult result = orchestrator.run();
+            int changes = result.totalChanges();
+            System.out.println("  " + (changes == 0 ? "clean" : changes + " change" + (changes == 1 ? "" : "s")));
+        } catch (Exception e) {
+            System.out.println("  skipped");
+        }
+
+        // "What you can do now"
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("What you can do now:"));
+        System.out.println();
+        System.out.println("    " + AnsiOutput.cyan("synthesis search <query>")
+                + "   — find files instantly");
+        System.out.println("    " + AnsiOutput.cyan("synthesis ask <question>")
+                + "     — AI Q&A grounded in your content");
+        System.out.println("    " + AnsiOutput.cyan("synthesis maintain")
+                + "          — housekeeping + change tracking");
+        System.out.println();
+        System.out.println("  " + AnsiOutput.dim("Tip: add to cron for automatic maintenance:"));
+        System.out.println("  " + AnsiOutput.dim("  0 * * * * synthesis maintain --quiet"));
+        System.out.println();
+    }
+
+    /**
+     * Detects the user's Downloads folder at common operating system paths.
+     *
+     * @return path to Downloads directory if it exists, {@code null} otherwise
+     */
+    static Path detectDownloadsPath() {
+        String home = System.getProperty("user.home");
+        if (home == null) return null;
+
+        String[] candidates = {"Downloads", "Desktop", "Documents"};
+        for (String candidate : candidates) {
+            Path p = Path.of(home, candidate);
+            if (Files.isDirectory(p)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Runs a lightweight initial scan without verbose output.
+     *
+     * <p>Uses the same core pipeline as {@link ScanCommand} (DirectoryScanner +
+     * FileIndexer + SearchIndex) but without progress reporting or AI enrichment.
+     *
+     * @return number of files indexed, or 0 if the workspace has no files yet
+     */
+    int runInitialScan(Path workspaceRoot, SynthesisConfig config) throws Exception {
+        WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+        DirectoryScanner scanner = new DirectoryScanner(workspaceRoot, config.getScan(), false);
+        ScanResult scanResult = scanner.scan();
+
+        if (scanResult.fileCount() == 0) {
+            return 0;
+        }
+
+        AnalyzerRegistry analyzers = new AnalyzerRegistry();
+        FileIndexer fileIndexer = new FileIndexer();
+        SubWorkspaceResolver subWsResolver = new SubWorkspaceResolver(config);
+
+        int indexed = 0;
+        try (SearchIndex index = new SearchIndex(workspace.getIndexPath())) {
+            for (FileMetadata metadata : scanResult.files()) {
+                try {
+                    var analysis = analyzers.analyze(metadata);
+                    String subWorkspace = subWsResolver.resolve(metadata.relativePath());
+                    var doc = fileIndexer.createDocument(metadata, analysis,
+                            null, null, null, subWorkspace);
+                    index.addDocument(doc);
+                    indexed++;
+                } catch (Exception e) {
+                    // skip individual file failures
+                }
+            }
+        }
+        return indexed;
     }
 
     /**

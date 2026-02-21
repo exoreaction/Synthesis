@@ -42,4 +42,10 @@ public record MaintainOptions(
     public static MaintainOptions quietMode() {
         return new MaintainOptions(false, false, false, false, true, false, false, false, false);
     }
+
+    /** Returns a copy of these options with {@code skipDownloads} set to the given value. */
+    public MaintainOptions withSkipDownloads(boolean value) {
+        return new MaintainOptions(dryRun, verbose, value, skipGit, quiet, json,
+                updateActivityLog, sync, rebalance);
+    }
 }
