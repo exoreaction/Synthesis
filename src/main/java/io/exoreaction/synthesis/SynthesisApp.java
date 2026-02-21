@@ -116,7 +116,8 @@ import java.util.concurrent.Callable;
                 ConsolidateCommand.class,
                 ArchiveCommand.class,
                 TtlCommand.class,
-                SyncCommand.class
+                SyncCommand.class,
+                RouteExplainCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
