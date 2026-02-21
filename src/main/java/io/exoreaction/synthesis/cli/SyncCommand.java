@@ -66,6 +66,9 @@ public class SyncCommand implements Callable<Integer> {
     @Option(names = {"--force"}, description = "Overwrite existing .synthesis.md files (reset to inferred)")
     private boolean force;
 
+    @Option(names = {"--enrich-centroids"}, description = "Compute semantic centroids and wants for directories")
+    private boolean enrichCentroids;
+
     @Override
     public Integer call() throws Exception {
         Path workspaceRoot = parent.getWorkspaceRoot();
@@ -105,6 +108,12 @@ public class SyncCommand implements Callable<Integer> {
         DirectoryIdentityParser parser = new DirectoryIdentityParser();
         DirectoryNameVocabulary vocabulary = new DirectoryNameVocabulary();
         DirectorySignalExtractor extractor = new DirectorySignalExtractor();
+        EnrichmentSignatureExtractor enrichmentExtractor = enrichCentroids ? new EnrichmentSignatureExtractor() : null;
+        CentroidComputer centroidComputer = enrichCentroids ? new CentroidComputer() : null;
+        WantsBootstrapper wantsBootstrapper = enrichCentroids ? new WantsBootstrapper() : null;
+
+        // Cache centroids by directory for parent-centroid inheritance
+        Map<Path, DirectoryCentroid> centroidCache = new HashMap<>();
 
         Path scanRoot = targetDir != null ? targetDir : workspaceRoot;
 
@@ -280,6 +289,42 @@ public class SyncCommand implements Callable<Integer> {
                     }
                 }
 
+                // Phase 2: Compute centroid and wants if --enrich-centroids is enabled
+                DirectoryCentroid centroid = DirectoryCentroid.empty();
+                DirectoryWants wants = DirectoryWants.empty();
+
+                if (enrichCentroids) {
+                    // Extract enrichment signatures for all files in the directory
+                    List<EnrichmentSignature> signatures = extractEnrichmentSignatures(
+                            dir, enrichmentExtractor, workspaceRoot);
+                    int totalFileCount = countFilesInDirectory(dir);
+
+                    if (!signatures.isEmpty()) {
+                        centroid = centroidComputer.compute(signatures, totalFileCount);
+                        centroidCache.put(dir, centroid);
+                    }
+
+                    // Bootstrap wants if centroid is absent or weak (confidence <= 0.8)
+                    if (centroid.isEmpty() || centroid.confidence() <= 0.8) {
+                        // Look up parent centroid
+                        DirectoryCentroid parentCentroid = null;
+                        if (dir.getParent() != null) {
+                            parentCentroid = centroidCache.get(dir.getParent());
+                        }
+                        wants = wantsBootstrapper.bootstrap(dir, parentCentroid);
+                    }
+
+                    if (verbose && !centroid.isEmpty()) {
+                        System.out.println("    centroid: topics=" + centroid.topics()
+                                + ", entities=" + centroid.entities()
+                                + ", confidence=" + String.format("%.2f", centroid.confidence()));
+                    }
+                    if (verbose && !wants.isEmpty()) {
+                        System.out.println("    wants: topics=" + wants.topics()
+                                + ", source=" + wants.source());
+                    }
+                }
+
                 // Write or report
                 String relativePath = workspaceRoot.relativize(dir).toString();
                 if (exists && existing != null) {
@@ -291,7 +336,12 @@ public class SyncCommand implements Callable<Integer> {
                             System.out.println("  [DRY] Would update: " + relativePath);
                         }
                     } else {
-                        parser.write(synthesisFile, result);
+                        if (enrichCentroids) {
+                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants);
+                            parser.writeProfile(synthesisFile, profile);
+                        } else {
+                            parser.write(synthesisFile, result);
+                        }
                         if (verbose) {
                             printDetail(relativePath, result, "updated");
                         }
@@ -306,7 +356,12 @@ public class SyncCommand implements Callable<Integer> {
                             System.out.println("  [DRY] Would create: " + relativePath);
                         }
                     } else {
-                        parser.write(synthesisFile, result);
+                        if (enrichCentroids) {
+                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants);
+                            parser.writeProfile(synthesisFile, profile);
+                        } else {
+                            parser.write(synthesisFile, result);
+                        }
                         if (verbose) {
                             printDetail(relativePath, result, "created");
                         }
@@ -343,6 +398,10 @@ public class SyncCommand implements Callable<Integer> {
 
     void setForce(boolean force) {
         this.force = force;
+    }
+
+    void setEnrichCentroids(boolean enrichCentroids) {
+        this.enrichCentroids = enrichCentroids;
     }
 
     // ---- Internal helpers ----
@@ -540,6 +599,50 @@ public class SyncCommand implements Callable<Integer> {
             depthBelowArchive++;
         }
         return false;
+    }
+
+    /**
+     * Extracts enrichment signatures for all regular files in a directory.
+     * Skips hidden files, .synthesis.md files, and companion files.
+     *
+     * @param directory            the directory to scan
+     * @param enrichmentExtractor  the extractor to use
+     * @param workspaceRoot        the workspace root for relative path computation
+     * @return list of non-empty enrichment signatures
+     */
+    static List<EnrichmentSignature> extractEnrichmentSignatures(
+            Path directory, EnrichmentSignatureExtractor enrichmentExtractor, Path workspaceRoot) {
+        List<EnrichmentSignature> signatures = new ArrayList<>();
+        try (Stream<Path> files = Files.list(directory)) {
+            files.filter(Files::isRegularFile)
+                    .filter(f -> !f.getFileName().toString().startsWith("."))
+                    .filter(f -> !f.getFileName().toString().equals(".synthesis.md"))
+                    .filter(f -> !f.getFileName().toString().endsWith(".synthesis.md"))
+                    .forEach(f -> {
+                        EnrichmentSignature sig = enrichmentExtractor.extract(f, workspaceRoot);
+                        if (!sig.isEmpty()) {
+                            signatures.add(sig);
+                        }
+                    });
+        } catch (IOException e) {
+            // Return what we have
+        }
+        return signatures;
+    }
+
+    /**
+     * Counts regular files in a directory (non-hidden, non-.synthesis).
+     */
+    static int countFilesInDirectory(Path directory) {
+        try (Stream<Path> files = Files.list(directory)) {
+            return (int) files
+                    .filter(Files::isRegularFile)
+                    .filter(f -> !f.getFileName().toString().startsWith("."))
+                    .filter(f -> !f.getFileName().toString().endsWith(".synthesis.md"))
+                    .count();
+        } catch (IOException e) {
+            return 0;
+        }
     }
 
     /**
