@@ -331,6 +331,12 @@ public class SyncCommand implements Callable<Integer> {
                     }
                 }
 
+                // Compute health (Phase 3) when enriching
+                DirectoryHealth health = DirectoryHealth.empty();
+                if (enrichCentroids) {
+                    health = DirectoryHealth.compute(centroid, wants);
+                }
+
                 // Write or report
                 String relativePath = workspaceRoot.relativize(dir).toString();
                 if (exists && existing != null) {
@@ -343,7 +349,7 @@ public class SyncCommand implements Callable<Integer> {
                         }
                     } else {
                         if (enrichCentroids) {
-                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants);
+                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants, health);
                             parser.writeProfile(synthesisFile, profile);
                         } else {
                             parser.write(synthesisFile, result);
@@ -363,7 +369,7 @@ public class SyncCommand implements Callable<Integer> {
                         }
                     } else {
                         if (enrichCentroids) {
-                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants);
+                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants, health);
                             parser.writeProfile(synthesisFile, profile);
                         } else {
                             parser.write(synthesisFile, result);

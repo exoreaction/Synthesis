@@ -336,6 +336,24 @@ public class DirectoryIdentityParser {
             sb.append("    satisfaction: ").append(formatDouble(wants.satisfaction())).append("\n");
         }
 
+        // health block (Phase 3)
+        DirectoryHealth health = profile.health();
+        if (health != null && !health.isEmpty()) {
+            sb.append("  health:\n");
+            sb.append("    cohesion: ").append(formatDouble(health.cohesion())).append("\n");
+            sb.append("    drift: ").append(health.drift()).append("\n");
+            sb.append("    satisfaction: ").append(formatDouble(health.satisfaction())).append("\n");
+            sb.append("    status: \"").append(health.status()).append("\"\n");
+            if (!health.outliers().isEmpty()) {
+                sb.append("    outliers:\n");
+                for (String outlier : health.outliers()) {
+                    sb.append("      - \"").append(outlier).append("\"\n");
+                }
+            } else {
+                sb.append("    outliers: []\n");
+            }
+        }
+
         // transient — only emit when true
         if (identity.transient_()) {
             sb.append("  transient: true\n");
@@ -508,18 +526,19 @@ public class DirectoryIdentityParser {
 
     /**
      * Parses YAML front matter and returns a full {@link DirectoryProfile}
-     * with identity, centroid, and wants. Backward compatible: missing centroid/wants
+     * with identity, centroid, wants, and health. Backward compatible: missing
      * blocks produce empty records.
      */
     private DirectoryProfile parseYamlFull(String yamlBlock, String description) {
         // Parse identity (delegates to existing method)
         DirectoryIdentity identity = parseYaml(yamlBlock, description);
 
-        // Parse centroid and wants blocks
+        // Parse centroid, wants, and health blocks
         DirectoryCentroid centroid = parseCentroidBlock(yamlBlock);
         DirectoryWants wants = parseWantsBlock(yamlBlock);
+        DirectoryHealth health = parseHealthBlock(yamlBlock);
 
-        return new DirectoryProfile(identity, centroid, wants);
+        return new DirectoryProfile(identity, centroid, wants, health);
     }
 
     /**
@@ -699,6 +718,90 @@ public class DirectoryIdentityParser {
         );
     }
 
+    /**
+     * Parses the {@code health:} block from YAML content.
+     * Returns {@link DirectoryHealth#empty()} if the block is absent.
+     */
+    private DirectoryHealth parseHealthBlock(String yamlBlock) {
+        double cohesion = 0.0;
+        boolean drift = false;
+        double satisfaction = 0.0;
+        String status = null;
+        List<String> outliers = new ArrayList<>();
+
+        boolean inHealth = false;
+        String healthListContext = null;
+
+        String[] lines = yamlBlock.split("\n");
+        for (String line : lines) {
+            String stripped = line.stripTrailing();
+            String trimmedLine = stripped.stripLeading();
+            int indent = stripped.length() - trimmedLine.length();
+
+            // Detect entering health block
+            if (trimmedLine.startsWith("health:") && indent <= 2) {
+                inHealth = true;
+                healthListContext = null;
+                continue;
+            }
+
+            // Exit health on a same-level or higher-level key
+            if (inHealth && indent <= 2 && !trimmedLine.isEmpty()
+                    && !trimmedLine.startsWith("-") && !trimmedLine.startsWith("#")) {
+                inHealth = false;
+                healthListContext = null;
+            }
+
+            if (!inHealth) continue;
+
+            // List items within health
+            if (trimmedLine.startsWith("- ")) {
+                String value = extractListItemValue(stripped);
+                if (value != null && "outliers".equals(healthListContext)) {
+                    outliers.add(value);
+                }
+                continue;
+            }
+
+            // Health sub-keys
+            if (trimmedLine.startsWith("cohesion:")) {
+                healthListContext = null;
+                String val = extractRawValue(trimmedLine, "cohesion:");
+                if (val != null) {
+                    try { cohesion = Double.parseDouble(val); } catch (NumberFormatException ignored) {}
+                }
+            } else if (trimmedLine.startsWith("drift:")) {
+                healthListContext = null;
+                String val = extractRawValue(trimmedLine, "drift:");
+                drift = "true".equalsIgnoreCase(val);
+            } else if (trimmedLine.startsWith("satisfaction:")) {
+                healthListContext = null;
+                String val = extractRawValue(trimmedLine, "satisfaction:");
+                if (val != null) {
+                    try { satisfaction = Double.parseDouble(val); } catch (NumberFormatException ignored) {}
+                }
+            } else if (trimmedLine.startsWith("status:")) {
+                healthListContext = null;
+                status = extractScalarValue(trimmedLine, "status:");
+            } else if (trimmedLine.startsWith("outliers:")) {
+                healthListContext = "outliers";
+            }
+        }
+
+        if (status == null && cohesion == 0.0 && !drift && satisfaction == 0.0
+                && outliers.isEmpty()) {
+            return DirectoryHealth.empty();
+        }
+
+        return new DirectoryHealth(
+                cohesion,
+                drift,
+                satisfaction,
+                status != null ? status : "unknown",
+                List.copyOf(outliers)
+        );
+    }
+
     private DirectoryIdentity parseYaml(String yamlBlock, String description) {
         List<String> acceptsTypes = new ArrayList<>();
         List<String> acceptsFormats = new ArrayList<>();
@@ -734,8 +837,9 @@ public class DirectoryIdentityParser {
             String trimmedLine = stripped.stripLeading();
             int indent = stripped.length() - trimmedLine.length();
 
-            // Phase 2: detect entering/leaving centroid: or wants: blocks
-            if ((trimmedLine.startsWith("centroid:") || trimmedLine.startsWith("wants:")) && indent <= 2) {
+            // Phase 2/3: detect entering/leaving centroid:, wants:, or health: blocks
+            if ((trimmedLine.startsWith("centroid:") || trimmedLine.startsWith("wants:")
+                    || trimmedLine.startsWith("health:")) && indent <= 2) {
                 inSkippedBlock = true;
                 currentListContext = null;
                 inMovedFilesBlock = false;

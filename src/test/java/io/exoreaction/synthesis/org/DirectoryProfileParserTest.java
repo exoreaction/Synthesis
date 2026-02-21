@@ -367,4 +367,106 @@ class DirectoryProfileParserTest {
         // Identity confidence should be 0.6, not affected by centroid's 0.9
         assertEquals(0.6, identity.confidence(), 0.001);
     }
+
+    // ---- Health block round-trip (Phase 3) ----
+
+    @Test
+    void writeProfile_withHealth_roundTrips(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(".synthesis.md");
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("client"), List.of("pdf"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", ""
+        );
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("renewable energy"), List.of("GreenField Energy"),
+                "2026-Q1", List.of("proposal"), 0.9, 10, 0, Instant.now()
+        );
+        DirectoryWants wants = new DirectoryWants(
+                List.of("renewable energy"), List.of("GreenField Energy"),
+                List.of(), "test", 0.85
+        );
+        DirectoryHealth health = new DirectoryHealth(
+                0.9, false, 0.85, "healthy", List.of()
+        );
+
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid, wants, health);
+        parser.writeProfile(file, profile);
+
+        DirectoryProfile parsed = parser.parseProfile(file);
+
+        assertFalse(parsed.health().isEmpty(), "Health should be present");
+        assertEquals("healthy", parsed.health().status());
+        assertEquals(0.9, parsed.health().cohesion(), 0.01);
+        assertFalse(parsed.health().drift());
+        assertEquals(0.85, parsed.health().satisfaction(), 0.01);
+        assertTrue(parsed.health().outliers().isEmpty());
+    }
+
+    @Test
+    void writeProfile_withDriftingHealth_roundTrips(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(".synthesis.md");
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("client"), List.of("pdf"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", ""
+        );
+        DirectoryHealth health = new DirectoryHealth(
+                0.7, true, 0.2, "drifting", List.of("stray-report.pdf")
+        );
+
+        DirectoryProfile profile = new DirectoryProfile(identity, DirectoryCentroid.empty(),
+                DirectoryWants.empty(), health);
+        parser.writeProfile(file, profile);
+
+        DirectoryProfile parsed = parser.parseProfile(file);
+
+        assertFalse(parsed.health().isEmpty());
+        assertEquals("drifting", parsed.health().status());
+        assertTrue(parsed.health().drift());
+        assertEquals(0.7, parsed.health().cohesion(), 0.01);
+        assertEquals(0.2, parsed.health().satisfaction(), 0.01);
+        assertEquals(List.of("stray-report.pdf"), parsed.health().outliers());
+    }
+
+    @Test
+    void parseProfile_noHealthBlock_returnsEmptyHealth(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(".synthesis.md");
+        Files.writeString(file, """
+                ---
+                synthesis:
+                  accepts:
+                    types:
+                      - "docs"
+                  scope:
+                    level: "WORKSPACE"
+                  confidence: 0.5
+                ---
+                """);
+
+        DirectoryProfile parsed = parser.parseProfile(file);
+
+        assertTrue(parsed.health().isEmpty(),
+                "Missing health block should produce empty health");
+    }
+
+    @Test
+    void writeProfile_emptyHealth_notWritten(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(".synthesis.md");
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("docs"), List.of("md"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.5, null, "test", ""
+        );
+        DirectoryProfile profile = new DirectoryProfile(identity, DirectoryCentroid.empty(),
+                DirectoryWants.empty(), DirectoryHealth.empty());
+        parser.writeProfile(file, profile);
+
+        String content = Files.readString(file);
+        assertFalse(content.contains("health:"),
+                "Empty health should not be written to file");
+    }
 }
