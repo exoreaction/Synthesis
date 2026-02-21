@@ -184,6 +184,15 @@ public class HealthCommand implements Callable<Integer> {
             issues.add(new HealthIssue(severity, "E010", finding.message(), fix));
         }
 
+        // W020: Want starvation (directories with unsatisfied wants)
+        W020Check w020 = new W020Check();
+        List<W020Check.W020Finding> w020Findings = w020.check(workspaceRoot);
+        for (W020Check.W020Finding finding : w020Findings) {
+            issues.add(new HealthIssue(
+                    HealthIssue.Severity.WARNING, "W020", finding.message(),
+                    "synthesis sync --enrich-centroids"));
+        }
+
         printIssues(issues);
 
         int score = calculateScore(issues);
