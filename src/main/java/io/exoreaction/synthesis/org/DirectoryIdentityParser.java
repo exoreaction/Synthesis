@@ -25,19 +25,33 @@ public class DirectoryIdentityParser {
      * @return parsed identity, or empty if file is missing/unparseable
      */
     public DirectoryIdentity parse(Path synthesisFile) {
+        return parseProfile(synthesisFile).identity();
+    }
+
+    /**
+     * Reads a directory-level {@code .synthesis.md} file and returns a full
+     * {@link DirectoryProfile} including centroid and wants blocks.
+     *
+     * <p>Backward compatible: parsing a legacy file (no centroid/wants blocks)
+     * returns {@link DirectoryCentroid#empty()} and {@link DirectoryWants#empty()}.
+     *
+     * @param synthesisFile path to the {@code .synthesis.md} file
+     * @return parsed profile, or profile with empty identity/centroid/wants if missing
+     */
+    public DirectoryProfile parseProfile(Path synthesisFile) {
         if (synthesisFile == null || !Files.exists(synthesisFile)) {
-            return DirectoryIdentity.empty();
+            return DirectoryProfile.fromIdentity(DirectoryIdentity.empty());
         }
 
         String content;
         try {
             content = Files.readString(synthesisFile);
         } catch (IOException e) {
-            return DirectoryIdentity.empty();
+            return DirectoryProfile.fromIdentity(DirectoryIdentity.empty());
         }
 
         if (content.isBlank()) {
-            return DirectoryIdentity.empty();
+            return DirectoryProfile.fromIdentity(DirectoryIdentity.empty());
         }
 
         String yamlBlock = extractYamlFrontMatter(content);
@@ -45,15 +59,16 @@ public class DirectoryIdentityParser {
 
         if (yamlBlock == null || yamlBlock.isBlank()) {
             // No YAML front matter — only markdown body
-            return new DirectoryIdentity(
+            DirectoryIdentity identity = new DirectoryIdentity(
                     List.of(), List.of(), List.of(),
                     ScopeLevel.WORKSPACE, null, null,
                     0.0, null, "",
                     markdownBody.trim()
             );
+            return DirectoryProfile.fromIdentity(identity);
         }
 
-        return parseYaml(yamlBlock, markdownBody.trim());
+        return parseYamlFull(yamlBlock, markdownBody.trim());
     }
 
     /**
@@ -133,6 +148,192 @@ public class DirectoryIdentityParser {
         // source
         if (identity.source() != null && !identity.source().isEmpty()) {
             sb.append("  source: \"").append(identity.source()).append("\"\n");
+        }
+
+        // transient — only emit when true
+        if (identity.transient_()) {
+            sb.append("  transient: true\n");
+        }
+
+        // aliases — only emit when non-empty
+        if (!identity.aliases().isEmpty()) {
+            sb.append("  aliases:\n");
+            for (String alias : identity.aliases()) {
+                sb.append("    - \"").append(alias).append("\"\n");
+            }
+        }
+
+        // rejects_types — only emit when non-empty
+        if (!identity.rejectsTypes().isEmpty()) {
+            sb.append("  rejects_types:\n");
+            for (String rt : identity.rejectsTypes()) {
+                sb.append("    - \"").append(rt).append("\"\n");
+            }
+        }
+
+        // moved_files — only emit when non-empty
+        if (!identity.movedFiles().isEmpty()) {
+            sb.append("  moved_files:\n");
+            for (ForwardingPointer fp : identity.movedFiles()) {
+                sb.append("    - file: \"").append(fp.fileName()).append("\"\n");
+                if (fp.movedTo() != null) {
+                    sb.append("      moved_to: \"").append(fp.movedTo()).append("\"\n");
+                }
+                if (fp.movedAt() != null) {
+                    sb.append("      moved_at: \"").append(fp.movedAt().toString()).append("\"\n");
+                }
+                if (fp.movedBy() != null) {
+                    sb.append("      moved_by: \"").append(fp.movedBy()).append("\"\n");
+                }
+                if (fp.reason() != null) {
+                    sb.append("      reason: \"").append(fp.reason()).append("\"\n");
+                }
+            }
+        }
+
+        sb.append("---\n");
+
+        // Markdown body
+        if (body != null && !body.isBlank()) {
+            sb.append("\n").append(body).append("\n");
+        }
+
+        Files.writeString(synthesisFile, sb.toString());
+    }
+
+    /**
+     * Writes or updates a {@code .synthesis.md} file with full profile data
+     * including centroid and wants blocks. Preserves existing markdown body.
+     * Always updates {@code last_synced} to the current instant.
+     *
+     * @param synthesisFile path to the {@code .synthesis.md} file
+     * @param profile       the full directory profile to write
+     * @throws IOException if writing fails
+     */
+    public void writeProfile(Path synthesisFile, DirectoryProfile profile) throws IOException {
+        // Read existing body if file exists
+        String existingBody = "";
+        if (Files.exists(synthesisFile)) {
+            String existingContent = Files.readString(synthesisFile);
+            existingBody = extractMarkdownBody(existingContent).trim();
+        }
+
+        DirectoryIdentity identity = profile.identity();
+
+        // Use identity description if present, otherwise keep existing body
+        String body = (identity.description() != null && !identity.description().isBlank())
+                ? identity.description()
+                : existingBody;
+
+        Instant lastSynced = Instant.now();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("---\n");
+        sb.append("synthesis:\n");
+
+        // accepts block
+        boolean hasAccepts = !identity.acceptsTypes().isEmpty()
+                || !identity.acceptsFormats().isEmpty()
+                || !identity.acceptsPatterns().isEmpty();
+        if (hasAccepts) {
+            sb.append("  accepts:\n");
+            if (!identity.acceptsTypes().isEmpty()) {
+                sb.append("    types:\n");
+                for (String t : identity.acceptsTypes()) {
+                    sb.append("      - \"").append(t).append("\"\n");
+                }
+            }
+            if (!identity.acceptsFormats().isEmpty()) {
+                sb.append("    formats:\n");
+                for (String f : identity.acceptsFormats()) {
+                    sb.append("      - \"").append(f).append("\"\n");
+                }
+            }
+            if (!identity.acceptsPatterns().isEmpty()) {
+                sb.append("    patterns:\n");
+                for (String p : identity.acceptsPatterns()) {
+                    sb.append("      - \"").append(p).append("\"\n");
+                }
+            }
+        }
+
+        // scope block
+        sb.append("  scope:\n");
+        sb.append("    level: \"").append(identity.scopeLevel().name()).append("\"\n");
+        if (identity.scopeOrganization() != null) {
+            sb.append("    organization: \"").append(identity.scopeOrganization()).append("\"\n");
+        } else {
+            sb.append("    organization: null\n");
+        }
+        if (identity.scopeEntity() != null) {
+            sb.append("    entity: \"").append(identity.scopeEntity()).append("\"\n");
+        } else {
+            sb.append("    entity: null\n");
+        }
+
+        // confidence
+        sb.append("  confidence: ").append(formatDouble(identity.confidence())).append("\n");
+
+        // last_synced — always current
+        sb.append("  last_synced: \"").append(lastSynced.toString()).append("\"\n");
+
+        // source
+        if (identity.source() != null && !identity.source().isEmpty()) {
+            sb.append("  source: \"").append(identity.source()).append("\"\n");
+        }
+
+        // centroid block (Phase 2)
+        DirectoryCentroid centroid = profile.centroid();
+        if (centroid != null && !centroid.isEmpty()) {
+            sb.append("  centroid:\n");
+            if (!centroid.topics().isEmpty()) {
+                sb.append("    topics:\n");
+                for (String t : centroid.topics()) {
+                    sb.append("      - \"").append(t).append("\"\n");
+                }
+            }
+            if (!centroid.entities().isEmpty()) {
+                sb.append("    entities:\n");
+                for (String e : centroid.entities()) {
+                    sb.append("      - \"").append(e).append("\"\n");
+                }
+            }
+            if (centroid.timeframe() != null) {
+                sb.append("    timeframe: \"").append(centroid.timeframe()).append("\"\n");
+            }
+            if (!centroid.documentTypes().isEmpty()) {
+                sb.append("    document_types:\n");
+                for (String dt : centroid.documentTypes()) {
+                    sb.append("      - \"").append(dt).append("\"\n");
+                }
+            }
+            sb.append("    confidence: ").append(formatDouble(centroid.confidence())).append("\n");
+            sb.append("    contributing_files: ").append(centroid.contributingFiles()).append("\n");
+            if (centroid.lastUpdated() != null) {
+                sb.append("    last_updated: \"").append(centroid.lastUpdated().toString()).append("\"\n");
+            }
+        }
+
+        // wants block (Phase 2)
+        DirectoryWants wants = profile.wants();
+        if (wants != null && !wants.isEmpty()) {
+            sb.append("  wants:\n");
+            if (!wants.topics().isEmpty()) {
+                sb.append("    topics:\n");
+                for (String t : wants.topics()) {
+                    sb.append("      - \"").append(t).append("\"\n");
+                }
+            }
+            if (!wants.entities().isEmpty()) {
+                sb.append("    entities:\n");
+                for (String e : wants.entities()) {
+                    sb.append("      - \"").append(e).append("\"\n");
+                }
+            }
+            if (wants.source() != null) {
+                sb.append("    source: \"").append(wants.source()).append("\"\n");
+            }
+            sb.append("    satisfaction: ").append(formatDouble(wants.satisfaction())).append("\n");
         }
 
         // transient — only emit when true
@@ -305,6 +506,199 @@ public class DirectoryIdentityParser {
         return after.stripLeading();
     }
 
+    /**
+     * Parses YAML front matter and returns a full {@link DirectoryProfile}
+     * with identity, centroid, and wants. Backward compatible: missing centroid/wants
+     * blocks produce empty records.
+     */
+    private DirectoryProfile parseYamlFull(String yamlBlock, String description) {
+        // Parse identity (delegates to existing method)
+        DirectoryIdentity identity = parseYaml(yamlBlock, description);
+
+        // Parse centroid and wants blocks
+        DirectoryCentroid centroid = parseCentroidBlock(yamlBlock);
+        DirectoryWants wants = parseWantsBlock(yamlBlock);
+
+        return new DirectoryProfile(identity, centroid, wants);
+    }
+
+    /**
+     * Parses the {@code centroid:} block from YAML content.
+     * Returns {@link DirectoryCentroid#empty()} if the block is absent.
+     */
+    private DirectoryCentroid parseCentroidBlock(String yamlBlock) {
+        List<String> topics = new ArrayList<>();
+        List<String> entities = new ArrayList<>();
+        String timeframe = null;
+        List<String> documentTypes = new ArrayList<>();
+        double confidence = 0.0;
+        int contributingFiles = 0;
+        Instant lastUpdated = null;
+
+        boolean inCentroid = false;
+        String centroidListContext = null;
+
+        String[] lines = yamlBlock.split("\n");
+        for (String line : lines) {
+            String stripped = line.stripTrailing();
+            String trimmedLine = stripped.stripLeading();
+            int indent = stripped.length() - trimmedLine.length();
+
+            // Detect entering/leaving centroid block
+            if (trimmedLine.startsWith("centroid:") && indent <= 2) {
+                inCentroid = true;
+                centroidListContext = null;
+                continue;
+            }
+
+            // Exit centroid on a same-level or higher-level key
+            if (inCentroid && indent <= 2 && !trimmedLine.isEmpty()
+                    && !trimmedLine.startsWith("-") && !trimmedLine.startsWith("#")) {
+                inCentroid = false;
+                centroidListContext = null;
+            }
+
+            if (!inCentroid) continue;
+
+            // List items within centroid
+            if (trimmedLine.startsWith("- ")) {
+                String value = extractListItemValue(stripped);
+                if (value != null && centroidListContext != null) {
+                    switch (centroidListContext) {
+                        case "topics" -> topics.add(value);
+                        case "entities" -> entities.add(value);
+                        case "document_types" -> documentTypes.add(value);
+                    }
+                }
+                continue;
+            }
+
+            // Centroid sub-keys
+            if (trimmedLine.startsWith("topics:")) {
+                centroidListContext = "topics";
+            } else if (trimmedLine.startsWith("entities:")) {
+                centroidListContext = "entities";
+            } else if (trimmedLine.startsWith("document_types:")) {
+                centroidListContext = "document_types";
+            } else if (trimmedLine.startsWith("timeframe:")) {
+                centroidListContext = null;
+                timeframe = extractScalarValue(trimmedLine, "timeframe:");
+            } else if (trimmedLine.startsWith("confidence:")) {
+                centroidListContext = null;
+                String val = extractRawValue(trimmedLine, "confidence:");
+                if (val != null) {
+                    try { confidence = Double.parseDouble(val); } catch (NumberFormatException ignored) {}
+                }
+            } else if (trimmedLine.startsWith("contributing_files:")) {
+                centroidListContext = null;
+                String val = extractRawValue(trimmedLine, "contributing_files:");
+                if (val != null) {
+                    try { contributingFiles = Integer.parseInt(val); } catch (NumberFormatException ignored) {}
+                }
+            } else if (trimmedLine.startsWith("last_updated:")) {
+                centroidListContext = null;
+                String val = extractScalarValue(trimmedLine, "last_updated:");
+                if (val != null) {
+                    try { lastUpdated = Instant.parse(val); } catch (Exception ignored) {}
+                }
+            }
+        }
+
+        if (topics.isEmpty() && entities.isEmpty() && documentTypes.isEmpty()
+                && confidence == 0.0 && contributingFiles == 0) {
+            return DirectoryCentroid.empty();
+        }
+
+        return new DirectoryCentroid(
+                List.copyOf(topics),
+                List.copyOf(entities),
+                timeframe,
+                List.copyOf(documentTypes),
+                confidence,
+                contributingFiles,
+                0, // virtualMembers (Phase 3)
+                lastUpdated
+        );
+    }
+
+    /**
+     * Parses the {@code wants:} block from YAML content.
+     * Returns {@link DirectoryWants#empty()} if the block is absent.
+     */
+    private DirectoryWants parseWantsBlock(String yamlBlock) {
+        List<String> topics = new ArrayList<>();
+        List<String> entities = new ArrayList<>();
+        String source = null;
+        double satisfaction = 0.0;
+
+        boolean inWants = false;
+        String wantsListContext = null;
+
+        String[] lines = yamlBlock.split("\n");
+        for (String line : lines) {
+            String stripped = line.stripTrailing();
+            String trimmedLine = stripped.stripLeading();
+            int indent = stripped.length() - trimmedLine.length();
+
+            // Detect entering wants block -- must not be inside centroid's sub-keys
+            // The wants: key appears at indent 2 (under synthesis:)
+            if (trimmedLine.startsWith("wants:") && indent <= 2) {
+                inWants = true;
+                wantsListContext = null;
+                continue;
+            }
+
+            // Exit wants on a same-level or higher-level key
+            if (inWants && indent <= 2 && !trimmedLine.isEmpty()
+                    && !trimmedLine.startsWith("-") && !trimmedLine.startsWith("#")) {
+                inWants = false;
+                wantsListContext = null;
+            }
+
+            if (!inWants) continue;
+
+            // List items within wants
+            if (trimmedLine.startsWith("- ")) {
+                String value = extractListItemValue(stripped);
+                if (value != null && wantsListContext != null) {
+                    switch (wantsListContext) {
+                        case "topics" -> topics.add(value);
+                        case "entities" -> entities.add(value);
+                    }
+                }
+                continue;
+            }
+
+            // Wants sub-keys
+            if (trimmedLine.startsWith("topics:")) {
+                wantsListContext = "topics";
+            } else if (trimmedLine.startsWith("entities:")) {
+                wantsListContext = "entities";
+            } else if (trimmedLine.startsWith("source:")) {
+                wantsListContext = null;
+                source = extractScalarValue(trimmedLine, "source:");
+            } else if (trimmedLine.startsWith("satisfaction:")) {
+                wantsListContext = null;
+                String val = extractRawValue(trimmedLine, "satisfaction:");
+                if (val != null) {
+                    try { satisfaction = Double.parseDouble(val); } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+
+        if (topics.isEmpty() && entities.isEmpty() && source == null) {
+            return DirectoryWants.empty();
+        }
+
+        return new DirectoryWants(
+                List.copyOf(topics),
+                List.copyOf(entities),
+                List.of(), // alsoLookingFor (Phase 4)
+                source,
+                satisfaction
+        );
+    }
+
     private DirectoryIdentity parseYaml(String yamlBlock, String description) {
         List<String> acceptsTypes = new ArrayList<>();
         List<String> acceptsFormats = new ArrayList<>();
@@ -331,10 +725,30 @@ public class DirectoryIdentityParser {
         String mfMovedBy = null;
         String mfReason = null;
 
+        // Phase 2: skip centroid: and wants: blocks (parsed separately by parseYamlFull)
+        boolean inSkippedBlock = false;
+
         String[] lines = yamlBlock.split("\n");
         for (String line : lines) {
             String stripped = line.stripTrailing();
             String trimmedLine = stripped.stripLeading();
+            int indent = stripped.length() - trimmedLine.length();
+
+            // Phase 2: detect entering/leaving centroid: or wants: blocks
+            if ((trimmedLine.startsWith("centroid:") || trimmedLine.startsWith("wants:")) && indent <= 2) {
+                inSkippedBlock = true;
+                currentListContext = null;
+                inMovedFilesBlock = false;
+                continue;
+            }
+            // Exit skipped block when we see a top-level key (indent <= 2) that isn't a list item
+            if (inSkippedBlock && indent <= 2 && !trimmedLine.isEmpty()
+                    && !trimmedLine.startsWith("-") && !trimmedLine.startsWith("#")) {
+                // Check if this is a new section that identity cares about
+                inSkippedBlock = false;
+                // Fall through to normal parsing below
+            }
+            if (inSkippedBlock) continue;
 
             // Detect list items
             if (trimmedLine.startsWith("- ")) {
