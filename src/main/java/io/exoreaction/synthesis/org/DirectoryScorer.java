@@ -95,6 +95,11 @@ public class DirectoryScorer {
     private static final double AMBIGUITY_THRESHOLD = 0.15;
     private static final double AMBIGUITY_MIN_SCORE = 0.1;
 
+    // Centroid scoring weights (P2-09)
+    private static final double CENTROID_TOPIC_WEIGHT = 0.4;
+    private static final double CENTROID_ENTITY_WEIGHT = 0.5;
+    private static final double CENTROID_TYPE_WEIGHT = 0.1;
+
     /**
      * Type keywords considered "generic" — they map from many different file extensions
      * and provide a weaker signal for directory matching. Generic type matches receive
@@ -354,6 +359,150 @@ public class DirectoryScorer {
         }
 
         return results;
+    }
+
+    /**
+     * Scores all candidate directories with centroid-based similarity scoring.
+     *
+     * <p>When a file has an {@link EnrichmentSignature} and a candidate directory has
+     * a {@link DirectoryCentroid}, the centroid similarity is computed and blended with
+     * the existing content score using {@code max()}: centroid scoring can only improve
+     * scores, never reduce them.
+     *
+     * <p>Falls back to the standard scoring when enrichment data is unavailable.
+     *
+     * @param file              the file to route
+     * @param fileScope         the resolved scope of the file
+     * @param candidates        the candidate directories to score
+     * @param fileSignature     the file's enrichment signature (may be null or empty)
+     * @param centroidsByDir    map of directory path to centroid (may be null or empty)
+     * @return sorted list of scored candidates
+     * @since v1.14.0 (P2-09)
+     */
+    public List<ScoredCandidate> score(
+            Path file,
+            ResolvedScope fileScope,
+            List<DirectoryCandidate> candidates,
+            EnrichmentSignature fileSignature,
+            java.util.Map<Path, DirectoryCentroid> centroidsByDir
+    ) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+
+        // If no enrichment data, fall back to standard scoring
+        if (fileSignature == null || fileSignature.isEmpty()
+                || centroidsByDir == null || centroidsByDir.isEmpty()) {
+            return score(file, fileScope, candidates);
+        }
+
+        // Get standard scores first
+        List<ScoredCandidate> standardScores = score(file, fileScope, candidates);
+
+        // Enhance with centroid scoring
+        List<ScoredCandidate> enhanced = new ArrayList<>();
+        for (ScoredCandidate sc : standardScores) {
+            DirectoryCentroid centroid = centroidsByDir.get(sc.directory());
+            if (centroid != null && !centroid.isEmpty()) {
+                double centroidScore = scoreCentroid(fileSignature, centroid);
+                double weightedCentroidScore = centroidScore * centroid.confidence();
+
+                if (weightedCentroidScore > sc.contentScore()) {
+                    // Centroid score improves the content score
+                    double newContentScore = weightedCentroidScore;
+                    double newTotalScore = newContentScore
+                            + (sc.scopeBonus() > 0
+                            ? sc.scopeBonus() / (1.0 - sc.contentScore()) * (1.0 - newContentScore)
+                            : 0.0);
+                    newTotalScore = Math.min(1.0, newTotalScore);
+
+                    List<String> newReasons = new ArrayList<>(sc.reasons());
+                    newReasons.add(String.format("centroid-boost(+%.3f, raw=%.3f*%.2f)",
+                            weightedCentroidScore - sc.contentScore(),
+                            centroidScore,
+                            centroid.confidence()));
+
+                    enhanced.add(new ScoredCandidate(
+                            sc.directory(), sc.identity(),
+                            newContentScore, sc.scopeBonus(),
+                            newTotalScore, sc.blocked(),
+                            newReasons));
+                } else {
+                    enhanced.add(sc);
+                }
+            } else {
+                enhanced.add(sc);
+            }
+        }
+
+        // Re-sort
+        Collections.sort(enhanced);
+        return enhanced;
+    }
+
+    /**
+     * Computes the centroid similarity score for a file's enrichment signature
+     * against a directory's centroid.
+     *
+     * <p>Formula:
+     * {@code (topicOverlap * 0.4) + (entityOverlap * 0.5) + (typeMatch * 0.1)}
+     *
+     * @param fileSignature  the file's enrichment signature
+     * @param centroid       the directory's centroid
+     * @return centroid similarity score (0.0-1.0)
+     * @since v1.14.0 (P2-09)
+     */
+    static double scoreCentroid(EnrichmentSignature fileSignature, DirectoryCentroid centroid) {
+        if (fileSignature == null || fileSignature.isEmpty()
+                || centroid == null || centroid.isEmpty()) {
+            return 0.0;
+        }
+
+        // Topic overlap: |file.topics ∩ dir.centroid.topics| / |file.topics|
+        double topicOverlap = 0.0;
+        if (!fileSignature.topics().isEmpty()) {
+            Set<String> fileTopicsLower = new HashSet<>();
+            for (String t : fileSignature.topics()) {
+                fileTopicsLower.add(t.toLowerCase(Locale.ROOT));
+            }
+            Set<String> centroidTopicsLower = new HashSet<>();
+            for (String t : centroid.topics()) {
+                centroidTopicsLower.add(t.toLowerCase(Locale.ROOT));
+            }
+            long overlap = fileTopicsLower.stream()
+                    .filter(centroidTopicsLower::contains)
+                    .count();
+            topicOverlap = (double) overlap / fileTopicsLower.size();
+        }
+
+        // Entity overlap: |file.entities ∩ dir.centroid.entities| / max(|file.entities|, 1)
+        double entityOverlap = 0.0;
+        if (!fileSignature.entities().isEmpty()) {
+            Set<String> fileEntitiesLower = new HashSet<>();
+            for (String e : fileSignature.entities()) {
+                fileEntitiesLower.add(e.toLowerCase(Locale.ROOT));
+            }
+            Set<String> centroidEntitiesLower = new HashSet<>();
+            for (String e : centroid.entities()) {
+                centroidEntitiesLower.add(e.toLowerCase(Locale.ROOT));
+            }
+            long overlap = fileEntitiesLower.stream()
+                    .filter(centroidEntitiesLower::contains)
+                    .count();
+            entityOverlap = (double) overlap / Math.max(fileEntitiesLower.size(), 1);
+        }
+
+        // Type match: file.documentType ∈ dir.centroid.documentTypes
+        double typeMatch = 0.0;
+        if (fileSignature.documentType() != null && !centroid.documentTypes().isEmpty()) {
+            boolean matches = centroid.documentTypes().stream()
+                    .anyMatch(dt -> dt.equalsIgnoreCase(fileSignature.documentType()));
+            typeMatch = matches ? 1.0 : 0.0;
+        }
+
+        return (topicOverlap * CENTROID_TOPIC_WEIGHT)
+                + (entityOverlap * CENTROID_ENTITY_WEIGHT)
+                + (typeMatch * CENTROID_TYPE_WEIGHT);
     }
 
     /**
