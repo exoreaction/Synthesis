@@ -51,31 +51,7 @@ public class E010Check {
 
     // Use MediaTypes.MEDIA_EXTENSIONS for media file detection (P1-03)
 
-    /**
-     * Maps file extensions to broad type categories for rejectsTypes checking.
-     */
-    private static final Map<String, Set<String>> EXTENSION_REJECT_TYPE_MAP = Map.ofEntries(
-            Map.entry("mp4", Set.of("video", "media")),
-            Map.entry("mov", Set.of("video", "media")),
-            Map.entry("avi", Set.of("video", "media")),
-            Map.entry("mkv", Set.of("video", "media")),
-            Map.entry("webm", Set.of("video", "media")),
-            Map.entry("mp3", Set.of("audio", "media")),
-            Map.entry("wav", Set.of("audio", "media")),
-            Map.entry("flac", Set.of("audio", "media")),
-            Map.entry("ogg", Set.of("audio", "media")),
-            Map.entry("aac", Set.of("audio", "media")),
-            Map.entry("jpg", Set.of("image", "media")),
-            Map.entry("jpeg", Set.of("image", "media")),
-            Map.entry("png", Set.of("image", "media")),
-            Map.entry("gif", Set.of("image", "media")),
-            Map.entry("svg", Set.of("image", "media")),
-            Map.entry("bmp", Set.of("image", "media")),
-            Map.entry("pdf", Set.of("document")),
-            Map.entry("docx", Set.of("document")),
-            Map.entry("doc", Set.of("document")),
-            Map.entry("md", Set.of("document"))
-    );
+    // EXTENSION_REJECT_TYPE_MAP moved to MediaTypes.EXTENSION_REJECT_TYPE_MAP (P1-04)
 
     private final DirectoryIdentityParser parser = new DirectoryIdentityParser();
     private final SubjectBasedRouter router = new SubjectBasedRouter();
@@ -197,7 +173,7 @@ public class E010Check {
                 String ext = extractExtension(file.getFileName().toString());
                 if (ext.isEmpty()) continue;
 
-                Set<String> fileTypes = EXTENSION_REJECT_TYPE_MAP.getOrDefault(ext, Set.of());
+                Set<String> fileTypes = MediaTypes.EXTENSION_REJECT_TYPE_MAP.getOrDefault(ext, Set.of());
                 if (fileTypes.isEmpty()) continue;
 
                 boolean rejected = identity.rejectsTypes().stream()

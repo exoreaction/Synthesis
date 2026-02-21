@@ -92,6 +92,45 @@ class MediaTypesTest {
         assertFalse(MediaTypes.MEDIA_EXTENSIONS.contains("docx"));
     }
 
+    // ---- P1-04: EXTENSION_REJECT_TYPE_MAP ----
+
+    @Test
+    void extensionRejectTypeMap_containsVideoExtensions() {
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("mp4"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("mp4").contains("video"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("mp4").contains("media"));
+    }
+
+    @Test
+    void extensionRejectTypeMap_containsAudioExtensions() {
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("mp3"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("mp3").contains("audio"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("mp3").contains("media"));
+    }
+
+    @Test
+    void extensionRejectTypeMap_containsImageExtensions() {
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("png"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("png").contains("image"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("png").contains("media"));
+    }
+
+    @Test
+    void extensionRejectTypeMap_containsDocumentExtensions() {
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("pdf"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("pdf").contains("document"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("md"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("md").contains("document"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.containsKey("txt"));
+        assertTrue(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("txt").contains("document"));
+    }
+
+    @Test
+    void extensionRejectTypeMap_unknownExtensionReturnsNull() {
+        assertNull(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("java"));
+        assertNull(MediaTypes.EXTENSION_REJECT_TYPE_MAP.get("rs"));
+    }
+
     @Test
     void allSets_areUnmodifiable() {
         assertThrows(UnsupportedOperationException.class,

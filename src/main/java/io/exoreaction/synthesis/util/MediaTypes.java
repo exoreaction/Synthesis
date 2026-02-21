@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.util;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -67,4 +68,42 @@ public final class MediaTypes {
         all.addAll(IMAGE_EXTENSIONS);
         MEDIA_EXTENSIONS = Collections.unmodifiableSet(all);
     }
+
+    // =========================================================================
+    // Extension-to-reject-type mapping (P1-04)
+    // =========================================================================
+
+    /**
+     * Maps file extensions to broad type categories for {@code rejectsTypes}
+     * hard-rejection in routing and health checks.
+     *
+     * <p>This was previously duplicated between {@code DirectoryScorer} and
+     * {@code E010Check}. Both classes now reference this shared map as
+     * the single source of truth.
+     *
+     * @since v1.13.0 (P1-04)
+     */
+    public static final Map<String, Set<String>> EXTENSION_REJECT_TYPE_MAP = Map.ofEntries(
+            Map.entry("mp4", Set.of("video", "media")),
+            Map.entry("mov", Set.of("video", "media")),
+            Map.entry("avi", Set.of("video", "media")),
+            Map.entry("mkv", Set.of("video", "media")),
+            Map.entry("webm", Set.of("video", "media")),
+            Map.entry("mp3", Set.of("audio", "media")),
+            Map.entry("wav", Set.of("audio", "media")),
+            Map.entry("flac", Set.of("audio", "media")),
+            Map.entry("ogg", Set.of("audio", "media")),
+            Map.entry("aac", Set.of("audio", "media")),
+            Map.entry("jpg", Set.of("image", "media")),
+            Map.entry("jpeg", Set.of("image", "media")),
+            Map.entry("png", Set.of("image", "media")),
+            Map.entry("gif", Set.of("image", "media")),
+            Map.entry("svg", Set.of("image", "media")),
+            Map.entry("bmp", Set.of("image", "media")),
+            Map.entry("pdf", Set.of("document")),
+            Map.entry("docx", Set.of("document")),
+            Map.entry("doc", Set.of("document")),
+            Map.entry("md", Set.of("document")),
+            Map.entry("txt", Set.of("document"))
+    );
 }

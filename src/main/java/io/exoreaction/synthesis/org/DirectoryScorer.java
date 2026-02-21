@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.org;
 
 import io.exoreaction.synthesis.org.ScopeResolver.ResolvedScope;
+import io.exoreaction.synthesis.util.MediaTypes;
 
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -130,33 +131,7 @@ public class DirectoryScorer {
             Map.entry("gz", Set.of("archive", "artifact"))
     );
 
-    /**
-     * Maps file extensions to broad type categories for rejectsTypes hard-rejection.
-     * This is simpler and broader than EXTENSION_TYPE_MAP — used only for the reject guard.
-     */
-    private static final Map<String, Set<String>> EXTENSION_REJECT_TYPE_MAP = Map.ofEntries(
-            Map.entry("mp4", Set.of("video", "media")),
-            Map.entry("mov", Set.of("video", "media")),
-            Map.entry("avi", Set.of("video", "media")),
-            Map.entry("mkv", Set.of("video", "media")),
-            Map.entry("webm", Set.of("video", "media")),
-            Map.entry("mp3", Set.of("audio", "media")),
-            Map.entry("wav", Set.of("audio", "media")),
-            Map.entry("flac", Set.of("audio", "media")),
-            Map.entry("ogg", Set.of("audio", "media")),
-            Map.entry("aac", Set.of("audio", "media")),
-            Map.entry("jpg", Set.of("image", "media")),
-            Map.entry("jpeg", Set.of("image", "media")),
-            Map.entry("png", Set.of("image", "media")),
-            Map.entry("gif", Set.of("image", "media")),
-            Map.entry("svg", Set.of("image", "media")),
-            Map.entry("bmp", Set.of("image", "media")),
-            Map.entry("pdf", Set.of("document")),
-            Map.entry("docx", Set.of("document")),
-            Map.entry("doc", Set.of("document")),
-            Map.entry("md", Set.of("document")),
-            Map.entry("txt", Set.of("document"))
-    );
+    // EXTENSION_REJECT_TYPE_MAP moved to MediaTypes.EXTENSION_REJECT_TYPE_MAP (P1-04)
 
     private final ScopeChecker scopeChecker;
     private final Path workspaceRoot;
@@ -216,7 +191,7 @@ public class DirectoryScorer {
 
             // Hard-reject guard: if the file's inferred types overlap with rejectsTypes, score 0.0
             if (!identity.rejectsTypes().isEmpty() && extension != null && !extension.isEmpty()) {
-                Set<String> fileRejectTypes = EXTENSION_REJECT_TYPE_MAP.get(extension);
+                Set<String> fileRejectTypes = MediaTypes.EXTENSION_REJECT_TYPE_MAP.get(extension);
                 if (fileRejectTypes != null) {
                     boolean rejected = identity.rejectsTypes().stream()
                             .anyMatch(rt -> fileRejectTypes.contains(rt.toLowerCase(Locale.ROOT)));
