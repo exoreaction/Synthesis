@@ -61,7 +61,7 @@ File content + metadata  →  enrichment  →  semantic signature
                                                          ↓
 Multiple enriched files in a directory  →  cluster centroid
                                               ("renewable energy strategy, Q1 2026,
-                                               Tvimenning/Jon Petter, 8 files, 0.87 confidence")
+                                               GreenField Energy, 8 files, 0.87 confidence")
                                                          ↓
 Directory wants: "I want more files like these"
                  "I also want an invoice — that's missing from this client cluster"
@@ -86,8 +86,8 @@ A node has:
   relationships to other files
 - **Provenance**: where it came from, how it got here, what decisions were made about it
 
-Enrichment is what elevates a file from "a PDF in a folder" to "Jon Petter's proposal
-about renewable energy methodology, Q1 2026, referencing the lib-pcb workshop."
+Enrichment is what elevates a file from "a PDF in a folder" to "a proposal about
+renewable energy methodology, Q1 2026, referencing the lib-pcb workshop."
 
 ### 2. Directories Are Clusters
 
@@ -97,10 +97,10 @@ The identity of a directory is not declared upfront ("this directory accepts inv
 It *emerges* from the collective understanding of its contents:
 
 ```
-eXOReaction/clients/opportunity-Tvimenning/
+clients/opportunity-greenfield/
   → 8 enriched files
   → common topics:  renewable energy, SDD methodology, workshop
-  → key entities:   Tvimenning AS, Jon Petter Hjulstad, eXOReaction
+  → key entities:   GreenField Energy, Jane Smith
   → timeframe:      2025-Q4 to 2026-Q2
   → document types: proposal, contract, meeting-notes, mentoring plan
   → centroid confidence: 0.87 (tight cluster)
@@ -113,8 +113,8 @@ More enriched files → tighter centroid → higher confidence → more precise 
 ### 3. Directories Have Purpose and Appetite
 
 A directory is not just a cluster — it is an **agent with a purpose**. It was created
-because someone wanted to accumulate something. A `clients/opportunity-Tvimenning/`
-directory was created because someone wanted to track the Tvimenning engagement.
+because someone wanted to accumulate something. A `clients/opportunity-greenfield/`
+directory was created because someone wanted to track the GreenField engagement.
 That intent is a **want**.
 
 Directories have wants in two forms:
@@ -156,13 +156,13 @@ reason. Synthesis bootstraps initial wants from multiple signals (evaluated in p
 
 | Tier | Signal | Confidence | Example |
 |------|--------|-----------|---------|
-| 1 | README or seed file | Moderate-high (0.5–0.7) | README says "Cloudya CTO event opportunity" |
-| 2 | Directory name inference | Low-moderate (0.2–0.4) | `opportunity-Cloudya` → wants: Cloudya, CTO, AWS |
+| 1 | README or seed file | Moderate-high (0.5–0.7) | README describes the directory's purpose |
+| 2 | Directory name inference | Low-moderate (0.2–0.4) | `opportunity-nova` → wants: Nova Corp files |
 | 3 | Parent directory inheritance | Low (0.1–0.2) | Under `clients/` → wants: CLIENT-scoped content |
 | 4 | Explicit override (rare) | Exact | Human writes `wants:` block directly |
 
 An empty directory with name-inferred wants bids *weakly* — but it bids. If no other
-directory wants a file about Cloudya, the new directory wins by default. This is correct:
+directory wants a file about Nova Corp, the new directory wins by default. This is correct:
 the directory was created for a reason.
 
 #### The convergence lifecycle
@@ -248,8 +248,8 @@ synthesis:
       - "SDD methodology"
       - "workshop delivery"
     entities:
-      - "Tvimenning AS"
-      - "Jon Petter Hjulstad"
+      - "GreenField Energy"
+      - "Jane Smith"
     timeframe: "2025-Q4 / 2026-Q1"
     document_types: ["proposal", "contract", "meeting-notes"]
     confidence: 0.87
@@ -264,8 +264,8 @@ synthesis:
   # Absent in mature directories — centroid IS the wants expression.
   # satisfaction: how well current content matches stated wants (0.0–1.0).
   wants:
-    topics: ["Tvimenning opportunity lifecycle", "renewable energy"]
-    entities: ["Tvimenning AS", "Jon Petter Hjulstad"]
+    topics: ["GreenField opportunity lifecycle", "renewable energy"]
+    entities: ["GreenField Energy", "Jane Smith"]
     also_looking_for: ["invoice", "mentoring contract"]   # aspirational gaps
     source: "inferred from directory name + 8 files"
     satisfaction: 0.87
@@ -273,8 +273,8 @@ synthesis:
   # LAYER 3: Structural context — inferred by sync from path + scope
   scope:
     level: "CLIENT"
-    organization: "eXOReaction"
-    entity: "Tvimenning"
+    organization: "myorg"
+    entity: "GreenField"
 
   # LAYER 4: Health signals — computed each sync
   health:
@@ -286,7 +286,7 @@ synthesis:
   # Used only when inference needs correction or hard constraints apply.
   # Most directories will have no overrides block.
   overrides:
-    label: "Opportunity: Tvimenning AS — renewable energy"
+    label: "Opportunity: GreenField Energy — renewable energy"
     rejects_types: []   # hard rejection (not soft preference)
     transient: false
 ---
@@ -308,19 +308,19 @@ Most mature directories will have no `wants:` block — the centroid speaks for 
 synthesis:
   # No centroid yet — no enriched files
   wants:
-    topics: ["Cloudya", "CTO event", "AWS infrastructure"]
-    entities: ["Cloudya", "Anders"]
-    source: "inferred from directory name: opportunity-Cloudya"
+    topics: ["Nova Corp", "CTO partnership", "cloud infrastructure"]
+    entities: ["Nova Corp"]
+    source: "inferred from directory name: opportunity-nova"
     satisfaction: 0.0
   scope:
     level: "CLIENT"
-    organization: "eXOReaction"
+    organization: "myorg"
   health:
     status: "bootstrapping"
     file_count: 0
 ---
 
-New opportunity directory for Cloudya CTO event.
+New opportunity directory for Nova Corp CTO partnership.
 ```
 
 ---
@@ -329,10 +329,10 @@ New opportunity directory for Cloudya CTO event.
 
 A file has one physical home — but it may semantically belong to several directories.
 This is how humans actually think about their information. A proposal about renewable
-energy methodology for Tvimenning is simultaneously:
+energy methodology is simultaneously:
 
-- A client document (`clients/opportunity-Tvimenning/`)
-- Methodology proof (`methodology/SDD/`)
+- A client document (`clients/opportunity-greenfield/`)
+- Methodology proof (`methodology/sdd/`)
 - Workshop material (`products/workshop/`)
 
 In a filesystem, you pick one. In a knowledge graph, the file participates in multiple
@@ -351,14 +351,14 @@ it, it appears in their context, it contributes to their semantic identity — b
 physical copy is made. A bidirectional link is tracked in `.synthesis.md` on both sides.
 
 ```yaml
-# In methodology/SDD/.synthesis.md:
+# In methodology/sdd/.synthesis.md:
 centroid:
   contributing_files: 12    # physical members
   virtual_members: 3        # files from other dirs whose content is indexed here
   virtual_member_refs:
-    - node: "clients/opportunity-Tvimenning/proposal-v2.pdf"
+    - node: "clients/opportunity-greenfield/proposal-v2.pdf"
       relationship: "methodology application"
-    - node: "clients/opportunity-Mynder/ai-security-proposal.pdf"
+    - node: "clients/opportunity-secura/ai-security-proposal.pdf"
       relationship: "methodology application"
     - node: "media/marketing/videos/sdd-workshop-intro.mp4"
       relationship: "methodology demonstration"
@@ -367,14 +367,14 @@ centroid:
 Virtual membership is established by the routing system: when a file strongly matches
 multiple clusters, the winner gets physical membership and strong runners-up get virtual
 membership. Virtual membership also satisfies the wants of runner-up directories — the
-`methodology/SDD/` directory *wanted* to know about SDD applications in client work,
+`methodology/sdd/` directory *wanted* to know about SDD applications in client work,
 and virtual membership delivers that without creating duplicates.
 
 ### What This Enables
 
-- **Rich centroids**: `methodology/SDD/` knows about all applications of the methodology,
+- **Rich centroids**: `methodology/sdd/` knows about all applications of the methodology,
   even though the application documents live in client directories
-- **Cross-cluster search**: searching from `methodology/SDD/` returns results from
+- **Cross-cluster search**: searching from `methodology/sdd/` returns results from
   all virtually-linked files, not just physical members
 - **Want satisfaction across directories**: a methodology directory's aspirational want
   ("I want examples of methodology applied to real clients") is satisfied virtually
@@ -426,25 +426,25 @@ Every routing decision produces a **provenance chain** — a human-readable expl
 of why this file belongs here:
 
 ```
-synthesis route explain eXOReaction/downloads/jon-petter-followup-2026-02-24.pdf
+synthesis route explain downloads/jane-smith-followup.pdf
 
-  Analyzing: jon-petter-followup-2026-02-24.pdf
-  Enrichment: proposal, Tvimenning AS, renewable energy, Q1 2026
+  Analyzing: jane-smith-followup.pdf
+  Enrichment: proposal, GreenField Energy, renewable energy, Q1 2026
 
-  Physical home: eXOReaction/clients/opportunity-Tvimenning/ (confidence: HIGH)
+  Physical home: clients/opportunity-greenfield/ (confidence: HIGH)
   Why this directory wants this file:
-    ✓ Entity match:  "Tvimenning AS" — present in 6/8 existing files
-    ✓ Entity match:  "Jon Petter Hjulstad" — present in 4/8 existing files
+    ✓ Entity match:  "GreenField Energy" — present in 6/8 existing files
+    ✓ Entity match:  "Jane Smith" — present in 4/8 existing files
     ✓ Topic match:   "renewable energy" — primary topic in 5/8 existing files
     ✓ Type match:    "proposal" fits centroid (0.87 confidence cluster)
     ✓ Timeframe:     Q1 2026 aligns with directory centroid (2025-Q4 / 2026-Q1)
     ✓ Aspirational:  Directory wants "proposal" — currently missing (gap filled!)
 
   Virtual membership also offered to:
-    → eXOReaction/methodology/SDD/ (MODERATE: topic match "SDD methodology")
-    → eXOReaction/products/workshop/ (MODERATE: topic match "workshop delivery")
+    → methodology/sdd/ (MODERATE: topic match "SDD methodology")
+    → products/workshop/ (MODERATE: topic match "workshop delivery")
 
-  No match: eXOReaction/business/ — only type overlap, no entity/topic alignment
+  No match: business/strategy/ — only type overlap, no entity/topic alignment
 
   Route here with virtual links? [Y/n/edit]
 ```
@@ -477,8 +477,8 @@ With the "wants" model, Synthesis can detect not just what's wrong but what's *m
 **Want fulfillment** (I020): The directory is getting what it wants.
 
 ```
-[I020] Want fulfillment: eXOReaction/clients/opportunity-Tvimenning/
-  Wants: renewable energy, Tvimenning AS, workshop delivery
+[I020] Want fulfillment: clients/opportunity-greenfield/
+  Wants: renewable energy, GreenField Energy, workshop delivery
   Satisfaction: 0.87 (HIGH)
   Recent: 3 files arrived in last 30 days matching wants
   Status: Healthy — directory is accumulating relevant content
@@ -487,8 +487,8 @@ With the "wants" model, Synthesis can detect not just what's wrong but what's *m
 **Want starvation** (W020): A directory has clear wants but nothing is arriving.
 
 ```
-[W020] Want starvation: eXOReaction/clients/opportunity-Cloudya/
-  Wants: Cloudya, CTO event, AWS (stated since: 2026-02-15)
+[W020] Want starvation: clients/opportunity-nova/
+  Wants: Nova Corp, CTO partnership, cloud infrastructure (since: 2026-02-15)
   Satisfaction: 0.0 (NONE) — file count: 0
   Days since creation: 6
   Signal: Directory was created but nothing has arrived.
@@ -502,14 +502,14 @@ is just empty. Under "wants," it is starving — a purpose that is not being ser
 **Want overflow / centroid drift** (W021): The directory is attracting the wrong content.
 
 ```
-[W021] Want drift: eXOReaction/business/strategy/
+[W021] Want drift: business/strategy/
   Wants: business strategy, competitive analysis, market positioning
   Centroid now: 53% marketing content, 31% proposals, 16% strategy
   Satisfaction: 0.31 (LOW — significant drift)
   Recent inbound: 18 marketing files in 30 days
   Signal: Content arriving doesn't match directory purpose.
-  Suggest: Route marketing files to eXOReaction/media/marketing/ ?
-           Or update this directory's overrides.label to reflect the new reality?
+  Suggest: Route marketing files to media/marketing/ ?
+           Or update overrides.label to reflect the new reality?
 ```
 
 **Want conflict** (I021): Multiple directories are competing for the same files.
@@ -517,11 +517,11 @@ is just empty. Under "wants," it is starving — a purpose that is not being ser
 ```
 [I021] Want conflict: "SDD methodology for renewable energy"
   Wanted by:
-    - eXOReaction/clients/opportunity-Tvimenning/ (0.82 bid strength)
-    - eXOReaction/methodology/SDD/ (0.79 bid strength)
-    - eXOReaction/products/workshop/ (0.61 bid strength)
+    - clients/opportunity-greenfield/ (0.82 bid strength)
+    - methodology/sdd/ (0.79 bid strength)
+    - products/workshop/ (0.61 bid strength)
   Affected files: 4 (currently scattered without virtual links)
-  Suggest: Physical → opportunity-Tvimenning; virtual links → methodology/ and workshop/?
+  Suggest: Physical → opportunity-greenfield; virtual links → methodology/ and workshop/?
 ```
 
 ### Structural Health Signals (existing, evolved)
@@ -529,7 +529,7 @@ is just empty. Under "wants," it is starving — a purpose that is not being ser
 **Drift** (W011): A directory's centroid has shifted significantly over time.
 
 ```
-[W011] Identity drift detected: eXOReaction/business/strategy/
+[W011] Identity drift detected: business/strategy/
   Centroid now:  53% marketing content, 31% client proposals, 16% strategy
   Centroid was:  91% strategy content (6 months ago)
   Signal:        18 recent files are marketing/client; 3 are strategy
@@ -540,8 +540,8 @@ is just empty. Under "wants," it is starving — a purpose that is not being ser
 
 ```
 [I012] 7 orphan files with no strong cluster match
-  Suggest: Create eXOReaction/research/ai-security/ ?
-           Or route to existing eXOReaction/clients/opportunity-Mynder/ ?
+  Suggest: Create research/ai-security/ ?
+           Or route to existing clients/opportunity-secura/ ?
 ```
 
 **Fragmentation** (W013): The same concept is split across multiple directories without
@@ -556,9 +556,9 @@ virtual links connecting them (resolved conflicts are OK; unresolved are not).
 **Landing zone stagnation** (W014): Transient directories that never route out.
 
 ```
-[W014] Landing zone stale: eXOReaction/media/marketing/
+[W014] Landing zone stale: media/marketing/
   232 media files, oldest: 45 days — no outbound routing in 45 days
-  Centroid emerging: product demos, AI features, LinkedIn content
+  Centroid emerging: product demos, AI features, social media content
   Suggest: Either route files out, or graduate this directory to permanent status
 ```
 
@@ -583,8 +583,8 @@ Each routing decision creates a feedback record:
 - Accepted routes reinforce the directory's wants (this type of file belongs here)
 - Rejected routes flag a wants mismatch (this directory's appetite was wrong)
 
-Over time, routing hints accumulate: "for files mentioning Tvimenning + renewable energy,
-route to opportunity-Tvimenning/ — confirmed 6 times." The wants become more precise.
+Over time, routing hints accumulate: "for files mentioning GreenField + renewable energy,
+route to opportunity-greenfield/ — confirmed 6 times." The wants become more precise.
 
 ### Long-Term Learning (structural evolution + gap detection)
 
@@ -595,7 +595,7 @@ Over weeks/months, Synthesis can observe:
   surface this as a workspace-level pattern, not just per-directory
 - **Naming convention coherence**: are directory names reflecting their centroid?
 - **Archetype coverage**: the workspace as a whole — what kinds of clusters are present vs.
-  what would you expect for an organization like this?
+  what would you expect for an organization of this type?
 
 This feeds into periodic reports: "Your workspace has evolved — here's what changed,
 what's being fulfilled, what's missing, and what needs attention."
@@ -618,10 +618,10 @@ staging route --enrich-first            # enriches then routes
 ```bash
 # Describe what the system understands about a directory or workspace
 synthesis describe -d ~/Documents
-synthesis describe eXOReaction/clients/opportunity-Tvimenning/
-# Output: "This directory wants to track the full lifecycle of the Tvimenning
+synthesis describe clients/opportunity-greenfield/
+# Output: "This directory wants to track the full lifecycle of the GreenField
 # opportunity. Currently 87% satisfied: has proposals, contracts, meeting notes.
-# Missing: mentoring contract (aspirational gap). 2 virtual members from SDD/."
+# Missing: mentoring contract (aspirational gap). 2 virtual members from sdd/."
 
 # Explain a routing decision before making it
 synthesis route explain path/to/file.pdf
@@ -632,12 +632,12 @@ synthesis route path/to/file.pdf [--auto | --confirm | --dry-run]
 
 # Health: cluster analysis + want-based signals
 synthesis health -d ~/Documents
-synthesis health eXOReaction/business/   # focus on a subtree
+synthesis health business/   # focus on a subtree
 # Output: structural signals + want starvation + drift + fulfillment
 
 # See the knowledge graph structure
 synthesis graph -d ~/Documents [--format ascii | json | mermaid]
-synthesis graph --entity "Tvimenning AS"   # show everything wanted by/related to an entity
+synthesis graph --entity "GreenField Energy"   # show everything related to an entity
 
 # Learning feedback
 synthesis feedback accept/reject [routing-id]
@@ -760,17 +760,17 @@ This is a multi-release vision. The path respects existing functionality.
 
 ## Why This Matters
 
-### For Totto's Workspace Today
+### For a Developer's Workspace
 
-The Documents workspace has 730+ directories and 8,000+ files built up over years.
-That structure is **intentional** — it reflects how eXOReaction thinks about its work:
-clients, products, methodology, business, marketing. Every directory was created because
-someone wanted to accumulate something there.
+A workspace with hundreds of directories and thousands of files built up over years contains
+**intentional structure** — it reflects how a team thinks about its work: clients, products,
+methodology, business, marketing. Every directory was created because someone wanted to
+accumulate something there.
 
 Synthesis should read that architecture, understand what each part *wants*, and help it
-evolve coherently. When a proposal about Tvimenning arrives in downloads, the system should
-know — from enrichment + centroid + want-alignment — exactly where it belongs, explain why
-that directory wants it, and route it there with the human's trust.
+evolve coherently. When a proposal arrives in downloads, the system should know — from
+enrichment + centroid + want-alignment — exactly where it belongs, explain why that
+directory wants it, and route it there with the human's trust.
 
 ### For Teams in General
 
