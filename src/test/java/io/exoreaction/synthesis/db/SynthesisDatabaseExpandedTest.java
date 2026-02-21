@@ -71,7 +71,11 @@ class SynthesisDatabaseExpandedTest {
         "file_movements",
         "file_audit_log",
         "workspace_snapshots",
-        "change_events"
+        "change_events",
+        "directory_centroids",
+        "file_enrichment_signatures",
+        "virtual_memberships",
+        "routing_feedback"
     })
     void migration_tableExists(String tableName) throws SQLException {
         Connection conn = db.getConnection();
@@ -111,6 +115,98 @@ class SynthesisDatabaseExpandedTest {
             assertTrue(rs.next());
             assertEquals(0, rs.getInt(1), "Fresh database should have 0 file movements");
         }
+    }
+
+    // --- V11 tables: virtual_memberships and routing_feedback ---
+
+    @Test
+    void connection_canQueryVirtualMemberships_afterMigration() throws SQLException {
+        Connection conn = db.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM virtual_memberships");
+             ResultSet rs = ps.executeQuery()) {
+            assertTrue(rs.next());
+            assertEquals(0, rs.getInt(1), "Fresh database should have 0 virtual memberships");
+        }
+    }
+
+    @Test
+    void connection_canInsertAndQueryVirtualMembership() throws SQLException {
+        Connection conn = db.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO virtual_memberships (workspace_path, file_path, directory_path, relationship, bid_strength, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)")) {
+            ps.setString(1, "/home/user/workspace");
+            ps.setString(2, "docs/proposal.pdf");
+            ps.setString(3, "methodology/sdd");
+            ps.setString(4, "methodology application");
+            ps.setDouble(5, 0.72);
+            ps.setLong(6, System.currentTimeMillis() / 1000);
+            assertEquals(1, ps.executeUpdate());
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT file_path, directory_path, bid_strength FROM virtual_memberships WHERE workspace_path = ?")) {
+            ps.setString(1, "/home/user/workspace");
+            try (ResultSet rs = ps.executeQuery()) {
+                assertTrue(rs.next());
+                assertEquals("docs/proposal.pdf", rs.getString("file_path"));
+                assertEquals("methodology/sdd", rs.getString("directory_path"));
+                assertEquals(0.72, rs.getDouble("bid_strength"), 0.001);
+            }
+        }
+    }
+
+    @Test
+    void connection_canInsertAndQueryRoutingFeedback() throws SQLException {
+        Connection conn = db.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO routing_feedback (workspace_path, file_path, proposed_destination, actual_destination, accepted, confidence_delta, timestamp) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+            ps.setString(1, "/home/user/workspace");
+            ps.setString(2, "downloads/report.pdf");
+            ps.setString(3, "business/strategy");
+            ps.setString(4, "business/strategy");
+            ps.setInt(5, 1);
+            ps.setDouble(6, 0.05);
+            ps.setLong(7, System.currentTimeMillis() / 1000);
+            assertEquals(1, ps.executeUpdate());
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT accepted, confidence_delta FROM routing_feedback WHERE file_path = ?")) {
+            ps.setString(1, "downloads/report.pdf");
+            try (ResultSet rs = ps.executeQuery()) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt("accepted"));
+                assertEquals(0.05, rs.getDouble("confidence_delta"), 0.001);
+            }
+        }
+    }
+
+    @Test
+    void virtualMembership_uniqueConstraint_preventsduplicates() throws SQLException {
+        Connection conn = db.getConnection();
+        String sql = "INSERT INTO virtual_memberships (workspace_path, file_path, directory_path, relationship, bid_strength, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, "/ws");
+            ps.setString(2, "file.pdf");
+            ps.setString(3, "dir/a");
+            ps.setString(4, "rel");
+            ps.setDouble(5, 0.5);
+            ps.setLong(6, 1000);
+            ps.executeUpdate();
+        }
+        // Same (workspace_path, file_path, directory_path) should fail
+        assertThrows(SQLException.class, () -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, "/ws");
+                ps.setString(2, "file.pdf");
+                ps.setString(3, "dir/a");
+                ps.setString(4, "different rel");
+                ps.setDouble(5, 0.8);
+                ps.setLong(6, 2000);
+                ps.executeUpdate();
+            }
+        });
     }
 
     // --- Multiple databases in same test run ---
