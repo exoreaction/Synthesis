@@ -72,4 +72,42 @@ public record RoutingDecision(
                 false
         );
     }
+
+    /**
+     * Creates a RoutingDecision from a bidding result.
+     *
+     * @param bid the winning bid
+     * @return a RoutingDecision with mechanism "bidding"
+     * @since v1.15.0 (P3-02)
+     */
+    static RoutingDecision fromBid(Bid bid) {
+        return new RoutingDecision(
+                bid.directory(),
+                bid.strength(),
+                RoutingConfidence.fromScore(bid.strength()),
+                "bidding",
+                bid.reasons(),
+                false
+        );
+    }
+
+    /**
+     * Extended routing result that includes virtual membership proposals.
+     *
+     * <p>Wraps a standard {@link RoutingDecision} for the physical destination
+     * plus a list of virtual membership candidates (directories that also
+     * want the file but lost the bid).
+     *
+     * @param decision            the physical routing decision (winner)
+     * @param virtualProposals    virtual membership bids (runners-up above threshold)
+     * @since v1.15.0 (P3-02)
+     */
+    public record ExtendedResult(
+            RoutingDecision decision,
+            List<Bid> virtualProposals
+    ) {
+        public ExtendedResult {
+            virtualProposals = virtualProposals != null ? virtualProposals : List.of();
+        }
+    }
 }

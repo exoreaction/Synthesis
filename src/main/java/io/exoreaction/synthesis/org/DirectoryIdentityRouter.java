@@ -176,6 +176,98 @@ public class DirectoryIdentityRouter {
     }
 
     // =========================================================================
+    // Bidding-based routing (P3-02): enrichment-aware pull model
+    // =========================================================================
+
+    /** Lazily-initialized bidding candidates (directories with centroids/wants). */
+    private List<DirectoryBidder.BiddingCandidate> biddingCandidates;
+
+    /**
+     * Routes a file using enrichment-based bidding when a signature is available,
+     * falling back to identity scoring for non-enriched files.
+     *
+     * <p>Routing cascade order:
+     * <ol>
+     *   <li>RoutingHints (learned patterns) -- if match, return immediately</li>
+     *   <li>ConfigRules (glob + keyword) -- handled by existing scoring</li>
+     *   <li>DirectoryBidder (enrichment-based bidding) -- if enriched file</li>
+     *   <li>DirectoryScorer (identity-based scoring) -- fallback for non-enriched</li>
+     * </ol>
+     *
+     * @param file            the file to route
+     * @param context         caller preferences
+     * @param fileSignature   enrichment signature of the file (may be null or empty)
+     * @return extended result with physical decision + virtual membership proposals
+     * @since v1.15.0 (P3-02)
+     */
+    public Optional<RoutingDecision.ExtendedResult> routeWithBidding(
+            Path file, RoutingContext context, EnrichmentSignature fileSignature) {
+
+        // Step 1: Check routing hints first (highest priority)
+        Optional<RoutingDecision> hintResult = checkRoutingHintsDecision(file);
+        if (hintResult.isPresent()) {
+            return Optional.of(new RoutingDecision.ExtendedResult(hintResult.get(), List.of()));
+        }
+
+        // Step 2: Try bidding if enrichment data is available
+        if (fileSignature != null && !fileSignature.isEmpty()) {
+            List<DirectoryBidder.BiddingCandidate> candidates = loadBiddingCandidates(context.skipTransient());
+            if (!candidates.isEmpty()) {
+                DirectoryBidder bidder = new DirectoryBidder();
+                DirectoryBidder.BiddingResult biddingResult = bidder.bid(fileSignature, candidates);
+
+                if (!biddingResult.isOrphan() && biddingResult.winner() != null
+                        && biddingResult.winner().strength() >= context.threshold()) {
+                    RoutingDecision decision = RoutingDecision.fromBid(biddingResult.winner());
+                    return Optional.of(new RoutingDecision.ExtendedResult(
+                            decision, biddingResult.virtualCandidates()));
+                }
+            }
+        }
+
+        // Step 3: Fall back to identity-based scoring (Phase 1 behavior)
+        Optional<RoutingDecision> fallback = route(file, context);
+        return fallback.map(d -> new RoutingDecision.ExtendedResult(d, List.of()));
+    }
+
+    /**
+     * Lazy-initialize and cache the bidding candidates (directories with centroids or wants).
+     *
+     * @param skipTransient if true, exclude transient directories
+     * @since v1.15.0 (P3-02)
+     */
+    private List<DirectoryBidder.BiddingCandidate> loadBiddingCandidates(boolean skipTransient) {
+        if (biddingCandidates != null) return biddingCandidates;
+
+        List<DirectoryBidder.BiddingCandidate> result = new ArrayList<>();
+        try {
+            Files.walk(workspaceRoot)
+                    .filter(Files::isDirectory)
+                    .filter(dir -> !dir.equals(workspaceRoot))
+                    .filter(dir -> !dir.getFileName().toString().startsWith("."))
+                    .forEach(dir -> {
+                        Path synthesisFile = dir.resolve(".synthesis.md");
+                        if (Files.exists(synthesisFile)) {
+                            DirectoryProfile profile = parser.parseProfile(synthesisFile);
+                            if (skipTransient && profile.identity().transient_()) {
+                                return; // skip transient
+                            }
+                            // Only include directories that have centroid or wants
+                            if (!profile.centroid().isEmpty() || !profile.wants().isEmpty()) {
+                                result.add(new DirectoryBidder.BiddingCandidate(
+                                        dir, profile.centroid(), profile.wants()));
+                            }
+                        }
+                    });
+        } catch (IOException e) {
+            // Return whatever was collected
+        }
+
+        biddingCandidates = result;
+        return result;
+    }
+
+    // =========================================================================
     // Scoring (for display/explain)
     // =========================================================================
 
