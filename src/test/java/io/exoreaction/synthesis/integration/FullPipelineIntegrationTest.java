@@ -47,11 +47,12 @@ class FullPipelineIntegrationTest {
     @Test
     void fullPipeline_sweepThenRebalance_recallsArchivedFile() throws Exception {
         // Set up workspace with an identity directory that accepts .sh files,
-        // but no config routing rule → sweep sends the file to archive.
-        // Rebalance should then recall it from archive.
+        // but no config routing rule -> sweep sends the file to archive.
+        // Rebalance should then recall it from archive (score >= 0.7 with patterns).
         WorkspaceFixture fixture = WorkspaceFixture.builder(tempDir)
                 .directory("automation")
-                    .withIdentity(types("automation", "scripts"), formats("sh", "bash"), confidence(0.9))
+                    .withIdentity(types("automation", "scripts"), formats("sh", "bash"),
+                            patterns("*.sh", "*.bash"), confidence(0.9))
                     .end()
                 .rootFile("batch-job.sh", "#!/bin/bash\necho batch", ageDays(60))
                 .build();
@@ -129,7 +130,8 @@ class FullPipelineIntegrationTest {
     void fullPipeline_mixedFiles_onlyShellRecalled() throws Exception {
         WorkspaceFixture fixture = WorkspaceFixture.builder(tempDir)
                 .directory("automation")
-                    .withIdentity(types("automation", "scripts"), formats("sh"), confidence(0.8))
+                    .withIdentity(types("automation", "scripts"), formats("sh"),
+                            patterns("*.sh"), confidence(0.8))
                     .end()
                 .rootFile("run.sh", "#!/bin/bash", ageDays(60))
                 .rootFile("TONIGHT-PLAN.md", "# Plan", ageDays(60))

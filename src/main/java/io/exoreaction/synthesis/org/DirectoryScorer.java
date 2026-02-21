@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,13 +18,26 @@ import java.util.Set;
  *
  * <p>Content scoring heuristics:
  * <ul>
- *   <li>Type match (extension maps to accepted type): +0.3</li>
+ *   <li>Type match (extension maps to accepted type): +0.3 (specific) or +0.15 (generic)</li>
  *   <li>Format match (extension in acceptsFormats or wildcard): +0.2</li>
  *   <li>Pattern match (filename matches a glob in acceptsPatterns): +0.3</li>
+ *   <li>Filename token match (filename tokens vs directory path tokens): +0.25 max</li>
  * </ul>
  *
  * <p>Content score is capped at 1.0. Scope bonus (0.0-0.64) is added on top.
  * Blocked candidates (scope-incompatible) are sorted last.
+ *
+ * <p>Type matching distinguishes specific vs generic types. "Specific" types are those
+ * unique to fewer file categories (e.g. "automation", "meeting-notes"). "Generic" types
+ * are broad categories that many extensions share (e.g. "documentation", "data", "media").
+ * Specific type matches receive full +0.3, generic matches receive +0.15.
+ *
+ * <p>Filename token matching tokenizes both the filename (splitting on {@code -}, {@code _},
+ * {@code .}, and spaces) and the candidate directory's relative path from workspace root.
+ * Tokens shorter than 3 characters are ignored. The score is proportional to the overlap
+ * ratio, weighted at +0.25 max.
+ *
+ * @since v1.9.9 (scoring improvements: issue #209)
  */
 public class DirectoryScorer {
 
@@ -68,11 +82,23 @@ public class DirectoryScorer {
     }
 
     private static final double TYPE_MATCH_SCORE = 0.3;
+    private static final double TYPE_MATCH_GENERIC_SCORE = 0.15;
     private static final double FORMAT_MATCH_SCORE = 0.2;
     private static final double PATTERN_MATCH_SCORE = 0.3;
+    private static final double FILENAME_TOKEN_MATCH_MAX = 0.25;
     private static final double MAX_CONTENT_SCORE = 1.0;
     private static final double AMBIGUITY_THRESHOLD = 0.15;
     private static final double AMBIGUITY_MIN_SCORE = 0.1;
+
+    /**
+     * Type keywords considered "generic" — they map from many different file extensions
+     * and provide a weaker signal for directory matching. Generic type matches receive
+     * half the normal type-match score.
+     */
+    private static final Set<String> GENERIC_TYPES = Set.of(
+            "documentation", "data", "media", "visual", "report",
+            "document", "config", "archive", "artifact"
+    );
 
     /**
      * Maps file extensions to content type keywords for type matching.
@@ -105,6 +131,7 @@ public class DirectoryScorer {
     );
 
     private final ScopeChecker scopeChecker;
+    private final Path workspaceRoot;
 
     /**
      * Creates a DirectoryScorer with the given scope checker.
@@ -112,7 +139,22 @@ public class DirectoryScorer {
      * @param scopeChecker the scope checker for compatibility and bonus calculations
      */
     public DirectoryScorer(ScopeChecker scopeChecker) {
+        this(scopeChecker, null);
+    }
+
+    /**
+     * Creates a DirectoryScorer with the given scope checker and workspace root.
+     *
+     * <p>When {@code workspaceRoot} is provided, filename token matching uses
+     * the candidate directory's relative path from the workspace root for tokenization.
+     * When {@code null}, filename token matching uses only the directory name.
+     *
+     * @param scopeChecker  the scope checker for compatibility and bonus calculations
+     * @param workspaceRoot the workspace root for relative path computation (may be null)
+     */
+    public DirectoryScorer(ScopeChecker scopeChecker, Path workspaceRoot) {
         this.scopeChecker = scopeChecker;
+        this.workspaceRoot = workspaceRoot;
     }
 
     /**
@@ -156,15 +198,25 @@ public class DirectoryScorer {
             double contentScore = 0.0;
 
             // Type match: check if file extension maps to any of the identity's acceptsTypes
+            // Distinguishes specific types (full +0.3) from generic types (+0.15)
             boolean typeMatched = false;
             if (extension != null && !extension.isEmpty()) {
                 Set<String> typeKeywords = EXTENSION_TYPE_MAP.get(extension);
                 if (typeKeywords != null) {
-                    boolean typeMatch = identity.acceptsTypes().stream()
-                            .anyMatch(t -> typeKeywords.contains(t.toLowerCase(Locale.ROOT)));
-                    if (typeMatch) {
-                        contentScore += TYPE_MATCH_SCORE;
-                        reasons.add("type-match(+" + TYPE_MATCH_SCORE + ")");
+                    // Find matching types and determine specificity
+                    List<String> matchingTypes = identity.acceptsTypes().stream()
+                            .filter(t -> typeKeywords.contains(t.toLowerCase(Locale.ROOT)))
+                            .toList();
+                    if (!matchingTypes.isEmpty()) {
+                        boolean hasSpecific = matchingTypes.stream()
+                                .anyMatch(t -> !GENERIC_TYPES.contains(t.toLowerCase(Locale.ROOT)));
+                        if (hasSpecific) {
+                            contentScore += TYPE_MATCH_SCORE;
+                            reasons.add("type-match(+" + TYPE_MATCH_SCORE + ")");
+                        } else {
+                            contentScore += TYPE_MATCH_GENERIC_SCORE;
+                            reasons.add("type-match-generic(+" + TYPE_MATCH_GENERIC_SCORE + ")");
+                        }
                         typeMatched = true;
                     }
                 }
@@ -208,6 +260,15 @@ public class DirectoryScorer {
             if (patternMatch) {
                 contentScore += PATTERN_MATCH_SCORE;
                 reasons.add("pattern-match(+" + PATTERN_MATCH_SCORE + ")");
+            }
+
+            // Filename token match: tokenize the filename and candidate directory path,
+            // then score based on overlapping tokens (e.g. "synthesis-demo.mp4" vs
+            // "products/Synthesis/media" -> "synthesis" matches)
+            double tokenMatchScore = computeFilenameTokenScore(fileName, candidate.directory());
+            if (tokenMatchScore > 0.0) {
+                contentScore += tokenMatchScore;
+                reasons.add(String.format("filename-token-match(+%.3f)", tokenMatchScore));
             }
 
             contentScore = Math.min(contentScore, MAX_CONTENT_SCORE);
@@ -262,6 +323,71 @@ public class DirectoryScorer {
         }
 
         return results;
+    }
+
+    /**
+     * Computes the filename-to-directory-path token overlap score.
+     *
+     * <p>Tokenizes the filename (without extension) by splitting on {@code -}, {@code _},
+     * {@code .}, and spaces, then lowercasing and filtering tokens shorter than 3 characters.
+     * Tokenizes the candidate directory's relative path (or absolute path if no workspace root
+     * is set) by splitting path segments the same way.
+     *
+     * <p>Score = (matching tokens / filename tokens) * {@link #FILENAME_TOKEN_MATCH_MAX},
+     * capped at {@code FILENAME_TOKEN_MATCH_MAX}.
+     *
+     * @param fileName  the file name (e.g. {@code "synthesis-demo.mp4"})
+     * @param directory the candidate directory path
+     * @return score between 0.0 and {@code FILENAME_TOKEN_MATCH_MAX}
+     */
+    double computeFilenameTokenScore(String fileName, Path directory) {
+        // Strip extension for tokenization
+        int lastDot = fileName.lastIndexOf('.');
+        String nameWithoutExt = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
+
+        Set<String> fileTokens = tokenize(nameWithoutExt);
+        if (fileTokens.isEmpty()) return 0.0;
+
+        // Build directory tokens from the relative or absolute path
+        Path pathToTokenize;
+        if (workspaceRoot != null && directory.startsWith(workspaceRoot)) {
+            pathToTokenize = workspaceRoot.relativize(directory);
+        } else {
+            pathToTokenize = directory;
+        }
+
+        Set<String> dirTokens = new HashSet<>();
+        for (int i = 0; i < pathToTokenize.getNameCount(); i++) {
+            dirTokens.addAll(tokenize(pathToTokenize.getName(i).toString()));
+        }
+
+        if (dirTokens.isEmpty()) return 0.0;
+
+        // Count matching tokens
+        long matches = fileTokens.stream().filter(dirTokens::contains).count();
+        if (matches == 0) return 0.0;
+
+        double ratio = (double) matches / fileTokens.size();
+        return Math.min(ratio * FILENAME_TOKEN_MATCH_MAX, FILENAME_TOKEN_MATCH_MAX);
+    }
+
+    /**
+     * Tokenizes a string by splitting on {@code -}, {@code _}, {@code .}, and spaces.
+     * Returns lowercase tokens with length >= 3.
+     *
+     * @param input the string to tokenize
+     * @return set of lowercase tokens (length >= 3)
+     */
+    static Set<String> tokenize(String input) {
+        if (input == null || input.isEmpty()) return Set.of();
+        String[] parts = input.toLowerCase(Locale.ROOT).split("[-_. ]+");
+        Set<String> tokens = new HashSet<>();
+        for (String part : parts) {
+            if (part.length() >= 3) {
+                tokens.add(part);
+            }
+        }
+        return tokens;
     }
 
     private static String extractExtension(String fileName) {

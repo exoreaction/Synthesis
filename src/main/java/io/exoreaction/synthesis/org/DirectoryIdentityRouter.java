@@ -38,7 +38,7 @@ public class DirectoryIdentityRouter {
         this.workspaceRoot = workspaceRoot;
         this.scopeResolver = new ScopeResolver(orgRegistry);
         this.parser = new DirectoryIdentityParser();
-        this.scorer = new DirectoryScorer(new ScopeChecker());
+        this.scorer = new DirectoryScorer(new ScopeChecker(), workspaceRoot);
     }
 
     /**

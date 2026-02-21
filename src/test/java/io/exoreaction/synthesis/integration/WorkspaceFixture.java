@@ -141,10 +141,11 @@ public class WorkspaceFixture {
     // Static convenience factories
     // -------------------------------------------------------------------------
 
-    public static List<String> types(String... t)   { return List.of(t); }
-    public static List<String> formats(String... f)  { return List.of(f); }
-    public static double confidence(double c)         { return c; }
-    public static int ageDays(int d)                  { return d; }
+    public static List<String> types(String... t)    { return List.of(t); }
+    public static List<String> formats(String... f)   { return List.of(f); }
+    public static List<String> patterns(String... p)  { return List.of(p); }
+    public static double confidence(double c)          { return c; }
+    public static int ageDays(int d)                   { return d; }
 
     // =========================================================================
     // Internal spec classes
@@ -167,6 +168,7 @@ public class WorkspaceFixture {
     private record DirectoryIdentitySpec(
             List<String> types,
             List<String> formats,
+            List<String> patterns,
             double confidence) {}
 
     /** Specification for a single file inside a directory. */
@@ -429,6 +431,12 @@ public class WorkspaceFixture {
             for (String format : spec.formats()) {
                 sb.append("      - \"").append(format).append("\"\n");
             }
+            if (spec.patterns() != null && !spec.patterns().isEmpty()) {
+                sb.append("    patterns:\n");
+                for (String pattern : spec.patterns()) {
+                    sb.append("      - \"").append(pattern).append("\"\n");
+                }
+            }
             sb.append("  scope:\n");
             sb.append("    level: \"WORKSPACE\"\n");
             sb.append("    organization: null\n");
@@ -461,11 +469,25 @@ public class WorkspaceFixture {
          *
          * @param types      accepted content types (e.g. {@code "automation"}, {@code "guide"})
          * @param formats    accepted file extensions (e.g. {@code "sh"}, {@code "md"})
-         * @param confidence routing confidence score (0.0–1.0)
+         * @param confidence routing confidence score (0.0-1.0)
          */
         public DirectoryBuilder withIdentity(List<String> types, List<String> formats,
                                              double confidence) {
-            this.identitySpec = new DirectoryIdentitySpec(types, formats, confidence);
+            this.identitySpec = new DirectoryIdentitySpec(types, formats, List.of(), confidence);
+            return this;
+        }
+
+        /**
+         * Adds a {@code .synthesis.md} identity declaration to this directory with patterns.
+         *
+         * @param types      accepted content types (e.g. {@code "automation"}, {@code "guide"})
+         * @param formats    accepted file extensions (e.g. {@code "sh"}, {@code "md"})
+         * @param patterns   glob patterns accepted (e.g. {@code "*.sh"}, {@code "*deploy*"})
+         * @param confidence routing confidence score (0.0-1.0)
+         */
+        public DirectoryBuilder withIdentity(List<String> types, List<String> formats,
+                                             List<String> patterns, double confidence) {
+            this.identitySpec = new DirectoryIdentitySpec(types, formats, patterns, confidence);
             return this;
         }
 

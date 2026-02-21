@@ -60,9 +60,9 @@ class DirectoryScorerTest {
         assertEquals(1, results.size());
         ScoredCandidate result = results.get(0);
         assertFalse(result.blocked());
-        // .md maps to "documentation" type -> +0.3, format "md" matches -> +0.2
-        assertEquals(0.5, result.contentScore(), 0.001);
-        assertEquals(0.5, result.totalScore(), 0.001);
+        // .md maps to "documentation" type (generic) -> +0.15, format "md" matches -> +0.2
+        assertEquals(0.35, result.contentScore(), 0.001);
+        assertEquals(0.35, result.totalScore(), 0.001);
     }
 
     @Test
@@ -117,12 +117,12 @@ class DirectoryScorerTest {
         assertEquals(1, results.size());
         ScoredCandidate result = results.get(0);
         assertFalse(result.blocked());
-        // contentScore: type-match(0.3) + format-match(0.2) = 0.5
-        assertEquals(0.5, result.contentScore(), 0.001);
+        // contentScore: type-match-generic(0.15) + format-match(0.2) = 0.35
+        assertEquals(0.35, result.contentScore(), 0.001);
         // scopeBonus: org match = 0.24
         assertEquals(0.24, result.scopeBonus(), 0.001);
-        // total: 0.5 + 0.24 = 0.74
-        assertEquals(0.74, result.totalScore(), 0.001);
+        // total: 0.35 + 0.24 = 0.59
+        assertEquals(0.59, result.totalScore(), 0.001);
     }
 
     @Test
@@ -334,8 +334,9 @@ class DirectoryScorerTest {
         List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
 
         assertEquals(1, results.size());
-        assertTrue(results.get(0).contentScore() >= 0.5,
-                "csv should match data type, score=" + results.get(0).contentScore());
+        // "data" is a generic type -> 0.15 + format 0.2 = 0.35
+        assertTrue(results.get(0).contentScore() >= 0.35,
+                "csv should match data type (generic), score=" + results.get(0).contentScore());
     }
 
     @Test
@@ -364,7 +365,212 @@ class DirectoryScorerTest {
         List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
 
         assertEquals(1, results.size());
-        assertTrue(results.get(0).contentScore() >= 0.5,
-                "docx should match document type, score=" + results.get(0).contentScore());
+        // "document" is a generic type -> 0.15 + format 0.2 = 0.35
+        assertTrue(results.get(0).contentScore() >= 0.35,
+                "docx should match document type (generic), score=" + results.get(0).contentScore());
+    }
+
+    // ---- #209: Filename token matching ----
+
+    @Test
+    void score_filenameTokenMatch_synthesisDemo_toSynthesisMediaDir() {
+        // Create workspace-relative paths: products/Synthesis/media
+        Path wsRoot = tempDir;
+        DirectoryScorer wsScorer = new DirectoryScorer(scopeChecker, wsRoot);
+
+        Path dir = tempDir.resolve("products").resolve("Synthesis").resolve("media");
+        Path file = tempDir.resolve("synthesis-demo.mp4");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("media"), List.of("mp4"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = wsScorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // "synthesis" and "demo" are filename tokens; "products", "synthesis", "media" are dir tokens
+        // "synthesis" matches -> 1/2 overlap -> 0.125 token bonus
+        // Base: generic type "media"(0.15) + format "mp4"(0.2) = 0.35
+        // Total content: 0.35 + 0.125 = 0.475
+        assertTrue(result.contentScore() > 0.4,
+                "synthesis-demo.mp4 should get a token-match bonus for Synthesis/media dir, "
+                + "contentScore=" + result.contentScore()
+                + ", reasons=" + result.reasons());
+        // Verify the token-match reason is present
+        assertTrue(result.reasons().stream().anyMatch(r -> r.contains("filename-token-match")),
+                "Should have filename-token-match reason, reasons=" + result.reasons());
+    }
+
+    @Test
+    void score_filenameTokenMatch_noOverlap_zeroBonus() {
+        Path wsRoot = tempDir;
+        DirectoryScorer wsScorer = new DirectoryScorer(scopeChecker, wsRoot);
+
+        Path dir = tempDir.resolve("automation");
+        Path file = tempDir.resolve("quarterly-report.pdf");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("automation", "scripts"), List.of("sh"),
+                List.of(), ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = wsScorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // "quarterly" and "report" are filename tokens; "automation" is dir token
+        // No overlap -> 0 token bonus
+        assertFalse(result.reasons().stream().anyMatch(r -> r.contains("filename-token-match")),
+                "Should NOT have filename-token-match reason for unrelated file, reasons=" + result.reasons());
+    }
+
+    @Test
+    void score_filenameTokenMatch_multipleTokensOverlap() {
+        Path wsRoot = tempDir;
+        DirectoryScorer wsScorer = new DirectoryScorer(scopeChecker, wsRoot);
+
+        // Dir path: products/aurora/analytics
+        Path dir = tempDir.resolve("products").resolve("aurora").resolve("analytics");
+        Path file = tempDir.resolve("aurora-analytics-demo.mp4");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("media"), List.of("mp4"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = wsScorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // "aurora", "analytics", "demo" are filename tokens (3)
+        // "products", "aurora", "analytics" are dir tokens
+        // 2 matches (aurora, analytics) out of 3 -> 0.667 ratio -> 0.167 bonus
+        assertTrue(result.reasons().stream().anyMatch(r -> r.contains("filename-token-match")),
+                "Should have filename-token-match for aurora-analytics-demo.mp4 -> aurora/analytics, "
+                + "reasons=" + result.reasons());
+        // Base: generic type "media"(0.15) + format "mp4"(0.2) = 0.35
+        // The token match bonus should be significant (> 0.1)
+        double tokenBonus = result.contentScore() - 0.35; // subtract generic type + format base
+        assertTrue(tokenBonus > 0.1,
+                "Token match bonus should be > 0.1, got " + tokenBonus);
+    }
+
+    // ---- #209: Generic vs specific type matching ----
+
+    @Test
+    void score_genericTypeMatch_givesReducedScore() {
+        // "documentation" is a generic type
+        Path dir = tempDir.resolve("docs");
+        Path file = tempDir.resolve("notes.md");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("documentation"), // generic type only
+                List.of("md"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // generic type (0.15) + format (0.2) = 0.35
+        assertTrue(result.reasons().stream().anyMatch(r -> r.contains("type-match-generic")),
+                "Should have type-match-generic reason, reasons=" + result.reasons());
+        assertEquals(0.35, result.contentScore(), 0.001,
+                "Generic type (0.15) + format (0.2) should equal 0.35");
+    }
+
+    @Test
+    void score_specificTypeMatch_givesFullScore() {
+        // "automation" is a specific type
+        Path dir = tempDir.resolve("automation");
+        Path file = tempDir.resolve("deploy.sh");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("automation"), // specific type
+                List.of("sh"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // specific type (0.3) + format (0.2) = 0.5
+        assertTrue(result.reasons().stream().anyMatch(r -> r.startsWith("type-match(+")),
+                "Should have full type-match reason (not generic), reasons=" + result.reasons());
+        assertEquals(0.5, result.contentScore(), 0.001,
+                "Specific type (0.3) + format (0.2) should equal 0.5");
+    }
+
+    @Test
+    void score_mixedSpecificAndGenericTypes_usesSpecificScore() {
+        // Directory accepts both specific "meeting-notes" and generic "documentation"
+        Path dir = tempDir.resolve("meetings");
+        Path file = tempDir.resolve("standup.md");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("meeting-notes", "documentation"), // mixed
+                List.of("md"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "");
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        // "meeting-notes" is specific -> should get full type score
+        // .md maps to Set.of("documentation", "meeting-notes", ...) so both match
+        // hasSpecific should be true because "meeting-notes" is not in GENERIC_TYPES
+        assertTrue(result.reasons().stream().anyMatch(r -> r.startsWith("type-match(+")),
+                "When both specific and generic types match, should use specific score, reasons=" + result.reasons());
+    }
+
+    // ---- #209: tokenize() utility tests ----
+
+    @Test
+    void tokenize_splitsOnDashesUnderscoresAndDots() {
+        java.util.Set<String> tokens = DirectoryScorer.tokenize("synthesis-demo_file.test");
+        assertTrue(tokens.contains("synthesis"));
+        assertTrue(tokens.contains("demo"));
+        assertTrue(tokens.contains("file"));
+        assertTrue(tokens.contains("test"));
+    }
+
+    @Test
+    void tokenize_filtersShortTokens() {
+        java.util.Set<String> tokens = DirectoryScorer.tokenize("my-a-synthesis-bb-demo");
+        assertFalse(tokens.contains("my"), "2-char token should be filtered");
+        assertFalse(tokens.contains("a"), "1-char token should be filtered");
+        assertFalse(tokens.contains("bb"), "2-char token should be filtered");
+        assertTrue(tokens.contains("synthesis"));
+        assertTrue(tokens.contains("demo"));
+    }
+
+    @Test
+    void tokenize_lowercases() {
+        java.util.Set<String> tokens = DirectoryScorer.tokenize("Synthesis-DEMO");
+        assertTrue(tokens.contains("synthesis"));
+        assertTrue(tokens.contains("demo"));
+    }
+
+    @Test
+    void tokenize_emptyInput_returnsEmptySet() {
+        assertTrue(DirectoryScorer.tokenize("").isEmpty());
+        assertTrue(DirectoryScorer.tokenize(null).isEmpty());
     }
 }

@@ -496,15 +496,44 @@ public class MaintainOrchestrator {
         int count = 0;
         List<Path> archiveFiles = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(archiveDir)) {
-            walk.filter(Files::isRegularFile).forEach(archiveFiles::add);
+            walk.filter(Files::isRegularFile)
+                .filter(p -> !isInsideGitDir(p))
+                .filter(p -> !isFrozenSubtree(p, archiveDir))
+                .forEach(archiveFiles::add);
         }
         for (Path file : archiveFiles) {
-            var routed = router.route(file, 0.5);
+            var routed = router.route(file, 0.7);
             if (routed.isPresent() && !routed.get().ambiguous()) {
                 count++;
             }
         }
         return count;
+    }
+
+    /**
+     * Returns {@code true} if the file path contains a {@code .git} segment,
+     * meaning it is inside a Git internal directory (objects, refs, etc.).
+     */
+    static boolean isInsideGitDir(Path file) {
+        for (int i = 0; i < file.getNameCount(); i++) {
+            if (file.getName(i).toString().equals(".git")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if the file resides inside a frozen snapshot subtree.
+     * Frozen subtrees are top-level subdirectories of the archive whose name starts
+     * with {@code old-}, {@code snapshot-}, or {@code frozen-}. These represent
+     * intentional point-in-time snapshots and should not be rebalanced.
+     */
+    static boolean isFrozenSubtree(Path file, Path archiveDir) {
+        Path relative = archiveDir.relativize(file);
+        if (relative.getNameCount() == 0) return false;
+        String topLevel = relative.getName(0).toString();
+        return topLevel.startsWith("old-") || topLevel.startsWith("snapshot-") || topLevel.startsWith("frozen-");
     }
 
     // =========================================================================

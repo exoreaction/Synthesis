@@ -447,11 +447,13 @@ class SweepCommandTest {
 
     @Test
     void resolveDestinations_withRouter_identityRoutesUnmatchedFiles() throws IOException {
-        // Set up identity dir accepting markdown/documentation
+        // Set up identity dir accepting markdown/documentation with pattern for strong scoring
+        // (specific type "guide" + format "md" + pattern "*.md" = 0.3+0.2+0.3 = 0.8, above 0.5)
         Path docsDir = Files.createDirectories(workspace.resolve("knowledge-infrastructure"));
         Files.writeString(docsDir.resolve(".synthesis.md"),
-                "---\nsynthesis:\n  accepts:\n    types:\n      - \"documentation\"\n"
-                + "    formats:\n      - \"md\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"guide\"\n      - \"documentation\"\n"
+                + "    formats:\n      - \"md\"\n    patterns:\n      - \"*.md\"\n"
+                + "  scope:\n    level: \"WORKSPACE\"\n"
                 + "    organization: null\n    entity: null\n  confidence: 0.6\n---\n");
 
         // .sh gets config rule; .md goes to identity router

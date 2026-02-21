@@ -11,26 +11,35 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link MaintainCommand#rebalanceArchive} (issue #180).
+ * Unit tests for {@link MaintainCommand#rebalanceArchive} (issue #180, #209).
+ *
+ * <p>The rebalance threshold was raised from 0.5 to 0.7 in issue #209 to reduce
+ * false positives. Tests use identity declarations with acceptsPatterns globs
+ * to ensure strong scoring signals (type + format + pattern >= 0.8).
  */
 class MaintainCommandRebalanceTest {
 
     @TempDir
     Path workspace;
 
+    /** Shell script identity with pattern globs for strong scoring (type+format+pattern = 0.8). */
     private static final String SH_IDENTITY =
             "---\nsynthesis:\n  accepts:\n    types:\n      - \"automation\"\n      - \"scripts\"\n"
-            + "    formats:\n      - \"sh\"\n      - \"py\"\n  scope:\n    level: \"WORKSPACE\"\n"
+            + "    formats:\n      - \"sh\"\n      - \"py\"\n    patterns:\n      - \"*.sh\"\n      - \"*.py\"\n"
+            + "  scope:\n    level: \"WORKSPACE\"\n"
             + "    organization: null\n    entity: null\n  confidence: 0.8\n---\n";
 
+    /** Markdown documentation identity with specific type + pattern globs for strong scoring.
+     *  Uses "guide" (specific) which scores +0.3 type + 0.2 format + 0.3 pattern = 0.8. */
     private static final String MD_IDENTITY =
-            "---\nsynthesis:\n  accepts:\n    types:\n      - \"documentation\"\n"
-            + "    formats:\n      - \"md\"\n  scope:\n    level: \"WORKSPACE\"\n"
+            "---\nsynthesis:\n  accepts:\n    types:\n      - \"guide\"\n      - \"documentation\"\n"
+            + "    formats:\n      - \"md\"\n    patterns:\n      - \"*.md\"\n"
+            + "  scope:\n    level: \"WORKSPACE\"\n"
             + "    organization: null\n    entity: null\n  confidence: 0.7\n---\n";
 
     @Test
     void rebalanceArchive_movesHighScoringFileToActiveDir() throws IOException {
-        // Automation dir with identity
+        // Automation dir with identity (type + format + pattern = 0.8 for .sh files)
         Path automationDir = Files.createDirectories(workspace.resolve("automation"));
         Files.writeString(automationDir.resolve(".synthesis.md"), SH_IDENTITY);
 
@@ -87,8 +96,8 @@ class MaintainCommandRebalanceTest {
 
     @Test
     void rebalanceArchive_noIdentityDirs_allFilesStay() throws IOException {
-        // Archive has files but no .synthesis.md directories exist → no routing possible
-        Path archiveDir = Files.createDirectories(workspace.resolve("archive/old"));
+        // Archive has files but no .synthesis.md directories exist -- no routing possible
+        Path archiveDir = Files.createDirectories(workspace.resolve("archive/misc"));
         Files.writeString(archiveDir.resolve("old-report.md"), "# Old");
         Files.writeString(archiveDir.resolve("old-script.sh"), "#!/bin/bash");
 
@@ -96,14 +105,14 @@ class MaintainCommandRebalanceTest {
         DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
         int moved = cmd.rebalanceArchive(archiveDir, router, workspace);
 
-        assertEquals(0, moved, "No identity dirs → nothing should move");
+        assertEquals(0, moved, "No identity dirs -> nothing should move");
         assertTrue(Files.exists(archiveDir.resolve("old-report.md")));
         assertTrue(Files.exists(archiveDir.resolve("old-script.sh")));
     }
 
     @Test
     void rebalanceArchive_movesMultipleFiles() throws IOException {
-        // Two identity dirs
+        // Two identity dirs with pattern globs
         Path automationDir = Files.createDirectories(workspace.resolve("automation"));
         Files.writeString(automationDir.resolve(".synthesis.md"), SH_IDENTITY);
         Path docsDir = Files.createDirectories(workspace.resolve("docs"));
@@ -121,5 +130,175 @@ class MaintainCommandRebalanceTest {
         assertEquals(2, moved, "Both .sh and .md should be rebalanced");
         assertTrue(Files.exists(automationDir.resolve("cleanup.sh")));
         assertTrue(Files.exists(docsDir.resolve("guide.md")));
+    }
+
+    // =========================================================================
+    // Issue #209: .git exclusion, frozen subtree exclusion, threshold 0.7
+    // =========================================================================
+
+    @Test
+    void rebalanceArchive_skipsGitInternalFiles() throws IOException {
+        // Automation dir with identity
+        Path automationDir = Files.createDirectories(workspace.resolve("automation"));
+        Files.writeString(automationDir.resolve(".synthesis.md"), SH_IDENTITY);
+
+        // Archive contains a .git directory with internal objects
+        Path archiveDir = Files.createDirectories(workspace.resolve("archive"));
+        Path gitObjectsDir = Files.createDirectories(archiveDir.resolve(".git/objects/ab"));
+        Files.writeString(gitObjectsDir.resolve("cdef1234567890"), "blob data");
+        Path gitRefsDir = Files.createDirectories(archiveDir.resolve(".git/refs/heads"));
+        Files.writeString(gitRefsDir.resolve("main"), "abcdef1234567890");
+
+        // Also add a legitimate shell script to verify it still gets processed
+        Path sweptDir = Files.createDirectories(archiveDir.resolve("swept-2026-02-01"));
+        Files.writeString(sweptDir.resolve("setup.sh"), "#!/bin/bash");
+
+        MaintainCommand cmd = new MaintainCommand();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        int moved = cmd.rebalanceArchive(archiveDir, router, workspace);
+
+        // Only the legitimate .sh should be considered (git files excluded)
+        assertEquals(1, moved, ".git internal files should be skipped, only setup.sh should move");
+        assertTrue(Files.exists(automationDir.resolve("setup.sh")));
+        // .git files should remain untouched
+        assertTrue(Files.exists(gitObjectsDir.resolve("cdef1234567890")));
+        assertTrue(Files.exists(gitRefsDir.resolve("main")));
+    }
+
+    @Test
+    void rebalanceArchive_skipsFrozenOldSubtree() throws IOException {
+        // Automation dir with identity
+        Path automationDir = Files.createDirectories(workspace.resolve("automation"));
+        Files.writeString(automationDir.resolve(".synthesis.md"), SH_IDENTITY);
+
+        // Archive with a frozen snapshot subtree (old-*)
+        Path archiveDir = Files.createDirectories(workspace.resolve("archive"));
+        Path frozenDir = Files.createDirectories(archiveDir.resolve("old-exoreaction-structure-20260128/automation"));
+        Files.writeString(frozenDir.resolve("deploy.sh"), "#!/bin/bash\necho old snapshot");
+        Files.writeString(frozenDir.resolve("backup.sh"), "#!/bin/bash\necho old backup");
+
+        // Also a non-frozen file
+        Path sweptDir = Files.createDirectories(archiveDir.resolve("swept-2026-02-01"));
+        Files.writeString(sweptDir.resolve("cleanup.sh"), "#!/bin/bash");
+
+        MaintainCommand cmd = new MaintainCommand();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        int moved = cmd.rebalanceArchive(archiveDir, router, workspace);
+
+        // Only the non-frozen cleanup.sh should move
+        assertEquals(1, moved, "Frozen subtree files should be excluded from rebalance");
+        assertTrue(Files.exists(automationDir.resolve("cleanup.sh")));
+        // Frozen files should remain
+        assertTrue(Files.exists(frozenDir.resolve("deploy.sh")));
+        assertTrue(Files.exists(frozenDir.resolve("backup.sh")));
+    }
+
+    @Test
+    void rebalanceArchive_skipsSnapshotAndFrozenSubtrees() throws IOException {
+        // Automation dir with identity
+        Path automationDir = Files.createDirectories(workspace.resolve("automation"));
+        Files.writeString(automationDir.resolve(".synthesis.md"), SH_IDENTITY);
+
+        Path archiveDir = Files.createDirectories(workspace.resolve("archive"));
+
+        // All three frozen prefixes
+        Files.createDirectories(archiveDir.resolve("old-backup"));
+        Files.writeString(archiveDir.resolve("old-backup/run.sh"), "#!/bin/bash");
+
+        Files.createDirectories(archiveDir.resolve("snapshot-2026-01-15"));
+        Files.writeString(archiveDir.resolve("snapshot-2026-01-15/start.sh"), "#!/bin/bash");
+
+        Files.createDirectories(archiveDir.resolve("frozen-release-v1"));
+        Files.writeString(archiveDir.resolve("frozen-release-v1/init.sh"), "#!/bin/bash");
+
+        MaintainCommand cmd = new MaintainCommand();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        int moved = cmd.rebalanceArchive(archiveDir, router, workspace);
+
+        assertEquals(0, moved, "All frozen subtree variants (old-, snapshot-, frozen-) should be excluded");
+        assertTrue(Files.exists(archiveDir.resolve("old-backup/run.sh")));
+        assertTrue(Files.exists(archiveDir.resolve("snapshot-2026-01-15/start.sh")));
+        assertTrue(Files.exists(archiveDir.resolve("frozen-release-v1/init.sh")));
+    }
+
+    @Test
+    void rebalanceArchive_doesNotMoveGenericOnlyMatch() throws IOException {
+        // Docs dir with ONLY generic type "documentation" and format "md" (no patterns)
+        Path docsDir = Files.createDirectories(workspace.resolve("docs"));
+        Files.writeString(docsDir.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"documentation\"\n"
+                + "    formats:\n      - \"md\"\n  scope:\n    level: \"WORKSPACE\"\n"
+                + "    organization: null\n    entity: null\n  confidence: 0.7\n---\n");
+
+        // Archive contains a .md file -- generic type match (0.15) + format (0.2) = 0.35, below 0.7
+        Path archiveDir = Files.createDirectories(workspace.resolve("archive/swept"));
+        Path archivedMd = archiveDir.resolve("random-notes.md");
+        Files.writeString(archivedMd, "# Some notes");
+
+        MaintainCommand cmd = new MaintainCommand();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspace, null);
+        int moved = cmd.rebalanceArchive(archiveDir, router, workspace);
+
+        assertEquals(0, moved,
+                "Generic-only type match (documentation) + format should not pass 0.7 threshold");
+        assertTrue(Files.exists(archivedMd), "File should remain in archive");
+    }
+
+    // =========================================================================
+    // Issue #209: MaintainOrchestrator static helper tests
+    // =========================================================================
+
+    @Test
+    void isInsideGitDir_detectsGitObjects() {
+        Path gitFile = Path.of("/workspace/archive/.git/objects/ab/cdef");
+        assertTrue(MaintainOrchestrator.isInsideGitDir(gitFile));
+    }
+
+    @Test
+    void isInsideGitDir_doesNotFlagNonGitPath() {
+        Path normalFile = Path.of("/workspace/archive/swept/deploy.sh");
+        assertFalse(MaintainOrchestrator.isInsideGitDir(normalFile));
+    }
+
+    @Test
+    void isInsideGitDir_detectsNestedGit() {
+        Path nestedGit = Path.of("/workspace/archive/old-project/.git/refs/heads/main");
+        assertTrue(MaintainOrchestrator.isInsideGitDir(nestedGit));
+    }
+
+    @Test
+    void isFrozenSubtree_detectsOldPrefix() {
+        Path archiveDir = Path.of("/workspace/archive");
+        Path frozenFile = Path.of("/workspace/archive/old-exoreaction-20260128/business/readme.md");
+        assertTrue(MaintainOrchestrator.isFrozenSubtree(frozenFile, archiveDir));
+    }
+
+    @Test
+    void isFrozenSubtree_detectsSnapshotPrefix() {
+        Path archiveDir = Path.of("/workspace/archive");
+        Path frozenFile = Path.of("/workspace/archive/snapshot-2026-01-15/data.csv");
+        assertTrue(MaintainOrchestrator.isFrozenSubtree(frozenFile, archiveDir));
+    }
+
+    @Test
+    void isFrozenSubtree_detectsFrozenPrefix() {
+        Path archiveDir = Path.of("/workspace/archive");
+        Path frozenFile = Path.of("/workspace/archive/frozen-release/config.yaml");
+        assertTrue(MaintainOrchestrator.isFrozenSubtree(frozenFile, archiveDir));
+    }
+
+    @Test
+    void isFrozenSubtree_allowsNonFrozenSubdir() {
+        Path archiveDir = Path.of("/workspace/archive");
+        Path normalFile = Path.of("/workspace/archive/swept-2026-01-01/deploy.sh");
+        assertFalse(MaintainOrchestrator.isFrozenSubtree(normalFile, archiveDir));
+    }
+
+    @Test
+    void isFrozenSubtree_allowsDirectArchiveChild() {
+        Path archiveDir = Path.of("/workspace/archive");
+        Path directChild = Path.of("/workspace/archive/stray-file.txt");
+        assertFalse(MaintainOrchestrator.isFrozenSubtree(directChild, archiveDir),
+                "A file directly in archive/ (not in a subdirectory) should not be frozen");
     }
 }

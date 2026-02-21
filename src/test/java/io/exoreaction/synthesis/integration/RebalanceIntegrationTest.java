@@ -41,7 +41,8 @@ class RebalanceIntegrationTest {
     void rebalanceArchive_shellScript_recalledToIdentityDir() throws Exception {
         WorkspaceFixture fixture = WorkspaceFixture.builder(tempDir)
                 .directory("automation")
-                    .withIdentity(types("automation", "scripts"), formats("sh", "bash"), confidence(0.8))
+                    .withIdentity(types("automation", "scripts"), formats("sh", "bash"),
+                            patterns("*.sh", "*.bash"), confidence(0.8))
                     .end()
                 .build();
 
@@ -116,9 +117,10 @@ class RebalanceIntegrationTest {
     @Test
     void rebalanceArchive_multipleFiles_onlyMatchingRecalled() throws Exception {
         WorkspaceFixture fixture = WorkspaceFixture.builder(tempDir)
-                // Only accepts .sh files
+                // Only accepts .sh files (with pattern glob for strong scoring >= 0.7)
                 .directory("automation")
-                    .withIdentity(types("automation"), formats("sh"), confidence(0.8))
+                    .withIdentity(types("automation"), formats("sh"),
+                            patterns("*.sh"), confidence(0.8))
                     .end()
                 .build();
 

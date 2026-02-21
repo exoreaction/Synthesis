@@ -111,7 +111,7 @@ public class MaintainCommand implements Callable<Integer> {
 
     @Option(
             names = {"--rebalance"},
-            description = "Move archive files that score ≥ 0.5 against a directory identity back to active directories",
+            description = "Move archive files that score >= 0.7 against a directory identity back to active directories",
             defaultValue = "false"
     )
     private boolean rebalance;
@@ -603,8 +603,12 @@ public class MaintainCommand implements Callable<Integer> {
     // =========================================================================
 
     /**
-     * Walks the archive directory and moves any file that scores ≥ 0.7 against
+     * Walks the archive directory and moves any file that scores >= 0.7 against
      * a non-ambiguous identity-declared directory back into that active directory.
+     *
+     * <p>Excludes files inside {@code .git} directories and frozen snapshot subtrees
+     * (top-level archive subdirectories starting with {@code old-}, {@code snapshot-},
+     * or {@code frozen-}).
      *
      * @return the number of files moved
      */
@@ -613,10 +617,13 @@ public class MaintainCommand implements Callable<Integer> {
         int moved = 0;
         List<Path> archiveFiles = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(archiveDir)) {
-            walk.filter(Files::isRegularFile).forEach(archiveFiles::add);
+            walk.filter(Files::isRegularFile)
+                .filter(p -> !MaintainOrchestrator.isInsideGitDir(p))
+                .filter(p -> !MaintainOrchestrator.isFrozenSubtree(p, archiveDir))
+                .forEach(archiveFiles::add);
         }
         for (Path file : archiveFiles) {
-            Optional<DirectoryIdentityRouter.RouteResult> routed = router.route(file, 0.5);
+            Optional<DirectoryIdentityRouter.RouteResult> routed = router.route(file, 0.7);
             if (routed.isPresent() && !routed.get().ambiguous()) {
                 Path dest = routed.get().directory();
                 Files.createDirectories(dest);
