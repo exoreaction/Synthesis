@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,221 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 3,271 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -49,8 +49,11 @@ mvn test
 # Run with local JAR
 java -jar target/synthesis-*.jar <command>
 
-# Install globally (symlink in ~/bin)
-# synthesis is already on PATH at /home/totto/bin/synthesis
+# Install globally (CRITICAL: copy to the correct location!)
+# The synthesis launcher uses ~/.synthesis/lib/current.jar (symlink)
+# ~/bin/synthesis.jar is NOT used by the launcher — it's ignored
+cp target/synthesis-*.jar ~/.synthesis/lib/synthesis-<version>.jar
+ln -sf ~/.synthesis/lib/synthesis-<version>.jar ~/.synthesis/lib/current.jar
 ```
 
 ### Environment Setup (Critical for Agents/Subprocesses)
