@@ -233,6 +233,69 @@ class DirectoryIdentityParserTest {
         assertEquals("Existing description", merged.description());
     }
 
+    // ---- P1-01: confidence-weighted transient merge ----
+
+    @Test
+    void merge_transient_bothAgree_resultMatches() {
+        DirectoryIdentity transientExisting = identityWithTransient(true, 0.6);
+        DirectoryIdentity transientDiscovered = identityWithTransient(true, 0.5);
+        assertTrue(parser.merge(transientExisting, transientDiscovered).transient_(),
+                "both true → true");
+
+        DirectoryIdentity permanentExisting = identityWithTransient(false, 0.8);
+        DirectoryIdentity permanentDiscovered = identityWithTransient(false, 0.7);
+        assertFalse(parser.merge(permanentExisting, permanentDiscovered).transient_(),
+                "both false → false");
+    }
+
+    @Test
+    void merge_transient_highConfidencePermanentWinsOverLowConfidenceTransient() {
+        // existing: permanent (false) at high confidence 0.94 (signals: many files)
+        // discovered: transient (true) at low confidence 0.6 (vocabulary match)
+        DirectoryIdentity existing = identityWithTransient(false, 0.94);
+        DirectoryIdentity discovered = identityWithTransient(true, 0.6);
+        assertFalse(parser.merge(existing, discovered).transient_(),
+                "high-confidence permanent should override low-confidence transient");
+    }
+
+    @Test
+    void merge_transient_highConfidenceTransientWinsOverLowConfidencePermanent() {
+        // existing: transient (true) at 0.6, discovered: permanent (false) at 0.3
+        DirectoryIdentity existing = identityWithTransient(true, 0.6);
+        DirectoryIdentity discovered = identityWithTransient(false, 0.3);
+        assertTrue(parser.merge(existing, discovered).transient_(),
+                "high-confidence transient should win over low-confidence permanent");
+    }
+
+    @Test
+    void merge_transient_closeConfidencePreservesExistingDesignation() {
+        // discovered does not exceed existing by > 0.2 → existing intent preserved
+        DirectoryIdentity existing = identityWithTransient(true, 0.55);
+        DirectoryIdentity discovered = identityWithTransient(false, 0.50);
+        assertTrue(parser.merge(existing, discovered).transient_(),
+                "close confidence → existing (vocabulary) designation preserved");
+    }
+
+    @Test
+    void merge_transient_significantlyHigherDiscoveredConfidenceOverrides() {
+        // Simulates 11+ files (signals confidence 0.9) vs vocabulary confidence 0.6:
+        // 0.9 > 0.6 + 0.2 → discovered wins → directory has settled, no longer transient
+        DirectoryIdentity existing = identityWithTransient(true, 0.6);
+        DirectoryIdentity discovered = identityWithTransient(false, 0.9);
+        assertFalse(parser.merge(existing, discovered).transient_(),
+                "11+ files (confidence 0.9) should override vocabulary transient=true");
+    }
+
+    /** Helper: minimal DirectoryIdentity with specific transient + confidence. */
+    private DirectoryIdentity identityWithTransient(boolean transient_, double confidence) {
+        return new DirectoryIdentity(
+                List.of(), List.of(), List.of(),
+                ScopeLevel.WORKSPACE, "", "",
+                confidence, null, "test", "",
+                List.of(), List.of(), transient_, List.of()
+        );
+    }
+
     @Test
     void merge_fillsEmptyFieldsFromDiscovered() {
         DirectoryIdentity existing = DirectoryIdentity.empty();

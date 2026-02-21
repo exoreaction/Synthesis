@@ -261,6 +261,25 @@ public class SyncCommand implements Callable<Integer> {
                     result = discovered;
                 }
 
+                // Depth guard (P1-02): transient is only meaningful for shallow landing zones.
+                // A directory more than 2 levels deep from the workspace root is almost
+                // certainly a permanent organisational home, not a transient staging area.
+                if (result.transient_()) {
+                    int depth = (int) workspaceRoot.relativize(dir).getNameCount();
+                    if (depth > 2) {
+                        result = new DirectoryIdentity(
+                                result.acceptsTypes(), result.acceptsFormats(),
+                                result.acceptsPatterns(),
+                                result.scopeLevel(), result.scopeOrganization(),
+                                result.scopeEntity(),
+                                result.confidence(), result.lastSynced(),
+                                result.source(), result.description(),
+                                result.rejectsTypes(), result.aliases(),
+                                false, result.movedFiles()
+                        );
+                    }
+                }
+
                 // Write or report
                 String relativePath = workspaceRoot.relativize(dir).toString();
                 if (exists && existing != null) {

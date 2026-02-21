@@ -431,6 +431,39 @@ class SyncCommandTest {
                 "articles/ must NOT be transient");
     }
 
+    // ---- P1-02: depth guard for vocabulary transient ----
+
+    @Test
+    void sync_transient_notAppliedBeyondDepthTwo() throws Exception {
+        // Given: a marketing/ directory nested 3 levels deep
+        // "marketing" is in the vocabulary as transient, but depth > 2 → NOT transient
+        initWorkspace(tempDir);
+        Path deep = Files.createDirectories(tempDir.resolve("business/assets/marketing"));
+        Files.writeString(deep.resolve("campaign.md"), "Campaign notes");
+
+        runSync(tempDir);
+
+        DirectoryIdentity identity = new DirectoryIdentityParser()
+                .parse(deep.resolve(".synthesis.md"));
+        assertFalse(identity.transient_(),
+                "marketing/ at depth 3 must NOT be transient (depth guard)");
+    }
+
+    @Test
+    void sync_transient_depthTwoIsStillTransient() throws Exception {
+        // Given: marketing/ at depth 2 — should still be treated as transient
+        initWorkspace(tempDir);
+        Path marketing = Files.createDirectories(tempDir.resolve("myorg/marketing"));
+        Files.writeString(marketing.resolve("campaign.md"), "Campaign notes");
+
+        runSync(tempDir);
+
+        DirectoryIdentity identity = new DirectoryIdentityParser()
+                .parse(marketing.resolve(".synthesis.md"));
+        assertTrue(identity.transient_(),
+                "marketing/ at depth 2 should still be transient");
+    }
+
     @Test
     void call_skipsDeepArchiveDirs() throws Exception {
         initWorkspace(tempDir);

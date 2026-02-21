@@ -235,7 +235,33 @@ public class DirectoryIdentityParser {
         // New fields: preserve from existing, fall back to discovered
         List<String> mergedRejectsTypes = mergeList(existing.rejectsTypes(), discovered.rejectsTypes());
         List<String> mergedAliases = mergeList(existing.aliases(), discovered.aliases());
-        boolean transientFlag = existing.transient_() || discovered.transient_();
+
+        // Confidence-weighted transient merge (P1-01).
+        // Practical signal confidences: 0.5 (≤3 files), 0.7 (≤10), 0.9 (>10).
+        // Vocabulary confidence is typically 0.6 (DEFAULT_CONFIDENCE).
+        //
+        // Three cases when they disagree:
+        //
+        // A) discovered=true (vocabulary says "this type is transient"): propagate
+        //    the designation unless the existing directory is significantly more
+        //    confident — i.e. it has many files and has clearly settled. A settled
+        //    directory (existing.confidence=0.94) beats a vocabulary update (0.6).
+        //
+        // B) discovered=false (signals say "not transient"): only clear the flag
+        //    when signals have substantially higher confidence than the vocabulary
+        //    (threshold: > 0.2). This means 11+ files (0.9) override vocab (0.6),
+        //    but 1-3 files (0.5) do not.
+        boolean transientFlag;
+        if (existing.transient_() == discovered.transient_()) {
+            // Both agree — use that value
+            transientFlag = existing.transient_();
+        } else if (discovered.transient_()) {
+            // Case A: vocabulary update propagates unless existing is more confident
+            transientFlag = discovered.confidence() >= existing.confidence();
+        } else {
+            // Case B: signals clear the flag only with significantly higher confidence
+            transientFlag = !(discovered.confidence() > existing.confidence() + 0.2);
+        }
         // movedFiles: always preserve existing (forwarding pointers are append-only)
         List<ForwardingPointer> mergedMovedFiles = existing.movedFiles().isEmpty()
                 ? discovered.movedFiles()
