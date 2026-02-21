@@ -25,8 +25,11 @@ import java.util.Set;
  *   <li>Filename token match (filename tokens vs directory path tokens): +0.25 max</li>
  * </ul>
  *
- * <p>Content score is capped at 1.0. Scope bonus (0.0-0.64) is added on top.
- * Blocked candidates (scope-incompatible) are sorted last.
+ * <p>Content score is capped at 1.0. Scope bonus is normalized so that the
+ * total score never exceeds 1.0: {@code totalScore = contentScore +
+ * (scopeBonus * (1.0 - contentScore) * 0.5)}. This makes scope bonus a
+ * tiebreaker rather than a dominant signal. Blocked candidates
+ * (scope-incompatible) are sorted last.
  *
  * <p>Type matching distinguishes specific vs generic types. "Specific" types are those
  * unique to fewer file categories (e.g. "automation", "meeting-notes"). "Generic" types
@@ -57,8 +60,8 @@ public class DirectoryScorer {
      * @param directory    the directory path
      * @param identity     the parsed directory identity
      * @param contentScore content-based score (0.0-1.0)
-     * @param scopeBonus   scope-based bonus (0.0-0.64)
-     * @param totalScore   contentScore + scopeBonus
+     * @param scopeBonus   normalized scope-based bonus (0.0-0.325 max after normalization)
+     * @param totalScore   normalized total (0.0-1.0): contentScore + normalizedScopeBonus
      * @param blocked      true if scope is incompatible
      * @param reasons      human-readable scoring breakdown
      */
@@ -294,20 +297,26 @@ public class DirectoryScorer {
             }
 
             contentScore = Math.min(contentScore, MAX_CONTENT_SCORE);
-            double totalScore = contentScore + bonus;
+
+            // Normalize total score to 0.0-1.0 (P1-08):
+            // Scope bonus fills a fraction of the remaining headroom above contentScore,
+            // so it acts as a tiebreaker without pushing scores above 1.0.
+            // Formula: totalScore = contentScore + (scopeBonus * (1.0 - contentScore) * 0.5)
+            double normalizedBonus = bonus * (1.0 - contentScore) * 0.5;
+            double totalScore = contentScore + normalizedBonus;
 
             if (blocked) {
                 reasons.add("BLOCKED(scope-incompatible)");
             }
             if (bonus > 0.0) {
-                reasons.add("scope-bonus(+" + bonus + ")");
+                reasons.add(String.format("scope-bonus(+%.3f, raw=%.2f)", normalizedBonus, bonus));
             }
 
             results.add(new ScoredCandidate(
                     candidate.directory(),
                     identity,
                     contentScore,
-                    bonus,
+                    normalizedBonus,
                     totalScore,
                     blocked,
                     reasons

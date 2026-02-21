@@ -119,10 +119,10 @@ class DirectoryScorerTest {
         assertFalse(result.blocked());
         // contentScore: type-match-generic(0.15) + format-match(0.2) = 0.35
         assertEquals(0.35, result.contentScore(), 0.001);
-        // scopeBonus: org match = 0.24
-        assertEquals(0.24, result.scopeBonus(), 0.001);
-        // total: 0.35 + 0.24 = 0.59
-        assertEquals(0.59, result.totalScore(), 0.001);
+        // scopeBonus: org match raw=0.24, normalized = 0.24 * (1.0 - 0.35) * 0.5 = 0.078
+        assertEquals(0.078, result.scopeBonus(), 0.001);
+        // total: 0.35 + 0.078 = 0.428 (P1-08: normalized to 0.0-1.0)
+        assertEquals(0.428, result.totalScore(), 0.001);
     }
 
     @Test
@@ -538,6 +538,72 @@ class DirectoryScorerTest {
         // hasSpecific should be true because "meeting-notes" is not in GENERIC_TYPES
         assertTrue(result.reasons().stream().anyMatch(r -> r.startsWith("type-match(+")),
                 "When both specific and generic types match, should use specific score, reasons=" + result.reasons());
+    }
+
+    // ---- P1-08: Score normalization to 0.0-1.0 ----
+
+    @Test
+    void score_totalNeverExceedsOne_withHighScopeBonus() {
+        // High content score + max scope bonus should still be <= 1.0
+        Path file = tempDir.resolve("deploy.sh");
+        ResolvedScope fileScope = new ResolvedScope(
+                ScopeLevel.ENTITY, "Acme", "ProjectX");
+
+        Path dir = tempDir.resolve("acme-scripts");
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("automation", "scripts"),
+                List.of("sh"),
+                List.of("*deploy*"),
+                ScopeLevel.ENTITY,
+                "Acme",
+                "ProjectX",
+                0.9,
+                null,
+                "test",
+                "Acme ProjectX scripts"
+        );
+
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        assertFalse(result.blocked());
+        // Content: type-match(0.3) + format-match(0.2) + pattern-match(0.3) = 0.8
+        // Scope bonus raw: org(0.24) + entity(0.40) = 0.64
+        // Normalized bonus: 0.64 * (1.0 - 0.8) * 0.5 = 0.64 * 0.2 * 0.5 = 0.064
+        // Total: 0.8 + 0.064 = 0.864
+        assertTrue(result.totalScore() <= 1.0,
+                "Total score must not exceed 1.0, got: " + result.totalScore());
+        assertTrue(result.totalScore() > result.contentScore(),
+                "Scope bonus should increase total score above content score");
+        // Verify the normalized bonus is stored
+        assertTrue(result.scopeBonus() < 0.64,
+                "Stored scopeBonus should be normalized (< raw 0.64), got: " + result.scopeBonus());
+    }
+
+    @Test
+    void score_noScopeBonus_totalEqualsContent() {
+        // Without scope bonus, total should equal content score
+        Path file = tempDir.resolve("notes.md");
+        ResolvedScope fileScope = new ResolvedScope(ScopeLevel.WORKSPACE, null, null);
+
+        Path dir = tempDir.resolve("docs");
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("documentation"), List.of("md"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "Docs"
+        );
+
+        List<DirectoryCandidate> candidates = List.of(new DirectoryCandidate(dir, identity));
+        List<ScoredCandidate> results = scorer.score(file, fileScope, candidates);
+
+        assertEquals(1, results.size());
+        ScoredCandidate result = results.get(0);
+        assertEquals(result.contentScore(), result.totalScore(), 0.001,
+                "Without scope bonus, totalScore should equal contentScore");
+        assertEquals(0.0, result.scopeBonus(), 0.001,
+                "Scope bonus should be 0.0 for WORKSPACE scope match");
     }
 
     // ---- #209: tokenize() utility tests ----
