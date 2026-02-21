@@ -1,9 +1,14 @@
-# Synthesis: Filesystem Knowledge Graph — Vision v1.0
+# Synthesis: Filesystem Knowledge Graph — Vision v1.1
 
 **Date:** 2026-02-21
 **Authors:** Thor Henning Hetland (Totto) + Claude Sonnet 4.6
 **Status:** Vision / North Star
 **Context:** Emerged from architectural review of sync/routing subsystem
+
+**v1.1 revisions (same session):**
+- Human intent de-emphasized: contextual IA inference is primary, not human annotation
+- Routing model reframed: pull/subscription (directories bid) not push/router (central decider)
+- Multi-membership added: one physical home + N virtual memberships per file
 
 ---
 
@@ -98,7 +103,7 @@ This is the **cluster centroid** — the semantic center of gravity.
 It has a confidence score that reflects how cohesive the cluster is.
 More enriched files → tighter centroid → higher confidence → better routing.
 
-### 3. Enrichment Is the Primary Signal
+### 3. Enrichment Is the Primary Signal — and Synthesis Knows Good IA
 
 The current system uses file extensions and directory names as signals.
 These are weak signals. The **enrich superpower** replaces them with semantic content.
@@ -108,6 +113,19 @@ When a file is enriched:
 2. The centroid of its containing directory is updated (moving average)
 3. The updated centroid improves routing for all future files
 4. If the file's signature diverges from the centroid, it's flagged as a potential outlier
+
+**Crucially, Synthesis does not need humans to annotate their structure.**
+It brings its own knowledge of good information architecture:
+- Semantic coherence (files about the same topic belong together)
+- Entity coherence (files about the same people/orgs belong together)
+- Temporal coherence (active work clusters by time period)
+- Scope coherence (strategic vs. operational vs. archival belong at different levels)
+- Type coherence (reference material, working documents, and deliverables have different homes)
+
+These are applied *against the existing structure* — reading what's there, not imposing
+what should be there. The system can see a directory with 8 files about renewable energy
+and Jon Petter and understand it as a client opportunity cluster, without anyone telling
+it that. It infers good (and bad) practices from evidence.
 
 **The learning loop:**
 
@@ -139,14 +157,12 @@ synthesis:
 ---
 ```
 
-**Vision format** (descriptions, derived from contents, updated by sync):
+**Vision format** (system-derived descriptions + optional human overrides):
 ```yaml
 ---
 synthesis:
-  # Human intent — written by human, never overwritten by sync
-  intent: "Opportunity tracking for Tvimenning renewable energy partnership"
-
-  # Semantic centroid — derived from enriched files, updated each sync
+  # Semantic centroid — derived from enriched files, updated each sync.
+  # This is the primary layer. No human annotation required.
   centroid:
     topics:
       - "renewable energy"
@@ -158,48 +174,137 @@ synthesis:
     timeframe: "2025-Q4 / 2026-Q1"
     document_types: ["proposal", "contract", "meeting-notes"]
     confidence: 0.87
-    contributing_files: 8
+    contributing_files: 8          # physical members with enrichment
+    virtual_members: 2             # files from other dirs indexed here
     last_updated: "2026-02-21T15:00:00Z"
 
-  # Structural context — from sync
+  # Structural context — inferred by sync from path + scope
   scope:
     level: "CLIENT"
     organization: "eXOReaction"
     entity: "Tvimenning"
 
-  # Routing behavior — declared or learned
-  routing:
-    transient: false
-    # How did this directory graduate from transient?
-    graduation: "8 enriched files, centroid confidence 0.87, stable 60+ days"
-
   # Health signals — computed each sync
   health:
     cohesion: 0.91      # how semantically tight is this cluster?
-    drift: false        # is the centroid drifting from initial intent?
-    outliers: []        # files that don't fit the centroid
+    drift: false        # is the centroid shifting over time?
+    outliers: []        # files whose signature diverges from centroid
+
+  # Human overrides — OPTIONAL. Written by human, sync-immutable.
+  # Used only when the human wants to correct or constrain inference.
+  # Most directories will have no overrides block at all.
+  overrides:
+    label: "Opportunity: Tvimenning AS — renewable energy"
+    transient: false    # explicit: not a landing zone despite low depth
 ---
 ```
 
-**Key principle**: there are now **three distinct layers** in a `.synthesis.md`:
-- **Intent** (human-written, authoritative, never overwritten)
-- **Centroid** (system-derived, updated by sync, reflects reality)
-- **Health** (computed, diagnostic, surfaces problems)
+**Key principle**: there are now **three layers** in a `.synthesis.md`, ordered by who writes them:
+- **Centroid** — system-derived, the primary layer, always present after sync
+- **Health** — computed diagnostics, always present after sync
+- **Overrides** — human-written, optional, corrects or constrains inference
 
-A human reading the file can immediately see: what I said this is for, what it actually
-contains, and whether those are aligned.
+Most directories will have no `overrides:` block. The system is designed to work well
+without any human annotation. When humans do write overrides, those are respected
+absolutely — but the bar for needing them should be low.
 
 ---
 
-## Routing: From Scores to Explanations
+## Multi-Membership: One File, Many Clusters
 
-### The Problem with Score-Based Routing
+A file has one physical home — but it may semantically belong to several directories.
+This is how humans actually think about their information. A proposal about renewable
+energy methodology for Tvimenning is simultaneously:
 
-Current: a file scores 0.43 against a directory. Move it there? Maybe?
+- A client document (`clients/opportunity-Tvimenning/`)
+- Methodology proof (`methodology/SDD/`)
+- Workshop material (`products/workshop/`)
 
-The number is uninterpretable. A human cannot reason about it. Trust is impossible.
+In a filesystem, you pick one. In a knowledge graph, the file participates in multiple
+clusters. Synthesis models this with two membership types:
 
-### The Vision: Semantic Similarity with Reasoning Chains
+### Physical Membership (one per file)
+
+The file lives here. This is its primary home. The centroid of this directory includes
+the file's full enrichment data as a first-class member.
+
+### Virtual Membership (zero to many per file)
+
+The file's enrichment data is indexed into other directories — their centroids include
+it, it appears in their context, it contributes to their semantic identity — but no
+physical copy is made. A bidirectional link is tracked in `.synthesis.md` on both sides.
+
+```yaml
+# In methodology/SDD/.synthesis.md:
+centroid:
+  contributing_files: 12    # physical members
+  virtual_members: 3        # files from other dirs whose content is indexed here
+  virtual_member_refs:
+    - node: "clients/opportunity-Tvimenning/proposal-v2.pdf"
+      relationship: "methodology application"
+    - node: "clients/opportunity-Mynder/ai-security-proposal.pdf"
+      relationship: "methodology application"
+    - node: "media/marketing/videos/sdd-workshop-intro.mp4"
+      relationship: "methodology demonstration"
+```
+
+Virtual membership is established by the routing system: when a file strongly matches
+multiple clusters, the winner gets physical membership and strong runners-up get virtual
+membership. The threshold for virtual membership is lower than for routing — the goal
+is to enrich as many relevant centroids as possible.
+
+### What This Enables
+
+- **Rich centroids**: `methodology/SDD/` knows about all applications of the methodology,
+  even though the application documents live in client directories
+- **Cross-cluster search**: searching from `methodology/SDD/` returns results from
+  all virtually-linked files, not just physical members
+- **Fragmentation detection**: if 5 files about the same topic are spread across
+  3 directories with virtual links between them, the system asks: should these be
+  consolidated, or is the separation intentional?
+- **No duplication**: one copy, many perspectives. Content stays in one place;
+  the knowledge graph tracks the relationships.
+
+---
+
+## Routing: Pull, Not Push
+
+### The Problem with Score-Based Push Routing
+
+Current: Synthesis evaluates a file against all directories, picks a winner, pushes
+it there. A central router that has to know about everything. Score: 0.43. Move it?
+
+Two problems:
+1. The score is uninterpretable — humans cannot reason about it or trust it
+2. The router becomes a bottleneck — as the workspace grows, routing complexity grows
+
+### The Vision: Pull-Based Subscription
+
+Directories *register* what they want. When a file is enriched, it is *published* as
+an event with its semantic signature. Directories *bid* based on how well the signature
+matches their centroid. The strongest bidder wins physical membership; strong runners-up
+get virtual membership.
+
+```
+File enriched → semantic signature published
+                        ↓
+         All directories evaluate:
+         "Does this signature match my centroid?"
+                        ↓
+         Bids ranked by match strength
+                        ↓
+         Winner      → physical membership (file routed here)
+         Runners-up  → virtual membership (metadata indexed here, link tracked)
+         No match    → file flagged as orphan, new cluster suggested
+```
+
+**Why pull scales better than push:**
+- Adding a new directory = self-registration (it declares its centroid appetite)
+- The router doesn't grow in complexity as directories multiply
+- Directories compete for files in their domain without a central decision-maker
+- As centroid confidence grows, bidding precision improves automatically
+
+### Every Decision Explains Itself
 
 Every routing decision produces a **provenance chain** — a human-readable explanation
 of why this file belongs here:
@@ -210,23 +315,25 @@ synthesis route explain eXOReaction/downloads/jon-petter-followup-2026-02-24.pdf
   Analyzing: jon-petter-followup-2026-02-24.pdf
   Enrichment: proposal, Tvimenning AS, renewable energy, Q1 2026
 
-  Best match: eXOReaction/clients/opportunity-Tvimenning/ (confidence: HIGH)
-
+  Physical home: eXOReaction/clients/opportunity-Tvimenning/ (confidence: HIGH)
   Why:
     ✓ Entity match:  "Tvimenning AS" appears in 6/8 files in this directory
     ✓ Entity match:  "Jon Petter Hjulstad" appears in 4/8 files
     ✓ Topic match:   "renewable energy" is primary topic in 5/8 files
-    ✓ Type match:    "proposal" is accepted document type (centroid: 0.87)
+    ✓ Type match:    "proposal" fits centroid (0.87 confidence cluster)
     ✓ Timeframe:     Q1 2026 aligns with directory centroid (2025-Q4 / 2026-Q1)
 
-  Alternative: eXOReaction/business/ (confidence: LOW)
-    - Only "proposal" type matches; no entity or topic overlap
+  Virtual membership also offered to:
+    → eXOReaction/methodology/SDD/ (MODERATE: topic match "SDD methodology")
+    → eXOReaction/products/workshop/ (MODERATE: topic match "workshop delivery")
 
-  Route here? [Y/n]
+  No match: eXOReaction/business/ — only type overlap, no entity/topic alignment
+
+  Route here with virtual links? [Y/n/edit]
 ```
 
 This is trustworthy. The human understands the evidence. They can agree, disagree,
-or ask for alternatives — and the system learns from their choice.
+or adjust the virtual memberships — and the system learns from their choice.
 
 ### Confidence Levels in Human Terms
 
@@ -256,15 +363,14 @@ seeing patterns across the whole workspace that are invisible at the file level.
 
 ### What Bad Looks Like (surfaced by health checks)
 
-**Drift**: A directory's centroid has moved away from its original intent.
+**Drift**: A directory's centroid has shifted significantly over time.
 
 ```
 [W011] Identity drift detected: eXOReaction/business/strategy/
-  Intent:   "Strategic business planning"
-  Centroid: 53% marketing content, 31% client proposals, 16% strategy
-  Was:      91% strategy content (6 months ago)
-  Signal:   18 recent files are marketing/client; 3 are strategy
-  Suggest:  Review recent files — are they in the right place?
+  Centroid now:  53% marketing content, 31% client proposals, 16% strategy
+  Centroid was:  91% strategy content (6 months ago)
+  Signal:        18 recent files are marketing/client; 3 are strategy
+  Suggest:       Review recent files — are they in the right place?
 ```
 
 **Orphan clusters**: Files that don't belong to any strong cluster.
@@ -402,26 +508,29 @@ File arrives → staged → enriched → semantic signature extracted
 
 ### The `.synthesis.md` Format Stabilizes on Three Layers
 
-1. **`intent:`** — human-written, immutable by sync, the source of truth for design decisions
-2. **`centroid:`** — system-derived, updated by sync, reflects observed reality
-3. **`health:`** — computed, updated by sync, surfaces problems
+1. **`centroid:`** — system-derived, the primary layer, always present after sync
+2. **`health:`** — computed diagnostics, always present after sync
+3. **`overrides:`** — human-written, optional, corrects or constrains inference
 
-The current `accepts:` / `rejectsTypes:` / `transient:` fields are **routing hints**
-that may be deprecated in favor of centroid-based routing. Or they become overrides
-within the `intent:` block: "the human said transient=true, even though centroid
-confidence is 0.87."
+The current `accepts:` / `rejectsTypes:` / `transient:` fields migrate into `overrides:`
+as explicit human constraints. Most directories will never need an `overrides:` block.
 
-### The Routing Pipeline Unifies
+### The Routing Pipeline Becomes Pull-Based
 
-All routing (staging route, maintain rebalance, E010 suggestions) uses one algorithm:
+Directories register appetite via their centroid. Files publish signatures when enriched.
+Directories bid. No central router.
+
+All routing surfaces (staging route, maintain rebalance, E010 suggestions) use one
+shared mechanism:
 
 ```
-semantic similarity(file signature, directory centroid)
+bid_strength = semantic_similarity(file_signature, directory_centroid)
 ```
 
-The algorithm produces a confidence level (CERTAIN/HIGH/MODERATE/LOW/NONE) and
-a reasoning chain. The threshold for automatic vs. confirmed routing is configurable
-per workspace.
+The bid produces a confidence level (CERTAIN/HIGH/MODERATE/LOW/NONE), a reasoning
+chain, and membership type (physical for winner, virtual for strong runners-up).
+
+The threshold for automatic vs. confirmed routing is configurable per workspace.
 
 ### The Health Model Expands from Rules to Analytics
 
@@ -453,29 +562,32 @@ This is a multi-release vision. The path respects existing functionality.
 These fixes make the current heuristic system coherent. They don't add the knowledge
 graph layer, but they clean up the architectural debt that would make it harder to build.
 
-### Phase 2: Surface the Intent Layer (v1.13.x)
-*Separate human intent from system inference in `.synthesis.md`*
-
-- Add `intent:` block to `.synthesis.md` format (human-written, sync-immutable)
-- Distinguish "declared by human" vs. "inferred by system" in all health output
-- Add `synthesis describe` command (read-only: what does the system know about this dir?)
-- Surface confidence levels in human terms in health output
-
-### Phase 3: Enrich → Centroid → Route (v1.14.x)
-*Connect enrichment to directory identity*
+### Phase 2: Contextual IA Inference + Centroid (v1.13.x)
+*Connect enrichment to directory identity; add `synthesis describe`*
 
 - When a file is enriched, update its directory's centroid block in `.synthesis.md`
-- Add `centroid:` block to `.synthesis.md` format
-- Routing uses centroid similarity (not token overlap) when enrichment available
-- `synthesis route explain` shows centroid-based reasoning when available
+- Add `centroid:` block to format (topics, entities, timeframe, doc_types, confidence)
+- Routing uses centroid similarity when enrichment available (replaces token overlap)
+- `synthesis describe` — read-only: what does the system understand about this directory?
+- Surface confidence levels in human terms (CERTAIN/HIGH/MODERATE/LOW/NONE) in all output
+- Add `overrides:` block support (sync-immutable, replaces `accepts:`/`transient:`)
+
+### Phase 3: Pull Model + Virtual Membership (v1.14.x)
+*Replace push router with pull/subscription; add multi-membership*
+
+- Routing becomes pull-based: directories bid on enriched files
+- Physical + virtual membership tracked in `centroid.virtual_member_refs`
+- `synthesis route explain` shows full bid results: winner + runners-up + virtual links
+- Human can accept/adjust virtual memberships at route time
+- Routing hints (learned patterns) feed back into centroid bidding weights
 
 ### Phase 4: Full Knowledge Graph (v2.0)
 *The north star*
 
-- Semantic health checks: cohesion, drift, fragmentation, orphans
-- Learning loop: routing feedback updates centroids and routing hints
-- `synthesis graph` — visualize the knowledge graph
-- `synthesis discover` — find emerging patterns
+- Semantic health: cohesion, drift, fragmentation, orphan cluster detection
+- `synthesis graph` — visualize the knowledge graph (entity/cluster view)
+- `synthesis discover` — find emerging clusters, suggest new directories
+- Long-term learning: structural evolution reports, archive recommendations
 - Full `synthesis describe` — the system explains your information architecture to you
 
 ---
