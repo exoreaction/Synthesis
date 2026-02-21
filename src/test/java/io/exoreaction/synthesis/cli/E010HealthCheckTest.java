@@ -287,6 +287,37 @@ class E010HealthCheckTest {
                 ".synthesis.md should not trigger any finding");
     }
 
+    // ---- Multiple media files in transient dir = ONE INFO per directory, not per file ----
+
+    @Test
+    void info_multipleMediaFilesInTransientDir_producesOneInfoPerDirectory() throws IOException {
+        // Given: marketing/ with 5 media files, no routing destinations
+        createDir("marketing", new DirectoryIdentity(
+                List.of("marketing"), List.of("md", "pdf", "png", "mp4"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.6, null, "test", "",
+                List.of(), List.of(), true, List.of()
+        ));
+
+        Files.writeString(workspace.resolve("marketing/clip-1.mp4"), "video-data");
+        Files.writeString(workspace.resolve("marketing/clip-2.mp4"), "video-data");
+        Files.writeString(workspace.resolve("marketing/clip-3.mp4"), "video-data");
+        Files.writeString(workspace.resolve("marketing/banner.png"), "image-data");
+        Files.writeString(workspace.resolve("marketing/hero.jpg"), "image-data");
+
+        List<E010Finding> findings = checker.check(workspace);
+
+        // Should produce exactly ONE INFO finding per directory, not one per file
+        long infoCount = findings.stream().filter(f -> f.level() == E010Level.INFO).count();
+        assertEquals(1, infoCount,
+                "Multiple media files with no match should produce exactly 1 INFO per directory, got " + infoCount);
+
+        // The single finding should mention the count
+        E010Finding info = findings.stream().filter(f -> f.level() == E010Level.INFO).findFirst().orElseThrow();
+        assertTrue(info.message().contains("5") || info.message().contains("media"),
+                "INFO message should mention file count or media, got: " + info.message());
+    }
+
     // ---- Empty workspace returns no findings ----
 
     @Test

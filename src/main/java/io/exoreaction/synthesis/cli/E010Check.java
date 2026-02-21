@@ -129,10 +129,15 @@ public class E010Check {
 
     /**
      * Checks a transient directory for media files that could be routed elsewhere.
+     *
+     * <p>Per-file WARNINGs are emitted for each file with a routing match >= 0.4.
+     * Files with no routing match are batched into a single INFO per directory
+     * to avoid noise when a transient directory accumulates many unrouted files.
      */
     private List<E010Finding> checkTransientDirectory(
             Path dir, DirectoryIdentity identity, Path workspaceRoot) {
         List<E010Finding> findings = new ArrayList<>();
+        int unmatchedCount = 0;
 
         try (Stream<Path> files = Files.list(dir)) {
             List<Path> mediaFiles = files
@@ -145,7 +150,7 @@ public class E010Check {
                         router.findBestMatch(file, workspaceRoot, 0.4);
 
                 if (match.isPresent() && match.get().score() >= 0.4) {
-                    // WARNING: we found a better home
+                    // WARNING: we found a better home — emit one finding per file
                     findings.add(new E010Finding(
                             file, dir, E010Level.WARNING,
                             Optional.of(match.get().destination()),
@@ -155,17 +160,24 @@ public class E010Check {
                                     + " (score " + String.format("%.2f", match.get().score()) + ")"
                     ));
                 } else {
-                    // INFO: no better home found yet
-                    findings.add(new E010Finding(
-                            file, dir, E010Level.INFO,
-                            Optional.empty(),
-                            0.0,
-                            "Media file in transient directory — no better home found yet"
-                    ));
+                    // Count unmatched files — emit ONE INFO per directory (not per file)
+                    unmatchedCount++;
                 }
             }
         } catch (IOException e) {
             // Skip this directory
+        }
+
+        // Emit a single batched INFO for all unmatched media files
+        if (unmatchedCount > 0) {
+            String dirName = workspaceRoot.relativize(dir).toString();
+            findings.add(new E010Finding(
+                    dir, dir, E010Level.INFO,
+                    Optional.empty(),
+                    0.0,
+                    unmatchedCount + " media file(s) in transient directory '" + dirName
+                            + "' — no subject match found yet"
+            ));
         }
 
         return findings;

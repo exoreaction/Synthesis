@@ -229,7 +229,7 @@ public class SyncCommand implements Callable<Integer> {
                     continue;
                 }
 
-                // Ensure inferred identity has source set
+                // Ensure inferred identity has source set (preserve all 14 fields)
                 if (discovered.source() == null || discovered.source().isEmpty()) {
                     discovered = new DirectoryIdentity(
                             discovered.acceptsTypes(), discovered.acceptsFormats(),
@@ -238,7 +238,9 @@ public class SyncCommand implements Callable<Integer> {
                             discovered.scopeEntity(),
                             discovered.confidence(), discovered.lastSynced(),
                             "inferred from " + signals.fileCount() + " files",
-                            discovered.description()
+                            discovered.description(),
+                            discovered.rejectsTypes(), discovered.aliases(),
+                            discovered.transient_(), discovered.movedFiles()
                     );
                 }
 
@@ -382,7 +384,8 @@ public class SyncCommand implements Callable<Integer> {
                 signals.confidence(),
                 Instant.now(),
                 "inferred from " + signals.fileCount() + " files",
-                ""
+                "",
+                List.of(), List.of(), false, List.of()
         );
     }
 

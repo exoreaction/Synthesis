@@ -366,6 +366,71 @@ class SyncCommandTest {
                 "Java package directory should not get a .synthesis.md file");
     }
 
+    // -------------------------------------------------------------------------
+    // Transient flag propagation tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void sync_writes_transient_true_for_new_marketing_directory() throws Exception {
+        // Given: a fresh marketing/ directory with content (no .synthesis.md yet)
+        initWorkspace(tempDir);
+        Path marketing = Files.createDirectories(tempDir.resolve("marketing"));
+        Files.writeString(marketing.resolve("campaign.md"), "Campaign notes");
+
+        // When: sync runs
+        runSync(tempDir);
+
+        // Then: marketing/.synthesis.md is created with transient: true
+        Path synthesisMd = marketing.resolve(".synthesis.md");
+        assertTrue(Files.exists(synthesisMd), "marketing/.synthesis.md should be created");
+        DirectoryIdentity identity = new DirectoryIdentityParser().parse(synthesisMd);
+        assertTrue(identity.transient_(),
+                "marketing/ must have transient=true (vocabulary default)");
+    }
+
+    @Test
+    void sync_updates_existing_marketing_directory_to_transient_true() throws Exception {
+        // Given: marketing/ with an existing .synthesis.md that lacks transient: true
+        initWorkspace(tempDir);
+        Path marketing = Files.createDirectories(tempDir.resolve("marketing"));
+        Files.writeString(marketing.resolve("campaign.md"), "Campaign notes");
+        // Write an old-style .synthesis.md without transient field
+        Files.writeString(marketing.resolve(".synthesis.md"),
+                "---\nsynthesis:\n  accepts:\n    types:\n      - \"marketing\"\n" +
+                "  scope:\n    level: \"WORKSPACE\"\n    organization: null\n    entity: null\n" +
+                "  confidence: 0.6\n  last_synced: \"2026-01-01T00:00:00Z\"\n" +
+                "  source: \"inferred from directory name\"\n---\n");
+
+        // When: sync runs
+        runSync(tempDir);
+
+        // Then: .synthesis.md is updated to have transient: true
+        DirectoryIdentity identity = new DirectoryIdentityParser().parse(
+                marketing.resolve(".synthesis.md"));
+        assertTrue(identity.transient_(),
+                "Existing marketing/.synthesis.md must be updated to transient=true");
+    }
+
+    @Test
+    void sync_writes_rejects_types_for_articles_directory() throws Exception {
+        // Given: an articles/ directory
+        initWorkspace(tempDir);
+        Path articles = Files.createDirectories(tempDir.resolve("articles"));
+        Files.writeString(articles.resolve("post.md"), "Article content");
+
+        // When: sync runs
+        runSync(tempDir);
+
+        // Then: articles/.synthesis.md has rejectsTypes containing video
+        Path synthesisMd = articles.resolve(".synthesis.md");
+        assertTrue(Files.exists(synthesisMd), "articles/.synthesis.md should be created");
+        DirectoryIdentity identity = new DirectoryIdentityParser().parse(synthesisMd);
+        assertTrue(identity.rejectsTypes().contains("video"),
+                "articles/ must reject video files");
+        assertFalse(identity.transient_(),
+                "articles/ must NOT be transient");
+    }
+
     @Test
     void call_skipsDeepArchiveDirs() throws Exception {
         initWorkspace(tempDir);
