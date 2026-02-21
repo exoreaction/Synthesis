@@ -442,6 +442,71 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     // -------------------------------------------------------------------------
+    // E002 fix: .synthesisignore management
+    // -------------------------------------------------------------------------
+
+    /**
+     * Appends a pattern to the {@code .synthesisignore} file, creating it if it
+     * does not exist. Does nothing if the pattern is already present.
+     *
+     * @param ignoreFile path to the {@code .synthesisignore} file
+     * @param pattern    the pattern to append (e.g., "node_modules/")
+     */
+    public static void appendToSynthesisIgnore(Path ignoreFile, String pattern) throws IOException {
+        if (Files.exists(ignoreFile)) {
+            String content = Files.readString(ignoreFile);
+            // Check if the pattern is already present as a standalone line
+            boolean alreadyPresent = content.lines()
+                    .map(String::trim)
+                    .anyMatch(line -> line.equals(pattern));
+            if (alreadyPresent) {
+                return;
+            }
+            // Append with a newline if the file does not end with one
+            String toAppend = content.endsWith("\n") ? pattern + "\n" : "\n" + pattern + "\n";
+            Files.writeString(ignoreFile, content + toAppend);
+        } else {
+            Files.writeString(ignoreFile, pattern + "\n");
+        }
+    }
+
+    /**
+     * Interactive fix for E002: finds build artifact directories, asks the user
+     * to confirm each unique pattern, and appends confirmed patterns to
+     * {@code .synthesisignore}.
+     *
+     * <p>Reads from {@link System#in} and writes to {@link System#out}.
+     *
+     * @param workspaceRoot the workspace root directory
+     */
+    public void runFixE002(Path workspaceRoot) throws IOException {
+        List<Path> artifacts = findBuildArtifacts(workspaceRoot);
+        if (artifacts.isEmpty()) {
+            System.out.println("No build artifacts found.");
+            return;
+        }
+
+        // Collect unique directory-name patterns (e.g., "node_modules/")
+        java.util.LinkedHashSet<String> patterns = new java.util.LinkedHashSet<>();
+        for (Path artifact : artifacts) {
+            String dirName = artifact.getFileName().toString();
+            patterns.add(dirName + "/");
+        }
+
+        Path ignoreFile = workspaceRoot.resolve(".synthesisignore");
+        Scanner scanner = new Scanner(System.in);
+
+        for (String pattern : patterns) {
+            System.out.printf("Add '%s' to .synthesisignore? [y/N]: ", pattern);
+            System.out.flush();
+            String answer = scanner.nextLine().trim().toLowerCase();
+            if (answer.equals("y") || answer.equals("yes")) {
+                appendToSynthesisIgnore(ignoreFile, pattern);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Fix-config helpers
     // -------------------------------------------------------------------------
 

@@ -159,6 +159,66 @@ public class InitCommand implements Callable<Integer> {
         this.customOutput = output;
     }
 
+    /** Default patterns for a new {@code .synthesisignore} file. */
+    private static final List<String> DEFAULT_IGNORE_PATTERNS = List.of(
+            "node_modules/", "target/", ".gradle/", "__pycache__/", ".venv/"
+    );
+
+    /**
+     * Proposes creating a {@code .synthesisignore} file with sensible defaults.
+     *
+     * <ul>
+     *   <li>If the file already exists, does nothing (silent skip).</li>
+     *   <li>If {@code noInteractive} is true, auto-creates with defaults.</li>
+     *   <li>Otherwise, shows the proposed content and asks for confirmation via
+     *       the interactive I/O set by {@link #setInteractiveIO}.</li>
+     * </ul>
+     *
+     * @param workspaceRoot the workspace root directory
+     */
+    public void proposeSynthesisIgnore(Path workspaceRoot) throws IOException {
+        Path ignoreFile = workspaceRoot.resolve(".synthesisignore");
+
+        // If .synthesisignore already exists, skip silently
+        if (Files.exists(ignoreFile)) {
+            return;
+        }
+
+        // Build default content
+        StringBuilder content = new StringBuilder();
+        content.append("# Synthesis ignore file — directories to exclude from indexing\n");
+        for (String pattern : DEFAULT_IGNORE_PATTERNS) {
+            content.append(pattern).append("\n");
+        }
+        String defaultContent = content.toString();
+
+        if (noInteractive) {
+            // Auto-create without prompting
+            Files.writeString(ignoreFile, defaultContent);
+            return;
+        }
+
+        // Interactive: show proposed content and ask for confirmation
+        BufferedReader reader = customInput != null ? customInput
+                : new BufferedReader(new InputStreamReader(System.in));
+        PrintStream out = customOutput != null ? customOutput : System.out;
+
+        out.println();
+        out.println("Proposed .synthesisignore:");
+        out.println(defaultContent);
+        out.print("Create .synthesisignore with these defaults? [Y/n]: ");
+        out.flush();
+
+        String answer = reader.readLine();
+        if (answer == null) {
+            return;
+        }
+        answer = answer.trim().toLowerCase();
+        if (answer.isEmpty() || answer.equals("y") || answer.equals("yes")) {
+            Files.writeString(ignoreFile, defaultContent);
+        }
+    }
+
     @Override
     public Integer call() {
         try {

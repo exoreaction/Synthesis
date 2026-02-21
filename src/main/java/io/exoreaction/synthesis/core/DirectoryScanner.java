@@ -10,6 +10,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -36,6 +37,9 @@ public class DirectoryScanner {
     private final List<PathMatcher> includeMatchers;
     private final List<PathMatcher> excludeMatchers;
 
+    // .synthesisignore directory-name patterns (e.g., "node_modules/")
+    private final List<String> synthesisIgnorePatterns;
+
     public DirectoryScanner(Path workspaceRoot, SynthesisConfig.ScanConfig scanConfig, boolean verbose) {
         this.workspaceRoot = workspaceRoot.toAbsolutePath().normalize();
         this.scanConfig = scanConfig;
@@ -60,6 +64,14 @@ public class DirectoryScanner {
         this.excludeMatchers = effectiveExcludes.stream()
                 .map(pattern -> fs.getPathMatcher("glob:" + pattern))
                 .toList();
+
+        // Load .synthesisignore patterns from workspace root
+        Path ignoreFile = this.workspaceRoot.resolve(".synthesisignore");
+        if (Files.isRegularFile(ignoreFile)) {
+            this.synthesisIgnorePatterns = parseSynthesisIgnore(ignoreFile);
+        } else {
+            this.synthesisIgnorePatterns = Collections.emptyList();
+        }
 
         // Verbose output for smart exclusions
         if (verbose && scanConfig.isUseSmartDefaults()) {
@@ -179,6 +191,18 @@ public class DirectoryScanner {
 
         Path relative = workspaceRoot.relativize(dir);
 
+        // Check .synthesisignore patterns — a pattern like "node_modules/" means
+        // any directory component named "node_modules" should be excluded.
+        for (String pattern : synthesisIgnorePatterns) {
+            String dirName = pattern.endsWith("/") ? pattern.substring(0, pattern.length() - 1) : pattern;
+            // Check if any component of the relative path matches the pattern
+            for (int i = 0; i < relative.getNameCount(); i++) {
+                if (relative.getName(i).toString().equals(dirName)) {
+                    return true;
+                }
+            }
+        }
+
         // Check against configured exclude patterns (includes smart defaults if enabled)
         for (PathMatcher matcher : excludeMatchers) {
             // Test the directory path itself
@@ -200,6 +224,23 @@ public class DirectoryScanner {
         }
 
         return false;
+    }
+
+    /**
+     * Parses a {@code .synthesisignore} file, stripping blank lines and {@code #} comments.
+     *
+     * @param ignoreFile path to the {@code .synthesisignore} file
+     * @return list of non-blank, non-comment patterns
+     */
+    public static List<String> parseSynthesisIgnore(Path ignoreFile) {
+        try {
+            return Files.readAllLines(ignoreFile).stream()
+                    .map(String::trim)
+                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                    .toList();
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
     }
 
     /**
