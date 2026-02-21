@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.org.DirectoryIdentity;
 import io.exoreaction.synthesis.org.DirectoryIdentityParser;
 import io.exoreaction.synthesis.org.SubjectBasedRouter;
+import io.exoreaction.synthesis.util.MediaTypes;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,11 +49,7 @@ public class E010Check {
             String message
     ) {}
 
-    private static final Set<String> MEDIA_EXTENSIONS = Set.of(
-            "mp4", "mov", "avi", "mkv", "webm",
-            "mp3", "wav", "flac", "ogg", "aac",
-            "jpg", "jpeg", "png", "gif", "svg", "bmp"
-    );
+    // Use MediaTypes.MEDIA_EXTENSIONS for media file detection (P1-03)
 
     /**
      * Maps file extensions to broad type categories for rejectsTypes checking.
@@ -226,7 +223,7 @@ public class E010Check {
 
     private boolean isMediaFile(Path file) {
         String ext = extractExtension(file.getFileName().toString());
-        return MEDIA_EXTENSIONS.contains(ext);
+        return MediaTypes.MEDIA_EXTENSIONS.contains(ext);
     }
 
     private static String extractExtension(String fileName) {

@@ -22,6 +22,7 @@ import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
+import io.exoreaction.synthesis.util.MediaTypes;
 import io.exoreaction.synthesis.util.ProgressReporter;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -755,14 +756,8 @@ public class MaintainCommand implements Callable<Integer> {
         int dot = name.lastIndexOf('.');
         if (dot < 0 || dot == name.length() - 1) return false;
         String ext = name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
-        return MEDIA_EXTENSIONS.contains(ext);
+        return MediaTypes.MEDIA_EXTENSIONS.contains(ext);
     }
-
-    private static final Set<String> MEDIA_EXTENSIONS = Set.of(
-            "mp4", "mov", "avi", "mkv", "webm",
-            "mp3", "wav", "flac", "ogg", "aac",
-            "jpg", "jpeg", "png", "gif", "svg", "bmp"
-    );
 
     /**
      * Walks the archive directory and moves any file that scores >= 0.7 against

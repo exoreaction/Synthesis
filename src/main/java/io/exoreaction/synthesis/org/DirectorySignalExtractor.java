@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.org;
 
+import io.exoreaction.synthesis.util.MediaTypes;
+
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -34,9 +36,9 @@ public class DirectorySignalExtractor {
             double confidence
     ) {}
 
-    private static final Set<String> IMAGE_VIDEO_EXTENSIONS = Set.of(
-            "png", "jpg", "jpeg", "gif", "mp4"
-    );
+    // Use MediaTypes for media detection — previously only checked a subset
+    // of image/video formats; now we use the combined MEDIA_EXTENSIONS for
+    // more accurate format inference (P1-03).
 
     /**
      * Extracts content signals from the immediate children of the given directory.
@@ -220,7 +222,7 @@ public class DirectorySignalExtractor {
     private void inferTypesFromFormats(Map<String, Integer> formatCounts, int fileCount, Set<String> types) {
         int mediaCount = 0;
         for (Map.Entry<String, Integer> entry : formatCounts.entrySet()) {
-            if (IMAGE_VIDEO_EXTENSIONS.contains(entry.getKey())) {
+            if (MediaTypes.MEDIA_EXTENSIONS.contains(entry.getKey())) {
                 mediaCount += entry.getValue();
             }
         }

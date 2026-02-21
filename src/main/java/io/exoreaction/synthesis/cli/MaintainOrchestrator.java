@@ -17,6 +17,7 @@ import io.exoreaction.synthesis.staging.StagingManager;
 import io.exoreaction.synthesis.staging.StagingManager.StagedFile;
 import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
+import io.exoreaction.synthesis.util.MediaTypes;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -541,11 +542,6 @@ public class MaintainOrchestrator {
                 });
         }
 
-        Set<String> mediaExts = Set.of(
-                "mp4", "mov", "avi", "mkv", "webm",
-                "mp3", "wav", "flac", "ogg", "aac",
-                "jpg", "jpeg", "png", "gif", "svg", "bmp");
-
         for (Path dir : transientDirs) {
             try (Stream<Path> files = Files.list(dir)) {
                 List<Path> mediaFiles = files
@@ -554,7 +550,7 @@ public class MaintainOrchestrator {
                             String name = f.getFileName().toString();
                             int dot = name.lastIndexOf('.');
                             if (dot < 0 || dot == name.length() - 1) return false;
-                            return mediaExts.contains(
+                            return MediaTypes.MEDIA_EXTENSIONS.contains(
                                     name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT));
                         })
                         .toList();
