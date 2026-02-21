@@ -169,6 +169,21 @@ public class HealthCommand implements Callable<Integer> {
             }
         }
 
+        // E010: Media files in transient or hard-reject directories
+        E010Check e010 = new E010Check();
+        List<E010Check.E010Finding> e010Findings = e010.check(workspaceRoot);
+        for (E010Check.E010Finding finding : e010Findings) {
+            HealthIssue.Severity severity = switch (finding.level()) {
+                case ERROR -> HealthIssue.Severity.ERROR;
+                case WARNING -> HealthIssue.Severity.WARNING;
+                case INFO -> HealthIssue.Severity.INFO;
+            };
+            String fix = finding.proposedDestination().isPresent()
+                    ? "synthesis maintain --rebalance"
+                    : null;
+            issues.add(new HealthIssue(severity, "E010", finding.message(), fix));
+        }
+
         printIssues(issues);
 
         int score = calculateScore(issues);

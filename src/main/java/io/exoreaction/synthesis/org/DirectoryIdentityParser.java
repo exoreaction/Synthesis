@@ -135,6 +135,47 @@ public class DirectoryIdentityParser {
             sb.append("  source: \"").append(identity.source()).append("\"\n");
         }
 
+        // transient — only emit when true
+        if (identity.transient_()) {
+            sb.append("  transient: true\n");
+        }
+
+        // aliases — only emit when non-empty
+        if (!identity.aliases().isEmpty()) {
+            sb.append("  aliases:\n");
+            for (String alias : identity.aliases()) {
+                sb.append("    - \"").append(alias).append("\"\n");
+            }
+        }
+
+        // rejects_types — only emit when non-empty
+        if (!identity.rejectsTypes().isEmpty()) {
+            sb.append("  rejects_types:\n");
+            for (String rt : identity.rejectsTypes()) {
+                sb.append("    - \"").append(rt).append("\"\n");
+            }
+        }
+
+        // moved_files — only emit when non-empty
+        if (!identity.movedFiles().isEmpty()) {
+            sb.append("  moved_files:\n");
+            for (ForwardingPointer fp : identity.movedFiles()) {
+                sb.append("    - file: \"").append(fp.fileName()).append("\"\n");
+                if (fp.movedTo() != null) {
+                    sb.append("      moved_to: \"").append(fp.movedTo()).append("\"\n");
+                }
+                if (fp.movedAt() != null) {
+                    sb.append("      moved_at: \"").append(fp.movedAt().toString()).append("\"\n");
+                }
+                if (fp.movedBy() != null) {
+                    sb.append("      moved_by: \"").append(fp.movedBy()).append("\"\n");
+                }
+                if (fp.reason() != null) {
+                    sb.append("      reason: \"").append(fp.reason()).append("\"\n");
+                }
+            }
+        }
+
         sb.append("---\n");
 
         // Markdown body
@@ -191,10 +232,20 @@ public class DirectoryIdentityParser {
                 ? existing.description()
                 : discovered.description();
 
+        // New fields: preserve from existing, fall back to discovered
+        List<String> mergedRejectsTypes = mergeList(existing.rejectsTypes(), discovered.rejectsTypes());
+        List<String> mergedAliases = mergeList(existing.aliases(), discovered.aliases());
+        boolean transientFlag = existing.transient_() || discovered.transient_();
+        // movedFiles: always preserve existing (forwarding pointers are append-only)
+        List<ForwardingPointer> mergedMovedFiles = existing.movedFiles().isEmpty()
+                ? discovered.movedFiles()
+                : existing.movedFiles();
+
         return new DirectoryIdentity(
                 mergedTypes, mergedFormats, mergedPatterns,
                 scopeLevel, scopeOrg, scopeEntity,
-                confidence, lastSynced, source, description
+                confidence, lastSynced, source, description,
+                mergedRejectsTypes, mergedAliases, transientFlag, mergedMovedFiles
         );
     }
 
@@ -232,44 +283,116 @@ public class DirectoryIdentityParser {
         List<String> acceptsTypes = new ArrayList<>();
         List<String> acceptsFormats = new ArrayList<>();
         List<String> acceptsPatterns = new ArrayList<>();
+        List<String> rejectsTypes = new ArrayList<>();
+        List<String> aliases = new ArrayList<>();
+        List<ForwardingPointer> movedFiles = new ArrayList<>();
         ScopeLevel scopeLevel = ScopeLevel.WORKSPACE;
         String scopeOrg = null;
         String scopeEntity = null;
         double confidence = 0.0;
         Instant lastSynced = null;
         String source = "";
+        boolean transientFlag = false;
 
         // Track which list section we're in
         String currentListContext = null;
 
+        // moved_files sub-object parsing state
+        boolean inMovedFilesBlock = false;
+        String mfFile = null;
+        String mfMovedTo = null;
+        Instant mfMovedAt = null;
+        String mfMovedBy = null;
+        String mfReason = null;
+
         String[] lines = yamlBlock.split("\n");
         for (String line : lines) {
             String stripped = line.stripTrailing();
+            String trimmedLine = stripped.stripLeading();
 
             // Detect list items
-            if (stripped.stripLeading().startsWith("- ")) {
+            if (trimmedLine.startsWith("- ")) {
+                if (inMovedFilesBlock) {
+                    // Flush any previous moved_files entry
+                    if (mfFile != null) {
+                        movedFiles.add(new ForwardingPointer(mfFile, mfMovedTo, mfMovedAt, mfMovedBy, mfReason));
+                    }
+                    // Start a new entry — the "- file:" line
+                    String value = extractListItemValue(stripped);
+                    if (trimmedLine.startsWith("- file:")) {
+                        mfFile = extractScalarValue(trimmedLine.substring(2).strip(), "file:");
+                    } else {
+                        mfFile = value;
+                    }
+                    mfMovedTo = null;
+                    mfMovedAt = null;
+                    mfMovedBy = null;
+                    mfReason = null;
+                    continue;
+                }
+
                 String value = extractListItemValue(stripped);
                 if (value != null && currentListContext != null) {
                     switch (currentListContext) {
                         case "types" -> acceptsTypes.add(value);
                         case "formats" -> acceptsFormats.add(value);
                         case "patterns" -> acceptsPatterns.add(value);
+                        case "rejects_types" -> rejectsTypes.add(value);
+                        case "aliases" -> aliases.add(value);
                     }
                 }
                 continue;
             }
 
-            // Detect key-value or section headers
-            String trimmedLine = stripped.stripLeading();
+            // Inside moved_files block: parse sub-fields of a list entry
+            if (inMovedFilesBlock && mfFile != null) {
+                if (trimmedLine.startsWith("moved_to:")) {
+                    mfMovedTo = extractScalarValue(trimmedLine, "moved_to:");
+                    continue;
+                } else if (trimmedLine.startsWith("moved_at:")) {
+                    String val = extractScalarValue(trimmedLine, "moved_at:");
+                    if (val != null) {
+                        try { mfMovedAt = Instant.parse(val); } catch (Exception ignored) {}
+                    }
+                    continue;
+                } else if (trimmedLine.startsWith("moved_by:")) {
+                    mfMovedBy = extractScalarValue(trimmedLine, "moved_by:");
+                    continue;
+                } else if (trimmedLine.startsWith("reason:")) {
+                    mfReason = extractScalarValue(trimmedLine, "reason:");
+                    continue;
+                }
+            }
 
+            // Detect key-value or section headers
             if (trimmedLine.startsWith("types:")) {
                 currentListContext = "types";
+                inMovedFilesBlock = false;
             } else if (trimmedLine.startsWith("formats:")) {
                 currentListContext = "formats";
+                inMovedFilesBlock = false;
             } else if (trimmedLine.startsWith("patterns:")) {
                 currentListContext = "patterns";
+                inMovedFilesBlock = false;
+            } else if (trimmedLine.startsWith("rejects_types:") || trimmedLine.startsWith("rejectsTypes:")) {
+                currentListContext = "rejects_types";
+                inMovedFilesBlock = false;
+            } else if (trimmedLine.startsWith("aliases:")) {
+                currentListContext = "aliases";
+                inMovedFilesBlock = false;
+            } else if (trimmedLine.startsWith("moved_files:")) {
+                // Flush previous context
+                currentListContext = null;
+                inMovedFilesBlock = true;
+                mfFile = null;
+            } else if (trimmedLine.startsWith("transient:")) {
+                currentListContext = null;
+                inMovedFilesBlock = false;
+                String val = extractRawValue(trimmedLine, "transient:");
+                transientFlag = "true".equalsIgnoreCase(val);
             } else if (trimmedLine.startsWith("level:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 String val = extractScalarValue(trimmedLine, "level:");
                 if (val != null) {
                     try {
@@ -280,12 +403,15 @@ public class DirectoryIdentityParser {
                 }
             } else if (trimmedLine.startsWith("organization:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 scopeOrg = extractScalarValue(trimmedLine, "organization:");
             } else if (trimmedLine.startsWith("entity:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 scopeEntity = extractScalarValue(trimmedLine, "entity:");
             } else if (trimmedLine.startsWith("confidence:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 String val = extractRawValue(trimmedLine, "confidence:");
                 if (val != null) {
                     try {
@@ -296,6 +422,7 @@ public class DirectoryIdentityParser {
                 }
             } else if (trimmedLine.startsWith("last_synced:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 String val = extractScalarValue(trimmedLine, "last_synced:");
                 if (val != null) {
                     try {
@@ -306,6 +433,7 @@ public class DirectoryIdentityParser {
                 }
             } else if (trimmedLine.startsWith("source:")) {
                 currentListContext = null;
+                inMovedFilesBlock = false;
                 String val = extractScalarValue(trimmedLine, "source:");
                 if (val != null) {
                     source = val;
@@ -316,7 +444,13 @@ public class DirectoryIdentityParser {
                 if (!trimmedLine.startsWith("accepts:")) {
                     currentListContext = null;
                 }
+                inMovedFilesBlock = false;
             }
+        }
+
+        // Flush last moved_files entry if pending
+        if (inMovedFilesBlock && mfFile != null) {
+            movedFiles.add(new ForwardingPointer(mfFile, mfMovedTo, mfMovedAt, mfMovedBy, mfReason));
         }
 
         return new DirectoryIdentity(
@@ -324,7 +458,11 @@ public class DirectoryIdentityParser {
                 List.copyOf(acceptsFormats),
                 List.copyOf(acceptsPatterns),
                 scopeLevel, scopeOrg, scopeEntity,
-                confidence, lastSynced, source, description
+                confidence, lastSynced, source, description,
+                List.copyOf(rejectsTypes),
+                List.copyOf(aliases),
+                transientFlag,
+                List.copyOf(movedFiles)
         );
     }
 

@@ -399,7 +399,10 @@ public class SyncCommand implements Callable<Integer> {
                 && java.util.Objects.equals(a.scopeEntity(), b.scopeEntity())
                 && Double.compare(a.confidence(), b.confidence()) == 0
                 && java.util.Objects.equals(a.source(), b.source())
-                && java.util.Objects.equals(a.description(), b.description());
+                && java.util.Objects.equals(a.description(), b.description())
+                && a.rejectsTypes().equals(b.rejectsTypes())
+                && a.aliases().equals(b.aliases())
+                && a.transient_() == b.transient_();
     }
 
     /**

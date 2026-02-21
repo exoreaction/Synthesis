@@ -19,6 +19,10 @@ import java.util.List;
  * @param lastSynced       last sync timestamp, may be {@code null}
  * @param source           provenance description, e.g. {@code "inferred from 12 existing files"}
  * @param description      human-readable markdown body (may be empty)
+ * @param rejectsTypes     hard reject list, e.g. {@code ["video", "media", "audio"]}
+ * @param aliases          alternate names for subject matching, e.g. {@code ["synthesis", "knowledge-infrastructure"]}
+ * @param transient_       soft landing zone flag; if true, files can live here temporarily
+ * @param movedFiles       forwarding pointers for files that have been migrated elsewhere
  */
 public record DirectoryIdentity(
         List<String> acceptsTypes,
@@ -30,8 +34,47 @@ public record DirectoryIdentity(
         double confidence,
         Instant lastSynced,
         String source,
-        String description
+        String description,
+        List<String> rejectsTypes,
+        List<String> aliases,
+        boolean transient_,
+        List<ForwardingPointer> movedFiles
 ) {
+
+    /**
+     * Canonical constructor with all 14 fields.
+     * Ensures list fields are never null.
+     */
+    public DirectoryIdentity {
+        acceptsTypes = acceptsTypes != null ? acceptsTypes : List.of();
+        acceptsFormats = acceptsFormats != null ? acceptsFormats : List.of();
+        acceptsPatterns = acceptsPatterns != null ? acceptsPatterns : List.of();
+        rejectsTypes = rejectsTypes != null ? rejectsTypes : List.of();
+        aliases = aliases != null ? aliases : List.of();
+        movedFiles = movedFiles != null ? movedFiles : List.of();
+    }
+
+    /**
+     * Backward-compatible constructor with the original 10 fields.
+     * New fields default to empty/false.
+     */
+    public DirectoryIdentity(
+            List<String> acceptsTypes,
+            List<String> acceptsFormats,
+            List<String> acceptsPatterns,
+            ScopeLevel scopeLevel,
+            String scopeOrganization,
+            String scopeEntity,
+            double confidence,
+            Instant lastSynced,
+            String source,
+            String description
+    ) {
+        this(acceptsTypes, acceptsFormats, acceptsPatterns,
+                scopeLevel, scopeOrganization, scopeEntity,
+                confidence, lastSynced, source, description,
+                List.of(), List.of(), false, List.of());
+    }
 
     /**
      * Returns a DirectoryIdentity with all lists empty, {@link ScopeLevel#WORKSPACE},
@@ -48,7 +91,11 @@ public record DirectoryIdentity(
                 0.0,
                 null,
                 "",
-                ""
+                "",
+                List.of(),
+                List.of(),
+                false,
+                List.of()
         );
     }
 }

@@ -169,7 +169,20 @@ public class WorkspaceFixture {
             List<String> types,
             List<String> formats,
             List<String> patterns,
-            double confidence) {}
+            double confidence,
+            boolean transient_,
+            List<String> aliases,
+            List<String> rejectsTypes,
+            List<MovedFileSpec> movedFiles) {
+
+        DirectoryIdentitySpec(List<String> types, List<String> formats,
+                              List<String> patterns, double confidence) {
+            this(types, formats, patterns, confidence, false, List.of(), List.of(), List.of());
+        }
+    }
+
+    /** Specification for a moved file forwarding pointer in a directory. */
+    private record MovedFileSpec(String fileName, String movedTo) {}
 
     /** Specification for a single file inside a directory. */
     private record FileSpec(String name, String content) {}
@@ -443,6 +456,29 @@ public class WorkspaceFixture {
             sb.append("    entity: null\n");
             sb.append("  confidence: ").append(spec.confidence()).append("\n");
             sb.append("  source: \"manual\"\n");
+            if (spec.transient_()) {
+                sb.append("  transient: true\n");
+            }
+            if (!spec.aliases().isEmpty()) {
+                sb.append("  aliases:\n");
+                for (String alias : spec.aliases()) {
+                    sb.append("    - \"").append(alias).append("\"\n");
+                }
+            }
+            if (!spec.rejectsTypes().isEmpty()) {
+                sb.append("  rejects_types:\n");
+                for (String rt : spec.rejectsTypes()) {
+                    sb.append("    - \"").append(rt).append("\"\n");
+                }
+            }
+            if (!spec.movedFiles().isEmpty()) {
+                sb.append("  moved_files:\n");
+                for (MovedFileSpec mf : spec.movedFiles()) {
+                    sb.append("    - file: \"").append(mf.fileName()).append("\"\n");
+                    sb.append("      moved_to: \"").append(mf.movedTo()).append("\"\n");
+                    sb.append("      moved_by: \"rebalance\"\n");
+                }
+            }
             sb.append("---\n");
             Files.writeString(path, sb.toString());
         }
@@ -458,6 +494,10 @@ public class WorkspaceFixture {
         private final String relativePath;
         private DirectoryIdentitySpec identitySpec;
         private final List<FileSpec> files = new ArrayList<>();
+        private boolean transientFlag;
+        private List<String> aliasesList = new ArrayList<>();
+        private List<String> rejectsTypesList = new ArrayList<>();
+        private List<MovedFileSpec> movedFilesList = new ArrayList<>();
 
         DirectoryBuilder(Builder parent, String relativePath) {
             this.parent = parent;
@@ -503,9 +543,50 @@ public class WorkspaceFixture {
         }
 
         /**
+         * Marks this directory as transient (soft landing zone).
+         */
+        public DirectoryBuilder transient_(boolean transient_) {
+            this.transientFlag = transient_;
+            return this;
+        }
+
+        /**
+         * Sets aliases for subject matching on this directory.
+         */
+        public DirectoryBuilder aliases(String... aliases) {
+            this.aliasesList = List.of(aliases);
+            return this;
+        }
+
+        /**
+         * Sets rejectsTypes for hard rejection on this directory.
+         */
+        public DirectoryBuilder rejectsTypes(String... rejectsTypes) {
+            this.rejectsTypesList = List.of(rejectsTypes);
+            return this;
+        }
+
+        /**
+         * Adds a moved file forwarding pointer to this directory's .synthesis.md.
+         */
+        public DirectoryBuilder movedFile(String fileName, String movedTo) {
+            this.movedFilesList.add(new MovedFileSpec(fileName, movedTo));
+            return this;
+        }
+
+        /**
          * Returns to the parent {@link Builder}, registering this directory spec.
          */
         public Builder end() {
+            // If new fields are set, create a full spec; otherwise use the simple one
+            if (identitySpec != null
+                    && (transientFlag || !aliasesList.isEmpty()
+                        || !rejectsTypesList.isEmpty() || !movedFilesList.isEmpty())) {
+                identitySpec = new DirectoryIdentitySpec(
+                        identitySpec.types(), identitySpec.formats(),
+                        identitySpec.patterns(), identitySpec.confidence(),
+                        transientFlag, aliasesList, rejectsTypesList, movedFilesList);
+            }
             parent.addDirectory(new DirectorySpec(relativePath, identitySpec, List.copyOf(files)));
             return parent;
         }

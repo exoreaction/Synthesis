@@ -18,12 +18,21 @@ public class DirectoryNameVocabulary {
     private static final String INFERRED_SOURCE = "inferred from directory name";
 
     /**
-     * An identity template holding content types, accepted formats, and per-entry confidence.
+     * An identity template holding content types, accepted formats, per-entry confidence,
+     * and optional transient flag, rejectsTypes, and aliases.
      */
-    private record IdentityTemplate(List<String> types, List<String> formats, double confidence) {
-        /** Convenience constructor using the default confidence (0.6). */
+    private record IdentityTemplate(
+            List<String> types, List<String> formats, double confidence,
+            boolean transient_, List<String> rejectsTypes, List<String> aliases
+    ) {
+        /** Convenience constructor using the default confidence (0.6) and no extras. */
         IdentityTemplate(List<String> types, List<String> formats) {
-            this(types, formats, DEFAULT_CONFIDENCE);
+            this(types, formats, DEFAULT_CONFIDENCE, false, List.of(), List.of());
+        }
+
+        /** Convenience constructor with custom confidence and no extras. */
+        IdentityTemplate(List<String> types, List<String> formats, double confidence) {
+            this(types, formats, confidence, false, List.of(), List.of());
         }
     }
 
@@ -90,9 +99,10 @@ public class DirectoryNameVocabulary {
         map.put("contracts", legal);
         map.put("legal", legal);
 
-        // Marketing
+        // Marketing (transient: files can land here temporarily)
         IdentityTemplate marketing = new IdentityTemplate(
-                List.of("marketing"), List.of("md", "pdf", "png", "mp4"));
+                List.of("marketing"), List.of("md", "pdf", "png", "mp4"),
+                DEFAULT_CONFIDENCE, true, List.of(), List.of());
         map.put("marketing", marketing);
 
         // Products
@@ -147,6 +157,35 @@ public class DirectoryNameVocabulary {
         map.put("playbooks", runbooks);
         map.put("ops", runbooks);
 
+        // Staging / incoming (transient: files land here temporarily before routing)
+        IdentityTemplate staging = new IdentityTemplate(
+                List.of("staging"), List.of("*"),
+                DEFAULT_CONFIDENCE, true, List.of(), List.of());
+        map.put("staging", staging);
+
+        IdentityTemplate incoming = new IdentityTemplate(
+                List.of("incoming"), List.of("*"),
+                DEFAULT_CONFIDENCE, true, List.of(), List.of());
+        map.put("incoming", incoming);
+
+        // Articles (rejects video/media/audio)
+        IdentityTemplate articles = new IdentityTemplate(
+                List.of("article", "documentation"), List.of("md", "pdf"),
+                DEFAULT_CONFIDENCE, false, List.of("video", "media", "audio"), List.of());
+        map.put("articles", articles);
+
+        // Plans (rejects video/media/audio)
+        IdentityTemplate plans = new IdentityTemplate(
+                List.of("plan", "strategy"), List.of("md", "pdf"),
+                DEFAULT_CONFIDENCE, false, List.of("video", "media", "audio"), List.of());
+        map.put("plans", plans);
+
+        // Campaign briefs (rejects video/media/audio)
+        IdentityTemplate campaignBriefs = new IdentityTemplate(
+                List.of("campaign", "marketing"), List.of("md", "pdf"),
+                DEFAULT_CONFIDENCE, false, List.of("video", "media", "audio"), List.of());
+        map.put("campaignbriefs", campaignBriefs);
+
         VOCABULARY = Collections.unmodifiableMap(map);
     }
 
@@ -183,7 +222,11 @@ public class DirectoryNameVocabulary {
                 template.confidence(),
                 Instant.now(),
                 INFERRED_SOURCE,
-                ""
+                "",
+                template.rejectsTypes(),
+                template.aliases(),
+                template.transient_(),
+                List.of()
         );
 
         return Optional.of(identity);

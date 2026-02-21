@@ -469,26 +469,106 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     private PhaseResult runRebalance() throws Exception {
+        int totalMoved = 0;
+        List<String> details = new ArrayList<>();
+
+        // Part 1: Archive rebalance (existing behavior)
         Path archiveDir = workspaceRoot.resolve("archive");
-        if (!Files.isDirectory(archiveDir)) {
-            return PhaseResult.success(5, "Rebalance", 0,
-                    "no archive directory", List.of());
+        if (Files.isDirectory(archiveDir)) {
+            DirectoryIdentityRouter router =
+                    new DirectoryIdentityRouter(workspaceRoot, null);
+
+            if (options.dryRun()) {
+                int count = countRebalanceCandidates(archiveDir, router);
+                if (count > 0) {
+                    details.add(count + " archive file(s) would be rebalanced");
+                    totalMoved += count;
+                }
+            } else {
+                MaintainCommand cmd = new MaintainCommand();
+                int moved = cmd.rebalanceArchive(archiveDir, router, workspaceRoot);
+                if (moved > 0) {
+                    details.add(moved + " archive file(s) rebalanced");
+                    totalMoved += moved;
+                }
+            }
         }
 
-        DirectoryIdentityRouter router =
-                new DirectoryIdentityRouter(workspaceRoot, null);
-
+        // Part 2: Transient directory rebalance (issue #203)
         if (options.dryRun()) {
-            // Count files that would be rebalanced
-            int count = countRebalanceCandidates(archiveDir, router);
-            return PhaseResult.success(5, "Rebalance", count,
-                    count + " file(s) would be rebalanced", List.of());
+            int count = countTransientRebalanceCandidates();
+            if (count > 0) {
+                details.add(count + " transient file(s) would be rebalanced");
+                totalMoved += count;
+            }
+        } else {
+            MaintainCommand cmd = new MaintainCommand();
+            int moved = cmd.rebalanceTransient(workspaceRoot);
+            if (moved > 0) {
+                details.add(moved + " transient file(s) rebalanced");
+                totalMoved += moved;
+            }
         }
 
-        MaintainCommand cmd = new MaintainCommand();
-        int moved = cmd.rebalanceArchive(archiveDir, router, workspaceRoot);
-        return PhaseResult.success(5, "Rebalance", moved,
-                moved + " file(s) rebalanced", List.of());
+        String summary = totalMoved > 0
+                ? totalMoved + " file(s) rebalanced"
+                : "no files to rebalance";
+        return PhaseResult.success(5, "Rebalance", totalMoved, summary, details);
+    }
+
+    /**
+     * Counts media files in transient directories that have a subject-based match >= 0.7.
+     */
+    private int countTransientRebalanceCandidates() throws IOException {
+        io.exoreaction.synthesis.org.DirectoryIdentityParser idParser =
+                new io.exoreaction.synthesis.org.DirectoryIdentityParser();
+        io.exoreaction.synthesis.org.SubjectBasedRouter subjectRouter =
+                new io.exoreaction.synthesis.org.SubjectBasedRouter();
+        int count = 0;
+
+        List<Path> transientDirs = new ArrayList<>();
+        try (Stream<Path> walk = Files.walk(workspaceRoot, 6)) {
+            walk.filter(Files::isDirectory)
+                .filter(dir -> !dir.equals(workspaceRoot))
+                .filter(dir -> !dir.getFileName().toString().startsWith("."))
+                .filter(dir -> Files.exists(dir.resolve(".synthesis.md")))
+                .forEach(dir -> {
+                    io.exoreaction.synthesis.org.DirectoryIdentity identity =
+                            idParser.parse(dir.resolve(".synthesis.md"));
+                    if (identity.transient_()) {
+                        transientDirs.add(dir);
+                    }
+                });
+        }
+
+        Set<String> mediaExts = Set.of(
+                "mp4", "mov", "avi", "mkv", "webm",
+                "mp3", "wav", "flac", "ogg", "aac",
+                "jpg", "jpeg", "png", "gif", "svg", "bmp");
+
+        for (Path dir : transientDirs) {
+            try (Stream<Path> files = Files.list(dir)) {
+                List<Path> mediaFiles = files
+                        .filter(Files::isRegularFile)
+                        .filter(f -> {
+                            String name = f.getFileName().toString();
+                            int dot = name.lastIndexOf('.');
+                            if (dot < 0 || dot == name.length() - 1) return false;
+                            return mediaExts.contains(
+                                    name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT));
+                        })
+                        .toList();
+
+                for (Path file : mediaFiles) {
+                    var match = subjectRouter.findBestMatch(file, workspaceRoot, 0.7);
+                    if (match.isPresent()) {
+                        count++;
+                    }
+                }
+            }
+        }
+
+        return count;
     }
 
     private int countRebalanceCandidates(Path archiveDir,

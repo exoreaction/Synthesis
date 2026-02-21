@@ -329,6 +329,17 @@ public class MaintainCommand implements Callable<Integer> {
                 } catch (Exception e) {
                     System.err.println("  Warning: Archive rebalance failed: " + e.getMessage());
                 }
+
+                // Transient directory rebalance (issue #203)
+                try {
+                    int transientMoved = rebalanceTransient(workspaceRoot);
+                    if (transientMoved > 0) {
+                        System.out.println("  Rebalance: " + transientMoved
+                                + " file(s) moved from transient directories to permanent homes");
+                    }
+                } catch (Exception e) {
+                    System.err.println("  Warning: Transient rebalance failed: " + e.getMessage());
+                }
             }
 
             // --- Integration: Knowledge Edge scanning ---
@@ -601,6 +612,157 @@ public class MaintainCommand implements Callable<Integer> {
     // =========================================================================
     // Rebalance (used by orchestrator phase 5 and legacy --rebalance flag)
     // =========================================================================
+
+    /**
+     * Walks transient directories and moves media files that have a strong subject-based
+     * match (score >= 0.7) to the matching directory.
+     *
+     * <p>Uses {@link io.exoreaction.synthesis.org.SubjectBasedRouter} for subject-based
+     * filename-to-directory matching. Only media files (mp4, mp3, jpg, png, etc.) are
+     * considered. Non-transient directories are skipped.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @return the number of files moved
+     * @since v1.9.9 (issue #203)
+     */
+    public int rebalanceTransient(Path workspaceRoot) throws IOException {
+        DirectoryIdentityParser idParser = new DirectoryIdentityParser();
+        SubjectBasedRouter subjectRouter = new SubjectBasedRouter();
+        int moved = 0;
+
+        // Find all transient directories with .synthesis.md
+        List<Path> transientDirs = new ArrayList<>();
+        try (Stream<Path> walk = Files.walk(workspaceRoot, 6)) {
+            walk.filter(Files::isDirectory)
+                .filter(dir -> !dir.equals(workspaceRoot))
+                .filter(dir -> !dir.getFileName().toString().startsWith("."))
+                .filter(dir -> Files.exists(dir.resolve(".synthesis.md")))
+                .forEach(dir -> {
+                    DirectoryIdentity identity = idParser.parse(dir.resolve(".synthesis.md"));
+                    if (identity.transient_()) {
+                        transientDirs.add(dir);
+                    }
+                });
+        }
+
+        for (Path dir : transientDirs) {
+            List<Path> mediaFiles;
+            try (Stream<Path> files = Files.list(dir)) {
+                mediaFiles = files
+                        .filter(Files::isRegularFile)
+                        .filter(this::isMediaFile)
+                        .toList();
+            }
+
+            for (Path file : mediaFiles) {
+                Optional<SubjectBasedRouter.RoutingDecision> match =
+                        subjectRouter.findBestMatch(file, workspaceRoot, 0.7);
+                if (match.isPresent()) {
+                    Path dest = match.get().destination();
+                    Files.createDirectories(dest);
+                    try {
+                        Files.move(file, dest.resolve(file.getFileName()));
+                        if (verbose) {
+                            System.out.println("    " + workspaceRoot.relativize(file)
+                                    + " → " + workspaceRoot.relativize(dest)
+                                    + " (score " + String.format("%.2f", match.get().score()) + ")");
+                        }
+                        moved++;
+
+                        // Issue #204: record forwarding pointer in source directory's .synthesis.md
+                        recordForwardingPointer(
+                                dir, file.getFileName().toString(),
+                                workspaceRoot.relativize(dest).toString(),
+                                match.get().score(), idParser);
+
+                    } catch (IOException e) {
+                        if (verbose) {
+                            System.err.println("    Could not move " + file.getFileName()
+                                    + ": " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+
+        return moved;
+    }
+
+    /**
+     * Records a forwarding pointer in the source directory's {@code .synthesis.md}
+     * when a file is moved during rebalance.
+     *
+     * <p>The pointer captures: which file moved, where it went, when, by what
+     * operation, and the routing score as a reason string.
+     *
+     * @param sourceDir the directory the file was moved from
+     * @param fileName  the name of the file that was moved
+     * @param movedTo   the workspace-relative path of the destination directory
+     * @param score     the routing score that triggered the move
+     * @param parser    the parser to use for read/write
+     * @since v1.9.9 (issue #204)
+     */
+    void recordForwardingPointer(Path sourceDir, String fileName,
+                                  String movedTo, double score,
+                                  DirectoryIdentityParser parser) {
+        try {
+            Path synthesisFile = sourceDir.resolve(".synthesis.md");
+            DirectoryIdentity existing = parser.parse(synthesisFile);
+
+            ForwardingPointer pointer = new ForwardingPointer(
+                    fileName,
+                    movedTo,
+                    java.time.Instant.now(),
+                    "rebalance",
+                    "score " + String.format("%.2f", score)
+            );
+
+            // Append the new pointer to the existing moved_files list
+            List<ForwardingPointer> updatedPointers = new ArrayList<>(existing.movedFiles());
+            updatedPointers.add(pointer);
+
+            DirectoryIdentity updated = new DirectoryIdentity(
+                    existing.acceptsTypes(),
+                    existing.acceptsFormats(),
+                    existing.acceptsPatterns(),
+                    existing.scopeLevel(),
+                    existing.scopeOrganization(),
+                    existing.scopeEntity(),
+                    existing.confidence(),
+                    existing.lastSynced(),
+                    existing.source(),
+                    existing.description(),
+                    existing.rejectsTypes(),
+                    existing.aliases(),
+                    existing.transient_(),
+                    updatedPointers
+            );
+
+            parser.write(synthesisFile, updated);
+        } catch (Exception e) {
+            if (verbose) {
+                System.err.println("    Warning: Could not record forwarding pointer for "
+                        + fileName + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Returns true if the file is a media file (video, audio, image).
+     */
+    private boolean isMediaFile(Path file) {
+        String name = file.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot == name.length() - 1) return false;
+        String ext = name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        return MEDIA_EXTENSIONS.contains(ext);
+    }
+
+    private static final Set<String> MEDIA_EXTENSIONS = Set.of(
+            "mp4", "mov", "avi", "mkv", "webm",
+            "mp3", "wav", "flac", "ogg", "aac",
+            "jpg", "jpeg", "png", "gif", "svg", "bmp"
+    );
 
     /**
      * Walks the archive directory and moves any file that scores >= 0.7 against
