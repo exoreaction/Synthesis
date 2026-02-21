@@ -111,6 +111,7 @@ public class SyncCommand implements Callable<Integer> {
         EnrichmentSignatureExtractor enrichmentExtractor = enrichCentroids ? new EnrichmentSignatureExtractor() : null;
         CentroidComputer centroidComputer = enrichCentroids ? new CentroidComputer() : null;
         WantsBootstrapper wantsBootstrapper = enrichCentroids ? new WantsBootstrapper() : null;
+        WantSatisfactionComputer satisfactionComputer = enrichCentroids ? new WantSatisfactionComputer() : null;
 
         // Cache centroids by directory for parent-centroid inheritance
         Map<Path, DirectoryCentroid> centroidCache = new HashMap<>();
@@ -312,6 +313,11 @@ public class SyncCommand implements Callable<Integer> {
                             parentCentroid = centroidCache.get(dir.getParent());
                         }
                         wants = wantsBootstrapper.bootstrap(dir, parentCentroid);
+                    }
+
+                    // Compute want satisfaction (P3-04)
+                    if (!wants.isEmpty()) {
+                        wants = satisfactionComputer.withSatisfaction(centroid, wants);
                     }
 
                     if (verbose && !centroid.isEmpty()) {
