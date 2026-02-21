@@ -2,7 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.org.DirectoryIdentity;
 import io.exoreaction.synthesis.org.DirectoryIdentityParser;
-import io.exoreaction.synthesis.org.SubjectBasedRouter;
+import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
 import io.exoreaction.synthesis.util.MediaTypes;
 
 import java.io.IOException;
@@ -17,11 +17,18 @@ import java.util.stream.Stream;
  * <p>Three-level findings:
  * <ul>
  *   <li><b>ERROR</b>: file in a directory whose {@code rejectsTypes} matches the file's type</li>
- *   <li><b>WARNING</b>: file in a transient directory with a subject-based router match >= 0.8</li>
+ *   <li><b>WARNING</b>: file in a transient directory with a routing match >= 0.25</li>
  *   <li><b>INFO</b>: file in a transient directory with no suitable destination above threshold</li>
  * </ul>
  *
- * @since v1.9.9 (issue #200)
+ * <p>As of P1-05, uses the unified {@link DirectoryIdentityRouter} instead of the
+ * retired SubjectBasedRouter.
+ *
+ * <p><b>Threshold mapping (P1-05):</b> The old SubjectBasedRouter used 0.4 for E010
+ * (pure token overlap * confidence). The DirectoryScorer provides richer scoring, so
+ * the equivalent threshold is 0.25 (WEAK match).
+ *
+ * @since v1.9.9 (issue #200), unified routing in P1-05
  */
 public class E010Check {
 
@@ -49,12 +56,7 @@ public class E010Check {
             String message
     ) {}
 
-    // Use MediaTypes.MEDIA_EXTENSIONS for media file detection (P1-03)
-
-    // EXTENSION_REJECT_TYPE_MAP moved to MediaTypes.EXTENSION_REJECT_TYPE_MAP (P1-04)
-
     private final DirectoryIdentityParser parser = new DirectoryIdentityParser();
-    private final SubjectBasedRouter router = new SubjectBasedRouter();
 
     /**
      * Runs the E010 check across the entire workspace.
@@ -64,6 +66,9 @@ public class E010Check {
      */
     public List<E010Finding> check(Path workspaceRoot) {
         List<E010Finding> findings = new ArrayList<>();
+
+        // Create a unified router with skipTransient for finding permanent homes
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspaceRoot, null);
 
         try (Stream<Path> walk = Files.walk(workspaceRoot, 6)) {
             List<Path> dirs = walk
@@ -78,7 +83,7 @@ public class E010Check {
 
                 // Check 1: transient directories — look for media files
                 if (identity.transient_()) {
-                    findings.addAll(checkTransientDirectory(dir, identity, workspaceRoot));
+                    findings.addAll(checkTransientDirectory(dir, identity, workspaceRoot, router));
                 }
 
                 // Check 2: directories with rejectsTypes — look for violations
@@ -103,12 +108,13 @@ public class E010Check {
     /**
      * Checks a transient directory for media files that could be routed elsewhere.
      *
-     * <p>Per-file WARNINGs are emitted for each file with a routing match >= 0.4.
+     * <p>Per-file WARNINGs are emitted for each file with a routing match >= 0.25.
      * Files with no routing match are batched into a single INFO per directory
      * to avoid noise when a transient directory accumulates many unrouted files.
      */
     private List<E010Finding> checkTransientDirectory(
-            Path dir, DirectoryIdentity identity, Path workspaceRoot) {
+            Path dir, DirectoryIdentity identity, Path workspaceRoot,
+            DirectoryIdentityRouter router) {
         List<E010Finding> findings = new ArrayList<>();
         int unmatchedCount = 0;
 
@@ -119,17 +125,18 @@ public class E010Check {
                     .toList();
 
             for (Path file : mediaFiles) {
-                Optional<SubjectBasedRouter.RoutingDecision> match =
-                        router.findBestMatch(file, workspaceRoot, 0.4);
+                // Use unified router with skipTransient=true, threshold 0.25
+                Optional<DirectoryIdentityRouter.RouteResult> match =
+                        router.route(file, 0.25, true);
 
-                if (match.isPresent() && match.get().score() >= 0.4) {
+                if (match.isPresent()) {
                     // WARNING: we found a better home — emit one finding per file
                     findings.add(new E010Finding(
                             file, dir, E010Level.WARNING,
-                            Optional.of(match.get().destination()),
+                            Optional.of(match.get().directory()),
                             match.get().score(),
                             "Media file in transient directory has a better home: "
-                                    + workspaceRoot.relativize(match.get().destination())
+                                    + workspaceRoot.relativize(match.get().directory())
                                     + " (score " + String.format("%.2f", match.get().score()) + ")"
                     ));
                 } else {
@@ -149,7 +156,7 @@ public class E010Check {
                     Optional.empty(),
                     0.0,
                     unmatchedCount + " media file(s) in transient directory '" + dirName
-                            + "' — no subject match found yet"
+                            + "' — no routing match found yet"
             ));
         }
 

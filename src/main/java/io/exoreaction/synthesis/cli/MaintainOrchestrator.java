@@ -518,13 +518,15 @@ public class MaintainOrchestrator {
     }
 
     /**
-     * Counts media files in transient directories that have a subject-based match >= 0.7.
+     * Counts media files in transient directories that have a routing match >= 0.5.
+     *
+     * <p><b>Threshold mapping (P1-05):</b> Old SubjectBasedRouter threshold 0.7 maps
+     * to DirectoryScorer threshold 0.5 for rebalance operations.
      */
     private int countTransientRebalanceCandidates() throws IOException {
         io.exoreaction.synthesis.org.DirectoryIdentityParser idParser =
                 new io.exoreaction.synthesis.org.DirectoryIdentityParser();
-        io.exoreaction.synthesis.org.SubjectBasedRouter subjectRouter =
-                new io.exoreaction.synthesis.org.SubjectBasedRouter();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspaceRoot, null);
         int count = 0;
 
         List<Path> transientDirs = new ArrayList<>();
@@ -556,8 +558,8 @@ public class MaintainOrchestrator {
                         .toList();
 
                 for (Path file : mediaFiles) {
-                    var match = subjectRouter.findBestMatch(file, workspaceRoot, 0.7);
-                    if (match.isPresent()) {
+                    var match = router.route(file, 0.5, true);
+                    if (match.isPresent() && !match.get().ambiguous()) {
                         count++;
                     }
                 }

@@ -16,6 +16,10 @@ import java.util.Optional;
  *
  * <p>Results are cached per instance to avoid repeated filesystem walks.
  *
+ * <p>As of P1-05, this class replaces {@code SubjectBasedRouter} as the unified
+ * routing mechanism. The {@link #route(Path, double, boolean)} overload supports
+ * transient-destination filtering for rebalance and health check operations.
+ *
  * @since v1.9.9
  */
 public class DirectoryIdentityRouter {
@@ -25,8 +29,11 @@ public class DirectoryIdentityRouter {
     private final DirectoryIdentityParser parser;
     private final DirectoryScorer scorer;
 
-    /** Lazily-initialized candidate list, cached per instance. */
-    private List<DirectoryScorer.DirectoryCandidate> candidates;
+    /** Lazily-initialized candidate list (all directories), cached per instance. */
+    private List<DirectoryScorer.DirectoryCandidate> allCandidates;
+
+    /** Lazily-initialized candidate list (non-transient only), cached per instance. */
+    private List<DirectoryScorer.DirectoryCandidate> nonTransientCandidates;
 
     /**
      * Creates a router for the given workspace.
@@ -58,17 +65,36 @@ public class DirectoryIdentityRouter {
      * @return the top RouteResult, or empty
      */
     public Optional<RouteResult> route(Path file, double threshold) {
+        return route(file, threshold, false);
+    }
+
+    /**
+     * Returns the best-matching directory candidate for the given file, with optional
+     * transient-destination filtering.
+     *
+     * <p>When {@code skipTransient} is {@code true}, transient directories are excluded
+     * from the candidate set. This is used by rebalance operations (moving files OUT of
+     * transient directories to permanent homes) and by E010 health checks.
+     *
+     * @param file           the file to route
+     * @param threshold      minimum score to auto-route
+     * @param skipTransient  if true, exclude transient directories from candidates
+     * @return the top RouteResult, or empty
+     * @since v1.13.0 (P1-05)
+     */
+    public Optional<RouteResult> route(Path file, double threshold, boolean skipTransient) {
         // Check routing hints first (they have priority)
         Optional<RouteResult> hintResult = checkRoutingHints(file);
         if (hintResult.isPresent()) return hintResult;
 
-        List<DirectoryScorer.DirectoryCandidate> allCandidates = loadCandidates();
-        if (allCandidates.isEmpty()) return Optional.empty();
+        List<DirectoryScorer.DirectoryCandidate> candidateList =
+                skipTransient ? loadNonTransientCandidates() : loadCandidates();
+        if (candidateList.isEmpty()) return Optional.empty();
 
         ScopeResolver.ResolvedScope fileScope = scopeResolver.resolve(
                 file.getParent() != null ? file.getParent() : workspaceRoot);
 
-        List<DirectoryScorer.ScoredCandidate> scored = scorer.score(file, fileScope, allCandidates);
+        List<DirectoryScorer.ScoredCandidate> scored = scorer.score(file, fileScope, candidateList);
         if (scored.isEmpty()) return Optional.empty();
 
         DirectoryScorer.ScoredCandidate top = scored.get(0);
@@ -128,32 +154,49 @@ public class DirectoryIdentityRouter {
      * @return sorted list of scored candidates
      */
     public List<DirectoryScorer.ScoredCandidate> scoreAll(Path file) {
-        List<DirectoryScorer.DirectoryCandidate> allCandidates = loadCandidates();
+        List<DirectoryScorer.DirectoryCandidate> candidateList = loadCandidates();
         ScopeResolver.ResolvedScope fileScope = scopeResolver.resolve(
                 file.getParent() != null ? file.getParent() : workspaceRoot);
-        return scorer.score(file, fileScope, allCandidates);
+        return scorer.score(file, fileScope, candidateList);
     }
 
-    /** Lazy-initialize and cache the candidate list. */
+    /** Lazy-initialize and cache the full candidate list. */
     private List<DirectoryScorer.DirectoryCandidate> loadCandidates() {
-        if (candidates != null) return candidates;
-        candidates = discoverCandidates();
-        return candidates;
+        if (allCandidates != null) return allCandidates;
+        allCandidates = discoverCandidates(false);
+        return allCandidates;
     }
 
-    /** Walk workspace looking for directories with {@code .synthesis.md} files. */
-    private List<DirectoryScorer.DirectoryCandidate> discoverCandidates() {
+    /**
+     * Lazy-initialize and cache the non-transient candidate list.
+     * @since v1.13.0 (P1-05)
+     */
+    private List<DirectoryScorer.DirectoryCandidate> loadNonTransientCandidates() {
+        if (nonTransientCandidates != null) return nonTransientCandidates;
+        nonTransientCandidates = discoverCandidates(true);
+        return nonTransientCandidates;
+    }
+
+    /**
+     * Walk workspace looking for directories with {@code .synthesis.md} files.
+     *
+     * @param skipTransient if true, exclude directories where {@code transient_() == true}
+     */
+    private List<DirectoryScorer.DirectoryCandidate> discoverCandidates(boolean skipTransient) {
         List<DirectoryScorer.DirectoryCandidate> result = new ArrayList<>();
         try {
             Files.walk(workspaceRoot)
                     .filter(Files::isDirectory)
                     .filter(dir -> !dir.equals(workspaceRoot))
+                    .filter(dir -> !dir.getFileName().toString().startsWith("."))
                     .forEach(dir -> {
                         Path synthesisFile = dir.resolve(".synthesis.md");
                         if (Files.exists(synthesisFile)) {
                             DirectoryIdentity identity = parser.parse(synthesisFile);
                             if (!identity.acceptsTypes().isEmpty() || !identity.acceptsFormats().isEmpty()) {
-                                result.add(new DirectoryScorer.DirectoryCandidate(dir, identity));
+                                if (!skipTransient || !identity.transient_()) {
+                                    result.add(new DirectoryScorer.DirectoryCandidate(dir, identity));
+                                }
                             }
                         }
                     });

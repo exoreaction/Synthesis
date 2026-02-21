@@ -34,7 +34,8 @@ import java.util.Set;
  * Specific type matches receive full +0.3, generic matches receive +0.15.
  *
  * <p>Filename token matching tokenizes both the filename (splitting on {@code -}, {@code _},
- * {@code .}, and spaces) and the candidate directory's relative path from workspace root.
+ * {@code .}, and spaces) and the candidate directory's relative path from workspace root,
+ * plus any {@link DirectoryIdentity#aliases()} declared in the directory's identity.
  * Tokens shorter than 3 characters are ignored. The score is proportional to the overlap
  * ratio, weighted at +0.25 max.
  *
@@ -282,10 +283,11 @@ public class DirectoryScorer {
                 reasons.add("pattern-match(+" + PATTERN_MATCH_SCORE + ")");
             }
 
-            // Filename token match: tokenize the filename and candidate directory path,
-            // then score based on overlapping tokens (e.g. "synthesis-demo.mp4" vs
-            // "products/Synthesis/media" -> "synthesis" matches)
-            double tokenMatchScore = computeFilenameTokenScore(fileName, candidate.directory());
+            // Filename token match: tokenize the filename and candidate directory path
+            // (including aliases from the directory identity), then score based on
+            // overlapping tokens (e.g. "synthesis-demo.mp4" vs
+            // "products/Synthesis/media" with aliases ["synthesis"] -> "synthesis" matches)
+            double tokenMatchScore = computeFilenameTokenScore(fileName, candidate.directory(), identity);
             if (tokenMatchScore > 0.0) {
                 contentScore += tokenMatchScore;
                 reasons.add(String.format("filename-token-match(+%.3f)", tokenMatchScore));
@@ -346,21 +348,25 @@ public class DirectoryScorer {
     }
 
     /**
-     * Computes the filename-to-directory-path token overlap score.
+     * Computes the filename-to-directory token overlap score.
      *
      * <p>Tokenizes the filename (without extension) by splitting on {@code -}, {@code _},
      * {@code .}, and spaces, then lowercasing and filtering tokens shorter than 3 characters.
      * Tokenizes the candidate directory's relative path (or absolute path if no workspace root
-     * is set) by splitting path segments the same way.
+     * is set) by splitting path segments the same way. Additionally includes tokens from the
+     * directory identity's {@link DirectoryIdentity#aliases()}, which provide alternate names
+     * for subject-based matching (e.g., a directory at {@code products/Aurora/media} with
+     * alias {@code "temporal"} will match files containing "temporal" in their name).
      *
      * <p>Score = (matching tokens / filename tokens) * {@link #FILENAME_TOKEN_MATCH_MAX},
      * capped at {@code FILENAME_TOKEN_MATCH_MAX}.
      *
      * @param fileName  the file name (e.g. {@code "synthesis-demo.mp4"})
      * @param directory the candidate directory path
+     * @param identity  the directory identity (aliases contribute to dir tokens)
      * @return score between 0.0 and {@code FILENAME_TOKEN_MATCH_MAX}
      */
-    double computeFilenameTokenScore(String fileName, Path directory) {
+    double computeFilenameTokenScore(String fileName, Path directory, DirectoryIdentity identity) {
         // Strip extension for tokenization
         int lastDot = fileName.lastIndexOf('.');
         String nameWithoutExt = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
@@ -379,6 +385,13 @@ public class DirectoryScorer {
         Set<String> dirTokens = new HashSet<>();
         for (int i = 0; i < pathToTokenize.getNameCount(); i++) {
             dirTokens.addAll(tokenize(pathToTokenize.getName(i).toString()));
+        }
+
+        // Include alias tokens from the directory identity (P1-05: unified routing)
+        if (identity != null) {
+            for (String alias : identity.aliases()) {
+                dirTokens.addAll(tokenize(alias));
+            }
         }
 
         if (dirTokens.isEmpty()) return 0.0;

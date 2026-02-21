@@ -615,20 +615,24 @@ public class MaintainCommand implements Callable<Integer> {
     // =========================================================================
 
     /**
-     * Walks transient directories and moves media files that have a strong subject-based
-     * match (score >= 0.7) to the matching directory.
+     * Walks transient directories and moves media files that have a strong identity
+     * match (score >= 0.5) to the matching permanent directory.
      *
-     * <p>Uses {@link io.exoreaction.synthesis.org.SubjectBasedRouter} for subject-based
-     * filename-to-directory matching. Only media files (mp4, mp3, jpg, png, etc.) are
-     * considered. Non-transient directories are skipped.
+     * <p>Uses the unified {@link DirectoryIdentityRouter} with {@code skipTransient=true}
+     * to avoid routing files back into other transient directories.
+     *
+     * <p><b>Threshold mapping (P1-05):</b> The old SubjectBasedRouter used threshold 0.7
+     * (pure token overlap * confidence). The DirectoryScorer provides richer scoring
+     * (type + format + pattern + token match), so an equivalent rebalance threshold
+     * is 0.5 (MODERATE confidence).
      *
      * @param workspaceRoot the workspace root directory
      * @return the number of files moved
-     * @since v1.9.9 (issue #203)
+     * @since v1.9.9 (issue #203), unified routing in P1-05
      */
     public int rebalanceTransient(Path workspaceRoot) throws IOException {
         DirectoryIdentityParser idParser = new DirectoryIdentityParser();
-        SubjectBasedRouter subjectRouter = new SubjectBasedRouter();
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspaceRoot, null);
         int moved = 0;
 
         // Find all transient directories with .synthesis.md
@@ -656,10 +660,11 @@ public class MaintainCommand implements Callable<Integer> {
             }
 
             for (Path file : mediaFiles) {
-                Optional<SubjectBasedRouter.RoutingDecision> match =
-                        subjectRouter.findBestMatch(file, workspaceRoot, 0.7);
-                if (match.isPresent()) {
-                    Path dest = match.get().destination();
+                // Use unified router with skipTransient=true, threshold 0.5
+                Optional<DirectoryIdentityRouter.RouteResult> match =
+                        router.route(file, 0.5, true);
+                if (match.isPresent() && !match.get().ambiguous()) {
+                    Path dest = match.get().directory();
                     Files.createDirectories(dest);
                     try {
                         Files.move(file, dest.resolve(file.getFileName()));
