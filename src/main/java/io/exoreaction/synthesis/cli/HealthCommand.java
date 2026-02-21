@@ -270,15 +270,38 @@ public class HealthCommand implements Callable<Integer> {
     private void applyRemappings(Path workspaceRoot, SynthesisConfig config,
                                   Map<SubWorkspaceConfig, String> suggestions) throws IOException {
         int applied = 0;
+        List<SubWorkspaceConfig> toRemove = new ArrayList<>();
         for (var entry : suggestions.entrySet()) {
             if (entry.getValue() != null) {
                 entry.getKey().setPath(entry.getValue());
                 applied++;
+            } else {
+                toRemove.add(entry.getKey());
             }
         }
-        if (applied > 0) {
+        // Remove unmatched phantoms from the config
+        config.getSubWorkspaces().removeAll(toRemove);
+
+        if (applied > 0 || !toRemove.isEmpty()) {
             saveConfig(workspaceRoot, config);
-            System.out.printf("%n  Applied %d remapping(s). Config updated.%n%n", applied);
+        }
+        if (applied > 0) {
+            System.out.printf("%n  Applied %d remapping(s).%n", applied);
+        }
+        if (!toRemove.isEmpty()) {
+            System.out.printf("%nRemoved %d phantom sub-workspace entr%s:%n",
+                    toRemove.size(), toRemove.size() == 1 ? "y" : "ies");
+            for (SubWorkspaceConfig sw : toRemove) {
+                System.out.println("  - " + sw.getName());
+            }
+        }
+        if (applied > 0 || !toRemove.isEmpty()) {
+            Path configFile = workspaceRoot.resolve(ConfigLoader.ROOT_CONFIG);
+            if (!java.nio.file.Files.exists(configFile)) {
+                configFile = workspaceRoot.resolve(ConfigLoader.INTERNAL_CONFIG);
+            }
+            System.out.println("Config updated: " + configFile);
+            System.out.println();
         } else {
             System.out.println("  No valid suggestions to apply.");
         }
@@ -523,7 +546,8 @@ public class HealthCommand implements Callable<Integer> {
 
         // Update the path of each sub-workspace entry in the raw map
         Object subWsObj = raw.get("subWorkspaces");
-        if (subWsObj instanceof List<?> rawList) {
+        if (subWsObj instanceof List<?> rawListRaw) {
+            List<Object> rawList = (List<Object>) rawListRaw;
             for (Object item : rawList) {
                 if (item instanceof Map<?, ?> swMap) {
                     String name = (String) ((Map<?, ?>) swMap).get("name");
@@ -534,6 +558,17 @@ public class HealthCommand implements Callable<Integer> {
                     }
                 }
             }
+            // Remove entries whose name is no longer in the active sub-workspace set
+            Set<String> activeNames = config.getSubWorkspaces().stream()
+                    .map(SubWorkspaceConfig::getName)
+                    .collect(java.util.stream.Collectors.toSet());
+            rawList.removeIf(item -> {
+                if (item instanceof Map<?, ?> swMap) {
+                    Object name = swMap.get("name");
+                    return name != null && !activeNames.contains(name.toString());
+                }
+                return false;
+            });
         }
 
         DumperOptions opts = new DumperOptions();

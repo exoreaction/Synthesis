@@ -381,8 +381,19 @@ public class MaintainOrchestrator {
         if (exitCode != 0) {
             return PhaseResult.failed(3, "Sync", "sync exited with code " + exitCode);
         }
+
+        List<String> details = new ArrayList<>();
+        // Check for phantom sub-workspace paths
+        List<SynthesisConfig.SubWorkspaceConfig> phantoms = config.getSubWorkspaces().stream()
+                .filter(sw -> !java.nio.file.Files.isDirectory(workspaceRoot.resolve(sw.getPath())))
+                .toList();
+        if (!phantoms.isEmpty()) {
+            details.add("WARNING: " + phantoms.size() + " phantom sub-workspace path(s) in config "
+                    + "— run 'synthesis health --fix-config' to clean up");
+        }
+
         return PhaseResult.success(3, "Sync", 0,
-                "directory identities synced", List.of());
+                "directory identities synced", details);
     }
 
     // =========================================================================
