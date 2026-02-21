@@ -17,8 +17,10 @@ import java.util.Optional;
  * <p>Results are cached per instance to avoid repeated filesystem walks.
  *
  * <p>As of P1-05, this class replaces {@code SubjectBasedRouter} as the unified
- * routing mechanism. The {@link #route(Path, double, boolean)} overload supports
- * transient-destination filtering for rebalance and health check operations.
+ * routing mechanism. As of P1-06, the primary API uses {@link RoutingContext} for
+ * caller preferences and returns {@link RoutingDecision} with full reasoning.
+ * Backward-compatible overloads using raw threshold/skipTransient parameters
+ * delegate to the new API.
  *
  * @since v1.9.9
  */
@@ -47,6 +49,48 @@ public class DirectoryIdentityRouter {
         this.parser = new DirectoryIdentityParser();
         this.scorer = new DirectoryScorer(new ScopeChecker(), workspaceRoot);
     }
+
+    // =========================================================================
+    // Primary API (P1-06): RoutingContext -> RoutingDecision
+    // =========================================================================
+
+    /**
+     * Routes a file using the given routing context, returning a structured decision.
+     *
+     * <p>Routing hints (from {@code .synthesis/routing-hints.json}) are checked first.
+     * If a hint matches, it takes priority over regular scoring.
+     *
+     * @param file    the file to route
+     * @param context caller preferences (threshold, skipTransient, etc.)
+     * @return the routing decision, or empty if no candidate meets the threshold
+     * @since v1.13.0 (P1-06)
+     */
+    public Optional<RoutingDecision> route(Path file, RoutingContext context) {
+        // Check routing hints first (they have priority)
+        Optional<RoutingDecision> hintResult = checkRoutingHintsDecision(file);
+        if (hintResult.isPresent()) return hintResult;
+
+        List<DirectoryScorer.DirectoryCandidate> candidateList =
+                context.skipTransient() ? loadNonTransientCandidates() : loadCandidates();
+        if (candidateList.isEmpty()) return Optional.empty();
+
+        ScopeResolver.ResolvedScope fileScope = scopeResolver.resolve(
+                file.getParent() != null ? file.getParent() : workspaceRoot);
+
+        List<DirectoryScorer.ScoredCandidate> scored = scorer.score(file, fileScope, candidateList);
+        if (scored.isEmpty()) return Optional.empty();
+
+        DirectoryScorer.ScoredCandidate top = scored.get(0);
+        if (top.blocked()) return Optional.empty();
+        if (top.totalScore() < context.threshold()) return Optional.empty();
+
+        boolean ambiguous = top.reasons().contains("AMBIGUOUS");
+        return Optional.of(RoutingDecision.fromScoredCandidate(top, ambiguous));
+    }
+
+    // =========================================================================
+    // Backward-compatible API (delegates to RoutingContext API)
+    // =========================================================================
 
     /**
      * Returns the best-matching directory candidate for the given file, or empty if:
@@ -83,38 +127,26 @@ public class DirectoryIdentityRouter {
      * @since v1.13.0 (P1-05)
      */
     public Optional<RouteResult> route(Path file, double threshold, boolean skipTransient) {
-        // Check routing hints first (they have priority)
-        Optional<RouteResult> hintResult = checkRoutingHints(file);
-        if (hintResult.isPresent()) return hintResult;
-
-        List<DirectoryScorer.DirectoryCandidate> candidateList =
-                skipTransient ? loadNonTransientCandidates() : loadCandidates();
-        if (candidateList.isEmpty()) return Optional.empty();
-
-        ScopeResolver.ResolvedScope fileScope = scopeResolver.resolve(
-                file.getParent() != null ? file.getParent() : workspaceRoot);
-
-        List<DirectoryScorer.ScoredCandidate> scored = scorer.score(file, fileScope, candidateList);
-        if (scored.isEmpty()) return Optional.empty();
-
-        DirectoryScorer.ScoredCandidate top = scored.get(0);
-        if (top.blocked()) return Optional.empty();
-        if (top.totalScore() < threshold) return Optional.empty();
-        if (top.reasons().contains("AMBIGUOUS")) return Optional.of(new RouteResult(top, true));
-        return Optional.of(new RouteResult(top, false));
+        RoutingContext context = new RoutingContext(threshold, skipTransient, false, false);
+        Optional<RoutingDecision> decision = route(file, context);
+        return decision.map(RouteResult::new);
     }
 
+    // =========================================================================
+    // Routing hints
+    // =========================================================================
+
     /**
-     * Checks routing hints for a matching pattern and returns a synthetic RouteResult.
+     * Checks routing hints for a matching pattern and returns a RoutingDecision.
      *
      * <p>Loads hints from {@code .synthesis/routing-hints.json}, matches against the
      * file's basename, and if a match is found, increments the hint's hit count and
-     * returns a synthetic scored candidate with score 0.9.
+     * returns a synthetic decision with score 0.9.
      *
      * @param file the file to check hints for
-     * @return a RouteResult if a hint matches, empty otherwise
+     * @return a RoutingDecision if a hint matches, empty otherwise
      */
-    private Optional<RouteResult> checkRoutingHints(Path file) {
+    private Optional<RoutingDecision> checkRoutingHintsDecision(Path file) {
         RoutingHints routingHints = new RoutingHints(workspaceRoot);
         List<RoutingHints.RoutingHint> matches;
         try {
@@ -137,15 +169,15 @@ public class DirectoryIdentityRouter {
                     hint.filenamePattern(), hint.destinationPath(),
                     hint.learnedAt(), hint.hitCount()));
         } catch (IOException ignored) {
-            // Best-effort — don't block routing if we can't update the count
+            // Best-effort -- don't block routing if we can't update the count
         }
 
-        // Create a synthetic ScoredCandidate for the hint
-        DirectoryIdentity dummyIdentity = DirectoryIdentity.empty();
-        DirectoryScorer.ScoredCandidate hintCandidate = new DirectoryScorer.ScoredCandidate(
-                hintDest, dummyIdentity, 0.9, 0.0, 0.9, false, List.of("hint-match"));
-        return Optional.of(new RouteResult(hintCandidate, false));
+        return Optional.of(RoutingDecision.fromHint(hintDest, 0.9));
     }
+
+    // =========================================================================
+    // Scoring (for display/explain)
+    // =========================================================================
 
     /**
      * Returns ALL scored candidates sorted by score, for display purposes (verbose mode).
@@ -159,6 +191,10 @@ public class DirectoryIdentityRouter {
                 file.getParent() != null ? file.getParent() : workspaceRoot);
         return scorer.score(file, fileScope, candidateList);
     }
+
+    // =========================================================================
+    // Candidate discovery (cached)
+    // =========================================================================
 
     /** Lazy-initialize and cache the full candidate list. */
     private List<DirectoryScorer.DirectoryCandidate> loadCandidates() {
@@ -206,29 +242,45 @@ public class DirectoryIdentityRouter {
         return result;
     }
 
+    // =========================================================================
+    // RouteResult (backward-compatible wrapper around RoutingDecision)
+    // =========================================================================
+
     /**
-     * Encapsulates a routing decision: the scored candidate and whether the match
-     * was ambiguous (multiple candidates with very similar scores).
+     * Backward-compatible routing result wrapping a {@link RoutingDecision}.
      *
-     * @param candidate the top-scoring candidate
-     * @param ambiguous true if the match was ambiguous
+     * <p>Provides the same API as the previous inner record ({@code directory()},
+     * {@code score()}, {@code ambiguous()}, {@code scoreLabel()}) while delegating
+     * to the underlying {@link RoutingDecision}.
+     *
+     * @param decision the underlying routing decision
+     * @since v1.13.0 (P1-06: wraps RoutingDecision)
      */
-    public record RouteResult(DirectoryScorer.ScoredCandidate candidate, boolean ambiguous) {
+    public record RouteResult(RoutingDecision decision) {
 
         /** Returns the target directory path. */
         public Path directory() {
-            return candidate.directory();
+            return decision.destination();
         }
 
         /** Returns the total score. */
         public double score() {
-            return candidate.totalScore();
+            return decision.score();
+        }
+
+        /** Returns true if the match was ambiguous. */
+        public boolean ambiguous() {
+            return decision.ambiguous();
+        }
+
+        /** Returns the confidence level. */
+        public RoutingConfidence confidence() {
+            return decision.confidence();
         }
 
         /** Returns a human-readable label summarizing the routing decision. */
         public String scoreLabel() {
-            return String.format("dir-identity: %s @ %.2f",
-                    directory().getFileName(), score());
+            return decision.scoreLabel();
         }
     }
 }

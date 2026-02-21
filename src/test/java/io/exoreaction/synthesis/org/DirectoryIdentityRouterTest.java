@@ -164,8 +164,11 @@ class DirectoryIdentityRouterTest {
 
         assertTrue(result.isPresent());
         String label = result.get().scoreLabel();
-        assertTrue(label.startsWith("dir-identity: docs @"),
-                "Score label should contain directory name. Got: " + label);
+        assertTrue(label.contains("docs") && label.contains("@"),
+                "Score label should contain directory name and score. Got: " + label);
+        // P1-06: new format includes mechanism and confidence level
+        assertTrue(label.contains("identity-score:"),
+                "Score label should include mechanism. Got: " + label);
     }
 
     @Test
@@ -205,5 +208,101 @@ class DirectoryIdentityRouterTest {
 
         assertTrue(result.isEmpty(),
                 "Directories with empty acceptsTypes and acceptsFormats should be ignored");
+    }
+
+    // ---- P1-06: RoutingContext-based API ----
+
+    @Test
+    void route_withRoutingContext_returnsRoutingDecision() throws IOException {
+        createIdentityDir("meetings", List.of("meeting-notes"), List.of("md"));
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(tempDir, null);
+        Path file = tempDir.resolve("weekly-standup.md");
+
+        RoutingContext context = RoutingContext.withThreshold(0.3);
+        Optional<RoutingDecision> decision = router.route(file, context);
+
+        assertTrue(decision.isPresent(), "Should return a RoutingDecision");
+        assertEquals("meetings", decision.get().destination().getFileName().toString());
+        assertTrue(decision.get().score() >= 0.3);
+        assertNotNull(decision.get().confidence());
+        assertEquals("identity-score", decision.get().mechanism());
+        assertFalse(decision.get().reasons().isEmpty(), "Reasons should be populated");
+        assertFalse(decision.get().ambiguous());
+    }
+
+    @Test
+    void route_withRoutingContext_belowThreshold_returnsEmpty() throws IOException {
+        createIdentityDir("scripts", List.of("scripts"), List.of("sh"));
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(tempDir, null);
+        Path file = tempDir.resolve("readme.md");
+
+        RoutingContext context = RoutingContext.withThreshold(0.5);
+        Optional<RoutingDecision> decision = router.route(file, context);
+
+        assertTrue(decision.isEmpty());
+    }
+
+    @Test
+    void route_forRebalanceContext_skipTransient() throws IOException {
+        // Create transient dir
+        Path transientDir = tempDir.resolve("incoming");
+        Files.createDirectories(transientDir);
+        DirectoryIdentity transientId = new DirectoryIdentity(
+                List.of("media"), List.of("mp4"), List.of(),
+                ScopeLevel.WORKSPACE, null, null,
+                0.8, null, "test", "",
+                List.of(), List.of(), true, List.of()
+        );
+        new DirectoryIdentityParser().write(transientDir.resolve(".synthesis.md"), transientId);
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(tempDir, null);
+        Path file = tempDir.resolve("video.mp4");
+
+        // With forRebalance context (skipTransient=true), transient dirs are excluded
+        RoutingContext rebalance = RoutingContext.forRebalance();
+        Optional<RoutingDecision> decision = router.route(file, rebalance);
+        assertTrue(decision.isEmpty(),
+                "Rebalance context should exclude transient directories");
+
+        // Without skipTransient, the transient dir should match
+        RoutingContext normal = RoutingContext.withThreshold(0.1);
+        Optional<RoutingDecision> normalDecision = router.route(file, normal);
+        assertTrue(normalDecision.isPresent(),
+                "Normal context should include transient directories");
+    }
+
+    @Test
+    void routingDecision_confidenceLevel_matchesScore() throws IOException {
+        createIdentityDir("docs", List.of("documentation"), List.of("md"));
+
+        DirectoryIdentityRouter router = new DirectoryIdentityRouter(tempDir, null);
+        Path file = tempDir.resolve("notes.md");
+
+        RoutingContext context = RoutingContext.withThreshold(0.1);
+        Optional<RoutingDecision> decision = router.route(file, context);
+
+        assertTrue(decision.isPresent());
+        RoutingConfidence expected = RoutingConfidence.fromScore(decision.get().score());
+        assertEquals(expected, decision.get().confidence(),
+                "Confidence should match score: " + decision.get().score());
+    }
+
+    @Test
+    void routingContext_factoryMethods() {
+        RoutingContext rebalance = RoutingContext.forRebalance();
+        assertEquals(0.5, rebalance.threshold());
+        assertTrue(rebalance.skipTransient());
+        assertFalse(rebalance.mediaOnly());
+        assertFalse(rebalance.dryRun());
+
+        RoutingContext e010 = RoutingContext.forE010();
+        assertEquals(0.25, e010.threshold());
+        assertTrue(e010.skipTransient());
+
+        RoutingContext simple = RoutingContext.withThreshold(0.7);
+        assertEquals(0.7, simple.threshold());
+        assertFalse(simple.skipTransient());
     }
 }
