@@ -1,14 +1,15 @@
 name: synthesis-workspace-cleanup
 description: >
   Use this skill when you need to audit, clean up, or reorganize a Synthesis workspace.
-  Covers health checks, empty-directory pruning, stale-file archival, entity fragmentation
-  analysis, naming convention audits, TTL rules, and archive auditing.
+  Covers health checks (.synthesisignore, E001/E002 fix), empty-directory pruning,
+  stale-file archival, entity fragmentation analysis, naming convention audits,
+  TTL rules, and archive auditing.
 
 ---
 
 # Synthesis Workspace Cleanup Commands
 
-Synthesis v1.11.0 ships a suite of hygiene commands for keeping knowledge workspaces tidy.
+Synthesis v1.12.0 ships a suite of hygiene commands for keeping knowledge workspaces tidy.
 All commands support `--dry-run` and are non-destructive by default.
 
 ---
@@ -35,9 +36,49 @@ synthesis health --format json  # machine-readable output
 **Score formula:** `100 − 15 × errors − 5 × warnings`
 **Grades:** A (90+), B (75+), C (60+), D (40+), F (<40)
 
-**`--fix-config`**: fuzzy-matches phantom paths against actual directories using
+**`--fix-config` E001:** fuzzy-matches phantom paths against actual directories using
 Levenshtein distance (≤ 3 chars), updates `.synthesis/config.yaml` in-place via
 raw YAML map mutation (preserves comments).
+
+**`--fix-config` E002:** For each detected build-artifact directory (node_modules/, target/, etc.),
+prompts for explicit `y/N` confirmation before appending the pattern to `.synthesisignore`.
+Never auto-applies — requires explicit user confirmation per directory.
+
+**E002 design invariant:**
+- `health` always detects build artifacts unconditionally, even if they are already listed in `.synthesisignore`.
+- This is intentional: health reports what exists on disk, independent of what is indexed.
+- Adding to `.synthesisignore` only affects indexing, not E002 detection.
+
+---
+
+## .synthesisignore — Opt-In Indexing Exclusions
+
+A `.synthesisignore` file at the workspace root tells `DirectoryScanner` to skip directories
+during indexing (not scanning for health purposes). Format: one pattern per line, `#` = comment.
+
+```
+# Exclude build artifacts from indexing
+node_modules/
+target/
+.gradle/
+__pycache__/
+.venv/
+```
+
+**Creating / managing:**
+```bash
+# synthesis init proposes a default .synthesisignore during first-run setup
+synthesis init                     # interactive: prompts y/N
+synthesis init --yes               # non-interactive: auto-creates with defaults
+
+# synthesis health --fix-config proposes additions for detected E002 artifacts
+synthesis health --fix-config      # prompts y/N per detected artifact directory
+```
+
+**Parsing rules:**
+- Blank lines and `#` comments are stripped
+- Pattern `node_modules/` excludes any directory named `node_modules` at any depth (component-based)
+- `appendToSynthesisIgnore()` is idempotent — will not duplicate existing patterns
 
 ---
 
@@ -224,8 +265,8 @@ synthesis archive audit --manifest archive-report.md  # write report to file
 # 1. Health check first
 synthesis health
 
-# 2. Fix config issues
-synthesis health --fix-config
+# 2. Fix config issues (E001: phantom paths, E002: build artifacts → .synthesisignore)
+synthesis health --fix-config      # prompts y/N for each fix; E002 adds to .synthesisignore
 
 # 3. Remove empty directories
 synthesis prune --yes
@@ -251,7 +292,10 @@ synthesis archive audit
 
 ## Related Commands
 
-- `synthesis maintain` — housekeeping, change tracking, staging ingest/route
+- `synthesis maintain` — 9-phase housekeeping pipeline (Ingest→Route→Sync→Sweep→Rebalance→Expire→Index→Track→Prune)
+  - `--rebalance` moves archive files scoring ≥ 0.7 back to active directories (threshold raised from 0.5 in v1.12.0)
+  - Frozen subtrees (`old-*`, `snapshot-*`, `frozen-*`) and `.git` internals are excluded from rebalance
+  - `--dry-run` previews all phases without making changes; `--quiet` for cron use
 - `synthesis staging route` — route Downloads files using routing rules (shares rule evaluation with `sweep`)
 - `synthesis enrich` — generate `.synthesis.md` companions for PDFs/images (enables content-based routing in sweep)
 - `synthesis prune` — empty-directory cleanup (safe to run frequently)

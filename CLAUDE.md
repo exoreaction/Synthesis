@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 17+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.11.1, Feb 2026)
+**Status:** Production-ready (v1.12.2-SNAPSHOT, Feb 2026)
 
 ---
 
@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,086 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 3,221 tests passing, 92-95% reduction in retrieval time.
 
 ---
 
@@ -89,13 +89,18 @@ and return irrelevant results -- even when source code IS indexed. See issue #85
 # Workspace lifecycle
 synthesis init                          # Initialize workspace
 synthesis scan                          # Index files (200-300/sec)
-synthesis maintain                      # Housekeeping + change tracking (also runs staging ingest+route)
+synthesis maintain                      # 9-phase housekeeping pipeline (Ingest→Route→Sync→Sweep→Rebalance→Expire→Index→Track→Prune)
+synthesis maintain --dry-run            # Preview all phases without making changes
+synthesis maintain --quiet              # One summary line only (for cron)
+synthesis maintain --json               # Machine-readable JSON output (for monitoring)
+synthesis maintain --skip-downloads     # Skip Ingest and Route phases (phases 1-2)
+synthesis maintain --skip-git           # Skip git fetch for client codebases
 synthesis maintain --update-activity-log # Auto-append to ACTIVITY-LOG.md
 synthesis maintain --sync               # Run directory identity sync after maintenance
-synthesis maintain --rebalance          # Move archive files scoring >= 0.5 back to active dirs
+synthesis maintain --rebalance          # Move archive files scoring >= 0.7 back to active dirs
 synthesis status                        # Index health + metrics
 synthesis health                        # Workspace health audit (score 0-100)
-synthesis health --fix-config           # Auto-fix phantom sub-workspace paths
+synthesis health --fix-config           # Auto-fix E001 (phantom paths) and E002 (build artifacts) interactively
 
 # Search & discovery
 synthesis search -d /src/exoreaction "keyword"   # Search source code
@@ -169,13 +174,15 @@ synthesis credentials                   # Manage credentials
 
 ---
 
-## Directory Identity System (v1.11.1)
+## Directory Identity System (v1.12.0)
 
 Per-directory `.synthesis.md` files declare what each directory accepts. This enables intelligent file routing without centralized rules.
 
 - `synthesis sync` discovers directories and writes/updates identity files
 - `SweepCommand` uses `DirectoryIdentityRouter` to route files to matching directories before falling back to archive
-- `MaintainCommand --rebalance` periodically moves files from archive back to active directories when they score >= 0.5
+- `MaintainCommand --rebalance` periodically moves files from archive back to active directories when they score >= 0.7
+- Frozen subtrees (`old-*`, `snapshot-*`, `frozen-*` at archive top level) are excluded from rebalance
+- `.git` internals are always excluded from rebalance walks
 
 **Key classes:** `DirectoryIdentity`, `DirectoryIdentityParser`, `DirectoryNameVocabulary`, `DirectorySignalExtractor`, `DirectoryScorer`, `DirectoryIdentityRouter`, `ScopeChecker`, `ScopeResolver`
 
@@ -194,6 +201,37 @@ synthesis:
 ```
 
 Parsed by `DirectoryIdentityParser`. Written by `SyncCommand`.
+
+---
+
+## .synthesisignore — Indexing Exclusions
+
+A `.synthesisignore` file at the workspace root tells `DirectoryScanner` to skip directories during
+indexing. It uses `.gitignore`-style patterns (directory names or paths, one per line; `#` = comment).
+
+```
+# Exclude build artifacts from indexing
+node_modules/
+target/
+.gradle/
+__pycache__/
+.venv/
+```
+
+**Key design invariants:**
+- `DirectoryScanner` respects `.synthesisignore` → excluded dirs are NOT indexed.
+- `HealthCommand.findBuildArtifacts()` (E002) always scans unconditionally — it is **blind to
+  `.synthesisignore`**. This is intentional: health checks report what exists on disk, independently
+  of what is indexed.
+- **`synthesis health --fix-config` E002 flow:** Lists each detected build-artifact directory and
+  asks for explicit `y/N` confirmation before appending to `.synthesisignore`. Never auto-applies.
+- **`synthesis init`** proposes a default `.synthesisignore` (node_modules/, target/, .gradle/,
+  __pycache__/, .venv/) and creates it with confirmation (`--yes`/`-y` auto-accepts).
+- `appendToSynthesisIgnore()` is idempotent — will not duplicate an existing pattern.
+
+**Parsing:** `DirectoryScanner.parseSynthesisIgnore(Path)` strips blank lines and `#` comments,
+returning only real patterns. Matching is component-based: a pattern `node_modules/` excludes any
+directory named `node_modules` at any depth.
 
 ---
 
@@ -226,7 +264,7 @@ Parsed by `DirectoryIdentityParser`. Written by `SyncCommand`.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (3,086)
++-- src/test/                          # JUnit 5 tests (3,221)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 +-- .claude/skills/                    # 32 Claude Code skills (see below)
