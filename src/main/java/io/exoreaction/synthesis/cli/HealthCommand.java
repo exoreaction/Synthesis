@@ -193,6 +193,15 @@ public class HealthCommand implements Callable<Integer> {
                     "synthesis sync --enrich-centroids"));
         }
 
+        // W021: Want drift (centroid diverges from wants)
+        W021Check w021 = new W021Check();
+        List<W021Check.W021Finding> w021Findings = w021.check(workspaceRoot);
+        for (W021Check.W021Finding finding : w021Findings) {
+            issues.add(new HealthIssue(
+                    HealthIssue.Severity.WARNING, "W021", finding.message(),
+                    "synthesis sync --enrich-centroids"));
+        }
+
         printIssues(issues);
 
         int score = calculateScore(issues);
