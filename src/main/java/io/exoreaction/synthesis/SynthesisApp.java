@@ -117,7 +117,8 @@ import java.util.concurrent.Callable;
                 ArchiveCommand.class,
                 TtlCommand.class,
                 SyncCommand.class,
-                RouteExplainCommand.class
+                RouteExplainCommand.class,
+                DescribeCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -329,7 +330,7 @@ public class SynthesisApp implements Callable<Integer> {
         ));
         HELP_GROUPS.put("Workspace:", java.util.List.of(
             "staging", "sweep", "prune", "ttl", "archive", "sync",
-            "consolidate", "scatter", "naming"
+            "describe", "consolidate", "scatter", "naming"
         ));
         HELP_GROUPS.put("Admin:", java.util.List.of(
             "update", "telemetry", "credentials", "org", "learn",
