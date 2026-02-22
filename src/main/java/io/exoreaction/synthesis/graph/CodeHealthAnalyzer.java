@@ -1,11 +1,15 @@
 package io.exoreaction.synthesis.graph;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 
 /**
  * Detects code health signals from persisted module profiles and dependency graph.
@@ -26,6 +30,9 @@ import java.util.logging.Logger;
 public class CodeHealthAnalyzer {
 
     private static final Logger LOG = Logger.getLogger(CodeHealthAnalyzer.class.getName());
+
+    /** Minimum number of files in a package to trigger the C012 god package signal. */
+    static final int GOD_PACKAGE_THRESHOLD = 30;
 
     /**
      * Analyzes the code knowledge graph for health signals.
@@ -58,39 +65,59 @@ public class CodeHealthAnalyzer {
     private List<CodeHealthSignal> detectCircularDependencies(String workspacePath, Connection conn)
             throws SQLException {
         List<CodeHealthSignal> signals = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
 
-        // Find all package pairs where A->B and B->A both exist
+        // Aggregate class-level edges to package-level first, then detect mutual pairs
         String sql = """
-            SELECT DISTINCT d1.source_package, d1.target_package,
-                   COUNT(*) as edge_count
-            FROM code_dependencies d1
-            JOIN code_dependencies d2
-              ON d1.workspace_path = d2.workspace_path
-              AND d1.source_package = d2.target_package
-              AND d1.target_package = d2.source_package
-            WHERE d1.workspace_path = ?
-              AND d1.source_package != d1.target_package
-              AND d1.source_package != ''
-              AND d1.target_package != ''
-              AND d1.is_external = 0
-              AND d2.is_external = 0
-            GROUP BY d1.source_package, d1.target_package
+            SELECT source_package, target_package, COUNT(*) as edge_count
+            FROM code_dependencies
+            WHERE workspace_path = ?
+              AND is_external = 0
+              AND source_package != ''
+              AND target_package != ''
+              AND source_package != target_package
+            GROUP BY source_package, target_package
             """;
+
+        // Build lookup: (source -> target) -> edgeCount at the package level
+        Map<String, Integer> edgeMap = new HashMap<>();
+        List<String[]> allEdges = new ArrayList<>();
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String pkgA = rs.getString(1);
-                    String pkgB = rs.getString(2);
-                    int edges = rs.getInt(3);
+                    String src = rs.getString(1);
+                    String tgt = rs.getString(2);
+                    int count = rs.getInt(3);
+                    edgeMap.put(src + " -> " + tgt, count);
+                    allEdges.add(new String[]{src, tgt});
+                }
+            }
+        }
 
-                    // Avoid duplicate pairs (A-B and B-A)
-                    String key = pkgA.compareTo(pkgB) < 0 ? pkgA + "|" + pkgB : pkgB + "|" + pkgA;
-                    if (seen.contains(key)) continue;
-                    seen.add(key);
-
+        // Find mutual pairs
+        Set<String> seen = new HashSet<>();
+        for (String[] edge : allEdges) {
+            String src = edge[0];
+            String tgt = edge[1];
+            String reverseKey = tgt + " -> " + src;
+            if (edgeMap.containsKey(reverseKey)) {
+                // Normalize to avoid duplicate pairs (alphabetical order)
+                String pkgA, pkgB;
+                int aToB, bToA;
+                if (src.compareTo(tgt) <= 0) {
+                    pkgA = src;
+                    pkgB = tgt;
+                    aToB = edgeMap.get(src + " -> " + tgt);
+                    bToA = edgeMap.get(reverseKey);
+                } else {
+                    pkgA = tgt;
+                    pkgB = src;
+                    aToB = edgeMap.get(tgt + " -> " + src);
+                    bToA = edgeMap.get(src + " -> " + tgt);
+                }
+                String pairKey = pkgA + "|" + pkgB;
+                if (seen.add(pairKey)) {
                     String shortA = shortName(pkgA);
                     String shortB = shortName(pkgB);
 
@@ -98,7 +125,9 @@ public class CodeHealthAnalyzer {
                             "C001_CIRCULAR_DEPENDENCY",
                             "HIGH",
                             pkgA.replace('.', '/'),
-                            shortA + " <-> " + shortB + " mutual imports detected (" + edges + " import edges each way)",
+                            shortA + " <-> " + shortB + " mutual imports detected ("
+                                    + aToB + " edges " + shortA + "->" + shortB
+                                    + ", " + bToA + " edges " + shortB + "->" + shortA + ")",
                             "Extract shared types to a common module"
                     ));
                 }
@@ -122,22 +151,6 @@ public class CodeHealthAnalyzer {
             WHERE workspace_path = ? AND fan_in > 5
             """;
 
-        // Also collect all known test packages
-        Set<String> testPackages = new HashSet<>();
-        String testSql = """
-            SELECT DISTINCT package_name FROM module_profiles
-            WHERE workspace_path = ?
-              AND (package_name LIKE '%test%' OR package_name LIKE '%tests%')
-            """;
-        try (PreparedStatement ps = conn.prepareStatement(testSql)) {
-            ps.setString(1, workspacePath);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    testPackages.add(rs.getString(1));
-                }
-            }
-        }
-
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
@@ -149,9 +162,9 @@ public class CodeHealthAnalyzer {
                     // Skip test packages themselves
                     if (packageName.contains("test")) continue;
 
-                    // Check if corresponding test package exists
-                    boolean hasTests = testPackages.stream().anyMatch(tp ->
-                            tp.contains(packageName) || packageName.contains(tp));
+                    // Check if corresponding test files exist on the filesystem
+                    // Standard Maven layout: src/test/java/<package-as-path>/*Test.java
+                    boolean hasTests = hasTestFilesOnDisk(workspacePath, packageName);
 
                     if (!hasTests) {
                         signals.add(new CodeHealthSignal(
@@ -168,6 +181,65 @@ public class CodeHealthAnalyzer {
         return signals;
     }
 
+    /**
+     * Checks the filesystem for test files corresponding to the given package.
+     * Looks in standard Maven layout: src/test/java/&lt;package-as-path&gt;/
+     * for files matching *Test.java.
+     *
+     * <p>Also walks up to find git repo roots (directories containing src/test/java/)
+     * to handle multi-module workspaces.
+     */
+    private boolean hasTestFilesOnDisk(String workspacePath, String packageName) {
+        Path wsRoot = Path.of(workspacePath);
+        String packagePath = packageName.replace('.', '/');
+
+        // Check common test directory locations
+        List<Path> testDirCandidates = List.of(
+                wsRoot.resolve("src/test/java").resolve(packagePath),
+                wsRoot.resolve("test").resolve(packagePath)
+        );
+
+        // Also search for any src/test/java directories under the workspace
+        // (handles multi-module Maven projects like Synthesis itself)
+        try (Stream<Path> walk = Files.walk(wsRoot, 4)) {
+            List<Path> srcTestJavaDirs = walk
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.endsWith("src/test/java"))
+                    .toList();
+            for (Path testJavaDir : srcTestJavaDirs) {
+                Path candidate = testJavaDir.resolve(packagePath);
+                if (hasTestJavaFiles(candidate)) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            LOG.fine("Could not walk workspace for test dirs: " + e.getMessage());
+        }
+
+        for (Path testDir : testDirCandidates) {
+            if (hasTestJavaFiles(testDir)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks if a directory exists and contains at least one *Test.java file.
+     */
+    private boolean hasTestJavaFiles(Path dir) {
+        if (!Files.isDirectory(dir)) return false;
+        try (Stream<Path> files = Files.list(dir)) {
+            return files.anyMatch(p -> {
+                String name = p.getFileName().toString();
+                return name.endsWith("Test.java") || name.endsWith("Tests.java");
+            });
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // C012_GOD_PACKAGE
     // -----------------------------------------------------------------------
@@ -179,11 +251,12 @@ public class CodeHealthAnalyzer {
         String sql = """
             SELECT module_path, package_name, total_files
             FROM module_profiles
-            WHERE workspace_path = ? AND total_files > 15
+            WHERE workspace_path = ? AND total_files > ?
             """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
+            ps.setInt(2, GOD_PACKAGE_THRESHOLD);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String modulePath = rs.getString(1);
@@ -193,7 +266,7 @@ public class CodeHealthAnalyzer {
                             "C012_GOD_PACKAGE",
                             "MEDIUM",
                             modulePath,
-                            "Package has " + totalFiles + " files (threshold: 15)",
+                            "Package has " + totalFiles + " files (threshold: " + GOD_PACKAGE_THRESHOLD + ")",
                             "Split into sub-packages by feature area"
                     ));
                 }

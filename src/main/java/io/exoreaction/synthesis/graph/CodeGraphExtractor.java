@@ -220,6 +220,7 @@ public class CodeGraphExtractor {
             walk.filter(Files::isRegularFile)
                 .filter(p -> p.toString().endsWith(".java"))
                 .filter(p -> !p.toString().contains("/."))  // skip hidden dirs
+                .filter(p -> !isBuildArtifact(root, p))
                 .forEach(files::add);
         }
         return files;
@@ -262,6 +263,21 @@ public class CodeGraphExtractor {
     String getPackageFromImport(String fullyQualified) {
         int lastDot = fullyQualified.lastIndexOf('.');
         return lastDot >= 0 ? fullyQualified.substring(0, lastDot) : "";
+    }
+
+    /**
+     * Returns true if the given path is inside a build artifact directory
+     * (target/, build/, out/) relative to the workspace root.
+     */
+    public static boolean isBuildArtifact(Path workspaceRoot, Path file) {
+        Path rel = workspaceRoot.relativize(file);
+        for (Path component : rel) {
+            String name = component.toString();
+            if ("target".equals(name) || "build".equals(name) || "out".equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<CodeDependency> extractStructuralDeps(String content, String wsPath,
@@ -315,6 +331,7 @@ public class CodeGraphExtractor {
                     .filter(Files::isRegularFile)
                     .filter(p -> p.toString().endsWith(".sql"))
                     .filter(p -> !p.toString().contains("/."))
+                    .filter(p -> !isBuildArtifact(workspaceRoot, p))
                     .toList();
 
             for (Path sqlFile : sqlFiles) {

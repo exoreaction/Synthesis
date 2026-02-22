@@ -215,6 +215,81 @@ class ModuleProfileComputerTest {
         assertEquals("General purpose", computer.inferPurpose(""));
     }
 
+    @Test
+    void inferPurpose_changelog_package() {
+        assertEquals("Change tracking", computer.inferPurpose("io.exoreaction.synthesis.changelog"));
+    }
+
+    @Test
+    void inferPurpose_tracking_package() {
+        assertEquals("Change tracking", computer.inferPurpose("io.exoreaction.synthesis.tracking"));
+    }
+
+    @Test
+    void inferPurpose_enrichment_package() {
+        assertEquals("Media enrichment", computer.inferPurpose("io.exoreaction.synthesis.enrichment"));
+    }
+
+    @Test
+    void inferPurpose_summary_package() {
+        assertEquals("Reporting / summarization", computer.inferPurpose("io.exoreaction.synthesis.summary"));
+    }
+
+    @Test
+    void inferPurpose_report_package() {
+        assertEquals("Reporting / summarization", computer.inferPurpose("io.exoreaction.synthesis.report"));
+    }
+
+    @Test
+    void inferPurpose_research_package() {
+        assertEquals("Research engine", computer.inferPurpose("io.exoreaction.synthesis.research"));
+    }
+
+    @Test
+    void inferPurpose_staging_package() {
+        assertEquals("Staging pipeline", computer.inferPurpose("io.exoreaction.synthesis.staging"));
+    }
+
+    @Test
+    void inferPurpose_metrics_package() {
+        assertEquals("Operational metrics", computer.inferPurpose("io.exoreaction.synthesis.metrics"));
+    }
+
+    @Test
+    void inferPurpose_telemetry_package() {
+        assertEquals("Operational metrics", computer.inferPurpose("io.exoreaction.synthesis.telemetry"));
+    }
+
+    @Test
+    void inferPurpose_validate_package() {
+        assertEquals("Validation", computer.inferPurpose("io.exoreaction.synthesis.validate"));
+    }
+
+    @Test
+    void inferPurpose_workspace_package() {
+        assertEquals("Workspace management", computer.inferPurpose("io.exoreaction.synthesis.workspace"));
+    }
+
+    @Test
+    void inferPurpose_update_package() {
+        assertEquals("Update management", computer.inferPurpose("io.exoreaction.synthesis.update"));
+    }
+
+    @Test
+    void inferPurpose_config_package() {
+        assertEquals("Configuration management", computer.inferPurpose("io.exoreaction.synthesis.config"));
+    }
+
+    @Test
+    void inferPurpose_utils_package() {
+        assertEquals("Shared utilities", computer.inferPurpose("com.example.utils"));
+    }
+
+    @Test
+    void inferPurpose_ai_package() {
+        assertEquals("AI service integration", computer.inferPurpose("io.exoreaction.synthesis.ai"));
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

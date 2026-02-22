@@ -144,6 +144,73 @@ class WorkspaceManagerTest {
     }
 
     @Test
+    void validate_suggestsChildWorkspaceWhenFoundBelow() throws IOException {
+        // Parent is NOT a workspace; child IS a workspace
+        Path child = tempDir.resolve("Synthesis");
+        Files.createDirectories(child.resolve(".synthesis"));
+
+        WorkspaceManager manager = new WorkspaceManager(tempDir);
+        Optional<String> result = manager.validate();
+
+        assertTrue(result.isPresent());
+        assertTrue(result.get().contains("Did you mean"),
+                "Error should contain 'Did you mean'");
+        assertTrue(result.get().contains("Synthesis"),
+                "Error should reference the child workspace: " + result.get());
+        assertTrue(result.get().contains("synthesis workspace"),
+                "Error should label it as a synthesis workspace");
+    }
+
+    @Test
+    void validate_suggestsBothAncestorAndChildWorkspaces() throws IOException {
+        // tempDir is a workspace (ancestor), child/sub also has a workspace,
+        // but we validate an intermediate directory
+        Files.createDirectories(tempDir.resolve(".synthesis"));
+        Path intermediate = tempDir.resolve("projects");
+        Files.createDirectories(intermediate);
+        Path child = intermediate.resolve("MyProject");
+        Files.createDirectories(child.resolve(".synthesis"));
+
+        WorkspaceManager manager = new WorkspaceManager(intermediate);
+        Optional<String> result = manager.validate();
+
+        assertTrue(result.isPresent());
+        assertTrue(result.get().contains("Did you mean"),
+                "Error should contain 'Did you mean'");
+        assertTrue(result.get().contains("parent workspace"),
+                "Should mention parent workspace: " + result.get());
+        assertTrue(result.get().contains("synthesis workspace"),
+                "Should mention child workspace: " + result.get());
+    }
+
+    @Test
+    void findChildWorkspaces_findsNestedWorkspaces() throws IOException {
+        Path child1 = tempDir.resolve("ws1");
+        Files.createDirectories(child1.resolve(".synthesis"));
+        Path child2 = tempDir.resolve("ws2");
+        Files.createDirectories(child2.resolve(".synthesis"));
+        // Non-workspace child
+        Files.createDirectories(tempDir.resolve("other"));
+
+        WorkspaceManager manager = new WorkspaceManager(tempDir);
+        var children = manager.findChildWorkspaces(tempDir, 2);
+
+        assertEquals(2, children.size(), "Should find 2 child workspaces");
+    }
+
+    @Test
+    void findChildWorkspaces_respectsMaxDepth() throws IOException {
+        // Create workspace 3 levels deep -- maxDepth=2 should not find it
+        Path deep = tempDir.resolve("a").resolve("b").resolve("c");
+        Files.createDirectories(deep.resolve(".synthesis"));
+
+        WorkspaceManager manager = new WorkspaceManager(tempDir);
+        var children = manager.findChildWorkspaces(tempDir, 2);
+
+        assertTrue(children.isEmpty(), "Workspace at depth 3 should not be found with maxDepth=2");
+    }
+
+    @Test
     void findAncestorWorkspace_returnsNullWhenNoAncestorHasSynthesis() throws IOException {
         Path child = tempDir.resolve("a").resolve("b");
         Files.createDirectories(child);

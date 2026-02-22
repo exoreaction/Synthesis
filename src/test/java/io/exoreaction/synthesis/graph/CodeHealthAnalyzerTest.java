@@ -7,6 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -75,6 +77,35 @@ class CodeHealthAnalyzerTest {
     }
 
     @Test
+    void analyze_circular_dependency_package_level_edge_counts() throws SQLException {
+        // Multiple class-level edges between same two packages:
+        // 3 edges from com.a -> com.b, 2 edges from com.b -> com.a
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A1.java", "A1", "com.a",
+                "src/B1.java", "B1", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A2.java", "A2", "com.a",
+                "src/B1.java", "B1", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A3.java", "A3", "com.a",
+                "src/B2.java", "B2", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B1.java", "B1", "com.b",
+                "src/A1.java", "A1", "com.a", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B2.java", "B2", "com.b",
+                "src/A2.java", "A2", "com.a", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
+
+        CodeHealthSignal circular = signals.stream()
+                .filter(s -> s.signalId().equals("C001_CIRCULAR_DEPENDENCY"))
+                .findFirst().orElse(null);
+        assertNotNull(circular, "Should detect circular dependency");
+        // Should report package-level edge counts (3 and 2), not cartesian product (6)
+        assertTrue(circular.description().contains("3 edges"),
+                "Should report 3 edges a->b, got: " + circular.description());
+        assertTrue(circular.description().contains("2 edges"),
+                "Should report 2 edges b->a, got: " + circular.description());
+    }
+
+    @Test
     void analyze_no_circular_for_one_way_dependency() throws SQLException {
         // Only A -> B, not B -> A
         repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
@@ -93,8 +124,8 @@ class CodeHealthAnalyzerTest {
 
     @Test
     void analyze_god_package() throws SQLException {
-        // Create a package with 16 files (> 15 threshold)
-        for (int i = 0; i < 16; i++) {
+        // Create a package with 31 files (> 30 threshold)
+        for (int i = 0; i < 31; i++) {
             repo.upsertDependency(conn, new CodeDependency(WS,
                     "src/File" + i + ".java", "File" + i, "com.big",
                     null, "String", "java.lang", "import", true, NOW));
@@ -104,20 +135,21 @@ class CodeHealthAnalyzerTest {
         List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
 
         assertTrue(signals.stream().anyMatch(s -> s.signalId().equals("C012_GOD_PACKAGE")),
-                "Should detect god package with 16 files");
+                "Should detect god package with 31 files");
 
         CodeHealthSignal god = signals.stream()
                 .filter(s -> s.signalId().equals("C012_GOD_PACKAGE"))
                 .findFirst().orElse(null);
         assertNotNull(god);
         assertEquals("MEDIUM", god.severity());
-        assertTrue(god.description().contains("16"), "Should mention 16 files");
+        assertTrue(god.description().contains("31"), "Should mention 31 files");
+        assertTrue(god.description().contains("30"), "Should mention threshold 30");
     }
 
     @Test
     void analyze_no_god_package_under_threshold() throws SQLException {
-        // Create a package with 15 files (= 15, not > 15)
-        for (int i = 0; i < 15; i++) {
+        // Create a package with 30 files (= 30, not > 30)
+        for (int i = 0; i < 30; i++) {
             repo.upsertDependency(conn, new CodeDependency(WS,
                     "src/File" + i + ".java", "File" + i, "com.normal",
                     null, "String", "java.lang", "import", true, NOW));
@@ -127,7 +159,7 @@ class CodeHealthAnalyzerTest {
         List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
 
         assertTrue(signals.stream().noneMatch(s -> s.signalId().equals("C012_GOD_PACKAGE")),
-                "15 files should not trigger god package (threshold is > 15)");
+                "30 files should not trigger god package (threshold is > 30)");
     }
 
     // -----------------------------------------------------------------------
@@ -221,6 +253,33 @@ class CodeHealthAnalyzerTest {
 
         assertTrue(signals.stream().anyMatch(s -> s.signalId().equals("C010_HIGH_FAN_IN_NO_TESTS")),
                 "High fan-in package without tests should trigger C010");
+    }
+
+    @Test
+    void analyze_high_fan_in_with_test_files_on_disk_no_C010() throws SQLException, IOException {
+        // Use tempDir as the workspace so we can create test files on disk
+        String wsPath = tempDir.toString();
+
+        // Create a package imported by 6 others (fan_in > 5)
+        String targetPkg = "com.example.shared";
+        for (int i = 0; i < 6; i++) {
+            repo.upsertDependency(conn, new CodeDependency(wsPath,
+                    "src/User" + i + ".java", "User" + i, "com.user" + i,
+                    "src/Shared.java", "Shared", targetPkg, "import", false, NOW));
+        }
+        repo.upsertDependency(conn, new CodeDependency(wsPath, "src/Shared.java", "Shared", targetPkg,
+                null, "String", "java.lang", "import", true, NOW));
+
+        // Create corresponding test directory with a *Test.java file
+        Path testDir = tempDir.resolve("src/test/java/com/example/shared");
+        Files.createDirectories(testDir);
+        Files.writeString(testDir.resolve("SharedTest.java"), "class SharedTest {}");
+
+        computer.computeAndPersist(wsPath, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(wsPath, conn);
+
+        assertTrue(signals.stream().noneMatch(s -> s.signalId().equals("C010_HIGH_FAN_IN_NO_TESTS")),
+                "Package with test files on disk should NOT trigger C010");
     }
 
     // -----------------------------------------------------------------------
