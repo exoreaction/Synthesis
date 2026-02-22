@@ -95,9 +95,10 @@ public class CodeGraphCommand implements Callable<Integer> {
             CodeGraphRepository repo = new CodeGraphRepository();
             DagRenderer renderer = new DagRenderer(repo);
 
-            // Check if graph has data
-            int profileCount = countProfiles(conn, wsPath);
-            if (profileCount == 0) {
+            // Check if graph has data (use code_dependencies, not module_profiles —
+            // profiles may be empty for graphs extracted before auto-compute was added)
+            int depCount = repo.countDependencies(conn, wsPath);
+            if (depCount == 0) {
                 System.out.println();
                 System.out.println("No code graph data. Run first: synthesis code-graph extract -d <workspace>");
                 System.out.println();
@@ -211,16 +212,6 @@ public class CodeGraphCommand implements Callable<Integer> {
         int filled = (int) Math.round(instability * 10);
         int empty = 10 - filled;
         return "\u2588".repeat(filled) + "\u2591".repeat(empty);
-    }
-
-    private int countProfiles(Connection conn, String wsPath) throws Exception {
-        String sql = "SELECT COUNT(*) FROM module_profiles WHERE workspace_path = ?";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, wsPath);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : 0;
-            }
-        }
     }
 
     // -----------------------------------------------------------------------

@@ -179,6 +179,48 @@ class CodeGraphRepositoryTest {
     }
 
     @Test
+    void batchInsertCrossFormatLinks_inserts_in_batches() throws SQLException {
+        List<CrossFormatLinkRecord> links = new java.util.ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            links.add(new CrossFormatLinkRecord(
+                    WS, "V" + i + ".sql", "Dao" + i + ".java",
+                    "table-reference", "table_" + i, NOW));
+        }
+
+        int inserted = repo.batchInsertCrossFormatLinks(conn, links, 10);
+
+        // Should insert all 50 across 5 batches of 10
+        assertTrue(inserted > 0, "Should insert at least some links");
+        assertEquals(50, repo.countCrossFormatLinks(conn, WS));
+    }
+
+    @Test
+    void batchInsertCrossFormatLinks_ignores_duplicates() throws SQLException {
+        // Insert a link first
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                WS, "V1.sql", "Dao.java", "table-reference", "users", NOW));
+
+        // Try to batch-insert with the same link plus a new one
+        List<CrossFormatLinkRecord> links = List.of(
+                new CrossFormatLinkRecord(WS, "V1.sql", "Dao.java",
+                        "table-reference", "users", NOW),
+                new CrossFormatLinkRecord(WS, "V2.sql", "Repo.java",
+                        "table-reference", "orders", NOW)
+        );
+
+        repo.batchInsertCrossFormatLinks(conn, links, 100);
+
+        // Should have 2 total (duplicate ignored, new one added)
+        assertEquals(2, repo.countCrossFormatLinks(conn, WS));
+    }
+
+    @Test
+    void batchInsertCrossFormatLinks_empty_list_returns_zero() throws SQLException {
+        int inserted = repo.batchInsertCrossFormatLinks(conn, List.of(), 100);
+        assertEquals(0, inserted);
+    }
+
+    @Test
     void deleteAllCrossFormatLinks_clears_workspace() throws SQLException {
         repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
                 WS, "V1.sql", "Dao.java", "table-reference", "users", NOW));

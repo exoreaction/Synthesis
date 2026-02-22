@@ -73,8 +73,10 @@ public class CodeGraphExtractor {
 
         // Find all Java files
         List<Path> javaFiles = findJavaFiles(workspaceRoot);
-        // Build a file-name to relative-path index for resolving imports
+        // Build FQN-to-relative-path index for resolving imports
         Map<String, String> classToFile = buildClassToFileMap(javaFiles, workspaceRoot);
+        // Build simple-name-to-FQN index for extends/implements resolution
+        Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
 
         int dependenciesFound = 0;
         int externalDeps = 0;
@@ -94,7 +96,8 @@ public class CodeGraphExtractor {
                 for (String imp : imports) {
                     String targetClass = getSimpleClassName(imp);
                     String targetPackage = getPackageFromImport(imp);
-                    String targetFile = classToFile.get(targetClass);
+                    // Look up by full import string (FQN) — not simple name
+                    String targetFile = classToFile.get(imp);
                     boolean external = (targetFile == null);
 
                     CodeDependency dep = new CodeDependency(
@@ -109,7 +112,8 @@ public class CodeGraphExtractor {
 
                 // Extract extends/implements relationships
                 List<CodeDependency> structuralDeps = extractStructuralDeps(
-                        content, wsPath, relPath, className, packageName, classToFile, now);
+                        content, wsPath, relPath, className, packageName,
+                        classToFile, simpleNameIndex, now);
                 for (CodeDependency dep : structuralDeps) {
                     repository.upsertDependency(conn, dep);
                     dependenciesFound++;
@@ -142,9 +146,10 @@ public class CodeGraphExtractor {
         long start = System.currentTimeMillis();
         String wsPath = workspaceRoot.toString();
 
-        // Build full class-to-file map (we need it for resolving imports)
+        // Build full FQN-to-file map (we need it for resolving imports)
         List<Path> allJavaFiles = findJavaFiles(workspaceRoot);
         Map<String, String> classToFile = buildClassToFileMap(allJavaFiles, workspaceRoot);
+        Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
 
         int dependenciesFound = 0;
         int externalDeps = 0;
@@ -173,7 +178,8 @@ public class CodeGraphExtractor {
                 for (String imp : imports) {
                     String targetClass = getSimpleClassName(imp);
                     String targetPackage = getPackageFromImport(imp);
-                    String targetFile = classToFile.get(targetClass);
+                    // Look up by full import string (FQN) — not simple name
+                    String targetFile = classToFile.get(imp);
                     boolean external = (targetFile == null);
 
                     CodeDependency dep = new CodeDependency(
@@ -187,7 +193,8 @@ public class CodeGraphExtractor {
                 }
 
                 List<CodeDependency> structuralDeps = extractStructuralDeps(
-                        content, wsPath, relPath, className, packageName, classToFile, now);
+                        content, wsPath, relPath, className, packageName,
+                        classToFile, simpleNameIndex, now);
                 for (CodeDependency dep : structuralDeps) {
                     repository.upsertDependency(conn, dep);
                     dependenciesFound++;
@@ -215,25 +222,158 @@ public class CodeGraphExtractor {
     // -----------------------------------------------------------------------
 
     List<Path> findJavaFiles(Path root) throws IOException {
+        // Identify non-Java repos to skip in multi-repo workspaces
+        Set<String> skippedRepos = identifyNonJavaRepos(root);
+
         List<Path> files = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(root)) {
             walk.filter(Files::isRegularFile)
                 .filter(p -> p.toString().endsWith(".java"))
                 .filter(p -> !p.toString().contains("/."))  // skip hidden dirs
                 .filter(p -> !isBuildArtifact(root, p))
+                .filter(p -> !isInSkippedRepo(root, p, skippedRepos))
                 .forEach(files::add);
         }
+
+        if (!skippedRepos.isEmpty()) {
+            LOG.info("Skipped " + skippedRepos.size() + " non-Java repos: "
+                    + String.join(", ", skippedRepos));
+        }
+
         return files;
     }
 
+    /**
+     * Identifies top-level subdirectories that are not Java projects.
+     * A directory is considered non-Java if it has no Java build file
+     * (pom.xml, build.gradle, build.gradle.kts) AND contains zero .java files.
+     *
+     * @param root workspace root
+     * @return set of directory names to skip
+     */
+    Set<String> identifyNonJavaRepos(Path root) throws IOException {
+        Set<String> nonJavaRepos = new HashSet<>();
+
+        try (Stream<Path> topLevel = Files.list(root)) {
+            List<Path> subdirs = topLevel.filter(Files::isDirectory)
+                    .filter(p -> !p.getFileName().toString().startsWith("."))
+                    .toList();
+
+            for (Path subdir : subdirs) {
+                // Check for Java build files
+                boolean hasBuildFile = Files.exists(subdir.resolve("pom.xml"))
+                        || Files.exists(subdir.resolve("build.gradle"))
+                        || Files.exists(subdir.resolve("build.gradle.kts"));
+
+                if (!hasBuildFile) {
+                    // No build file — check if there are ANY .java files
+                    boolean hasJavaFiles;
+                    try (Stream<Path> walk = Files.walk(subdir)) {
+                        hasJavaFiles = walk.filter(Files::isRegularFile)
+                                .filter(p -> p.toString().endsWith(".java"))
+                                .filter(p -> !p.toString().contains("/."))
+                                .filter(p -> !isBuildArtifact(root, p))
+                                .findFirst()
+                                .isPresent();
+                    }
+
+                    if (!hasJavaFiles) {
+                        nonJavaRepos.add(subdir.getFileName().toString());
+                    }
+                }
+            }
+        }
+
+        return nonJavaRepos;
+    }
+
+    /**
+     * Checks if a file is inside one of the skipped repo directories.
+     */
+    private boolean isInSkippedRepo(Path root, Path file, Set<String> skippedRepos) {
+        if (skippedRepos.isEmpty()) return false;
+        Path rel = root.relativize(file);
+        if (rel.getNameCount() > 0) {
+            return skippedRepos.contains(rel.getName(0).toString());
+        }
+        return false;
+    }
+
+    /**
+     * Builds a map from fully-qualified class name (FQN) to relative file path.
+     * For example: "com.example.UserService" -> "src/main/java/com/example/UserService.java".
+     *
+     * <p>This enables correct external/internal classification: when processing
+     * {@code import org.springframework.stereotype.Service}, the lookup uses the
+     * full import string "org.springframework.stereotype.Service" which won't match
+     * the project's "com.example.Service" FQN.
+     *
+     * @param javaFiles      list of Java files to index
+     * @param workspaceRoot  workspace root for computing relative paths
+     * @return map of FQN to relative path
+     */
     Map<String, String> buildClassToFileMap(List<Path> javaFiles, Path workspaceRoot) {
         Map<String, String> map = new HashMap<>();
         for (Path f : javaFiles) {
             String className = extractClassName(f);
             String relPath = workspaceRoot.relativize(f).toString();
-            map.put(className, relPath);
+            try {
+                String content = FileUtils.readPreview(f, 2_000); // only need the top for package decl
+                String pkg = extractPackage(content);
+                if (pkg != null) {
+                    String fqn = pkg + "." + className;
+                    map.put(fqn, relPath);
+                } else {
+                    // No package declaration — use simple class name as key
+                    map.put(className, relPath);
+                }
+            } catch (IOException e) {
+                // Fallback: use simple name
+                map.put(className, relPath);
+            }
         }
         return map;
+    }
+
+    /**
+     * Builds a reverse index from simple class name to set of FQN keys present
+     * in the classToFile map. Used for extends/implements resolution where only
+     * simple names are available.
+     */
+    Map<String, List<String>> buildSimpleNameIndex(Map<String, String> classToFileMap) {
+        Map<String, List<String>> index = new HashMap<>();
+        for (String fqn : classToFileMap.keySet()) {
+            String simpleName = getSimpleClassName(fqn);
+            index.computeIfAbsent(simpleName, k -> new ArrayList<>()).add(fqn);
+        }
+        return index;
+    }
+
+    /**
+     * Looks up a simple class name in the FQN map using the simple name index.
+     * If exactly one project class has that simple name, returns its file path.
+     * If multiple classes share the name, tries to match by source package proximity.
+     * Returns null if no match (external class).
+     */
+    String lookupBySimpleName(String simpleName, String sourcePackage,
+                               Map<String, String> classToFileMap,
+                               Map<String, List<String>> simpleNameIndex) {
+        List<String> fqns = simpleNameIndex.get(simpleName);
+        if (fqns == null || fqns.isEmpty()) {
+            return null; // external
+        }
+        if (fqns.size() == 1) {
+            return classToFileMap.get(fqns.get(0));
+        }
+        // Multiple matches: prefer same package
+        for (String fqn : fqns) {
+            String pkg = getPackageFromImport(fqn);
+            if (pkg.equals(sourcePackage)) {
+                return classToFileMap.get(fqn);
+            }
+        }
+        // No exact package match — return first (project-internal either way)
+        return classToFileMap.get(fqns.get(0));
     }
 
     List<String> extractImports(String content) {
@@ -284,6 +424,7 @@ public class CodeGraphExtractor {
                                                         String relPath, String className,
                                                         String packageName,
                                                         Map<String, String> classToFile,
+                                                        Map<String, List<String>> simpleNameIndex,
                                                         long now) {
         List<CodeDependency> deps = new ArrayList<>();
         String pkg = packageName != null ? packageName : "";
@@ -293,7 +434,9 @@ public class CodeGraphExtractor {
         while (extendsM.find()) {
             String parentClass = getSimpleClassName(extendsM.group(1).trim());
             if (!parentClass.equals(className)) {
-                String targetFile = classToFile.get(parentClass);
+                // Use simple name index for extends (we only have simple name from source)
+                String targetFile = lookupBySimpleName(parentClass, pkg,
+                        classToFile, simpleNameIndex);
                 deps.add(new CodeDependency(wsPath, relPath, className, pkg,
                         targetFile, parentClass, "", "extends",
                         targetFile == null, now));
@@ -307,7 +450,9 @@ public class CodeGraphExtractor {
             for (String iface : interfaces.split(",")) {
                 String ifaceName = getSimpleClassName(iface.trim());
                 if (!ifaceName.isBlank() && !ifaceName.equals(className)) {
-                    String targetFile = classToFile.get(ifaceName);
+                    // Use simple name index for implements
+                    String targetFile = lookupBySimpleName(ifaceName, pkg,
+                            classToFile, simpleNameIndex);
                     deps.add(new CodeDependency(wsPath, relPath, className, pkg,
                             targetFile, ifaceName, "", "implements",
                             targetFile == null, now));
@@ -323,7 +468,7 @@ public class CodeGraphExtractor {
                                          Map<String, String> classToFile,
                                          long now) throws IOException, SQLException {
         String wsPath = workspaceRoot.toString();
-        int count = 0;
+        List<CrossFormatLinkRecord> allRecords = new ArrayList<>();
 
         // Find SQL files
         try (Stream<Path> walk = Files.walk(workspaceRoot)) {
@@ -334,30 +479,28 @@ public class CodeGraphExtractor {
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
                     .toList();
 
+            // Pre-build Java SearchResult list (shared across all SQL files)
+            List<SearchResult> javaResults = new ArrayList<>();
+            for (Path jf : javaFiles) {
+                String jRelPath = workspaceRoot.relativize(jf).toString();
+                javaResults.add(new SearchResult(
+                        jf, jRelPath, 1.0f, jf.getFileName().toString(),
+                        "CODE", "Java", "", "", "", Files.size(jf)));
+            }
+
             for (Path sqlFile : sqlFiles) {
                 String relPath = workspaceRoot.relativize(sqlFile).toString();
                 SearchResult sqlResult = new SearchResult(
                         sqlFile, relPath, 1.0f, sqlFile.getFileName().toString(),
                         "SQL", null, "", "", "", Files.size(sqlFile));
 
-                // Create SearchResult list for Java files
-                List<SearchResult> javaResults = new ArrayList<>();
-                for (Path jf : javaFiles) {
-                    String jRelPath = workspaceRoot.relativize(jf).toString();
-                    javaResults.add(new SearchResult(
-                            jf, jRelPath, 1.0f, jf.getFileName().toString(),
-                            "CODE", "Java", "", "", "", Files.size(jf)));
-                }
-
                 try {
                     List<CrossFormatLinker.CrossFormatLink> links =
                             crossFormatLinker.findSqlToJavaLinks(sqlResult, javaResults, workspaceRoot);
                     for (CrossFormatLinker.CrossFormatLink link : links) {
-                        CrossFormatLinkRecord record = new CrossFormatLinkRecord(
+                        allRecords.add(new CrossFormatLinkRecord(
                                 wsPath, relPath, link.targetPath(),
-                                "table-reference", link.entityName(), now);
-                        repository.upsertCrossFormatLink(conn, record);
-                        count++;
+                                "table-reference", link.entityName(), now));
                     }
                 } catch (IOException e) {
                     LOG.fine("Cross-format link extraction failed for " + sqlFile + ": " + e.getMessage());
@@ -365,6 +508,10 @@ public class CodeGraphExtractor {
             }
         }
 
-        return count;
+        // Batch-insert all cross-format links (1000 per transaction)
+        if (!allRecords.isEmpty()) {
+            return repository.batchInsertCrossFormatLinks(conn, allRecords, 1000);
+        }
+        return 0;
     }
 }
