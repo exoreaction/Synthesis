@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.*;
 import java.time.Instant;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -23,6 +24,8 @@ public class SynthesisDatabase implements AutoCloseable {
 
     private static final Logger LOG = Logger.getLogger(SynthesisDatabase.class.getName());
     private static final int RETENTION_DAYS = 90;
+    private static final Set<String> CLEANUP_TABLE_ALLOWLIST =
+            Set.of("metrics", "file_movements", "file_audit_log", "change_events");
 
     private static volatile SynthesisDatabase defaultInstance;
 
@@ -121,6 +124,11 @@ public class SynthesisDatabase implements AutoCloseable {
 
         String[] tables = {"metrics", "file_movements", "file_audit_log", "change_events"};
         for (String table : tables) {
+            // Allowlist guard: table names are hardcoded constants, but validate defensively
+            if (!CLEANUP_TABLE_ALLOWLIST.contains(table)) {
+                LOG.warning("Refusing to delete from unknown table: " + table);
+                continue;
+            }
             try (PreparedStatement ps = connection.prepareStatement(
                     "DELETE FROM " + table + " WHERE timestamp < ?")) {
                 ps.setLong(1, cutoff);

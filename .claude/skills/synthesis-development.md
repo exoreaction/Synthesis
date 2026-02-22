@@ -15,8 +15,8 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.12.2-SNAPSHOT (as of Feb 2026)
-- **Tests:** 3,842 (JUnit 5)
+- **Version:** 1.14.0-SNAPSHOT (as of Feb 2026)
+- **Tests:** 3,932 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)
@@ -150,7 +150,15 @@ io.exoreaction.synthesis
   |   |-- QualityGapDetector          # 5 gap types: missing tests/interface/docs/README/package-info (CKG-3)
   |   |-- QualityGap                  # Quality gap record (modulePath, gapType, severity, suggestion)
   |   |-- CompletenessScorer          # Completeness score 0.0-1.0 with weighted penalties per gap (CKG-3)
-  |   +-- DagRenderer                 # ASCII + Mermaid DAG; 4-tier layer grouping; cycle/hotspot/violation detection (CKG-4)
+  |   |-- DagRenderer                 # ASCII + Mermaid DAG; 4-tier layer grouping; cycle/hotspot/violation detection (CKG-4)
+  |   |-- SecurityAnalyzer            # 21-signal static analysis: S001-S014 traditional + S016-S021 agentic (CKG-5)
+  |   |-- SecurityRepository          # DAO: security_findings, declared_dependencies, attack_surface_edges (CKG-5)
+  |   |-- SecuritySignal              # Signal record (signalId, severity, cweId, filePath, lineNumber, evidence, flowType)
+  |   |-- SecurityAnalysisOptions     # Options record for security scan (signals to run, severity filter)
+  |   |-- AttackSurfaceMapper         # Maps entry-point → sink paths via BFS on code_dependencies (CKG-5)
+  |   |-- AttackSurfaceEdge          # Edge record (entryFile, entryClass, sinkFile, sinkClass, sinkType, hopCount, path)
+  |   |-- DependencyInventoryExtractor # Parses pom.xml + matches against known-vulnerabilities.json CVE catalog (CKG-5)
+  |   +-- DeclaredDependency          # Maven dep record (groupId, artifactId, version, scope, pomFile)
   |
   |-- ai/                             # AI integration
   |   |-- ClaudeClient                # Anthropic API wrapper

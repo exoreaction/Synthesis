@@ -113,9 +113,13 @@ V11__virtual_membership_and_routing_feedback.sql    # KG: virtual_memberships + 
 V12__directory_classification.sql                   # KG: adds classification column to directory_centroids
 V13__code_knowledge_graph.sql                       # CKG: code_dependencies, module_profiles,
                                                     #      cross_format_links, code_quality_gaps
+V14__ckg_repo_isolation.sql                         # CKG: adds repo_name column to code_dependencies,
+                                                    #      module_profiles, code_quality_gaps (PR #233)
+V15__security_findings.sql                          # CKG-5: security_findings, declared_dependencies,
+                                                    #        attack_surface_edges (PR #234)
 ```
 
-**Next migration will be V14.** Always run `ls src/main/resources/db/migration/` before creating a new one.
+**Next migration will be V16.** Always run `ls src/main/resources/db/migration/` before creating a new one.
 
 ### Key Tables by System
 
@@ -127,7 +131,8 @@ V13__code_knowledge_graph.sql                       # CKG: code_dependencies, mo
 | Caches | `summary_cache`, `research_cache`, `report_cache` (V5, V6, V8) |
 | Knowledge edges | `knowledge_edges` (V9) |
 | Document knowledge graph | `directory_centroids`, `file_enrichment_signatures` (V10); `virtual_memberships`, `routing_feedback` (V11); `classification` column (V12) |
-| Code knowledge graph | `code_dependencies`, `module_profiles`, `cross_format_links`, `code_quality_gaps` (V13) |
+| Code knowledge graph | `code_dependencies`, `module_profiles`, `cross_format_links`, `code_quality_gaps` (V13); `repo_name` column added to code_dependencies/module_profiles/code_quality_gaps (V14) |
+| Security analysis | `security_findings`, `declared_dependencies`, `attack_surface_edges` (V15) |
 
 ---
 
@@ -139,7 +144,7 @@ V13__code_knowledge_graph.sql                       # CKG: code_dependencies, mo
    ```
    ls src/main/resources/db/migration/
    ```
-   If the latest is `V13__code_knowledge_graph.sql`, the next is V14.
+   If the latest is `V15__security_findings.sql`, the next is V16.
 
 2. Create the migration file:
    ```
