@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.org.*;
+import io.exoreaction.synthesis.org.ArchetypeRegistry.ArchetypeMatch;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -159,6 +160,28 @@ public class DescribeCommand implements Callable<Integer> {
             out.println();
             out.println("  Centroid: none (no enriched files)");
             out.println("    Run 'synthesis sync --enrich-centroids' to compute");
+        }
+
+        // Archetype match and gaps (P4-02)
+        if (!centroid.isEmpty()) {
+            GapAnalyzer gapAnalyzer = new GapAnalyzer();
+            java.util.Optional<GapAnalyzer.GapAnalysisResult> gapResult =
+                    gapAnalyzer.analyze(centroid);
+            if (gapResult.isPresent()) {
+                GapAnalyzer.GapAnalysisResult gap = gapResult.get();
+                out.println();
+                out.println("  Archetype match: \"" + gap.archetypeName()
+                        + "\" (" + String.format("%.2f", gap.matchScore()) + ")");
+                if (!gap.missingDocTypes().isEmpty()) {
+                    out.println("    Gaps: "
+                            + gap.missingDocTypes().stream()
+                                    .map(dt -> dt + " (missing)")
+                                    .reduce((a, b) -> a + ", " + b)
+                                    .orElse("none"));
+                } else {
+                    out.println("    No document type gaps detected");
+                }
+            }
         }
 
         // Wants

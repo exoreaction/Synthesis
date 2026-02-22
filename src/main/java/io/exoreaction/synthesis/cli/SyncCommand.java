@@ -112,6 +112,7 @@ public class SyncCommand implements Callable<Integer> {
         CentroidComputer centroidComputer = enrichCentroids ? new CentroidComputer() : null;
         WantsBootstrapper wantsBootstrapper = enrichCentroids ? new WantsBootstrapper() : null;
         WantSatisfactionComputer satisfactionComputer = enrichCentroids ? new WantSatisfactionComputer() : null;
+        GapAnalyzer gapAnalyzer = enrichCentroids ? new GapAnalyzer() : null;
 
         // Cache centroids by directory for parent-centroid inheritance
         Map<Path, DirectoryCentroid> centroidCache = new HashMap<>();
@@ -313,6 +314,11 @@ public class SyncCommand implements Callable<Integer> {
                             parentCentroid = centroidCache.get(dir.getParent());
                         }
                         wants = wantsBootstrapper.bootstrap(dir, parentCentroid);
+                    }
+
+                    // Phase 4: Aspirational gap detection via archetype matching (P4-02)
+                    if (!centroid.isEmpty()) {
+                        wants = gapAnalyzer.enrichWantsWithGaps(centroid, wants);
                     }
 
                     // Compute want satisfaction (P3-04)
