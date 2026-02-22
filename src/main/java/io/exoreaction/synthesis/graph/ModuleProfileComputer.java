@@ -73,13 +73,19 @@ public class ModuleProfileComputer {
             int totalFiles = countFilesInPackage(conn, workspacePath, packageName);
 
             // 6. Infer purpose
-            String purpose = inferPurpose(packageName);
+            PurposeResult purposeResult = inferPurposeResult(packageName);
+            String purpose = purposeResult.purpose();
 
             // 7. Compute module_path (convert dots to slashes)
             String modulePath = packageName.replace('.', '/');
 
-            // 8. Confidence
-            double confidence = (fanIn + fanOut > 0) ? 0.8 : 0.3;
+            // 8. Confidence: reflects inferPurpose match quality, then connectivity
+            double confidence;
+            if (fanIn + fanOut == 0) {
+                confidence = 0.30; // isolated package — minimal confidence regardless of label
+            } else {
+                confidence = purposeResult.confidence();
+            }
 
             // 9. Upsert into module_profiles
             upsertModuleProfile(conn, workspacePath, modulePath, packageName,
@@ -91,6 +97,9 @@ public class ModuleProfileComputer {
         return count;
     }
 
+    /** Pair of inferred purpose label and confidence score. */
+    public record PurposeResult(String purpose, double confidence) {}
+
     /**
      * Infer human-readable purpose from package path segment.
      *
@@ -98,28 +107,42 @@ public class ModuleProfileComputer {
      * package name to a known category.
      */
     public String inferPurpose(String packageName) {
+        return inferPurposeResult(packageName).purpose();
+    }
+
+    /**
+     * Infer purpose with confidence score reflecting match quality.
+     *
+     * <ul>
+     *   <li>0.90 — exact last-segment match (e.g. {@code cli}, {@code db})</li>
+     *   <li>0.75 — ancestor-segment match (e.g. {@code cli} in {@code com.example.cli.sub})</li>
+     *   <li>0.40 — no match, fell back to "General purpose" but package is connected</li>
+     *   <li>0.30 — isolated package (caller overrides to this when fanIn+fanOut==0)</li>
+     * </ul>
+     */
+    public PurposeResult inferPurposeResult(String packageName) {
         if (packageName == null || packageName.isBlank()) {
-            return "General purpose";
+            return new PurposeResult("General purpose", 0.40);
         }
 
         String[] segments = packageName.split("\\.");
         String lastSegment = segments[segments.length - 1].toLowerCase(Locale.ROOT);
 
-        // Check last segment first (most specific)
+        // Check last segment first (most specific → highest confidence)
         String purpose = matchSegment(lastSegment);
         if (purpose != null) {
-            return purpose;
+            return new PurposeResult(purpose, 0.90);
         }
 
-        // Check all segments (for deeply nested packages)
+        // Check ancestor segments (less specific → lower confidence)
         for (int i = segments.length - 2; i >= 0; i--) {
             purpose = matchSegment(segments[i].toLowerCase(Locale.ROOT));
             if (purpose != null) {
-                return purpose;
+                return new PurposeResult(purpose, 0.75);
             }
         }
 
-        return "General purpose";
+        return new PurposeResult("General purpose", 0.40);
     }
 
     private String matchSegment(String segment) {

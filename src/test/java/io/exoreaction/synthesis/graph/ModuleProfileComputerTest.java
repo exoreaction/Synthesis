@@ -327,6 +327,44 @@ class ModuleProfileComputerTest {
         return null;
     }
 
+    // inferPurposeResult confidence tiers
+
+    @Test
+    void inferPurposeResult_exactLastSegment_confidence090() {
+        var result = computer.inferPurposeResult("io.exoreaction.synthesis.cli");
+        assertEquals("CLI command implementations", result.purpose());
+        assertEquals(0.90, result.confidence(), 0.001);
+    }
+
+    @Test
+    void inferPurposeResult_ancestorSegment_confidence075() {
+        var result = computer.inferPurposeResult("io.exoreaction.synthesis.cli.subcommand");
+        assertEquals("CLI command implementations", result.purpose());
+        assertEquals(0.75, result.confidence(), 0.001);
+    }
+
+    @Test
+    void inferPurposeResult_noMatch_confidence040() {
+        var result = computer.inferPurposeResult("com.example.whatever");
+        assertEquals("General purpose", result.purpose());
+        assertEquals(0.40, result.confidence(), 0.001);
+    }
+
+    @Test
+    void inferPurposeResult_null_confidence040() {
+        var result = computer.inferPurposeResult(null);
+        assertEquals("General purpose", result.purpose());
+        assertEquals(0.40, result.confidence(), 0.001);
+    }
+
+    @Test
+    void inferPurposeResult_isolatedPackage_confidence030_overriddenByCaller() {
+        // Verify that inferPurpose() (via inferPurposeResult) still returns 0.40 for unknown;
+        // the caller overrides to 0.30 when fanIn+fanOut==0.
+        var result = computer.inferPurposeResult("com.example.obscure");
+        assertEquals(0.40, result.confidence(), 0.001);
+    }
+
     private int countAllProfiles(Connection conn, String wsPath) throws SQLException {
         String sql = "SELECT COUNT(*) FROM module_profiles WHERE workspace_path = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
