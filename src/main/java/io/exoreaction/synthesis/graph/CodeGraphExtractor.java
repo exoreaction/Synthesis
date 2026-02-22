@@ -89,6 +89,7 @@ public class CodeGraphExtractor {
                 String relPath = workspaceRoot.relativize(javaFile).toString();
                 String className = extractClassName(javaFile);
                 String packageName = extractPackage(content);
+                String repoName = detectRepoName(workspaceRoot, javaFile);
 
                 if (packageName != null) packages.add(packageName);
 
@@ -101,7 +102,8 @@ public class CodeGraphExtractor {
                     boolean external = (targetFile == null);
 
                     CodeDependency dep = new CodeDependency(
-                            wsPath, relPath, className, packageName != null ? packageName : "",
+                            wsPath, repoName, relPath, className,
+                            packageName != null ? packageName : "",
                             targetFile, targetClass, targetPackage != null ? targetPackage : "",
                             "import", external, now
                     );
@@ -112,7 +114,7 @@ public class CodeGraphExtractor {
 
                 // Extract extends/implements relationships
                 List<CodeDependency> structuralDeps = extractStructuralDeps(
-                        content, wsPath, relPath, className, packageName,
+                        content, wsPath, repoName, relPath, className, packageName,
                         classToFile, simpleNameIndex, now);
                 for (CodeDependency dep : structuralDeps) {
                     repository.upsertDependency(conn, dep);
@@ -171,6 +173,7 @@ public class CodeGraphExtractor {
                 String content = FileUtils.readPreview(fullPath, 50_000);
                 String className = extractClassName(fullPath);
                 String packageName = extractPackage(content);
+                String repoName = detectRepoName(workspaceRoot, fullPath);
 
                 if (packageName != null) packages.add(packageName);
 
@@ -183,7 +186,8 @@ public class CodeGraphExtractor {
                     boolean external = (targetFile == null);
 
                     CodeDependency dep = new CodeDependency(
-                            wsPath, relPath, className, packageName != null ? packageName : "",
+                            wsPath, repoName, relPath, className,
+                            packageName != null ? packageName : "",
                             targetFile, targetClass, targetPackage != null ? targetPackage : "",
                             "import", external, now
                     );
@@ -193,7 +197,7 @@ public class CodeGraphExtractor {
                 }
 
                 List<CodeDependency> structuralDeps = extractStructuralDeps(
-                        content, wsPath, relPath, className, packageName,
+                        content, wsPath, repoName, relPath, className, packageName,
                         classToFile, simpleNameIndex, now);
                 for (CodeDependency dep : structuralDeps) {
                     repository.upsertDependency(conn, dep);
@@ -406,6 +410,38 @@ public class CodeGraphExtractor {
     }
 
     /**
+     * Detects the repository name for a file in a multi-repo workspace.
+     *
+     * <p>If the workspace root itself is a single repo (has pom.xml/build.gradle at root,
+     * or the first path component is "src"), returns empty string. Otherwise, returns
+     * the first path component relative to workspace root (e.g., "Quadim-Skill-Service"
+     * from "Quadim-Skill-Service/src/main/java/...").
+     *
+     * @param workspaceRoot workspace root path
+     * @param javaFile      the Java source file (absolute path)
+     * @return repo name, or empty string for single-repo workspaces
+     */
+    String detectRepoName(Path workspaceRoot, Path javaFile) {
+        Path rel = workspaceRoot.relativize(javaFile);
+        if (rel.getNameCount() <= 1) {
+            return ""; // File directly under workspace root
+        }
+        String firstComponent = rel.getName(0).toString();
+        // If the first component is "src" or a build dir, this is a single-repo workspace
+        if ("src".equals(firstComponent) || "main".equals(firstComponent)
+                || "test".equals(firstComponent) || "java".equals(firstComponent)) {
+            return "";
+        }
+        // Check if the workspace root itself has a build file (single-repo)
+        if (Files.exists(workspaceRoot.resolve("pom.xml"))
+                || Files.exists(workspaceRoot.resolve("build.gradle"))
+                || Files.exists(workspaceRoot.resolve("build.gradle.kts"))) {
+            return "";
+        }
+        return firstComponent;
+    }
+
+    /**
      * Returns true if the given path is inside a build artifact directory
      * (target/, build/, out/) relative to the workspace root.
      */
@@ -421,8 +457,8 @@ public class CodeGraphExtractor {
     }
 
     private List<CodeDependency> extractStructuralDeps(String content, String wsPath,
-                                                        String relPath, String className,
-                                                        String packageName,
+                                                        String repoName, String relPath,
+                                                        String className, String packageName,
                                                         Map<String, String> classToFile,
                                                         Map<String, List<String>> simpleNameIndex,
                                                         long now) {
@@ -437,7 +473,7 @@ public class CodeGraphExtractor {
                 // Use simple name index for extends (we only have simple name from source)
                 String targetFile = lookupBySimpleName(parentClass, pkg,
                         classToFile, simpleNameIndex);
-                deps.add(new CodeDependency(wsPath, relPath, className, pkg,
+                deps.add(new CodeDependency(wsPath, repoName, relPath, className, pkg,
                         targetFile, parentClass, "", "extends",
                         targetFile == null, now));
             }
@@ -453,7 +489,7 @@ public class CodeGraphExtractor {
                     // Use simple name index for implements
                     String targetFile = lookupBySimpleName(ifaceName, pkg,
                             classToFile, simpleNameIndex);
-                    deps.add(new CodeDependency(wsPath, relPath, className, pkg,
+                    deps.add(new CodeDependency(wsPath, repoName, relPath, className, pkg,
                             targetFile, ifaceName, "", "implements",
                             targetFile == null, now));
                 }

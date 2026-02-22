@@ -57,7 +57,7 @@ class DagRendererTest {
                            String tgtFile, String tgtClass, String tgtPkg,
                            boolean external) throws SQLException {
         repo.upsertDependency(conn, new CodeDependency(
-                WS, srcFile, srcClass, srcPkg,
+                WS, "", srcFile, srcClass, srcPkg,
                 tgtFile, tgtClass, tgtPkg,
                 "import", external, NOW));
     }
@@ -70,21 +70,22 @@ class DagRendererTest {
                                int totalFiles) throws SQLException {
         String sql = """
             INSERT OR REPLACE INTO module_profiles (
-                workspace_path, module_path, package_name, inferred_purpose,
+                workspace_path, repo_name, module_path, package_name, inferred_purpose,
                 fan_in, fan_out, instability, total_files, confidence, last_computed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (var ps = conn.prepareStatement(sql)) {
             ps.setString(1, WS);
-            ps.setString(2, modulePath);
-            ps.setString(3, packageName);
-            ps.setString(4, "Test purpose");
-            ps.setInt(5, fanIn);
-            ps.setInt(6, fanOut);
-            ps.setDouble(7, instability);
-            ps.setInt(8, totalFiles);
-            ps.setDouble(9, 0.8);
-            ps.setLong(10, NOW);
+            ps.setString(2, "");
+            ps.setString(3, modulePath);
+            ps.setString(4, packageName);
+            ps.setString(5, "Test purpose");
+            ps.setInt(6, fanIn);
+            ps.setInt(7, fanOut);
+            ps.setDouble(8, instability);
+            ps.setInt(9, totalFiles);
+            ps.setDouble(10, 0.8);
+            ps.setLong(11, NOW);
             ps.executeUpdate();
         }
     }

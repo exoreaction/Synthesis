@@ -45,6 +45,7 @@ class CodeKnowledgeGraphMigrationTest {
 
         Set<String> columns = getColumnNames(conn, "code_dependencies");
         assertTrue(columns.contains("workspace_path"));
+        assertTrue(columns.contains("repo_name"));
         assertTrue(columns.contains("source_file"));
         assertTrue(columns.contains("source_class"));
         assertTrue(columns.contains("source_package"));
@@ -65,6 +66,7 @@ class CodeKnowledgeGraphMigrationTest {
 
         Set<String> columns = getColumnNames(conn, "module_profiles");
         assertTrue(columns.contains("workspace_path"));
+        assertTrue(columns.contains("repo_name"));
         assertTrue(columns.contains("module_path"));
         assertTrue(columns.contains("package_name"));
         assertTrue(columns.contains("inferred_purpose"));
@@ -100,6 +102,7 @@ class CodeKnowledgeGraphMigrationTest {
 
         Set<String> columns = getColumnNames(conn, "code_quality_gaps");
         assertTrue(columns.contains("workspace_path"));
+        assertTrue(columns.contains("repo_name"));
         assertTrue(columns.contains("module_path"));
         assertTrue(columns.contains("gap_type"));
         assertTrue(columns.contains("description"));
@@ -119,32 +122,34 @@ class CodeKnowledgeGraphMigrationTest {
 
         // Insert a dependency
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO code_dependencies (workspace_path, source_file, source_class, source_package, " +
-                "target_class, target_package, dependency_type, last_computed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO code_dependencies (workspace_path, repo_name, source_file, source_class, source_package, " +
+                "target_class, target_package, dependency_type, last_computed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             ps.setString(1, "/workspace");
-            ps.setString(2, "src/Foo.java");
-            ps.setString(3, "Foo");
-            ps.setString(4, "com.example");
-            ps.setString(5, "Bar");
-            ps.setString(6, "com.example.util");
-            ps.setString(7, "import");
-            ps.setLong(8, now);
+            ps.setString(2, "");
+            ps.setString(3, "src/Foo.java");
+            ps.setString(4, "Foo");
+            ps.setString(5, "com.example");
+            ps.setString(6, "Bar");
+            ps.setString(7, "com.example.util");
+            ps.setString(8, "import");
+            ps.setLong(9, now);
             ps.executeUpdate();
         }
 
         // Insert a duplicate should fail
         assertThrows(SQLException.class, () -> {
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO code_dependencies (workspace_path, source_file, source_class, source_package, " +
-                    "target_class, target_package, dependency_type, last_computed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+                    "INSERT INTO code_dependencies (workspace_path, repo_name, source_file, source_class, source_package, " +
+                    "target_class, target_package, dependency_type, last_computed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
                 ps.setString(1, "/workspace");
-                ps.setString(2, "src/Foo.java");
-                ps.setString(3, "Foo");
-                ps.setString(4, "com.example");
-                ps.setString(5, "Bar");
-                ps.setString(6, "com.example.util");
-                ps.setString(7, "import");
-                ps.setLong(8, now);
+                ps.setString(2, "");
+                ps.setString(3, "src/Foo.java");
+                ps.setString(4, "Foo");
+                ps.setString(5, "com.example");
+                ps.setString(6, "Bar");
+                ps.setString(7, "com.example.util");
+                ps.setString(8, "import");
+                ps.setLong(9, now);
                 ps.executeUpdate();
             }
         });

@@ -509,8 +509,18 @@ public class CodeGraphCommand implements Callable<Integer> {
             System.out.println("Module Profiles (" + profiles.size() + " packages)");
             System.out.println();
 
+            // Check if multi-repo
+            boolean multiRepo = profiles.stream()
+                    .map(p -> p.repoName)
+                    .filter(r -> r != null && !r.isEmpty())
+                    .collect(Collectors.toSet()).size() > 1
+                    || profiles.stream().anyMatch(p -> p.repoName != null && !p.repoName.isEmpty());
+
             for (ModuleProfile p : profiles) {
-                System.out.println("  " + p.modulePath);
+                String displayPath = (multiRepo && p.repoName != null && !p.repoName.isEmpty())
+                        ? p.repoName + "/" + p.modulePath
+                        : p.modulePath;
+                System.out.println("  " + displayPath);
                 System.out.println("    Purpose:     " + p.purpose);
                 System.out.print("    Fan-in:      " + p.fanIn
                         + "   Fan-out: " + p.fanOut
@@ -536,6 +546,9 @@ public class CodeGraphCommand implements Callable<Integer> {
             for (int i = 0; i < profiles.size(); i++) {
                 ModuleProfile p = profiles.get(i);
                 System.out.println("  {");
+                if (p.repoName != null && !p.repoName.isEmpty()) {
+                    System.out.println("    \"repoName\": \"" + escape(p.repoName) + "\",");
+                }
                 System.out.println("    \"modulePath\": \"" + escape(p.modulePath) + "\",");
                 System.out.println("    \"packageName\": \"" + escape(p.packageName) + "\",");
                 System.out.println("    \"purpose\": \"" + escape(p.purpose) + "\",");
@@ -552,17 +565,20 @@ public class CodeGraphCommand implements Callable<Integer> {
         private List<ModuleProfile> loadProfiles(Connection conn, String wsPath) throws Exception {
             List<ModuleProfile> profiles = new ArrayList<>();
             String sql = """
-                SELECT module_path, package_name, inferred_purpose,
+                SELECT repo_name, module_path, package_name, inferred_purpose,
                        fan_in, fan_out, instability, total_files, confidence
                 FROM module_profiles
                 WHERE workspace_path = ?
-                ORDER BY package_name
+                ORDER BY repo_name, package_name
                 """;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, wsPath);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
+                        String repoName = rs.getString("repo_name");
+                        if (repoName == null) repoName = "";
                         profiles.add(new ModuleProfile(
+                                repoName,
                                 rs.getString("module_path"),
                                 rs.getString("package_name"),
                                 rs.getString("inferred_purpose"),
@@ -935,6 +951,7 @@ public class CodeGraphCommand implements Callable<Integer> {
      * Internal record for module profile display data.
      */
     record ModuleProfile(
+            String repoName,
             String modulePath,
             String packageName,
             String purpose,

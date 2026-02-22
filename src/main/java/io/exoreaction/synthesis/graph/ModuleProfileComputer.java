@@ -36,16 +36,23 @@ public class ModuleProfileComputer {
         this.repository = repository;
     }
 
+    /** A (repo_name, package_name) pair identifying a unique module in a workspace. */
+    record RepoPackage(String repoName, String packageName) {}
+
     /**
      * Compute and persist module profiles for all packages found in code_dependencies.
+     *
+     * <p>Package identity is {@code (workspace_path, repo_name, package_name)}.
+     * In single-repo workspaces, {@code repo_name} is always the empty string.
+     * In multi-repo workspaces, each repo's packages are profiled independently.
      *
      * @param workspacePath the workspace root path string
      * @param conn          open SQLite connection
      * @return number of module profiles computed
      */
     public int computeAndPersist(String workspacePath, Connection conn) throws SQLException {
-        // 1. Collect all unique source packages
-        Set<String> allPackages = collectAllPackages(conn, workspacePath);
+        // 1. Collect all unique (repo_name, package_name) pairs
+        List<RepoPackage> allPackages = collectAllPackages(conn, workspacePath);
 
         if (allPackages.isEmpty()) {
             return 0;
@@ -54,12 +61,16 @@ public class ModuleProfileComputer {
         long now = Instant.now().getEpochSecond();
         int count = 0;
 
-        for (String packageName : allPackages) {
-            // 2. Compute fan-in: distinct external packages that import something from this package
-            int fanIn = computeFanIn(conn, workspacePath, packageName);
+        for (RepoPackage rp : allPackages) {
+            String repoName = rp.repoName();
+            String packageName = rp.packageName();
 
-            // 3. Compute fan-out: distinct external packages this package imports
-            int fanOut = computeFanOut(conn, workspacePath, packageName);
+            // 2. Compute fan-in: distinct external packages that import something from this package
+            //    Fan-in counts edges from OTHER packages targeting this package within the SAME repo.
+            int fanIn = computeFanIn(conn, workspacePath, repoName, packageName);
+
+            // 3. Compute fan-out: distinct external packages this package imports within the SAME repo.
+            int fanOut = computeFanOut(conn, workspacePath, repoName, packageName);
 
             // 4. Compute instability = fanOut / (fanIn + fanOut), guarded against /0
             double instability;
@@ -70,7 +81,7 @@ public class ModuleProfileComputer {
             }
 
             // 5. Count total files in this package
-            int totalFiles = countFilesInPackage(conn, workspacePath, packageName);
+            int totalFiles = countFilesInPackage(conn, workspacePath, repoName, packageName);
 
             // 6. Infer purpose
             PurposeResult purposeResult = inferPurposeResult(packageName);
@@ -88,7 +99,7 @@ public class ModuleProfileComputer {
             }
 
             // 9. Upsert into module_profiles
-            upsertModuleProfile(conn, workspacePath, modulePath, packageName,
+            upsertModuleProfile(conn, workspacePath, repoName, modulePath, packageName,
                     purpose, fanIn, fanOut, instability, totalFiles, confidence, now);
             count++;
         }
@@ -181,17 +192,18 @@ public class ModuleProfileComputer {
     // -----------------------------------------------------------------------
 
     /**
-     * Collects all unique source packages from code_dependencies for the workspace.
+     * Collects all unique (repo_name, package_name) pairs from code_dependencies for the workspace.
      * Also includes target packages (for internal deps) to get full coverage.
      */
-    private Set<String> collectAllPackages(Connection conn, String workspacePath) throws SQLException {
-        Set<String> packages = new LinkedHashSet<>();
+    private List<RepoPackage> collectAllPackages(Connection conn, String workspacePath) throws SQLException {
+        Set<String> seen = new LinkedHashSet<>();
+        List<RepoPackage> packages = new ArrayList<>();
 
         String sql = """
-            SELECT DISTINCT source_package FROM code_dependencies
+            SELECT DISTINCT repo_name, source_package FROM code_dependencies
             WHERE workspace_path = ? AND source_package != ''
             UNION
-            SELECT DISTINCT target_package FROM code_dependencies
+            SELECT DISTINCT repo_name, target_package FROM code_dependencies
             WHERE workspace_path = ? AND target_package != '' AND is_external = 0
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -199,9 +211,14 @@ public class ModuleProfileComputer {
             ps.setString(2, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String pkg = rs.getString(1);
+                    String repoName = rs.getString(1);
+                    if (repoName == null) repoName = "";
+                    String pkg = rs.getString(2);
                     if (pkg != null && !pkg.isBlank()) {
-                        packages.add(pkg);
+                        String key = repoName + "|" + pkg;
+                        if (seen.add(key)) {
+                            packages.add(new RepoPackage(repoName, pkg));
+                        }
                     }
                 }
             }
@@ -210,19 +227,22 @@ public class ModuleProfileComputer {
     }
 
     /**
-     * Fan-in: count of distinct external packages that have edges targeting this package.
-     * (i.e., other packages that import classes from this package)
+     * Fan-in: count of distinct external packages that have edges targeting this package
+     * within the same repo.
+     * (i.e., other packages in the same repo that import classes from this package)
      */
-    private int computeFanIn(Connection conn, String workspacePath, String packageName) throws SQLException {
+    private int computeFanIn(Connection conn, String workspacePath, String repoName,
+                              String packageName) throws SQLException {
         String sql = """
             SELECT COUNT(DISTINCT source_package) FROM code_dependencies
-            WHERE workspace_path = ? AND target_package = ? AND source_package != ?
+            WHERE workspace_path = ? AND repo_name = ? AND target_package = ? AND source_package != ?
             AND is_external = 0
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
-            ps.setString(2, packageName);
+            ps.setString(2, repoName);
             ps.setString(3, packageName);
+            ps.setString(4, packageName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
             }
@@ -230,19 +250,41 @@ public class ModuleProfileComputer {
     }
 
     /**
-     * Fan-out: count of distinct internal (non-external) packages this package imports from.
+     * Fan-out: count of distinct internal (non-external) packages this package imports from,
+     * scoped to the same repo.
      * External (third-party) dependencies are excluded since they are not part of the
      * project's module graph.
      */
-    private int computeFanOut(Connection conn, String workspacePath, String packageName) throws SQLException {
+    private int computeFanOut(Connection conn, String workspacePath, String repoName,
+                               String packageName) throws SQLException {
         String sql = """
             SELECT COUNT(DISTINCT target_package) FROM code_dependencies
-            WHERE workspace_path = ? AND source_package = ? AND target_package != ?
+            WHERE workspace_path = ? AND repo_name = ? AND source_package = ? AND target_package != ?
             AND target_package != '' AND is_external = 0
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
-            ps.setString(2, packageName);
+            ps.setString(2, repoName);
+            ps.setString(3, packageName);
+            ps.setString(4, packageName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /**
+     * Counts distinct source files in the given package, scoped to repo.
+     */
+    private int countFilesInPackage(Connection conn, String workspacePath, String repoName,
+                                     String packageName) throws SQLException {
+        String sql = """
+            SELECT COUNT(DISTINCT source_file) FROM code_dependencies
+            WHERE workspace_path = ? AND repo_name = ? AND source_package = ?
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, repoName);
             ps.setString(3, packageName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
@@ -251,46 +293,30 @@ public class ModuleProfileComputer {
     }
 
     /**
-     * Counts distinct source files in the given package.
+     * Upserts a module profile row into module_profiles with repo_name.
      */
-    private int countFilesInPackage(Connection conn, String workspacePath, String packageName) throws SQLException {
-        String sql = """
-            SELECT COUNT(DISTINCT source_file) FROM code_dependencies
-            WHERE workspace_path = ? AND source_package = ?
-            """;
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, workspacePath);
-            ps.setString(2, packageName);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : 0;
-            }
-        }
-    }
-
-    /**
-     * Upserts a module profile row into module_profiles.
-     */
-    private void upsertModuleProfile(Connection conn, String workspacePath, String modulePath,
-                                      String packageName, String inferredPurpose,
+    private void upsertModuleProfile(Connection conn, String workspacePath, String repoName,
+                                      String modulePath, String packageName, String inferredPurpose,
                                       int fanIn, int fanOut, double instability,
                                       int totalFiles, double confidence, long now) throws SQLException {
         String sql = """
             INSERT OR REPLACE INTO module_profiles (
-                workspace_path, module_path, package_name, inferred_purpose,
+                workspace_path, repo_name, module_path, package_name, inferred_purpose,
                 fan_in, fan_out, instability, total_files, confidence, last_computed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
-            ps.setString(2, modulePath);
-            ps.setString(3, packageName);
-            ps.setString(4, inferredPurpose);
-            ps.setInt(5, fanIn);
-            ps.setInt(6, fanOut);
-            ps.setDouble(7, instability);
-            ps.setInt(8, totalFiles);
-            ps.setDouble(9, confidence);
-            ps.setLong(10, now);
+            ps.setString(2, repoName != null ? repoName : "");
+            ps.setString(3, modulePath);
+            ps.setString(4, packageName);
+            ps.setString(5, inferredPurpose);
+            ps.setInt(6, fanIn);
+            ps.setInt(7, fanOut);
+            ps.setDouble(8, instability);
+            ps.setInt(9, totalFiles);
+            ps.setDouble(10, confidence);
+            ps.setLong(11, now);
             ps.executeUpdate();
         }
     }

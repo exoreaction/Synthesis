@@ -66,41 +66,45 @@ public class CodeHealthAnalyzer {
             throws SQLException {
         List<CodeHealthSignal> signals = new ArrayList<>();
 
-        // Aggregate class-level edges to package-level first, then detect mutual pairs
+        // Aggregate class-level edges to package-level first, scoped by repo_name,
+        // then detect mutual pairs within the same repo
         String sql = """
-            SELECT source_package, target_package, COUNT(*) as edge_count
+            SELECT repo_name, source_package, target_package, COUNT(*) as edge_count
             FROM code_dependencies
             WHERE workspace_path = ?
               AND is_external = 0
               AND source_package != ''
               AND target_package != ''
               AND source_package != target_package
-            GROUP BY source_package, target_package
+            GROUP BY repo_name, source_package, target_package
             """;
 
-        // Build lookup: (source -> target) -> edgeCount at the package level
+        // Build lookup: (repo|source -> target) -> edgeCount at the package level
         Map<String, Integer> edgeMap = new HashMap<>();
-        List<String[]> allEdges = new ArrayList<>();
+        List<String[]> allEdges = new ArrayList<>(); // [repo, src, tgt]
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String src = rs.getString(1);
-                    String tgt = rs.getString(2);
-                    int count = rs.getInt(3);
-                    edgeMap.put(src + " -> " + tgt, count);
-                    allEdges.add(new String[]{src, tgt});
+                    String repo = rs.getString(1);
+                    if (repo == null) repo = "";
+                    String src = rs.getString(2);
+                    String tgt = rs.getString(3);
+                    int count = rs.getInt(4);
+                    edgeMap.put(repo + "|" + src + " -> " + tgt, count);
+                    allEdges.add(new String[]{repo, src, tgt});
                 }
             }
         }
 
-        // Find mutual pairs
+        // Find mutual pairs within the same repo
         Set<String> seen = new HashSet<>();
         for (String[] edge : allEdges) {
-            String src = edge[0];
-            String tgt = edge[1];
-            String reverseKey = tgt + " -> " + src;
+            String repo = edge[0];
+            String src = edge[1];
+            String tgt = edge[2];
+            String reverseKey = repo + "|" + tgt + " -> " + src;
             if (edgeMap.containsKey(reverseKey)) {
                 // Normalize to avoid duplicate pairs (alphabetical order)
                 String pkgA, pkgB;
@@ -108,24 +112,25 @@ public class CodeHealthAnalyzer {
                 if (src.compareTo(tgt) <= 0) {
                     pkgA = src;
                     pkgB = tgt;
-                    aToB = edgeMap.get(src + " -> " + tgt);
+                    aToB = edgeMap.get(repo + "|" + src + " -> " + tgt);
                     bToA = edgeMap.get(reverseKey);
                 } else {
                     pkgA = tgt;
                     pkgB = src;
-                    aToB = edgeMap.get(tgt + " -> " + src);
-                    bToA = edgeMap.get(src + " -> " + tgt);
+                    aToB = edgeMap.get(repo + "|" + tgt + " -> " + src);
+                    bToA = edgeMap.get(repo + "|" + src + " -> " + tgt);
                 }
-                String pairKey = pkgA + "|" + pkgB;
+                String pairKey = repo + "|" + pkgA + "|" + pkgB;
                 if (seen.add(pairKey)) {
                     String shortA = shortName(pkgA);
                     String shortB = shortName(pkgB);
+                    String repoPrefix = repo.isEmpty() ? "" : "[" + repo + "] ";
 
                     signals.add(new CodeHealthSignal(
                             "C001_CIRCULAR_DEPENDENCY",
                             "HIGH",
                             pkgA.replace('.', '/'),
-                            shortA + " <-> " + shortB + " mutual imports detected ("
+                            repoPrefix + shortA + " <-> " + shortB + " mutual imports detected ("
                                     + aToB + " edges " + shortA + "->" + shortB
                                     + ", " + bToA + " edges " + shortB + "->" + shortA + ")",
                             "Extract shared types to a common module"
