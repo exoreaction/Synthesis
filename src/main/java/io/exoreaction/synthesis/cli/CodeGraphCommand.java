@@ -3,9 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
-import io.exoreaction.synthesis.graph.CodeGraphExtractor;
-import io.exoreaction.synthesis.graph.CodeGraphRepository;
-import io.exoreaction.synthesis.graph.CodeGraphStats;
+import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -15,9 +13,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
@@ -35,6 +33,10 @@ import java.util.stream.Stream;
  *   synthesis code-graph extract --incremental  # only changed files
  *   synthesis code-graph extract --stats        # show extraction statistics
  *   synthesis code-graph extract --dry-run      # show what would be extracted
+ *   synthesis code-graph describe               # show module profiles
+ *   synthesis code-graph describe --module cli  # filter by module substring
+ *   synthesis code-graph health                 # show code health signals
+ *   synthesis code-graph health --errors-only   # HIGH severity only
  * </pre>
  *
  * @since v1.9.9 (CKG-1.06)
@@ -45,7 +47,9 @@ import java.util.stream.Stream;
         description = "Manage the persisted code knowledge graph (extract, query)",
         mixinStandardHelpOptions = true,
         subcommands = {
-                CodeGraphCommand.ExtractSub.class
+                CodeGraphCommand.ExtractSub.class,
+                CodeGraphCommand.DescribeSub.class,
+                CodeGraphCommand.HealthSub.class
         }
 )
 public class CodeGraphCommand implements Callable<Integer> {
@@ -58,7 +62,9 @@ public class CodeGraphCommand implements Callable<Integer> {
         System.out.println("  Use 'synthesis code-graph <subcommand>' for graph operations.");
         System.out.println();
         System.out.println("  Subcommands:");
-        System.out.println("    extract   Extract code dependencies and persist to SQLite");
+        System.out.println("    extract    Extract code dependencies and persist to SQLite");
+        System.out.println("    describe   Show module profiles (packages, fan-in/out, instability)");
+        System.out.println("    health     Detect code health signals (circular deps, hotspots, etc.)");
         System.out.println();
         return 0;
     }
@@ -193,8 +199,6 @@ public class CodeGraphCommand implements Callable<Integer> {
         private int runIncremental(CodeGraphExtractor extractor, Connection conn,
                                    Path workspaceRoot) throws Exception {
             // For incremental, find all Java files as the "changed" set
-            // (a more sophisticated approach would compare timestamps or checksums,
-            //  but for now this re-extracts all files incrementally -- clearing per-file first)
             List<Path> javaFiles = findJavaFiles(workspaceRoot);
             Set<Path> changed = new HashSet<>(javaFiles);
 
@@ -231,4 +235,344 @@ public class CodeGraphCommand implements Callable<Integer> {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: describe
+    // -----------------------------------------------------------------------
+
+    /**
+     * Shows module profiles: per-package summaries including fan-in, fan-out,
+     * instability, inferred purpose, and file count.
+     *
+     * <p>Use {@code --refresh} to re-extract and recompute profiles before display.
+     *
+     * @since v1.12.2 (CKG-2.03)
+     */
+    @Command(name = "describe",
+            description = "Show module profiles (packages, fan-in/out, instability)",
+            mixinStandardHelpOptions = true)
+    static class DescribeSub implements Callable<Integer> {
+
+        @ParentCommand
+        private CodeGraphCommand parent;
+
+        @Option(names = {"--module"},
+                description = "Filter by module name substring")
+        private String moduleFilter;
+
+        @Option(names = {"--instability"},
+                description = "Sort by instability (descending)",
+                defaultValue = "false")
+        private boolean sortByInstability;
+
+        @Option(names = {"--format"},
+                description = "Output format: text or json (default: text)",
+                defaultValue = "text")
+        private String format;
+
+        @Option(names = {"--refresh"},
+                description = "Re-extract dependencies and recompute profiles before display",
+                defaultValue = "false")
+        private boolean refresh;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+                var validation = workspace.validate();
+                if (validation.isPresent()) {
+                    AnsiOutput.printError(validation.get());
+                    return 1;
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                Connection conn = db.getConnection();
+                String wsPath = workspaceRoot.toString();
+
+                if (refresh) {
+                    CodeGraphExtractor extractor = new CodeGraphExtractor();
+                    extractor.extractAndPersist(workspaceRoot, conn);
+                    ModuleProfileComputer computer = new ModuleProfileComputer(new CodeGraphRepository());
+                    computer.computeAndPersist(wsPath, conn);
+                }
+
+                List<ModuleProfile> profiles = loadProfiles(conn, wsPath);
+
+                if (profiles.isEmpty()) {
+                    System.out.println();
+                    System.out.println("No module profiles found. Run: synthesis code-graph extract && synthesis code-graph describe --refresh");
+                    System.out.println();
+                    return 0;
+                }
+
+                // Apply module filter
+                if (moduleFilter != null && !moduleFilter.isBlank()) {
+                    String filter = moduleFilter.toLowerCase(Locale.ROOT);
+                    profiles = profiles.stream()
+                            .filter(p -> p.modulePath.toLowerCase(Locale.ROOT).contains(filter)
+                                    || p.packageName.toLowerCase(Locale.ROOT).contains(filter))
+                            .toList();
+                }
+
+                // Sort
+                if (sortByInstability) {
+                    profiles = new ArrayList<>(profiles);
+                    profiles.sort(Comparator.comparingDouble((ModuleProfile p) -> p.instability).reversed());
+                }
+
+                if ("json".equalsIgnoreCase(format)) {
+                    printJson(profiles);
+                } else {
+                    printText(profiles);
+                }
+
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Code graph describe failed: " + e.getMessage());
+                return 1;
+            }
+        }
+
+        private void printText(List<ModuleProfile> profiles) {
+            System.out.println();
+            System.out.println("Module Profiles (" + profiles.size() + " packages)");
+            System.out.println();
+
+            for (ModuleProfile p : profiles) {
+                System.out.println("  " + p.modulePath);
+                System.out.println("    Purpose:     " + p.purpose);
+                System.out.print("    Fan-in:      " + p.fanIn
+                        + "   Fan-out: " + p.fanOut
+                        + "   Instability: " + String.format("%.2f", p.instability));
+
+                // Add contextual annotation
+                if (p.instability > 0.9 && isCli(p.packageName)) {
+                    System.out.println(" (expected for CLI)");
+                } else if (p.instability < 0.2) {
+                    System.out.println(" \u2713");
+                } else {
+                    System.out.println();
+                }
+
+                System.out.println("    Files:       " + p.totalFiles);
+                System.out.println("    Confidence:  " + String.format("%.2f", p.confidence));
+                System.out.println();
+            }
+        }
+
+        private void printJson(List<ModuleProfile> profiles) {
+            System.out.println("[");
+            for (int i = 0; i < profiles.size(); i++) {
+                ModuleProfile p = profiles.get(i);
+                System.out.println("  {");
+                System.out.println("    \"modulePath\": \"" + escape(p.modulePath) + "\",");
+                System.out.println("    \"packageName\": \"" + escape(p.packageName) + "\",");
+                System.out.println("    \"purpose\": \"" + escape(p.purpose) + "\",");
+                System.out.println("    \"fanIn\": " + p.fanIn + ",");
+                System.out.println("    \"fanOut\": " + p.fanOut + ",");
+                System.out.println("    \"instability\": " + String.format("%.2f", p.instability) + ",");
+                System.out.println("    \"totalFiles\": " + p.totalFiles + ",");
+                System.out.println("    \"confidence\": " + String.format("%.2f", p.confidence));
+                System.out.println("  }" + (i < profiles.size() - 1 ? "," : ""));
+            }
+            System.out.println("]");
+        }
+
+        private List<ModuleProfile> loadProfiles(Connection conn, String wsPath) throws Exception {
+            List<ModuleProfile> profiles = new ArrayList<>();
+            String sql = """
+                SELECT module_path, package_name, inferred_purpose,
+                       fan_in, fan_out, instability, total_files, confidence
+                FROM module_profiles
+                WHERE workspace_path = ?
+                ORDER BY package_name
+                """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, wsPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        profiles.add(new ModuleProfile(
+                                rs.getString("module_path"),
+                                rs.getString("package_name"),
+                                rs.getString("inferred_purpose"),
+                                rs.getInt("fan_in"),
+                                rs.getInt("fan_out"),
+                                rs.getDouble("instability"),
+                                rs.getInt("total_files"),
+                                rs.getDouble("confidence")
+                        ));
+                    }
+                }
+            }
+            return profiles;
+        }
+
+        private static boolean isCli(String packageName) {
+            return packageName != null
+                    && (packageName.endsWith(".cli") || packageName.endsWith(".command"));
+        }
+
+        private static String escape(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: health
+    // -----------------------------------------------------------------------
+
+    /**
+     * Detects and displays code health signals from the code knowledge graph.
+     *
+     * <p>Signals range from circular dependencies (HIGH) to documentation gaps (LOW).
+     * Use {@code --errors-only} to show only HIGH-severity signals.
+     *
+     * @since v1.12.2 (CKG-2.03)
+     */
+    @Command(name = "health",
+            description = "Detect code health signals (circular deps, hotspots, etc.)",
+            mixinStandardHelpOptions = true)
+    static class HealthSub implements Callable<Integer> {
+
+        @ParentCommand
+        private CodeGraphCommand parent;
+
+        @Option(names = {"--errors-only"},
+                description = "Show only HIGH severity signals",
+                defaultValue = "false")
+        private boolean errorsOnly;
+
+        @Option(names = {"--format"},
+                description = "Output format: text or json (default: text)",
+                defaultValue = "text")
+        private String format;
+
+        @Option(names = {"--refresh"},
+                description = "Re-extract dependencies and recompute profiles before analysis",
+                defaultValue = "false")
+        private boolean refresh;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+                var validation = workspace.validate();
+                if (validation.isPresent()) {
+                    AnsiOutput.printError(validation.get());
+                    return 1;
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                Connection conn = db.getConnection();
+                String wsPath = workspaceRoot.toString();
+
+                if (refresh) {
+                    CodeGraphExtractor extractor = new CodeGraphExtractor();
+                    extractor.extractAndPersist(workspaceRoot, conn);
+                    ModuleProfileComputer computer = new ModuleProfileComputer(new CodeGraphRepository());
+                    computer.computeAndPersist(wsPath, conn);
+                }
+
+                // Check if profiles exist
+                int profileCount = countProfiles(conn, wsPath);
+                if (profileCount == 0) {
+                    System.out.println();
+                    System.out.println("No module profiles found. Run: synthesis code-graph extract && synthesis code-graph health --refresh");
+                    System.out.println();
+                    return 0;
+                }
+
+                CodeHealthAnalyzer analyzer = new CodeHealthAnalyzer();
+                List<CodeHealthSignal> signals = analyzer.analyze(wsPath, conn);
+
+                if (errorsOnly) {
+                    signals = signals.stream()
+                            .filter(s -> "HIGH".equals(s.severity()))
+                            .toList();
+                }
+
+                if ("json".equalsIgnoreCase(format)) {
+                    printJson(signals);
+                } else {
+                    printText(signals);
+                }
+
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Code graph health analysis failed: " + e.getMessage());
+                return 1;
+            }
+        }
+
+        private void printText(List<CodeHealthSignal> signals) {
+            System.out.println();
+            if (signals.isEmpty()) {
+                System.out.println("Code Health: No issues detected");
+                System.out.println();
+                return;
+            }
+
+            System.out.println("Code Health Signals (" + signals.size() + " issues)");
+            System.out.println();
+
+            for (CodeHealthSignal s : signals) {
+                System.out.println("  [" + s.severity() + "] " + s.signalId()
+                        + " -- " + s.modulePath());
+                System.out.println("    " + s.description());
+                System.out.println("    Suggestion: " + s.suggestion());
+                System.out.println();
+            }
+        }
+
+        private void printJson(List<CodeHealthSignal> signals) {
+            System.out.println("[");
+            for (int i = 0; i < signals.size(); i++) {
+                CodeHealthSignal s = signals.get(i);
+                System.out.println("  {");
+                System.out.println("    \"signalId\": \"" + s.signalId() + "\",");
+                System.out.println("    \"severity\": \"" + s.severity() + "\",");
+                System.out.println("    \"modulePath\": \"" + escape(s.modulePath()) + "\",");
+                System.out.println("    \"description\": \"" + escape(s.description()) + "\",");
+                System.out.println("    \"suggestion\": \"" + escape(s.suggestion()) + "\"");
+                System.out.println("  }" + (i < signals.size() - 1 ? "," : ""));
+            }
+            System.out.println("]");
+        }
+
+        private int countProfiles(Connection conn, String wsPath) throws Exception {
+            String sql = "SELECT COUNT(*) FROM module_profiles WHERE workspace_path = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, wsPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getInt(1) : 0;
+                }
+            }
+        }
+
+        private static String escape(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared inner record for describe output
+    // -----------------------------------------------------------------------
+
+    /**
+     * Internal record for module profile display data.
+     */
+    record ModuleProfile(
+            String modulePath,
+            String packageName,
+            String purpose,
+            int fanIn,
+            int fanOut,
+            double instability,
+            int totalFiles,
+            double confidence
+    ) {}
 }

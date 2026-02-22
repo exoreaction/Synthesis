@@ -11,7 +11,9 @@ import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CodeGraphExtractor;
+import io.exoreaction.synthesis.graph.CodeGraphRepository;
 import io.exoreaction.synthesis.graph.CodeGraphStats;
+import io.exoreaction.synthesis.graph.ModuleProfileComputer;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
@@ -999,12 +1001,23 @@ public class MaintainOrchestrator {
             stats = extractor.extractAndPersist(workspaceRoot, conn);
         }
 
+        // Compute module profiles after extraction (CKG-2.04)
+        int profileCount = 0;
+        try {
+            ModuleProfileComputer profileComputer =
+                    new ModuleProfileComputer(new CodeGraphRepository());
+            profileCount = profileComputer.computeAndPersist(workspaceRoot.toString(), conn);
+        } catch (Exception e) {
+            // Module profile computation failure should not fail the phase
+        }
+
         List<String> details = new ArrayList<>();
         if (options.verbose()) {
             details.add(stats.filesProcessed() + " file(s) processed");
             details.add(stats.dependenciesFound() + " dependency edge(s)");
             details.add(stats.crossFormatLinks() + " cross-format link(s)");
             details.add(stats.packagesFound() + " package(s)");
+            details.add(profileCount + " module profile(s) computed");
             details.add(stats.elapsedMs() + "ms");
         }
 

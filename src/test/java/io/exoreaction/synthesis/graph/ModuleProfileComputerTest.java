@@ -1,0 +1,264 @@
+package io.exoreaction.synthesis.graph;
+
+import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.Instant;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Tests for {@link ModuleProfileComputer} -- aggregates code_dependencies into module_profiles.
+ *
+ * @since v1.12.2 (CKG-2.05)
+ */
+class ModuleProfileComputerTest {
+
+    @TempDir
+    Path tempDir;
+
+    private SynthesisDatabase db;
+    private Connection conn;
+    private CodeGraphRepository repo;
+    private ModuleProfileComputer computer;
+    private static final String WS = "/test/workspace";
+    private static final long NOW = Instant.now().getEpochSecond();
+
+    @BeforeEach
+    void setUp() throws SQLException {
+        db = new SynthesisDatabase(tempDir.resolve("test.db"));
+        conn = db.getConnection();
+        repo = new CodeGraphRepository();
+        computer = new ModuleProfileComputer(repo);
+    }
+
+    @AfterEach
+    void tearDown() throws SQLException {
+        db.close();
+    }
+
+    // -----------------------------------------------------------------------
+    // computeAndPersist
+    // -----------------------------------------------------------------------
+
+    @Test
+    void computeAndPersist_single_package() throws SQLException {
+        // Package com.example.core has one file importing from com.example.util
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.example.core",
+                "src/Util.java", "Util", "com.example.util", "import", false, NOW));
+
+        // Package com.example.util has a file
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Util.java", "Util", "com.example.util",
+                null, "List", "java.util", "import", true, NOW));
+
+        int count = computer.computeAndPersist(WS, conn);
+        assertTrue(count >= 2, "Should compute at least 2 profiles: " + count);
+
+        // Verify com.example.core: fan_out=1 (imports com.example.util), fan_in=0
+        ModuleProfileRow core = loadProfile(conn, WS, "com/example/core");
+        assertNotNull(core, "core profile should exist");
+        assertEquals(0, core.fanIn, "core fan_in should be 0");
+        assertEquals(1, core.fanOut, "core fan_out should be 1");
+
+        // Verify com.example.util: fan_in=1 (imported by com.example.core), fan_out=0 (java.util is external, excluded)
+        ModuleProfileRow util = loadProfile(conn, WS, "com/example/util");
+        assertNotNull(util, "util profile should exist");
+        assertEquals(1, util.fanIn, "util fan_in should be 1");
+    }
+
+    @Test
+    void computeAndPersist_multiple_packages() throws SQLException {
+        // Set up 3 packages with various dependencies
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+                "src/B.java", "B", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+                "src/C.java", "C", "com.c", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+                "src/C.java", "C", "com.c", "import", false, NOW));
+
+        int count = computer.computeAndPersist(WS, conn);
+        assertEquals(3, count, "Should compute 3 profiles");
+
+        // com.c: fan_in=2 (from com.a and com.b)
+        ModuleProfileRow c = loadProfile(conn, WS, "com/c");
+        assertNotNull(c);
+        assertEquals(2, c.fanIn);
+        assertEquals(0, c.fanOut);
+    }
+
+    @Test
+    void computeAndPersist_replaces_stale_data() throws SQLException {
+        // First run
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+                "src/B.java", "B", "com.b", "import", false, NOW));
+        int count1 = computer.computeAndPersist(WS, conn);
+        assertTrue(count1 > 0);
+
+        // Second run (idempotent)
+        int count2 = computer.computeAndPersist(WS, conn);
+        assertEquals(count1, count2, "Second run should produce same count (idempotent)");
+
+        // Verify no duplicates
+        int totalProfiles = countAllProfiles(conn, WS);
+        assertEquals(count2, totalProfiles, "No duplicate profiles should exist");
+    }
+
+    @Test
+    void computeAndPersist_empty_workspace_returns_zero() throws SQLException {
+        int count = computer.computeAndPersist(WS, conn);
+        assertEquals(0, count, "Empty workspace should produce 0 profiles");
+    }
+
+    // -----------------------------------------------------------------------
+    // Instability calculations
+    // -----------------------------------------------------------------------
+
+    @Test
+    void instability_fully_stable() throws SQLException {
+        // Package com.core is imported by 3 others but imports nothing
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+                "src/Core.java", "Core", "com.core", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+                "src/Core.java", "Core", "com.core", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/C.java", "C", "com.c",
+                "src/Core.java", "Core", "com.core", "import", false, NOW));
+        // Core itself only imports external stuff
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.core",
+                null, "String", "java.lang", "import", true, NOW));
+
+        computer.computeAndPersist(WS, conn);
+
+        ModuleProfileRow core = loadProfile(conn, WS, "com/core");
+        assertNotNull(core);
+        assertEquals(0.0, core.instability, 0.01,
+                "Package with only fan-in should have instability 0.0");
+    }
+
+    @Test
+    void instability_fully_unstable() throws SQLException {
+        // Package com.cli imports others but nobody imports it
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.cli",
+                "src/Core.java", "Core", "com.core", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.cli",
+                "src/Util.java", "Util", "com.util", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+
+        ModuleProfileRow cli = loadProfile(conn, WS, "com/cli");
+        assertNotNull(cli);
+        assertEquals(1.0, cli.instability, 0.01,
+                "Package with only fan-out should have instability 1.0");
+    }
+
+    @Test
+    void instability_division_by_zero_guard() throws SQLException {
+        // Package with no connections at all (only has internal self-imports or something weird)
+        // We create a package that appears as a source but only with self-referential imports
+        // Actually, for this test: a package that exists but has fan_in=0 and fan_out=0
+        // We need a package that appears in code_dependencies but with no cross-package deps
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/Orphan.java", "Orphan", "com.orphan",
+                null, "String", "java.lang", "import", true, NOW));
+
+        computer.computeAndPersist(WS, conn);
+
+        ModuleProfileRow orphan = loadProfile(conn, WS, "com/orphan");
+        assertNotNull(orphan);
+        assertEquals(0.5, orphan.instability, 0.01,
+                "Orphan package (fan_in=0, fan_out=0) should have neutral instability 0.5");
+    }
+
+    // -----------------------------------------------------------------------
+    // inferPurpose
+    // -----------------------------------------------------------------------
+
+    @Test
+    void inferPurpose_cli_package() {
+        assertEquals("CLI command implementations", computer.inferPurpose("io.exoreaction.synthesis.cli"));
+    }
+
+    @Test
+    void inferPurpose_core_package() {
+        assertEquals("Core domain model", computer.inferPurpose("io.exoreaction.synthesis.core"));
+    }
+
+    @Test
+    void inferPurpose_unknown_package() {
+        assertEquals("General purpose", computer.inferPurpose("com.example.whatever"));
+    }
+
+    @Test
+    void inferPurpose_db_package() {
+        assertEquals("Data persistence", computer.inferPurpose("io.exoreaction.synthesis.db"));
+    }
+
+    @Test
+    void inferPurpose_graph_package() {
+        assertEquals("Graph analysis and visualization", computer.inferPurpose("io.exoreaction.synthesis.graph"));
+    }
+
+    @Test
+    void inferPurpose_null_returns_general() {
+        assertEquals("General purpose", computer.inferPurpose(null));
+    }
+
+    @Test
+    void inferPurpose_empty_returns_general() {
+        assertEquals("General purpose", computer.inferPurpose(""));
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    record ModuleProfileRow(String modulePath, String packageName, String purpose,
+                            int fanIn, int fanOut, double instability, int totalFiles,
+                            double confidence) {}
+
+    private ModuleProfileRow loadProfile(Connection conn, String wsPath, String modulePath)
+            throws SQLException {
+        String sql = """
+            SELECT module_path, package_name, inferred_purpose,
+                   fan_in, fan_out, instability, total_files, confidence
+            FROM module_profiles
+            WHERE workspace_path = ? AND module_path = ?
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, wsPath);
+            ps.setString(2, modulePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new ModuleProfileRow(
+                            rs.getString("module_path"),
+                            rs.getString("package_name"),
+                            rs.getString("inferred_purpose"),
+                            rs.getInt("fan_in"),
+                            rs.getInt("fan_out"),
+                            rs.getDouble("instability"),
+                            rs.getInt("total_files"),
+                            rs.getDouble("confidence")
+                    );
+                }
+            }
+        }
+        return null;
+    }
+
+    private int countAllProfiles(Connection conn, String wsPath) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM module_profiles WHERE workspace_path = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, wsPath);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+}
