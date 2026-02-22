@@ -191,13 +191,13 @@ The 16-heuristic `inferPurpose()` needs tuning for naming patterns like `trackin
 ## Further Exploration Needed
 
 - [x] Run `--format mermaid` and verify output — **valid Mermaid, paste at mermaid.live** (31 nodes, full edge set)
-- [ ] Run `synthesis code-graph --cycles` standalone to verify output format
-- [ ] Run `synthesis code-graph --hotspots` to check hotspot detection
-- [ ] Investigate the `config ↔ core` circular dep at source level — what classes cause it?
-- [ ] Check whether C010 false positive (test package detection) is real
+- [x] Run `synthesis code-graph --cycles` standalone — **correct output, but edge counts differ from C001 health signal (bug)**
+- [x] Run `synthesis code-graph --hotspots` — **no hotspots detected (correct: high-instability packages have low fan-in)**
+- [x] Investigate the `config ↔ core` circular dep — **root cause identified, see below**
+- [x] Check whether C010 false positive — **confirmed false positive, see below**
 - [ ] Run on a different codebase (lib-pcb? Quadim?) for comparison
-- [ ] Verify cross-format link quality — are the 280 links accurate?
-- [ ] Test `synthesis relate` speed improvement (SQLite vs file scan)
+- [x] Verify cross-format link quality — **bug found: target/ dir double-counts links, see below**
+- [x] Test `synthesis relate` speed (SQLite vs file scan) — **finding: JVM startup dominates, see below**
 
 ---
 
@@ -212,6 +212,82 @@ The 16-heuristic `inferPurpose()` needs tuning for naming patterns like `trackin
 | MEDIUM | C012 god package threshold should be configurable (suggest 30) | Small |
 | LOW | Better error message when workspace has no `.synthesis/` config | Small |
 | LOW | Document that `lsp`, `mcp`, `report` at 1.00 instability is expected | Trivial |
+
+---
+
+---
+
+## `config ↔ core` Circular Dep — Root Cause
+
+`SynthesisConfig.java` (in `config`) imports from `core`:
+- `Ecosystem` — ecosystem type enum/record
+- `EcosystemDetector` — detects project ecosystem
+- `SmartExclusions` — exclusion rule engine
+
+These three classes live in `core` but are conceptually configuration-related. They ended up in `core` because `WorkspaceManager` (core) also uses them, creating the cycle.
+
+**Fix direction:** Move `Ecosystem`, `EcosystemDetector`, `SmartExclusions` out of `core` into either `config` or a new `model` package. `core` then depends only on interfaces, not on config-specific types.
+
+---
+
+## C010 False Positive — Confirmed
+
+C010 fired for `util` (fan-in: 19), `core` (fan-in: 15), `index` (fan-in: 12), etc.
+
+**But test packages DO exist:**
+- `src/test/java/io/exoreaction/synthesis/util/` — 12 test files
+- `src/test/java/io/exoreaction/synthesis/core/` — 11 test files
+- `src/test/java/io/exoreaction/synthesis/config/` — 3 test files
+
+**Bug:** `CodeHealthAnalyzer.C010` is checking for a test package using a path pattern that doesn't match the actual test directory structure. It may be looking for test files inside the same source root rather than `src/test/`.
+
+**Action:** Fix C010 to check `src/test/java/` mirror of `src/main/java/` package path.
+
+---
+
+## Cross-Format Links — Double-Counting Bug
+
+`--cross-format` shows 280 links but many appear in pairs:
+```
+target/classes/db/migration/V1__initial_schema.sql → SynthesisApp.java
+src/main/resources/db/migration/V1__initial_schema.sql → SynthesisApp.java
+```
+
+The `target/` build directory is being scanned alongside `src/`, creating duplicate cross-format links. The extractor should exclude `target/`, `.git/`, and other non-source directories.
+
+**Action:** Add `target/` to the exclusion list in `CrossFormatLinker` (or inherit from workspace exclusion config).
+
+---
+
+## `synthesis relate` Speed — JVM Startup Dominates
+
+| Mode | Time |
+|------|------|
+| SQLite-backed (default) | 5.58s |
+| File scan (`--refresh`) | 5.77s |
+
+Both are ~5.6s. The SQLite fast path IS working (slight improvement visible), but JVM startup accounts for ~5s of the total. The real speedup would be visible in a warm JVM context (e.g., MCP server, long-running process) or on a much larger codebase.
+
+**`SynthesisConfig.java` relate output is excellent:**
+- 11 outgoing references (imports `Ecosystem`, `EcosystemDetector`, `SmartExclusions` from `core`)
+- 49 incoming references (used by CLI, core, mcp, staging, search, tests)
+- Correctly identifies it as the most widely-used config type in the codebase
+
+---
+
+## Recommended Follow-up Issues (Updated)
+
+| Priority | Issue | Effort |
+|----------|-------|--------|
+| HIGH | **Bug: C001 overcounts edges** in health signal description | Small |
+| HIGH | **Bug: C010 false positive** — test package detection uses wrong path | Small |
+| HIGH | **Bug: cross-format links include `target/`** — double-counting | Small |
+| HIGH | `describe` should not require `--refresh` after `extract` | Small |
+| MEDIUM | Fix `config ↔ core` circular dep — move Ecosystem/EcosystemDetector/SmartExclusions | Medium |
+| MEDIUM | Tune `inferPurpose()` heuristics — 28/31 packages show "General purpose" | Medium |
+| MEDIUM | C012 god package threshold configurable (suggest 30, not 15) | Small |
+| LOW | `relate` JVM startup: consider daemon mode or GraalVM native image for CLI speed | Large |
+| LOW | Better error message when workspace has no `.synthesis/` config | Small |
 
 ---
 
