@@ -38,7 +38,7 @@ public class SecurityAnalyzer {
             "\"\\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\\s+.*\"\\s*\\+",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern SQL_EXECUTE_CONCAT = Pattern.compile(
-            "(?:executeQuery|executeUpdate|execute)\\s*\\(.*\\+");
+            "(?:executeQuery|executeUpdate)\\s*\\(.*\\+");
     private static final Pattern STATEMENT_EXECUTE = Pattern.compile(
             "Statement\\.execute\\w*\\s*\\(");
 
@@ -150,6 +150,11 @@ public class SecurityAnalyzer {
             "String\\.format\\s*\\(.*%s|\"[^\"]*%s");
     private static final Pattern BOUNDARY_TAG = Pattern.compile(
             "<system|<context|<user|<instructions");
+    private static final Set<String> PROMPT_VOCAB = Set.of(
+            "You are", "Your Role", "Your role", "INSTRUCTIONS:",
+            "Be THOROUGH", "Analyze", "ANALYZE", "Provide", "PROVIDE",
+            "FORMAT FOR", "CODEBASE METRICS", "COVERAGE PERIOD",
+            "PREVIOUS ANALYSIS", "TARGET AUDIENCE");
 
     private final SecurityRepository repository;
 
@@ -252,6 +257,12 @@ public class SecurityAnalyzer {
                                      String className, String packageName) {
         List<SecuritySignal> signals = new ArrayList<>();
 
+        // SQL context gate: skip files that don't use any SQL APIs
+        boolean hasSqlContext = content.contains("java.sql") || content.contains("PreparedStatement")
+                || content.contains("executeQuery") || content.contains("executeUpdate")
+                || content.contains("Statement");
+        if (!hasSqlContext) return signals;
+
         // Skip if file uses only PreparedStatement
         if (content.contains("PreparedStatement") && !content.contains("Statement.execute")) {
             // Check for string concat even with PreparedStatement
@@ -301,6 +312,9 @@ public class SecurityAnalyzer {
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             String lineLower = line.toLowerCase(Locale.ROOT);
+
+            // Skip pattern definition lines (detector's own regex strings)
+            if (line.contains("Pattern.compile(")) continue;
 
             // Skip lines containing test/mock exclusion words
             boolean excluded = SECRET_EXCLUSIONS.stream().anyMatch(lineLower::contains);
@@ -579,12 +593,12 @@ public class SecurityAnalyzer {
     List<SecuritySignal> checkS011(String content, String filePath,
                                      String className, String packageName) {
         List<SecuritySignal> signals = new ArrayList<>();
-        // Only flag in security-relevant files
-        String contentLower = content.toLowerCase(Locale.ROOT);
-        boolean securityFile = contentLower.contains("auth") || contentLower.contains("security")
-                || contentLower.contains("crypto") || contentLower.contains("password")
-                || contentLower.contains("credential");
-        if (!securityFile) return signals;
+        // Only flag in security-boundary packages, not any file that mentions security in comments
+        if (packageName == null) return signals;
+        boolean securityPackage = packageName.contains(".mcp") || packageName.contains(".cli")
+                || packageName.contains(".security") || packageName.contains(".auth")
+                || packageName.contains(".credential") || packageName.contains(".crypto");
+        if (!securityPackage) return signals;
 
         String[] lines = content.split("\n");
         for (int i = 0; i < lines.length; i++) {
@@ -899,6 +913,10 @@ public class SecurityAnalyzer {
         boolean relevantPackage = packageName.contains(".ai") || packageName.contains(".summary")
                 || packageName.contains(".research") || packageName.contains(".report");
         if (!relevantPackage) return signals;
+
+        // AI prompt vocabulary gate: require at least 2 prompt-specific markers
+        long vocabCount = PROMPT_VOCAB.stream().filter(content::contains).count();
+        if (vocabCount < 2) return signals;
 
         // Only flag files that have prompt templates (text blocks or String.format with %s)
         boolean hasTextBlock = TEXT_BLOCK.matcher(content).find();

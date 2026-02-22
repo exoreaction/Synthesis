@@ -350,6 +350,7 @@ class SecurityAnalyzerTest {
                 + "class PromptTemplates {\n"
                 + "    static String template = \"\"\"\n"
                 + "        You are a helpful assistant.\n"
+                + "        INSTRUCTIONS: Analyze the following content.\n"
                 + "        Answer: %s\n"
                 + "        \"\"\";\n"
                 + "}\n";
@@ -366,7 +367,7 @@ class SecurityAnalyzerTest {
         String code = "package io.exoreaction.synthesis.ai;\n"
                 + "class PromptTemplates {\n"
                 + "    static String template = \"\"\"\n"
-                + "        <system>You are a helpful assistant.</system>\n"
+                + "        <system>You are a helpful assistant. INSTRUCTIONS: Analyze.</system>\n"
                 + "        <user>%s</user>\n"
                 + "        \"\"\";\n"
                 + "}\n";
