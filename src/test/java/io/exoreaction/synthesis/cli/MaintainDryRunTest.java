@@ -126,8 +126,8 @@ class MaintainDryRunTest {
         MaintainResult result = new MaintainOrchestrator(
                 tempDir, MaintainOptions.forDryRun(), config).run();
 
-        assertEquals(10, result.phases().size(),
-                "Dry-run must return all 10 phase results");
+        assertEquals(11, result.phases().size(),
+                "Dry-run must return all 11 phase results");
     }
 
     @Test

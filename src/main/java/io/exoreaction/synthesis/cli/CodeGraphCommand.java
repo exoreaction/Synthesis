@@ -51,7 +51,8 @@ import java.util.stream.Collectors;
                 CodeGraphCommand.ExtractSub.class,
                 CodeGraphCommand.DescribeSub.class,
                 CodeGraphCommand.HealthSub.class,
-                CodeGraphCommand.GapsSub.class
+                CodeGraphCommand.GapsSub.class,
+                CodeGraphCommand.SecuritySub.class
         }
 )
 public class CodeGraphCommand implements Callable<Integer> {
@@ -919,6 +920,260 @@ public class CodeGraphCommand implements Callable<Integer> {
                 idx++;
             }
             System.out.println("]");
+        }
+
+        private static String escape(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: security
+    // -----------------------------------------------------------------------
+
+    /**
+     * Analyzes the codebase for security vulnerabilities across 21 signals.
+     *
+     * <p>Traditional security (S001-S015): SQL injection, hardcoded secrets,
+     * weak crypto, XXE, path traversal, unsafe deserialization, etc.
+     *
+     * <p>Prompt injection and agentic surface (S016-S021): direct prompt
+     * injection, RAG poisoning, unconfirmed agentic actions, unvalidated
+     * MCP path traversal, sensitive data exposure, missing prompt boundaries.
+     *
+     * @since v1.14.0 (Security)
+     */
+    @Command(name = "security",
+            description = "Security analysis: 21 signals across traditional and agentic surfaces",
+            mixinStandardHelpOptions = true)
+    static class SecuritySub implements Callable<Integer> {
+
+        @ParentCommand
+        private CodeGraphCommand parent;
+
+        @Option(names = {"--severity"},
+                description = "Filter by severity (HIGH, MEDIUM, LOW, INFO)")
+        private String severityFilter;
+
+        @Option(names = {"--type"},
+                description = "Filter by signal type (e.g., S001_SQL_INJECTION)")
+        private String typeFilter;
+
+        @Option(names = {"--module"},
+                description = "Filter by package/module name substring")
+        private String moduleFilter;
+
+        @Option(names = {"--format"},
+                description = "Output format: text or json (default: text)",
+                defaultValue = "text")
+        private String format;
+
+        @Option(names = {"--refresh"},
+                description = "Re-analyze before display",
+                defaultValue = "false")
+        private boolean refresh;
+
+        @Option(names = {"--scan-secrets"},
+                description = "Also scan non-Java files for hardcoded secrets",
+                defaultValue = "false")
+        private boolean scanSecrets;
+
+        @Option(names = {"--attack-surface"},
+                description = "Show attack surface map",
+                defaultValue = "false")
+        private boolean attackSurface;
+
+        @Option(names = {"--errors-only"},
+                description = "Show HIGH severity only",
+                defaultValue = "false")
+        private boolean errorsOnly;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+                var validation = workspace.validate();
+                if (validation.isPresent()) {
+                    AnsiOutput.printError(validation.get());
+                    return 1;
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                Connection conn = db.getConnection();
+                String wsPath = workspaceRoot.toString();
+
+                SecurityRepository secRepo = new SecurityRepository();
+                SecurityAnalyzer analyzer = new SecurityAnalyzer(secRepo);
+
+                // Determine if we need to run analysis or can use cached findings
+                boolean needsAnalysis = refresh || secRepo.countFindings(conn, wsPath) == 0;
+
+                List<SecuritySignal> signals;
+                if (needsAnalysis) {
+                    SecurityAnalysisOptions options = new SecurityAnalysisOptions(
+                            scanSecrets, attackSurface, false);
+                    signals = analyzer.analyze(workspaceRoot, conn, options);
+                } else {
+                    signals = secRepo.getFindings(conn, wsPath);
+                }
+
+                // Run attack surface mapping if requested
+                List<AttackSurfaceEdge> surfaceEdges = List.of();
+                if (attackSurface) {
+                    // Check if code graph has data
+                    CodeGraphRepository codeRepo = new CodeGraphRepository();
+                    if (codeRepo.countDependencies(conn, wsPath) > 0) {
+                        AttackSurfaceMapper mapper = new AttackSurfaceMapper(codeRepo, secRepo);
+                        surfaceEdges = mapper.map(wsPath, conn);
+                    }
+                }
+
+                // Apply filters
+                if (errorsOnly) {
+                    signals = signals.stream()
+                            .filter(s -> "HIGH".equals(s.severity()))
+                            .toList();
+                } else if (severityFilter != null && !severityFilter.isBlank()) {
+                    String sev = severityFilter.toUpperCase(Locale.ROOT);
+                    signals = signals.stream()
+                            .filter(s -> sev.equals(s.severity()))
+                            .toList();
+                }
+
+                if (typeFilter != null && !typeFilter.isBlank()) {
+                    String type = typeFilter.toUpperCase(Locale.ROOT);
+                    signals = signals.stream()
+                            .filter(s -> s.signalId().equals(type)
+                                    || s.signalId().contains(type))
+                            .toList();
+                }
+
+                if (moduleFilter != null && !moduleFilter.isBlank()) {
+                    String filter = moduleFilter.toLowerCase(Locale.ROOT);
+                    signals = signals.stream()
+                            .filter(s -> (s.packageName() != null
+                                    && s.packageName().toLowerCase(Locale.ROOT).contains(filter))
+                                    || s.filePath().toLowerCase(Locale.ROOT).contains(filter))
+                            .toList();
+                }
+
+                if ("json".equalsIgnoreCase(format)) {
+                    printJson(signals, surfaceEdges);
+                } else {
+                    printText(signals, surfaceEdges);
+                }
+
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Security analysis failed: " + e.getMessage());
+                return 1;
+            }
+        }
+
+        private void printText(List<SecuritySignal> signals, List<AttackSurfaceEdge> edges) {
+            System.out.println();
+            if (signals.isEmpty() && edges.isEmpty()) {
+                System.out.println("Security Analysis: No findings");
+                System.out.println();
+                return;
+            }
+
+            if (!signals.isEmpty()) {
+                System.out.println("Security Findings (" + signals.size() + " issues)");
+                System.out.println();
+
+                for (SecuritySignal s : signals) {
+                    String packageDisplay = s.packageName() != null
+                            ? s.packageName().replace('.', '/') : "unknown";
+                    System.out.println("  [" + s.severity() + "] " + s.signalId()
+                            + " -- " + packageDisplay);
+                    System.out.println("    " + s.description());
+                    if (s.filePath() != null) {
+                        System.out.println("    File: " + s.filePath()
+                                + (s.lineNumber() > 0 ? ":" + s.lineNumber() : ""));
+                    }
+                    if (s.evidence() != null && !s.evidence().isBlank()) {
+                        System.out.println("    Evidence: " + s.evidence());
+                    }
+                    if (s.suggestion() != null && !s.suggestion().isBlank()) {
+                        System.out.println("    Fix: " + s.suggestion());
+                    }
+                    if (s.cweId() != null && !s.cweId().isBlank()) {
+                        System.out.println("    CWE: " + s.cweId());
+                    }
+                    if (s.flowType() != null && !s.flowType().isBlank()) {
+                        System.out.println("    Flow: " + s.flowType());
+                    }
+                    System.out.println();
+                }
+            }
+
+            if (!edges.isEmpty()) {
+                System.out.println("Attack Surface (" + edges.size() + " paths)");
+                System.out.println();
+                for (AttackSurfaceEdge edge : edges) {
+                    System.out.println("  " + edge.entryClass() + " -> " + edge.sinkClass()
+                            + " [" + edge.sinkType() + "] (" + edge.hopCount() + " hops)");
+                    if (edge.pathSummary() != null) {
+                        System.out.println("    Path: " + edge.pathSummary());
+                    }
+                    System.out.println();
+                }
+            }
+        }
+
+        private void printJson(List<SecuritySignal> signals, List<AttackSurfaceEdge> edges) {
+            System.out.println("{");
+            System.out.println("  \"findings\": [");
+            for (int i = 0; i < signals.size(); i++) {
+                SecuritySignal s = signals.get(i);
+                System.out.println("    {");
+                System.out.println("      \"signalId\": \"" + s.signalId() + "\",");
+                System.out.println("      \"severity\": \"" + s.severity() + "\",");
+                if (s.cweId() != null) {
+                    System.out.println("      \"cweId\": \"" + s.cweId() + "\",");
+                }
+                System.out.println("      \"filePath\": \"" + escape(s.filePath()) + "\",");
+                System.out.println("      \"lineNumber\": " + s.lineNumber() + ",");
+                if (s.className() != null) {
+                    System.out.println("      \"className\": \"" + escape(s.className()) + "\",");
+                }
+                if (s.packageName() != null) {
+                    System.out.println("      \"packageName\": \"" + escape(s.packageName()) + "\",");
+                }
+                System.out.println("      \"description\": \"" + escape(s.description()) + "\",");
+                if (s.evidence() != null) {
+                    System.out.println("      \"evidence\": \"" + escape(s.evidence()) + "\",");
+                }
+                System.out.println("      \"suggestion\": \"" + escape(s.suggestion()) + "\"");
+                if (s.flowType() != null) {
+                    // Rewrite last line to add comma
+                    // Actually, just include it as a separate field
+                }
+                System.out.println("    }" + (i < signals.size() - 1 ? "," : ""));
+            }
+            System.out.println("  ]");
+
+            if (!edges.isEmpty()) {
+                System.out.println("  ,\"attackSurface\": [");
+                for (int i = 0; i < edges.size(); i++) {
+                    AttackSurfaceEdge e = edges.get(i);
+                    System.out.println("    {");
+                    System.out.println("      \"entryFile\": \"" + escape(e.entryFile()) + "\",");
+                    System.out.println("      \"entryClass\": \"" + escape(e.entryClass()) + "\",");
+                    System.out.println("      \"sinkFile\": \"" + escape(e.sinkFile()) + "\",");
+                    System.out.println("      \"sinkClass\": \"" + escape(e.sinkClass()) + "\",");
+                    System.out.println("      \"sinkType\": \"" + escape(e.sinkType()) + "\",");
+                    System.out.println("      \"hopCount\": " + e.hopCount() + ",");
+                    System.out.println("      \"pathSummary\": \"" + escape(e.pathSummary()) + "\"");
+                    System.out.println("    }" + (i < edges.size() - 1 ? "," : ""));
+                }
+                System.out.println("  ]");
+            }
+
+            System.out.println("}");
         }
 
         private static String escape(String s) {

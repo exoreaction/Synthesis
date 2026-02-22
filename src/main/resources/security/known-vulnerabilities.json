@@ -1,0 +1,37 @@
+[
+  {
+    "groupId": "org.apache.logging.log4j",
+    "artifactId": "log4j-core",
+    "fixedVersion": "2.17.1",
+    "cveId": "CVE-2021-44228",
+    "description": "Log4Shell remote code execution via JNDI lookup"
+  },
+  {
+    "groupId": "org.springframework",
+    "artifactId": "spring-webmvc",
+    "fixedVersion": "5.3.18",
+    "cveId": "CVE-2022-22965",
+    "description": "Spring4Shell RCE via data binding on JDK 9+"
+  },
+  {
+    "groupId": "com.fasterxml.jackson.core",
+    "artifactId": "jackson-databind",
+    "fixedVersion": "2.13.2",
+    "cveId": "CVE-2022-42003",
+    "description": "Jackson deserialization vulnerability"
+  },
+  {
+    "groupId": "org.apache.commons",
+    "artifactId": "commons-text",
+    "fixedVersion": "1.10.0",
+    "cveId": "CVE-2022-42889",
+    "description": "Text4Shell RCE via StringSubstitutor interpolation"
+  },
+  {
+    "groupId": "com.google.protobuf",
+    "artifactId": "protobuf-java",
+    "fixedVersion": "3.21.7",
+    "cveId": "CVE-2022-3171",
+    "description": "Protobuf Java denial of service via malicious input"
+  }
+]
