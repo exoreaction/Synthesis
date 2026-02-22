@@ -15,8 +15,8 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.10.1-SNAPSHOT (as of Feb 19, 2026)
-- **Tests:** 2,540+ (JUnit 5)
+- **Version:** 1.12.2-SNAPSHOT (as of Feb 2026)
+- **Tests:** 3,746 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)
@@ -133,9 +133,17 @@ io.exoreaction.synthesis
   |   |-- YamlAnalyzer                # YAML/config files
   |   +-- GenericAnalyzer             # Fallback for unknown types
   |
-  |-- graph/                           # Dependency visualization
+  |-- graph/                           # Dependency visualization + code graph
   |   |-- GraphBuilder                # Builds relationship graphs
-  |   +-- GraphRenderer               # Renders Mermaid, DOT, PNG, SVG
+  |   |-- GraphRenderer               # Renders Mermaid, DOT, PNG, SVG
+  |   |-- RelationService             # Outgoing/incoming reference analysis
+  |   |-- ViolationDetector           # Layer violation + circular dep detection
+  |   |-- CoChangeAnalyzer            # Git co-change analysis, behavioral coupling
+  |   |-- CrossFormatLinker           # SQL→Java, YAML→Java cross-format links
+  |   |-- KnowledgeEdgeScanner        # Skill/doc→source edges, drift calculation
+  |   |-- CodeGraphExtractor          # Persists dependency extraction to SQLite (CKG-1)
+  |   |-- CodeGraphRepository         # DAO: code_dependencies + cross_format_links
+  |   +-- CodeGraphStats              # Extraction statistics record
   |
   |-- ai/                             # AI integration
   |   |-- ClaudeClient                # Anthropic API wrapper
@@ -174,10 +182,28 @@ io.exoreaction.synthesis
   |   |-- SkillInstaller              # Installs to ~/.claude/skills/
   |   +-- SkillTemplate               # Skill file templates
   |
-  |-- org/                             # Organization discovery
+  |-- org/                             # Organization discovery + knowledge graph
   |   |-- OrganizationRegistry        # Manages discovered orgs
   |   |-- OrganizationScanner         # Auto-discovers companies
   |   |-- DownloadsClassifier         # Classifies files by org
+  |   |-- DirectoryIdentity + DirectoryIdentityParser + DirectoryIdentityRouter
+  |   |-- DirectoryScorer             # Identity-based scoring (0.0-1.0 normalized)
+  |   |-- DirectoryCentroid           # What a directory IS (topics, entities, confidence)
+  |   |-- DirectoryWants              # What a directory WANTS TO BECOME + satisfaction
+  |   |-- DirectoryProfile            # Wrapper: identity + centroid + wants + health
+  |   |-- DirectoryHealth             # Health status (healthy/bootstrapping/starving/drifting)
+  |   |-- DirectoryClassification     # Enum: DOCUMENT, CODE, MEDIA, GENERATED, UNKNOWN
+  |   |-- DirectoryClassifier         # 4-tier heuristic (build file→path→content→carve-outs)
+  |   |-- DirectoryBidder             # Enrichment-aware bidding (Jaccard similarity)
+  |   |-- DirectoryArchetype + ArchetypeRegistry  # 6 built-in archetypes
+  |   |-- EnrichmentSignature + EnrichmentSignatureExtractor
+  |   |-- CentroidComputer            # Frequency-ranked topic aggregation
+  |   |-- WantsBootstrapper           # 4-tier cold-start (README→name→parent→overrides)
+  |   |-- WantSatisfactionComputer    # Satisfaction = topics*0.5 + entities*0.3 + gaps*0.2
+  |   |-- VirtualMembershipManager    # SQLite-backed virtual membership
+  |   |-- GapAnalyzer                 # Aspirational gap detection
+  |   |-- RoutingLearner              # Feedback-based score adjustment
+  |   |-- RoutingContext + RoutingDecision + RoutingConfidence  # Routing result records
   |   +-- Organization, Client, Product, ClientStatus, OrganizationType
   |
   |-- telemetry/                       # Pilot telemetry

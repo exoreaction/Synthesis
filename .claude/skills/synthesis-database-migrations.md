@@ -96,6 +96,41 @@ Flyway flyway = Flyway.configure()
 flyway.migrate();
 ```
 
+## Current Migration State (Feb 2026)
+
+```
+V1__initial_schema.sql                              # Core metrics + metadata tables
+V2__add_workspace_tags.sql                          # Workspace tag column
+V3__file_tracking_and_changelog.sql                 # File tracking + changelog tables
+V4__sub_workspaces.sql                              # Sub-workspace support
+V5__summary_cache.sql                               # AI summary caching
+V6__research_cache.sql                              # Research cache
+V7 — INTENTIONALLY RESERVED                         # Migration deleted; version permanently reserved
+V8__report_cache.sql                                # Report cache
+V9__knowledge_edges.sql                             # Skill/doc→source edge tracking
+V10__directory_centroids.sql                        # KG: directory_centroids + file_enrichment_signatures
+V11__virtual_membership_and_routing_feedback.sql    # KG: virtual_memberships + routing_feedback
+V12__directory_classification.sql                   # KG: adds classification column to directory_centroids
+V13__code_knowledge_graph.sql                       # CKG: code_dependencies, module_profiles,
+                                                    #      cross_format_links, code_quality_gaps
+```
+
+**Next migration will be V14.** Always run `ls src/main/resources/db/migration/` before creating a new one.
+
+### Key Tables by System
+
+| System | Tables |
+|--------|--------|
+| Metrics | `metrics`, `metadata` (V1-V2) |
+| File tracking | `file_movements`, `file_states`, `changelog_snapshots` (V3) |
+| Sub-workspaces | `sub_workspaces` (V4) |
+| Caches | `summary_cache`, `research_cache`, `report_cache` (V5, V6, V8) |
+| Knowledge edges | `knowledge_edges` (V9) |
+| Document knowledge graph | `directory_centroids`, `file_enrichment_signatures` (V10); `virtual_memberships`, `routing_feedback` (V11); `classification` column (V12) |
+| Code knowledge graph | `code_dependencies`, `module_profiles`, `cross_format_links`, `code_quality_gaps` (V13) |
+
+---
+
 ## Common Tasks
 
 ### Add a New Column to the Metrics Table
@@ -104,7 +139,7 @@ flyway.migrate();
    ```
    ls src/main/resources/db/migration/
    ```
-   If the latest is `V2__add_workspace_tags.sql`, the next is V3.
+   If the latest is `V13__code_knowledge_graph.sql`, the next is V14.
 
 2. Create the migration file:
    ```
