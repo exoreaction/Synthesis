@@ -117,6 +117,9 @@ public class SyncCommand implements Callable<Integer> {
         // Cache centroids by directory for parent-centroid inheritance
         Map<Path, DirectoryCentroid> centroidCache = new HashMap<>();
 
+        // Cache for ancestor build file lookups (shared across the workspace walk)
+        Map<Path, Optional<Path>> ancestorBuildFileCache = new HashMap<>();
+
         Path scanRoot = targetDir != null ? targetDir : workspaceRoot;
 
         int created = 0;
@@ -130,11 +133,25 @@ public class SyncCommand implements Callable<Integer> {
                     .filter(dir -> !isHiddenDir(dir))
                     .filter(dir -> !isSynthesisDir(dir))
                     .filter(dir -> !matchesExcludePattern(dir, workspaceRoot, excludePatterns))
-                    .filter(dir -> !isCodePackagePath(workspaceRoot, dir))
                     .filter(dir -> !isDeepInsideArchive(workspaceRoot, dir))
                     .toList();
 
             for (Path dir : directories) {
+                // Classify the directory to gate centroid/wants/health processing
+                DirectoryClassification classification = DirectoryClassifier.classify(
+                        dir, workspaceRoot, ancestorBuildFileCache);
+
+                // Skip CODE and GENERATED directories entirely (they should not
+                // get .synthesis.md files -- replaces the old isCodePackagePath filter)
+                if (classification == DirectoryClassification.CODE
+                        || classification == DirectoryClassification.GENERATED) {
+                    if (verbose) {
+                        System.out.println("  [SKIP:" + classification.name() + "] "
+                                + workspaceRoot.relativize(dir));
+                    }
+                    continue;
+                }
+
                 Path synthesisFile = dir.resolve(".synthesis.md");
                 ScopeResolver.ResolvedScope scope = scopeResolver.resolve(dir);
 
@@ -292,10 +309,11 @@ public class SyncCommand implements Callable<Integer> {
                 }
 
                 // Phase 2: Compute centroid and wants if --enrich-centroids is enabled
+                // Gate by classification: skip centroid/wants/health for non-document dirs
                 DirectoryCentroid centroid = DirectoryCentroid.empty();
                 DirectoryWants wants = DirectoryWants.empty();
 
-                if (enrichCentroids) {
+                if (enrichCentroids && !classification.skipCentroid()) {
                     // Extract enrichment signatures for all files in the directory
                     List<EnrichmentSignature> signatures = extractEnrichmentSignatures(
                             dir, enrichmentExtractor, workspaceRoot);
@@ -305,7 +323,9 @@ public class SyncCommand implements Callable<Integer> {
                         centroid = centroidComputer.compute(signatures, totalFileCount);
                         centroidCache.put(dir, centroid);
                     }
+                }
 
+                if (enrichCentroids && !classification.skipWants()) {
                     // Bootstrap wants if centroid is absent or weak (confidence <= 0.8)
                     if (centroid.isEmpty() || centroid.confidence() <= 0.8) {
                         // Look up parent centroid
@@ -325,21 +345,21 @@ public class SyncCommand implements Callable<Integer> {
                     if (!wants.isEmpty()) {
                         wants = satisfactionComputer.withSatisfaction(centroid, wants);
                     }
-
-                    if (verbose && !centroid.isEmpty()) {
-                        System.out.println("    centroid: topics=" + centroid.topics()
-                                + ", entities=" + centroid.entities()
-                                + ", confidence=" + String.format("%.2f", centroid.confidence()));
-                    }
-                    if (verbose && !wants.isEmpty()) {
-                        System.out.println("    wants: topics=" + wants.topics()
-                                + ", source=" + wants.source());
-                    }
                 }
 
-                // Compute health (Phase 3) when enriching
+                if (enrichCentroids && verbose && !centroid.isEmpty()) {
+                    System.out.println("    centroid: topics=" + centroid.topics()
+                            + ", entities=" + centroid.entities()
+                            + ", confidence=" + String.format("%.2f", centroid.confidence()));
+                }
+                if (enrichCentroids && verbose && !wants.isEmpty()) {
+                    System.out.println("    wants: topics=" + wants.topics()
+                            + ", source=" + wants.source());
+                }
+
+                // Compute health (Phase 3) when enriching -- gated by classification
                 DirectoryHealth health = DirectoryHealth.empty();
-                if (enrichCentroids) {
+                if (enrichCentroids && !classification.skipHealth()) {
                     health = DirectoryHealth.compute(centroid, wants);
                 }
 
@@ -355,7 +375,8 @@ public class SyncCommand implements Callable<Integer> {
                         }
                     } else {
                         if (enrichCentroids) {
-                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants, health);
+                            DirectoryProfile profile = new DirectoryProfile(
+                                    result, centroid, wants, health, classification);
                             parser.writeProfile(synthesisFile, profile);
                         } else {
                             parser.write(synthesisFile, result);
@@ -375,7 +396,8 @@ public class SyncCommand implements Callable<Integer> {
                         }
                     } else {
                         if (enrichCentroids) {
-                            DirectoryProfile profile = new DirectoryProfile(result, centroid, wants, health);
+                            DirectoryProfile profile = new DirectoryProfile(
+                                    result, centroid, wants, health, classification);
                             parser.writeProfile(synthesisFile, profile);
                         } else {
                             parser.write(synthesisFile, result);
@@ -586,21 +608,6 @@ public class SyncCommand implements Callable<Integer> {
         return null;
     }
 
-    /**
-     * Returns true if the path is inside a Java/resource source tree.
-     * These are code organisation directories, not routing targets.
-     */
-    static boolean isCodePackagePath(Path workspaceRoot, Path dir) {
-        String rel = workspaceRoot.relativize(dir).toString().replace('\\', '/');
-        return rel.contains("/src/main/java/")
-                || rel.contains("/src/test/java/")
-                || rel.contains("/src/main/resources/")
-                || rel.contains("/src/test/resources/")
-                || rel.endsWith("/src/main/java")
-                || rel.endsWith("/src/test/java")
-                || rel.endsWith("/src/main/resources")
-                || rel.endsWith("/src/test/resources");
-    }
 
     /**
      * Returns true if the path is more than 2 levels deep inside any {@code archive/} directory.

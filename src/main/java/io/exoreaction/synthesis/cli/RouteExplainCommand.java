@@ -94,9 +94,16 @@ public class RouteExplainCommand implements Callable<Integer> {
             checkTransientStatus(resolvedFile, workspaceRoot);
             System.out.println();
 
-            // Create router and score all candidates
+            // Create router and score all candidates, filtering out CODE directories
             DirectoryIdentityRouter router = new DirectoryIdentityRouter(workspaceRoot, null);
-            List<DirectoryScorer.ScoredCandidate> allScored = router.scoreAll(resolvedFile);
+            List<DirectoryScorer.ScoredCandidate> allScored = router.scoreAll(resolvedFile)
+                    .stream()
+                    .filter(c -> {
+                        DirectoryClassification cls = DirectoryClassifier.classify(
+                                c.directory(), workspaceRoot);
+                        return !cls.skipRouting();
+                    })
+                    .toList();
 
             if (allScored.isEmpty()) {
                 AnsiOutput.printWarning("No candidate directories found in workspace.");

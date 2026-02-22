@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
+import io.exoreaction.synthesis.org.DirectoryClassification;
+import io.exoreaction.synthesis.org.DirectoryClassifier;
 import io.exoreaction.synthesis.org.DirectoryIdentityParser;
 import io.exoreaction.synthesis.org.DirectoryProfile;
 import io.exoreaction.synthesis.org.DirectoryWants;
@@ -67,6 +69,14 @@ public class W020Check {
                     .forEach(dir -> {
                         Path synthesisFile = dir.resolve(".synthesis.md");
                         if (!Files.exists(synthesisFile)) return;
+
+                        // Skip CODE and MEDIA directories -- starvation is not meaningful
+                        DirectoryClassification classification =
+                                DirectoryClassifier.classify(dir, workspaceRoot);
+                        if (classification == DirectoryClassification.CODE
+                                || classification == DirectoryClassification.MEDIA) {
+                            return;
+                        }
 
                         DirectoryProfile profile = parser.parseProfile(synthesisFile);
                         DirectoryWants wants = profile.wants();

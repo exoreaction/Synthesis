@@ -85,10 +85,28 @@ public class DescribeCommand implements Callable<Integer> {
         Path synthesisFile = directory.resolve(".synthesis.md");
         String relativePath = workspaceRoot.relativize(directory).toString();
 
+        // Compute classification (even if no .synthesis.md file exists)
+        DirectoryClassification classification = DirectoryClassifier.classify(directory, workspaceRoot);
+
         if (!Files.exists(synthesisFile)) {
             out.println(relativePath + "/");
-            out.println("  No .synthesis.md file found.");
-            out.println("  Run 'synthesis sync' to discover directory identity.");
+            // For CODE directories, show classification info instead of "run sync"
+            if (classification == DirectoryClassification.CODE
+                    || classification == DirectoryClassification.GENERATED) {
+                out.println("  Classification: " + classification.name());
+                long fileCount = countFilesRecursive(directory);
+                out.println("  Files: " + fileCount);
+                String ecosystem = detectEcosystem(directory, workspaceRoot);
+                if (ecosystem != null) {
+                    out.println("  Ecosystem: " + ecosystem);
+                }
+                out.println();
+                out.println("  This is a " + classification.name().toLowerCase()
+                        + " directory. Centroid/wants/health analysis is not applicable.");
+            } else {
+                out.println("  No .synthesis.md file found.");
+                out.println("  Run 'synthesis sync' to discover directory identity.");
+            }
             return 0;
         }
 
@@ -96,6 +114,11 @@ public class DescribeCommand implements Callable<Integer> {
         DirectoryProfile profile = parser.parseProfile(synthesisFile);
 
         out.println(relativePath + "/");
+
+        // Show classification if known
+        if (classification != DirectoryClassification.UNKNOWN) {
+            out.println("  Classification: " + classification.name());
+        }
 
         // Identity / scope
         DirectoryIdentity identity = profile.identity();
@@ -514,6 +537,47 @@ public class DescribeCommand implements Callable<Integer> {
 
     void setOut(PrintStream out) {
         this.out = out;
+    }
+
+    /**
+     * Counts regular files recursively under a directory.
+     */
+    private static long countFilesRecursive(Path directory) {
+        try (Stream<Path> walk = Files.walk(directory)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(f -> !f.getFileName().toString().startsWith("."))
+                    .count();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Detects the build ecosystem for a code directory by looking for build files
+     * in the directory itself or its ancestors (up to workspace root).
+     */
+    private static String detectEcosystem(Path directory, Path workspaceRoot) {
+        Path current = directory;
+        while (current != null && current.startsWith(workspaceRoot)) {
+            if (Files.exists(current.resolve("pom.xml"))) return "Maven (Java)";
+            if (Files.exists(current.resolve("build.gradle"))) return "Gradle (Java/Kotlin)";
+            if (Files.exists(current.resolve("build.gradle.kts"))) return "Gradle Kotlin DSL";
+            if (Files.exists(current.resolve("Cargo.toml"))) return "Cargo (Rust)";
+            if (Files.exists(current.resolve("go.mod"))) return "Go Modules";
+            if (Files.exists(current.resolve("package.json"))) return "npm/Node.js";
+            // Check .csproj files
+            try (Stream<Path> files = Files.list(current)) {
+                boolean hasCsproj = files.anyMatch(f -> {
+                    String name = f.getFileName().toString().toLowerCase();
+                    return name.endsWith(".csproj") || name.endsWith(".sln");
+                });
+                if (hasCsproj) return ".NET / MSBuild";
+            } catch (IOException ignored) {}
+
+            if (current.equals(workspaceRoot)) break;
+            current = current.getParent();
+        }
+        return null;
     }
 
     /** Internal helper record for workspace summary. */

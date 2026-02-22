@@ -300,32 +300,37 @@ class SyncCommandTest {
     }
 
     // -------------------------------------------------------------------------
-    // #173 — skip Java package paths and deep archive subtrees
+    // #173 — skip code directories and deep archive subtrees
+    //        (formerly isCodePackagePath, now uses DirectoryClassifier)
     // -------------------------------------------------------------------------
 
     @Test
-    void isCodePackagePath_javaSourceTree_returnsTrue() throws Exception {
+    void directoryClassifier_javaSourceTree_classifiesAsCode() throws Exception {
         Path root = tempDir;
         Path javaDir = Files.createDirectories(
                 root.resolve("clients/my-app/src/main/java/com/example"));
-        assertTrue(SyncCommand.isCodePackagePath(root, javaDir),
-                "Deep Java package path should be excluded");
+        DirectoryClassification result = DirectoryClassifier.classify(javaDir, root);
+        assertEquals(DirectoryClassification.CODE, result,
+                "Deep Java package path should be classified as CODE");
     }
 
     @Test
-    void isCodePackagePath_srcMainJavaBoundary_returnsTrue() throws Exception {
+    void directoryClassifier_srcMainJavaBoundary_classifiesAsCode() throws Exception {
         Path root = tempDir;
         Path javaRoot = Files.createDirectories(root.resolve("project/src/main/java"));
-        assertTrue(SyncCommand.isCodePackagePath(root, javaRoot),
-                "src/main/java boundary should be excluded");
+        DirectoryClassification result = DirectoryClassifier.classify(javaRoot, root);
+        assertEquals(DirectoryClassification.CODE, result,
+                "src/main/java boundary should be classified as CODE");
     }
 
     @Test
-    void isCodePackagePath_semanticDir_returnsFalse() throws Exception {
+    void directoryClassifier_semanticDir_doesNotClassifyAsCode() throws Exception {
         Path root = tempDir;
         Path semanticDir = Files.createDirectories(root.resolve("eXOReaction/business/meetings"));
-        assertFalse(SyncCommand.isCodePackagePath(root, semanticDir),
-                "Semantic business directory should not be excluded");
+        Files.writeString(semanticDir.resolve("notes.md"), "# Meeting notes");
+        DirectoryClassification result = DirectoryClassifier.classify(semanticDir, root);
+        assertNotEquals(DirectoryClassification.CODE, result,
+                "Semantic business directory should not be classified as CODE");
     }
 
     @Test
