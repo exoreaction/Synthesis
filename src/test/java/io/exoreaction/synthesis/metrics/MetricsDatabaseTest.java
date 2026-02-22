@@ -7,7 +7,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
-import java.sql.SQLException;
+import java.sql.*;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -149,6 +149,58 @@ class MetricsDatabaseTest {
         // Period of 365 days = events from last year
         List<MetricsEvent> lastYear = db.queryEvents(365);
         assertEquals(1, lastYear.size());
+    }
+
+    // --- WAL mode and busy_timeout ---
+
+    @Test
+    void walMode_isEnabled() throws SQLException {
+        Connection conn = db.getConnection();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA journal_mode")) {
+            assertTrue(rs.next());
+            assertEquals("wal", rs.getString(1).toLowerCase(),
+                    "WAL journal mode should be enabled for MetricsDatabase");
+        }
+    }
+
+    @Test
+    void busyTimeout_isSet() throws SQLException {
+        Connection conn = db.getConnection();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA busy_timeout")) {
+            assertTrue(rs.next());
+            assertEquals(5000, rs.getInt(1),
+                    "busy_timeout should be set to 5000ms for MetricsDatabase");
+        }
+    }
+
+    // --- Separate migration: only metrics tables should exist ---
+
+    @Test
+    void separateMigration_metricsTableExists() throws SQLException {
+        Connection conn = db.getConnection();
+        DatabaseMetaData meta = conn.getMetaData();
+        try (ResultSet rs = meta.getTables(null, null, "metrics", new String[]{"TABLE"})) {
+            assertTrue(rs.next(), "metrics table should exist in MetricsDatabase");
+        }
+    }
+
+    @Test
+    void separateMigration_synthesisTablesDoNotExist() throws SQLException {
+        // Tables from SynthesisDatabase migrations should NOT be in metrics.db
+        Connection conn = db.getConnection();
+        DatabaseMetaData meta = conn.getMetaData();
+        String[] synthesisOnlyTables = {
+            "file_movements", "file_audit_log", "workspace_snapshots",
+            "change_events", "directory_centroids", "code_dependencies"
+        };
+        for (String table : synthesisOnlyTables) {
+            try (ResultSet rs = meta.getTables(null, null, table, new String[]{"TABLE"})) {
+                assertFalse(rs.next(),
+                        "Table '" + table + "' should NOT exist in MetricsDatabase (belongs to SynthesisDatabase)");
+            }
+        }
     }
 
     // --- getDefaultPath ---

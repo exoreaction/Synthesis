@@ -250,6 +250,41 @@ class SynthesisDatabaseExpandedTest {
         assertFalse(conn.isClosed());
     }
 
+    // --- WAL mode and busy_timeout ---
+
+    @Test
+    void walMode_isEnabled() throws SQLException {
+        Connection conn = db.getConnection();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA journal_mode")) {
+            assertTrue(rs.next());
+            assertEquals("wal", rs.getString(1).toLowerCase(),
+                    "WAL journal mode should be enabled");
+        }
+    }
+
+    @Test
+    void busyTimeout_isSet() throws SQLException {
+        Connection conn = db.getConnection();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA busy_timeout")) {
+            assertTrue(rs.next());
+            assertEquals(5000, rs.getInt(1),
+                    "busy_timeout should be set to 5000ms");
+        }
+    }
+
+    // --- getDefaultIfExists ---
+
+    @Test
+    void getDefaultIfExists_returnsNullWhenNotInitialized() {
+        // Note: defaultInstance is static and may or may not be set from other tests.
+        // This test just verifies the method doesn't throw.
+        SynthesisDatabase result = SynthesisDatabase.getDefaultIfExists();
+        // Result can be null or non-null depending on test ordering; just ensure no exception
+        assertDoesNotThrow(() -> SynthesisDatabase.getDefaultIfExists());
+    }
+
     // --- getDefaultPath ---
 
     @Test

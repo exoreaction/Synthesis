@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis;
 
 import io.exoreaction.synthesis.cli.*;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.metrics.MetricsCollector;
 import io.exoreaction.synthesis.telemetry.ApprovalConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
@@ -316,6 +317,12 @@ public class SynthesisApp implements Callable<Integer> {
 
         // Flush any CLI-recorded metrics
         app.shutdownMetrics();
+
+        // Close SynthesisDatabase if it was initialized (allows clean WAL checkpoint)
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefaultIfExists();
+            if (db != null) db.close();
+        } catch (Exception ignored) {}
 
         System.exit(exitCode);
     }

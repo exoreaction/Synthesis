@@ -45,6 +45,15 @@ public class SynthesisDatabase implements AutoCloseable {
         return defaultInstance;
     }
 
+    /**
+     * Returns the existing default instance without creating one.
+     * Returns null if no default instance has been initialized yet.
+     * Used for cleanup in shutdown hooks where creating a new instance would be undesirable.
+     */
+    public static SynthesisDatabase getDefaultIfExists() {
+        return defaultInstance;
+    }
+
     public static Path getDefaultPath() {
         return Path.of(System.getProperty("user.home"), ".synthesis", "synthesis.db");
     }
@@ -57,7 +66,7 @@ public class SynthesisDatabase implements AutoCloseable {
 
             Class.forName("org.sqlite.JDBC");
 
-            String url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+            String url = "jdbc:sqlite:" + dbPath.toAbsolutePath() + "?busy_timeout=5000";
 
             Flyway flyway = Flyway.configure()
                     .dataSource(url, null, null)
@@ -71,8 +80,10 @@ public class SynthesisDatabase implements AutoCloseable {
             connection.setAutoCommit(true);
 
             // Enable WAL mode for better concurrent read performance
+            // Set busy_timeout via PRAGMA as belt-and-suspenders (some JDBC drivers ignore URL params)
             try (Statement stmt = connection.createStatement()) {
                 stmt.execute("PRAGMA journal_mode=WAL");
+                stmt.execute("PRAGMA busy_timeout = 5000");
                 stmt.execute("PRAGMA foreign_keys=ON");
             }
 
