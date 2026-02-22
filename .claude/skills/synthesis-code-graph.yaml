@@ -201,16 +201,16 @@ instructions: |
 
   ---
 
-  ## Roadmap
+  ## Implementation Status (all done, Feb 22, 2026)
 
   | Phase | Version | Deliverables |
   |-------|---------|-------------|
   | **CKG-1** (done) | v1.12.x | Persist dependency graph; fast relate/impact; code-graph extract |
-  | **CKG-2** | v1.13.x | Module profiles; health signals (C001-C022); code-graph describe/health |
-  | **CKG-3** | v1.14.x | Quality gap detection; completeness scoring; code-graph gaps |
-  | **CKG-4** | v1.15.x | DAG visualization; cycles; hotspots; instability; full code-graph |
+  | **CKG-2** (done) | v1.12.x | Module profiles; health signals (C001-C022); code-graph describe/health |
+  | **CKG-3** (done) | v1.12.x | Quality gap detection; completeness scoring; code-graph gaps |
+  | **CKG-4** (done) | v1.12.x | DAG visualization; cycles; hotspots; instability; full code-graph |
 
-  ### CKG-2 Health Signals (upcoming)
+  ### CKG-2 Health Signals (implemented)
   | Signal | Condition |
   |--------|---------|
   | C001_CIRCULAR_DEPENDENCY | Package A ↔ Package B mutual imports |
@@ -220,6 +220,16 @@ instructions: |
   | C014_ORPHAN_CODE | Public class with fan_in = 0 |
   | C020_HOTSPOT | commits_last_30_days > 10 |
   | C021_DOCUMENTATION_GAP | No README + no skill coverage |
+
+  ### CKG-4 DAG Flags (implemented)
+  | Flag | What it shows |
+  |------|--------------|
+  | (none) / `--layers` | Full ASCII DAG grouped by architectural layer |
+  | `--cycles` | Circular dependency pairs (A ↔ B) |
+  | `--hotspots` | Unstable high-coupling packages (instability > 0.7 AND fan-in > 2) |
+  | `--instability` | All packages sorted by instability descending |
+  | `--cross-format` | SQL/YAML to Java cross-format links |
+  | `--format mermaid` | Mermaid graph TD output (max 30 packages) |
 
   Design document: `/src/exoreaction/Synthesis/docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md`
 
