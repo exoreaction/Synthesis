@@ -7,6 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -72,6 +74,35 @@ class CodeHealthAnalyzerTest {
         assertEquals("HIGH", circular.severity());
         assertTrue(circular.description().contains("<->"),
                 "Description should indicate bidirectional: " + circular.description());
+    }
+
+    @Test
+    void analyze_circular_dependency_package_level_edge_counts() throws SQLException {
+        // Multiple class-level edges between same two packages:
+        // 3 edges from com.a -> com.b, 2 edges from com.b -> com.a
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A1.java", "A1", "com.a",
+                "src/B1.java", "B1", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A2.java", "A2", "com.a",
+                "src/B1.java", "B1", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/A3.java", "A3", "com.a",
+                "src/B2.java", "B2", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B1.java", "B1", "com.b",
+                "src/A1.java", "A1", "com.a", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "src/B2.java", "B2", "com.b",
+                "src/A2.java", "A2", "com.a", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
+
+        CodeHealthSignal circular = signals.stream()
+                .filter(s -> s.signalId().equals("C001_CIRCULAR_DEPENDENCY"))
+                .findFirst().orElse(null);
+        assertNotNull(circular, "Should detect circular dependency");
+        // Should report package-level edge counts (3 and 2), not cartesian product (6)
+        assertTrue(circular.description().contains("3 edges"),
+                "Should report 3 edges a->b, got: " + circular.description());
+        assertTrue(circular.description().contains("2 edges"),
+                "Should report 2 edges b->a, got: " + circular.description());
     }
 
     @Test
@@ -221,6 +252,33 @@ class CodeHealthAnalyzerTest {
 
         assertTrue(signals.stream().anyMatch(s -> s.signalId().equals("C010_HIGH_FAN_IN_NO_TESTS")),
                 "High fan-in package without tests should trigger C010");
+    }
+
+    @Test
+    void analyze_high_fan_in_with_test_files_on_disk_no_C010() throws SQLException, IOException {
+        // Use tempDir as the workspace so we can create test files on disk
+        String wsPath = tempDir.toString();
+
+        // Create a package imported by 6 others (fan_in > 5)
+        String targetPkg = "com.example.shared";
+        for (int i = 0; i < 6; i++) {
+            repo.upsertDependency(conn, new CodeDependency(wsPath,
+                    "src/User" + i + ".java", "User" + i, "com.user" + i,
+                    "src/Shared.java", "Shared", targetPkg, "import", false, NOW));
+        }
+        repo.upsertDependency(conn, new CodeDependency(wsPath, "src/Shared.java", "Shared", targetPkg,
+                null, "String", "java.lang", "import", true, NOW));
+
+        // Create corresponding test directory with a *Test.java file
+        Path testDir = tempDir.resolve("src/test/java/com/example/shared");
+        Files.createDirectories(testDir);
+        Files.writeString(testDir.resolve("SharedTest.java"), "class SharedTest {}");
+
+        computer.computeAndPersist(wsPath, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(wsPath, conn);
+
+        assertTrue(signals.stream().noneMatch(s -> s.signalId().equals("C010_HIGH_FAN_IN_NO_TESTS")),
+                "Package with test files on disk should NOT trigger C010");
     }
 
     // -----------------------------------------------------------------------
