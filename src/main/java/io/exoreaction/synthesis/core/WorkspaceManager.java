@@ -7,7 +7,10 @@ import io.exoreaction.synthesis.util.AnsiOutput;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * Manages the lifecycle of a Synthesis workspace.
@@ -114,13 +117,22 @@ public class WorkspaceManager {
             msg.append("'").append(workspaceRoot).append("' is not a Synthesis workspace")
                .append(" (no ").append(SYNTHESIS_DIR).append("/ found).");
 
+            // Look for ancestor workspaces (walk up)
             Path ancestor = findAncestorWorkspace(workspaceRoot);
-            if (ancestor != null) {
-                msg.append("\n  Did you mean: ").append(ancestor)
-                   .append("  (found ").append(SYNTHESIS_DIR).append("/ there)");
+            // Look for child workspaces (walk down 1-2 levels)
+            List<Path> children = findChildWorkspaces(workspaceRoot, 2);
+
+            if (ancestor != null || !children.isEmpty()) {
+                msg.append("\n\nDid you mean one of these?");
+                if (ancestor != null) {
+                    msg.append("\n  ").append(ancestor).append("    (parent workspace)");
+                }
+                for (Path child : children) {
+                    msg.append("\n  ").append(child).append("    (synthesis workspace)");
+                }
             }
 
-            msg.append("\n  Run 'synthesis init' to initialise this directory,")
+            msg.append("\n\nRun 'synthesis init' to initialise this directory,")
                .append(" or 'synthesis list' to see all known workspaces.");
             return Optional.of(msg.toString());
         }
@@ -144,6 +156,30 @@ public class WorkspaceManager {
             current = current.getParent();
         }
         return null;
+    }
+
+    /**
+     * Walks down the directory tree from {@code start} to find child directories
+     * that contain a {@code .synthesis/} directory, up to the given depth.
+     *
+     * @param start    the directory to begin searching from (not checked itself)
+     * @param maxDepth maximum depth to walk (e.g. 2 = children + grandchildren)
+     * @return list of child workspace paths, sorted alphabetically
+     */
+    List<Path> findChildWorkspaces(Path start, int maxDepth) {
+        List<Path> found = new ArrayList<>();
+        if (!Files.isDirectory(start)) return found;
+
+        try (Stream<Path> walk = Files.walk(start, maxDepth)) {
+            walk.filter(Files::isDirectory)
+                .filter(p -> !p.equals(start))
+                .filter(p -> Files.isDirectory(p.resolve(SYNTHESIS_DIR)))
+                .sorted()
+                .forEach(found::add);
+        } catch (IOException e) {
+            // Silently ignore -- best-effort suggestion
+        }
+        return found;
     }
 
     /**
