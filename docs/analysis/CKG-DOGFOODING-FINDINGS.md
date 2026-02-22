@@ -371,95 +371,78 @@ External deps:      20612
 Elapsed:            985s (16 min)
 ```
 
-### Architecture Observations
+### Architecture Observations (confirmed Feb 22)
 
-- **146 module profiles** computed (222 found during extraction — some overlap/external)
-- **4 HIGH health signals only** — much cleaner than cantara's 163. Modern Spring Boot microservices.
+- **146 module profiles** (after `describe --refresh`)
 - **DTO layer is the clear foundation:** `ai/quadim/api/dto/overlord` — fan-in: **43**, instability: 0.04
-- **`ai/quadim/api/controller`** — fan-in: 3, fan-out: 40, instability: 0.93 — hotspot, too many outgoing deps
-- **`ai/quadim/api/security/whydah`** — confirms Quadim uses Cantara's Whydah for authentication (cross-repo dependency pattern visible!)
+- **`ai/quadim/api/base`** — fan-in: 23, instability: 0.08 — second most widely used, very stable
+- **`ai/quadim/api/controller`** — fan-in: 3, fan-out: 40, instability: 0.93 — **hotspot, god-controller**
+- **`ai/quadim/api/security/whydah`** — confirms Quadim uses Cantara's Whydah for auth (cross-repo visible!)
+- **CV format DTOs are prominent foundation:** jsonresume (fan-in 16), freshresume (fan-in 6), linkedinjsonexport (fan-in 8) — Quadim's CV export features are widely consumed
 
-### Cross-Format Links: Persistence Bug (NEW)
+### Circular Dependencies (47 cycles — confirmed)
 
-Extraction reported 100,054 links — but SQLite `cross_format_links` table has **0 rows** for quadim.
+**Note:** `--cycles` returns "No code graph data" before `describe --refresh` is run. After profiles computed, it works correctly. This is a bug: DAG flag commands depend on `module_profiles` table, not just `code_dependencies`.
 
-```
-code_dependencies:   26,442 ✅
-module_profiles:        251 ✅
-cross_format_links:       0 ❌  (extraction says 100,054)
-code_quality_gaps:        0 ❌
-```
+Key cycles found:
+- `ai.quadim.api ↔ ai.quadim.api.service` (5+1 edges)
+- `ai.quadim.api.base ↔ ai.quadim.api.service` (1+4 edges)
+- `ai.quadim.api.config ↔ ai.quadim.api.service` (5+32 edges — heavy service→config direction)
+- `ai.quadim.api.config ↔ ai.quadim.api.qplatform.dto` (7+9 edges)
+- `ai.quadim.api.config ↔ ai.quadim.api.converter`, `...api.resource.util`, `...api.util` — config is central to 5 cycles
 
-**Cause:** 600 YAML + 1,162 SQL files in 38-repo workspace + 40 `target/` directories = catastrophic over-generation. The 100,054 link set likely triggers a transaction failure or SQLite limit during bulk insert, silently discarding all results.
+**Pattern:** `api.config` is Quadim's equivalent of Synthesis's `config ↔ core` problem. Config packages accumulate transitive deps and become entangled.
 
-**Impact:** `--cross-format` returns "No code graph data" even though extraction succeeded.
+**C001 edge count bug confirmed again:** Health says "160 edges each way" for config↔util but `--cycles` shows actual package-level count is 26+5. Same class-level overcounting.
 
-### `--cycles` Returns "No code graph data" Despite Having Data (NEW)
+### Health Signals (49 issues confirmed)
 
-`synthesis code-graph --cycles` shows "No code graph data" but SQLite has 26,442 internal deps.
+- **49 total** (not 4 as previously estimated) — many HIGH C001 circular dep signals
+- **7 hotspots** confirmed:
+  - `ai/quadim/api/modules/overlord/service` — fan-in: 9, fan-out: 25, instability: 0.74 ⚠
+  - `ai/quadim/api/controller` — fan-in: 3, fan-out: 40, instability: 0.93 ⚠ (god-controller)
+  - `ai/quadim/api/qplatform/bootstrap` — fan-in: 5, fan-out: 17, instability: 0.77 ⚠
+  - `ai/quadim/api/security/whydah` — fan-in: 4, fan-out: 10, instability: 0.71 ⚠
 
-Manual query finds real cycles:
-```
-ai.quadim.api.service ↔ ai.quadim.api.service.lucene  (391 class-level edges!)
-ai.quadim.api.converter ↔ ai.quadim.api.entity         (360 edges)
-ai.quadim.api.qplatform.dto ↔ ai.quadim.api.qplatform.service (329 edges)
-```
+### Cross-Format Links: target/ Bug at Massive Scale
 
-**Root cause TBD:** `DagRenderer.loadInternalPackageEdges()` filters `is_external=0`. Some data issue may cause the "no data" check in `CodeGraphCommand.call()` to return false even though `--cross-format` and `--cycles` flags should proceed.
+100,054 links reported — the `target/` double-count bug causes extreme inflation:
+- Each SQL migration file exists in `target/classes/` AND `src/main/resources/`
+- Each has h2 and postgres variants (2x)
+- Each links to every matching Java class across 38 repos
+- 38 repos × multiple SQL files × 2 DB variants × 2 dirs × many Java targets = 100K+
 
-### `is_external` Classification Bug (NEW — Root Cause Found)
+**Actual unique links: ~25,000** (divide by ~4 for target/ duplicate factor). Still very high — multi-repo SQL cross-linking is a feature, not a bug, but target/ inflation masks real signal.
 
-`buildClassToFileMap` in `CodeGraphExtractor` maps **simple class names** (not FQN) to files:
+After `describe --refresh`: `--cross-format` correctly shows these links (they ARE persisted).
 
-```java
-String targetClass = getSimpleClassName(imp);  // "Service" from "org.springframework.stereotype.Service"
-String targetFile = classToFile.get(targetClass);  // finds any project "Service.java"!
-boolean external = (targetFile == null);
-```
+### New Bug: DAG Flag Commands Require module_profiles (NEW)
 
-If the project has `ai/quadim/api/UserService.java`, and any class imports `org.springframework.stereotype.Service`, the simple name "Service" matches... but it finds the wrong file. Result:
-- `org.springframework.stereotype` → is_external=0 (227 rows!) — **WRONG, is Spring**
-- `java.util` → is_external=0 (11 rows!) — **WRONG, is stdlib**
-- `org.springframework.context.annotation` → is_external=0 (101 rows!)
+`--cycles`, `--hotspots`, `--instability`, `--cross-format`, `--layers` all return "No code graph data" until `describe --refresh` has been run. The commands check `module_profiles` table count, not `code_dependencies`. Same root cause as issue #218 (`describe --refresh` required after extract) — but now affects ALL DAG flag commands.
 
-**Impact:**
-- Cycle detection finds false cycles through external packages
-- fan-out inflated (counts external deps as internal outgoing)
-- Instability calculations slightly off
-
-**Fix:** Build classToFileMap using **fully qualified names** (package + class), not just simple names.
-
-### Health Discrepancy: C001 Mismatch Between Flags
-
-`health --errors-only` shows:
-```
-[HIGH] C001 -- quadim/ai ↔ quadim/pages (60 edges each way)
-[HIGH] C001 -- quadim/ai ↔ quadim/web_driver (26 edges each way)
-```
-
-But `--cycles` shows nothing. Root cause: `quadim/ai`, `quadim/pages`, `quadim/web_driver` are **Nuxt.js frontend directories** (`Quadim-Ai-Nuxt` repo), not Java packages. The C001 health signal uses directory-level module paths; `--cycles` uses Java package names. They're from different module systems entirely.
-
-**Finding:** CKG is picking up non-Java projects (Nuxt.js, CloudFormation YAML) and mixing their module structure with Java packages. Need language-specific module detection.
+**Fix:** Auto-compute module profiles when any DAG flag is requested and profiles are stale/empty.
 
 ---
 
-## Cross-Codebase Comparison
+## Cross-Codebase Comparison (confirmed Feb 22)
 
 | Metric | Synthesis (self) | Cantara | Quadim |
 |--------|-----------------|---------|--------|
 | Files | 501 | 4,316 | 2,771 |
 | Dependencies | 4,026 | 37,199 | 27,908 |
 | Packages | 31 | 749 | 222 |
-| Circular deps | 2 | 128 | 10+ (cycles bug) |
-| Health signals | 18 | 163 | 4 |
+| Circular deps | 2 | 128 | 47 |
+| Health signals | 18 | 163 | 49 |
 | Hotspots | 0 | 37 | 7 |
 | Architecture quality | ★★★★★ | ★★☆☆☆ | ★★★★☆ |
 | Extraction time | 33s | 417s | 985s |
 
 **Key insight:** The 4-tier layer model correctly identifies architecture quality:
-- Synthesis (purpose-built, 9 days old): Clean, 2 cycles, 0 hotspots
-- Quadim (production SaaS, years old): Minor issues, 4 HIGH signals, well-structured DTOs
-- Cantara (multi-repo, years old): Significant debt, especially in Whydah IAM services
+- **Synthesis** (purpose-built, 9 days old): Clean, 2 cycles, 0 hotspots — healthy young codebase
+- **Quadim** (production SaaS, years old): 47 cycles, mostly in config/service layer — typical Spring Boot growth debt
+- **Cantara** (multi-repo IAM platform, years old): 128 cycles, 37 hotspots — significant architectural debt in Whydah
+
+**Recurring pattern across all 3 codebases:** `config` packages accumulate circular deps (Synthesis: config↔core, Quadim: api.config in 5 cycles, Cantara: whydah.commands.config↔util). Config is a universal architectural weak point.
 
 ---
 
@@ -467,11 +450,9 @@ But `--cycles` shows nothing. Root cause: `quadim/ai`, `quadim/pages`, `quadim/w
 
 | Priority | Issue | Effort |
 |----------|-------|--------|
-| HIGH | **Bug: `is_external` uses simple class name not FQN** — stdlib/Spring wrongly marked internal | Medium |
-| HIGH | **Bug: cross-format links not persisted** when count is very large (quadim: 0/100054 saved) | Medium |
-| HIGH | **Bug: `--cycles` shows "No code graph data"** for populated graph (quadim) | Small |
-| MEDIUM | **Finding: non-Java projects mixed in** (Nuxt.js dirs, CloudFormation YAML treated as Java packages) | Medium |
-| LOW | Extraction time for large multi-repo workspaces (quadim: 16 min) — consider parallelism | Large |
+| HIGH | **Bug: DAG flag commands require module_profiles** — `--cycles/--hotspots/--cross-format/--instability` return "No code graph data" until `describe --refresh` runs | Small |
+| HIGH | **Bug: cross-format target/ inflation** — 100,054 quadim links vs ~25,000 real (4x factor) | Small |
+| MEDIUM | **Performance: 16 min extraction** for 38-repo quadim workspace — consider parallelism or target/ exclusion (would also speed extraction) | Medium |
 
 ---
 
