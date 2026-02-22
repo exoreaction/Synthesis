@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,842 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-4, all complete).
+**Validated:** 36,342 files indexed, 3,932 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
 
 ---
 
@@ -29,7 +29,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V13; V7 intentionally reserved). V10-V13 added in Feb 2026 for knowledge graph.
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V15; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
 - **Package root:** `io.exoreaction.synthesis.*` (30 packages)
@@ -144,7 +144,7 @@ synthesis knowledge-graph                   # Full knowledge graph view (alias: 
 synthesis structure                         # Structural analysis of workspace
 synthesis evolution                         # Long-term evolution report (alias: evo)
 
-# Code graph (source code workspaces) — CKG-1 through CKG-4 complete
+# Code graph (source code workspaces) — CKG-1 through CKG-5 complete
 synthesis code-graph extract                # Build/rebuild persistent code dependency graph (alias: cg)
 synthesis code-graph extract --dry-run      # Preview: count Java files, no changes
 synthesis code-graph extract --incremental  # Incremental update (changed files only, git-aware)
@@ -166,6 +166,13 @@ synthesis code-graph --instability          # All packages sorted by instability
 synthesis code-graph --layers               # Full layer diagram with SDP violations
 synthesis code-graph --cross-format         # SQL/YAML → Java cross-format links
 synthesis code-graph --format mermaid       # Mermaid graph TD output (max 30 packages)
+synthesis code-graph security               # Security analysis: 21 signals across traditional + agentic surfaces (CKG-5)
+synthesis code-graph security --refresh     # Re-analyze before display
+synthesis code-graph security --severity HIGH  # Filter to HIGH severity only (--errors-only alias)
+synthesis code-graph security --type S001_SQL_INJECTION  # Filter by signal type
+synthesis code-graph security --attack-surface  # Show attack surface map (entry points → sinks)
+synthesis code-graph security --scan-secrets    # Also scan non-Java files for secrets
+synthesis code-graph security --format json     # JSON output for CI/automation
 
 # Workspace hygiene (self-organizing workspace)
 synthesis sync                          # Directory identity sync (discover dirs, write .synthesis.md identity files)
