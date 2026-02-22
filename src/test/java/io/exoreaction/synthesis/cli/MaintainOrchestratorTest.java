@@ -76,11 +76,11 @@ class MaintainOrchestratorTest {
         MaintainOrchestrator orchestrator = new MaintainOrchestrator(root, opts, config);
         MaintainResult result = orchestrator.run();
 
-        assertEquals(9, result.phases().size(),
-                "Orchestrator must produce exactly 9 phase results");
+        assertEquals(10, result.phases().size(),
+                "Orchestrator must produce exactly 10 phase results");
 
-        // Verify phase numbers are sequential 1-9
-        for (int i = 0; i < 9; i++) {
+        // Verify phase numbers are sequential 1-10
+        for (int i = 0; i < 10; i++) {
             assertEquals(i + 1, result.phases().get(i).phaseNumber(),
                     "Phase " + (i + 1) + " has wrong phase number");
         }
@@ -97,9 +97,9 @@ class MaintainOrchestratorTest {
 
         List<String> expectedNames = List.of(
                 "Ingest", "Route", "Sync", "Sweep", "Rebalance",
-                "Expire", "Index", "Track", "Prune");
+                "Expire", "Index", "Track", "Prune", "Code Graph");
 
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 10; i++) {
             assertEquals(expectedNames.get(i), result.phases().get(i).name(),
                     "Phase " + (i + 1) + " has wrong name");
         }
@@ -132,8 +132,8 @@ class MaintainOrchestratorTest {
                 new MaintainOrchestrator(root, MaintainOptions.defaults(), config);
         MaintainResult result = orchestrator.run();
 
-        assertEquals(9, result.phases().size(),
-                "All 9 phases must produce results even if some fail");
+        assertEquals(10, result.phases().size(),
+                "All 10 phases must produce results even if some fail");
 
         // Every phase result should be non-null
         for (PhaseResult phase : result.phases()) {
@@ -172,7 +172,7 @@ class MaintainOrchestratorTest {
         MaintainOrchestrator orchestrator = new MaintainOrchestrator(root, opts, config);
         MaintainResult result = orchestrator.run();
 
-        assertEquals(9, result.phases().size());
+        assertEquals(10, result.phases().size());
 
         // Verify no filesystem changes
         assertTrue(Files.exists(staleScript),
@@ -218,7 +218,7 @@ class MaintainOrchestratorTest {
         MaintainOrchestrator orchestrator = new MaintainOrchestrator(root, opts, config);
         MaintainResult result = orchestrator.run();
 
-        assertEquals(9, result.phases().size());
+        assertEquals(10, result.phases().size());
 
         // Phase 1 should be skipped
         PhaseResult phase1 = result.phases().get(0);
@@ -540,7 +540,7 @@ class MaintainOrchestratorTest {
                 new MaintainOrchestrator(fixture.getRoot(), MaintainOptions.defaults(), config);
         MaintainResult result = orchestrator.run();
 
-        assertEquals(9, result.phases().size());
+        assertEquals(10, result.phases().size());
         // All phases should at least succeed or be skipped
         for (PhaseResult phase : result.phases()) {
             assertNotNull(phase.summary(),

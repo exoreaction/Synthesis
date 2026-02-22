@@ -2,11 +2,10 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
-import io.exoreaction.synthesis.graph.CrossFormatLinker;
-import io.exoreaction.synthesis.graph.KnowledgeEnricher;
-import io.exoreaction.synthesis.graph.RelationService;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.*;
+import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
-import io.exoreaction.synthesis.graph.TestCoverageAnalyzer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -17,6 +16,7 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.util.*;
 import java.util.concurrent.Callable;
 
@@ -32,6 +32,8 @@ public class RelateCommand implements Callable<Integer> {
     @Option(names = {"--depth"}, description = "How many levels of relationships to follow (default: 1)", defaultValue = "1") private int depth;
     @Option(names = {"-v", "--verbose"}, description = "Show detailed reference information", defaultValue = "false") private boolean verbose;
     @Option(names = {"--tests"}, description = "Show test classes that cover this file", defaultValue = "false") private boolean showTests;
+    @Option(names = {"--refresh"}, description = "Force re-extraction from source files (ignore persisted graph)", defaultValue = "false") private boolean refresh;
+    @Option(names = {"--format"}, description = "Output format: text, json (default: text)", defaultValue = "text") private String format;
 
     private final RelationService relationService = new RelationService();
     private final CrossFormatLinker crossFormatLinker = new CrossFormatLinker();
@@ -51,26 +53,28 @@ public class RelateCommand implements Callable<Integer> {
             SearchResult target = relationService.findBestMatch(targetResults, targetFile);
             if (target == null) { AnsiOutput.printError("File not found in index: " + targetFile); AnsiOutput.printInfo("Try 'synthesis search " + targetFile + "' to find it."); return 1; }
 
-            RelationshipMap relationshipMap = new RelationshipMap(target.relativePath());
-            List<SearchResult> allFiles;
-            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) { allFiles = index.listAll(null, 5000); }
-            Map<String, List<String>> fileNameIndex = relationService.buildFileNameIndex(allFiles);
+            RelationshipMap relationshipMap;
 
-            relationService.analyzeOutgoingRefs(target, workspaceRoot, relationshipMap, fileNameIndex);
-            relationService.analyzeIncomingRefs(target, allFiles, workspaceRoot, relationshipMap);
-
-            if (depth > 1) {
-                Set<String> visited = new HashSet<>();
-                visited.add(target.relativePath());
-                deepenRelationships(relationshipMap, allFiles, workspaceRoot, fileNameIndex, visited, depth - 1);
+            // Try persisted graph first (unless --refresh forces re-extraction)
+            if (!refresh && !mermaid && tryPersistedGraph(workspaceRoot, target)) {
+                relationshipMap = buildFromPersistedGraph(workspaceRoot, target);
+            } else {
+                // Fall back to live extraction
+                relationshipMap = buildFromLiveExtraction(target, workspaceRoot, workspace);
             }
 
-            if (mermaid) { System.out.println(relationService.generateMermaid(relationshipMap)); }
-            else {
+            if ("json".equals(format)) {
+                printJson(relationshipMap, target);
+            } else if (mermaid) {
+                System.out.println(relationService.generateMermaid(relationshipMap));
+            } else {
                 printRelationships(relationshipMap, target);
                 printKnowledgeEnrichment(target.relativePath(), workspace);
             }
+
             if (crossFormatLinker.isSqlFile(target) || crossFormatLinker.isYamlFile(target)) {
+                List<SearchResult> allFiles;
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) { allFiles = index.listAll(null, 5000); }
                 printCrossFormatLinks(target, allFiles, workspaceRoot);
             }
             if (showTests) {
@@ -81,6 +85,72 @@ public class RelateCommand implements Callable<Integer> {
             }
             return 0;
         } catch (Exception e) { AnsiOutput.printError("Relate failed: " + e.getMessage()); return 1; }
+    }
+
+    /**
+     * Checks if the persisted code knowledge graph is populated for this workspace.
+     */
+    private boolean tryPersistedGraph(Path workspaceRoot, SearchResult target) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            CodeGraphRepository repo = new CodeGraphRepository();
+            return repo.isPopulated(conn, workspaceRoot.toString());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Builds a RelationshipMap from the persisted code_dependencies table.
+     * Much faster than live extraction -- queries SQLite instead of reading file contents.
+     */
+    private RelationshipMap buildFromPersistedGraph(Path workspaceRoot, SearchResult target) throws Exception {
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        Connection conn = db.getConnection();
+        CodeGraphRepository repo = new CodeGraphRepository();
+        String wsPath = workspaceRoot.toString();
+        String relPath = target.relativePath();
+
+        RelationshipMap map = new RelationshipMap(relPath);
+
+        // Outgoing: dependencies FROM this file
+        List<CodeDependency> outgoing = repo.getDependenciesFrom(conn, wsPath, relPath);
+        for (CodeDependency dep : outgoing) {
+            String targetRef = dep.targetFile() != null ? dep.targetFile()
+                    : dep.targetClass() + " (" + dep.dependencyType() + ", external)";
+            map.addOutgoing(targetRef, dep.dependencyType());
+        }
+
+        // Incoming: files that depend ON this file
+        List<CodeDependency> incoming = repo.getIncomingForFile(conn, wsPath, relPath);
+        for (CodeDependency dep : incoming) {
+            map.addIncoming(dep.sourceFile(), dep.dependencyType());
+        }
+
+        return map;
+    }
+
+    /**
+     * Original live extraction path -- reads file contents to discover relationships.
+     */
+    private RelationshipMap buildFromLiveExtraction(SearchResult target, Path workspaceRoot,
+                                                     WorkspaceManager workspace) throws Exception {
+        RelationshipMap relationshipMap = new RelationshipMap(target.relativePath());
+        List<SearchResult> allFiles;
+        try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) { allFiles = index.listAll(null, 5000); }
+        Map<String, List<String>> fileNameIndex = relationService.buildFileNameIndex(allFiles);
+
+        relationService.analyzeOutgoingRefs(target, workspaceRoot, relationshipMap, fileNameIndex);
+        relationService.analyzeIncomingRefs(target, allFiles, workspaceRoot, relationshipMap);
+
+        if (depth > 1) {
+            Set<String> visited = new HashSet<>();
+            visited.add(target.relativePath());
+            deepenRelationships(relationshipMap, allFiles, workspaceRoot, fileNameIndex, visited, depth - 1);
+        }
+
+        return relationshipMap;
     }
 
     private void deepenRelationships(RelationshipMap map, List<SearchResult> allFiles, Path workspaceRoot, Map<String, List<String>> fileNameIndex, Set<String> visited, int remainingDepth) {
@@ -94,6 +164,29 @@ public class RelateCommand implements Callable<Integer> {
             SearchResult file = allFiles.stream().filter(f -> f.relativePath().equals(relPath)).findFirst().orElse(null);
             if (file != null) relationService.analyzeIncomingRefs(file, allFiles, workspaceRoot, map);
         }
+    }
+
+    private void printJson(RelationshipMap map, SearchResult target) {
+        System.out.println("{");
+        System.out.println("  \"target\": \"" + map.targetFile() + "\",");
+        System.out.println("  \"outgoing\": [");
+        List<Map.Entry<String, String>> outList = new ArrayList<>(map.outgoing().entrySet());
+        for (int i = 0; i < outList.size(); i++) {
+            String comma = i < outList.size() - 1 ? "," : "";
+            System.out.println("    {\"file\": \"" + outList.get(i).getKey()
+                    + "\", \"type\": \"" + outList.get(i).getValue() + "\"}" + comma);
+        }
+        System.out.println("  ],");
+        System.out.println("  \"incoming\": [");
+        List<Map.Entry<String, String>> inList = new ArrayList<>(map.incoming().entrySet());
+        for (int i = 0; i < inList.size(); i++) {
+            String comma = i < inList.size() - 1 ? "," : "";
+            System.out.println("    {\"file\": \"" + inList.get(i).getKey()
+                    + "\", \"type\": \"" + inList.get(i).getValue() + "\"}" + comma);
+        }
+        System.out.println("  ],");
+        System.out.println("  \"totalConnections\": " + (map.outgoing().size() + map.incoming().size()));
+        System.out.println("}");
     }
 
     private void printRelationships(RelationshipMap map, SearchResult target) {

@@ -2,6 +2,9 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.CodeGraphRepository;
+import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
 import io.exoreaction.synthesis.index.SearchIndex;
@@ -13,6 +16,7 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.util.*;
 import java.util.concurrent.Callable;
 
@@ -45,6 +49,9 @@ public class ImpactCommand implements Callable<Integer> {
     @Option(names = {"--risk"}, description = "Show risk assessment", defaultValue = "false")
     private boolean showRisk;
 
+    @Option(names = {"--refresh"}, description = "Force re-extraction from source files (ignore persisted graph)", defaultValue = "false")
+    private boolean refresh;
+
     private final RelationService relationService = new RelationService();
 
     @Override
@@ -72,7 +79,15 @@ public class ImpactCommand implements Callable<Integer> {
                 allFiles = index.listAll(null, 10000);
             }
 
-            Map<String, Integer> impactSet = computeImpact(target, allFiles, workspaceRoot);
+            Map<String, Integer> impactSet;
+
+            // Try persisted graph first (BFS on SQLite -- instant for large codebases)
+            if (!refresh && tryPersistedGraph(workspaceRoot)) {
+                impactSet = computeImpactFromGraph(target, workspaceRoot);
+            } else {
+                // Fall back to live file-reading approach
+                impactSet = computeImpact(target, allFiles, workspaceRoot);
+            }
 
             boolean cliReachable = impactSet.keySet().stream().anyMatch(p -> p.contains("/cli/"));
             boolean mcpReachable = impactSet.keySet().stream().anyMatch(p -> p.contains("/mcp/"));
@@ -88,6 +103,56 @@ public class ImpactCommand implements Callable<Integer> {
             AnsiOutput.printError("Impact analysis failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Checks if the persisted code knowledge graph is populated for this workspace.
+     */
+    private boolean tryPersistedGraph(Path workspaceRoot) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            CodeGraphRepository repo = new CodeGraphRepository();
+            return repo.isPopulated(conn, workspaceRoot.toString());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * BFS traversal on the persisted code_dependencies table.
+     * Much faster than reading file contents -- queries SQLite indexes.
+     */
+    Map<String, Integer> computeImpactFromGraph(SearchResult target,
+                                                         Path workspaceRoot) throws Exception {
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        Connection conn = db.getConnection();
+        CodeGraphRepository repo = new CodeGraphRepository();
+        String wsPath = workspaceRoot.toString();
+
+        Map<String, Integer> impactSet = new LinkedHashMap<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(target.relativePath());
+        impactSet.put(target.relativePath(), 0);
+
+        for (int d = 1; d <= depth && !queue.isEmpty(); d++) {
+            List<String> currentLevel = new ArrayList<>(queue);
+            queue.clear();
+
+            for (String currentPath : currentLevel) {
+                // Find all files that import/reference this file
+                List<CodeDependency> incoming = repo.getIncomingForFile(conn, wsPath, currentPath);
+                for (CodeDependency dep : incoming) {
+                    if (!impactSet.containsKey(dep.sourceFile())) {
+                        impactSet.put(dep.sourceFile(), d);
+                        queue.add(dep.sourceFile());
+                    }
+                }
+            }
+        }
+
+        impactSet.remove(target.relativePath());
+        return impactSet;
     }
 
     /**

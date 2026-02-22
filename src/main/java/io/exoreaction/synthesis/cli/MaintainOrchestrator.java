@@ -10,6 +10,8 @@ import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.CodeGraphExtractor;
+import io.exoreaction.synthesis.graph.CodeGraphStats;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
@@ -38,21 +40,22 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 /**
- * Orchestrates the 9-phase {@code synthesis maintain} workspace loop.
+ * Orchestrates the 10-phase {@code synthesis maintain} workspace loop.
  *
  * <p>Each phase is run in strict order. A phase failure is captured as a
  * {@link PhaseResult#failed} entry and does NOT abort subsequent phases.
  *
  * <pre>
- * Phase 1: Ingest     — scan staging dirs, register new files
- * Phase 2: Route      — route staged files to permanent destinations
- * Phase 3: Sync       — discover/bootstrap .synthesis.md directory identities
- * Phase 4: Sweep      — archive stale root-level files
- * Phase 5: Rebalance  — move archive files back to active directories
- * Phase 6: Expire     — enforce TTL rules, archive expired files
- * Phase 7: Index      — incremental index update (scan, diff, apply)
- * Phase 8: Track      — file movement tracking + changelog snapshots
- * Phase 9: Prune      — remove empty directories
+ * Phase 1:  Ingest      — scan staging dirs, register new files
+ * Phase 2:  Route       — route staged files to permanent destinations
+ * Phase 3:  Sync        — discover/bootstrap .synthesis.md directory identities
+ * Phase 4:  Sweep       — archive stale root-level files
+ * Phase 5:  Rebalance   — move archive files back to active directories
+ * Phase 6:  Expire      — enforce TTL rules, archive expired files
+ * Phase 7:  Index       — incremental index update (scan, diff, apply)
+ * Phase 8:  Track       — file movement tracking + changelog snapshots
+ * Phase 9:  Prune       — remove empty directories
+ * Phase 10: Code Graph  — update persisted code dependency graph (CKG-1)
  * </pre>
  *
  * <p>The orchestrator does NOT print anything to stdout/stderr. All output
@@ -97,7 +100,7 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Runs all 9 phases in sequence.
+     * Runs all 10 phases in sequence.
      *
      * @return aggregate result containing per-phase results and timing
      * @throws Exception only if workspace validation fails (phases themselves catch exceptions)
@@ -140,6 +143,9 @@ public class MaintainOrchestrator {
 
         // Phase 9: Prune
         results.add(runPhase(9, "Prune", this::runPrune));
+
+        // Phase 10: Code Graph
+        results.add(runPhase(10, "Code Graph", this::runCodeGraph));
 
         return new MaintainResult(results, System.currentTimeMillis() - start);
     }
@@ -926,5 +932,85 @@ public class MaintainOrchestrator {
         int removed = PruneCommand.pruneDirectories(pruneable);
         return PhaseResult.success(9, "Prune", removed,
                 removed + " empty dir(s) removed", List.of());
+    }
+
+    // =========================================================================
+    // Phase 10: Code Graph
+    // =========================================================================
+
+    private PhaseResult runCodeGraph() throws Exception {
+        // Check if workspace contains any Java files (skip for pure document workspaces)
+        boolean hasJavaFiles;
+        try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
+            hasJavaFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.toString().contains("/."))
+                    .findFirst()
+                    .isPresent();
+        }
+
+        if (!hasJavaFiles) {
+            return PhaseResult.skipped(10, "Code Graph", "no code files found");
+        }
+
+        if (options.dryRun()) {
+            long javaCount;
+            try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
+                javaCount = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .filter(p -> !p.toString().contains("/."))
+                        .count();
+            }
+            return PhaseResult.success(10, "Code Graph", 0,
+                    javaCount + " Java file(s) would be extracted", List.of());
+        }
+
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        java.sql.Connection conn = db.getConnection();
+        CodeGraphExtractor extractor = new CodeGraphExtractor();
+
+        CodeGraphStats stats;
+
+        // Incremental: if graph is already populated and we have change data, use incremental
+        if (extractor.getRepository().isPopulated(conn, workspaceRoot.toString())
+                && changes != null && changes.hasChanges()) {
+            Set<Path> changedPaths = new java.util.HashSet<>();
+            for (FileMetadata fm : changes.added()) {
+                if (fm.relativePath().endsWith(".java")) {
+                    changedPaths.add(Path.of(fm.relativePath()));
+                }
+            }
+            for (FileMetadata fm : changes.modified()) {
+                if (fm.relativePath().endsWith(".java")) {
+                    changedPaths.add(Path.of(fm.relativePath()));
+                }
+            }
+
+            if (changedPaths.isEmpty()) {
+                return PhaseResult.success(10, "Code Graph", 0,
+                        "no Java files changed", List.of());
+            }
+
+            stats = extractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
+        } else {
+            // Full extraction
+            stats = extractor.extractAndPersist(workspaceRoot, conn);
+        }
+
+        List<String> details = new ArrayList<>();
+        if (options.verbose()) {
+            details.add(stats.filesProcessed() + " file(s) processed");
+            details.add(stats.dependenciesFound() + " dependency edge(s)");
+            details.add(stats.crossFormatLinks() + " cross-format link(s)");
+            details.add(stats.packagesFound() + " package(s)");
+            details.add(stats.elapsedMs() + "ms");
+        }
+
+        return PhaseResult.success(10, "Code Graph", stats.dependenciesFound(),
+                stats.dependenciesFound() + " dependency edge(s) extracted in "
+                        + stats.elapsedMs() + "ms",
+                details);
     }
 }

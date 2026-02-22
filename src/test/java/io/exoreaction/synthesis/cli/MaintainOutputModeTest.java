@@ -118,8 +118,8 @@ class MaintainOutputModeTest {
                 .filter(l -> !l.isBlank())
                 .findFirst()
                 .orElse("");
-        assertTrue(line.contains("9 phases"),
-                "quiet line should contain '9 phases': " + line);
+        assertTrue(line.contains("10 phases"),
+                "quiet line should contain '10 phases': " + line);
     }
 
     @Test
@@ -190,8 +190,8 @@ class MaintainOutputModeTest {
         JsonNode root = new ObjectMapper().readTree(jsonLine);
 
         assertTrue(root.has("phases"), "JSON must have 'phases' array");
-        assertEquals(9, root.get("phases").size(),
-                "phases array must have exactly 9 elements");
+        assertEquals(10, root.get("phases").size(),
+                "phases array must have exactly 10 elements");
     }
 
     @Test

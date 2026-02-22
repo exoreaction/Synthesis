@@ -122,7 +122,8 @@ import java.util.concurrent.Callable;
                 FeedbackCommand.class,
                 KnowledgeGraphCommand.class,
                 StructuralAnalysisCommand.class,
-                EvolutionReportCommand.class
+                EvolutionReportCommand.class,
+                CodeGraphCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -327,7 +328,7 @@ public class SynthesisApp implements Callable<Integer> {
         ));
         HELP_GROUPS.put("Analysis:", java.util.List.of(
             "ask", "analyze", "relate", "insights", "perspectives",
-            "summary", "research", "explain", "architecture", "impact"
+            "summary", "research", "explain", "architecture", "impact", "code-graph"
         ));
         HELP_GROUPS.put("Change Tracking:", java.util.List.of(
             "watch", "diff", "changed", "track", "changelog"
