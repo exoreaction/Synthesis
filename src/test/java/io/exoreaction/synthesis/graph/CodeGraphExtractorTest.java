@@ -263,6 +263,38 @@ class CodeGraphExtractorTest {
     }
 
     @Test
+    void findJavaFiles_excludes_build_artifact_directories() throws IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
+        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+
+        // Create files inside build artifact directories
+        Path target = Files.createDirectories(tempDir.resolve("project/target/classes/com"));
+        Files.writeString(target.resolve("Foo.java"), "class Foo {}");
+        Path build = Files.createDirectories(tempDir.resolve("project/build/classes/com"));
+        Files.writeString(build.resolve("Foo.java"), "class Foo {}");
+        Path out = Files.createDirectories(tempDir.resolve("project/out/classes/com"));
+        Files.writeString(out.resolve("Foo.java"), "class Foo {}");
+
+        // Also test nested target/ (multi-module)
+        Path nested = Files.createDirectories(tempDir.resolve("project/submodule/target/classes/com"));
+        Files.writeString(nested.resolve("Bar.java"), "class Bar {}");
+
+        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
+        assertEquals(1, found.size(), "Should find only the source file, excluding target/build/out: " + found);
+        assertTrue(found.get(0).toString().contains("src/main/java"));
+    }
+
+    @Test
+    void isBuildArtifact_detects_common_build_dirs() {
+        Path root = Path.of("/workspace");
+        assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/target/classes/Foo.java")));
+        assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/build/classes/Foo.java")));
+        assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/out/classes/Foo.java")));
+        assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/sub/target/Foo.java")));
+        assertFalse(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/src/main/java/Foo.java")));
+    }
+
+    @Test
     void buildClassToFileMap_maps_classname_to_relpath() throws IOException {
         Path src = Files.createDirectories(tempDir.resolve("project/src"));
         Path fooFile = Files.writeString(src.resolve("Foo.java"), "class Foo {}");

@@ -388,6 +388,7 @@ public class CodeGraphCommand implements Callable<Integer> {
                 return walk.filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".java"))
                         .filter(p -> !p.toString().contains("/."))
+                        .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
                         .toList();
             }
         }
@@ -397,6 +398,7 @@ public class CodeGraphCommand implements Callable<Integer> {
                 return walk.filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".sql"))
                         .filter(p -> !p.toString().contains("/."))
+                        .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
                         .toList();
             }
         }
