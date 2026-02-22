@@ -36,6 +36,9 @@ replay_pid*
 # Synthesis workspace data (user-specific)
 .synthesis/
 
+# Synthesis directory metadata (generated, must not be committed to source repos)
+.synthesis.md
+
 # IDE files
 .idea/
 
