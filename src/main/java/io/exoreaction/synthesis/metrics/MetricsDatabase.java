@@ -61,13 +61,18 @@ public class MetricsDatabase implements AutoCloseable {
             // Load SQLite JDBC driver
             Class.forName("org.sqlite.JDBC");
 
-            // Run Flyway migrations
-            String url = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+            // Run Flyway migrations (metrics-only schema, separate from SynthesisDatabase)
+            // validateOnMigrate=false: existing metrics.db files may have been migrated with
+            // the old shared migration path (classpath:db/migration) which had a different
+            // V1 checksum. The actual metrics table schema is identical -- only the checksum
+            // differs because the old V1 included non-metrics tables.
+            String url = "jdbc:sqlite:" + dbPath.toAbsolutePath() + "?busy_timeout=5000";
             Flyway flyway = Flyway.configure()
                     .dataSource(url, null, null)
-                    .locations("classpath:db/migration")
+                    .locations("classpath:db/metrics-migration")
                     .baselineOnMigrate(true)
                     .baselineVersion("0")
+                    .validateOnMigrate(false)
                     .load();
 
             flyway.migrate();
@@ -75,6 +80,13 @@ public class MetricsDatabase implements AutoCloseable {
             // Connect to database
             connection = DriverManager.getConnection(url);
             connection.setAutoCommit(true);
+
+            // Enable WAL mode for concurrent read/write access and set busy_timeout
+            // via PRAGMA as belt-and-suspenders (some JDBC drivers ignore URL params)
+            try (Statement stmt = connection.createStatement()) {
+                stmt.execute("PRAGMA journal_mode=WAL");
+                stmt.execute("PRAGMA busy_timeout = 5000");
+            }
 
             // Clean up old records
             cleanupOldRecords();
@@ -85,8 +97,8 @@ public class MetricsDatabase implements AutoCloseable {
         }
     }
 
-    // Schema is now managed by Flyway migrations in src/main/resources/db/migration/
-    // V1__initial_schema.sql contains the initial schema definition
+    // Schema is managed by Flyway migrations in src/main/resources/db/metrics-migration/
+    // V1__initial_metrics.sql contains the metrics-only schema definition
 
     /**
      * Deletes records older than the retention period.
@@ -236,6 +248,14 @@ public class MetricsDatabase implements AutoCloseable {
             }
         }
         return stats;
+    }
+
+    /**
+     * Returns the underlying JDBC connection for testing/internal use.
+     * Package-visible: not part of the public API.
+     */
+    Connection getConnection() {
+        return connection;
     }
 
     /**
