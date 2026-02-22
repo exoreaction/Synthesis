@@ -40,6 +40,29 @@ public class DirectoryBidder {
     static final double TYPE_WEIGHT = 0.10;
     static final double TIMEFRAME_WEIGHT = 0.05;
 
+    /** Optional routing learner for feedback-adjusted confidence (P4-07). */
+    private final RoutingLearner learner;
+
+    /** Workspace path for learner queries (null if no learner). */
+    private final String workspacePath;
+
+    /** Creates a bidder without learning (original behavior). */
+    public DirectoryBidder() {
+        this.learner = null;
+        this.workspacePath = null;
+    }
+
+    /**
+     * Creates a bidder that adjusts confidence based on routing feedback history.
+     *
+     * @param learner       the routing learner (non-null to enable learning)
+     * @param workspacePath workspace path for feedback queries
+     */
+    public DirectoryBidder(RoutingLearner learner, String workspacePath) {
+        this.learner = learner;
+        this.workspacePath = workspacePath;
+    }
+
     /**
      * A directory profile entry for bidding: directory path + centroid + wants.
      *
@@ -144,6 +167,16 @@ public class DirectoryBidder {
             dirConfidence = 0.3;
         } else {
             return new Bid(candidate.directory(), 0.0, Bid.MembershipType.NONE, List.of());
+        }
+
+        // Apply routing feedback learning adjustment (P4-07)
+        if (learner != null && workspacePath != null) {
+            try {
+                String dirPath = candidate.directory().toString();
+                dirConfidence = learner.adjustConfidence(workspacePath, dirPath, dirConfidence);
+            } catch (java.sql.SQLException e) {
+                // Silently fall back to unadjusted confidence
+            }
         }
 
         List<String> reasons = new ArrayList<>();
