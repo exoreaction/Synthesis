@@ -1,9 +1,11 @@
 name: synthesis-code-graph
-version: 1.0.0
+version: 2.0.0
 description: |
-  Code dependency graph for source code workspaces. Persists import/extends/implements
-  relationships to SQLite, making `synthesis relate` and `synthesis impact` instant.
-  Commands: synthesis code-graph extract (alias: cg), relate --refresh, impact --refresh.
+  Code Knowledge Graph (CKG) — static analysis of source code workspaces.
+  Persists import/extends/implements relationships to SQLite, computes module profiles
+  (fan-in/out/instability), detects 7 health signals, quality gaps, renders architecture
+  DAGs, and runs 21-signal security analysis including agentic AI-specific surfaces.
+  Commands: synthesis code-graph extract/describe/health/gaps/security + DAG flags.
 
 trigger_phrases:
   - "synthesis code-graph"
@@ -22,172 +24,109 @@ trigger_phrases:
   - "callers of"
   - "what breaks if I change"
   - "fan-in fan-out"
+  - "security analysis"
+  - "SecurityAnalyzer"
+  - "prompt injection"
+  - "RAG poisoning"
+  - "XXE vulnerability"
+  - "SQL injection"
+  - "attack surface"
+  - "security findings"
+  - "known CVE"
+  - "dependency vulnerability"
+  - "agentic security"
 
 instructions: |
-  # Synthesis Code Graph
+  # Synthesis Code Knowledge Graph (CKG)
 
-  Persists Java source code dependency relationships to SQLite. Makes `synthesis relate` and
-  `synthesis impact` instant (SQLite lookup vs file re-reading on every invocation).
+  Complete static analysis system for Java source workspaces. Five phases (CKG-1 through CKG-5),
+  all complete as of v1.14.0-SNAPSHOT.
 
-  Only applies to source code workspaces (CODE-classified directories). Document workspaces
-  use the knowledge graph system instead.
-
-  ---
-
-  ## What It Stores
-
-  ### code_dependencies (V13 migration)
-  Class-level dependency edges extracted from Java source files:
-  - `source_file`, `source_class`, `source_package`
-  - `target_class`, `target_package`, `target_file` (if in-project)
-  - `dependency_type`: "import", "extends", "implements", "annotation"
-  - `is_external`: 0 (in-project) or 1 (stdlib/third-party)
-
-  ### module_profiles (V13, for CKG-2)
-  Package-level aggregate metrics (future: module profiles with fan-in/fan-out/instability).
-
-  ### cross_format_links (V13)
-  SQL→Java, YAML→Java, doc→code links.
-
-  ### code_quality_gaps (V13, for CKG-3)
-  Missing tests, interfaces, docs per module (future: quality gap detection).
+  Only applies to CODE-classified directories. Document workspaces use the knowledge graph system.
 
   ---
 
-  ## Commands
+  ## Phase Overview
 
-  ### synthesis code-graph extract (alias: cg)
-  Build or rebuild the persistent code dependency graph:
+  | Phase | Command | What it does |
+  |-------|---------|-------------|
+  | CKG-1 | `extract` | Persist class-level dependency graph to SQLite; fast relate/impact |
+  | CKG-2 | `describe` / `health` | Module profiles (fan-in/out/instability); 7 structural health signals |
+  | CKG-3 | `gaps` | Quality gap detection (missing tests/interfaces/docs); completeness scoring |
+  | CKG-4 | (default) | DAG visualization grouped by architectural layer; cycles, hotspots, violations |
+  | CKG-5 | `security` | 21-signal security analysis: traditional + agentic AI surfaces |
+
+  ---
+
+  ## CKG-1: Extraction
 
   ```bash
-  # Full extraction (all Java files)
-  synthesis code-graph extract -d /src/exoreaction
-
-  # Incremental update (changed files only, git-aware)
-  synthesis code-graph extract --incremental -d /src/exoreaction
-  synthesis cg extract --incremental -d /src/exoreaction
-
-  # Preview: count Java files, show what would happen, no writes
-  synthesis code-graph extract --dry-run -d /src/exoreaction
-
-  # Show current graph statistics
-  synthesis code-graph extract --stats -d /src/exoreaction
+  synthesis code-graph extract -d /src/exoreaction        # Full extraction
+  synthesis code-graph extract --incremental -d /src/...  # Incremental (git-aware, changed files only)
+  synthesis code-graph extract --dry-run -d /src/...      # Preview: count files, no writes
+  synthesis code-graph extract --stats -d /src/...        # Show current graph statistics
+  synthesis cg extract -d /src/exoreaction                # Alias: cg
   ```
 
   **Output (full extraction):**
   ```
-  Code Graph: Extracting dependencies...
-  Files processed: 347
-  Dependencies found: 1,842
-  Cross-format links: 23
-  Elapsed: 4.2s
+  Files processed: 501
+  Dependencies found: 4,026
+  Cross-format links: 280
+  Elapsed: 33.5s
   Graph persisted to SQLite.
   ```
 
-  **Output (--stats):**
-  ```
-  Code Graph Status: populated
-  Dependencies: 1,842
-  Files with deps: 347
-  Last extracted: 2026-02-22T08:05:09Z
-  ```
+  ### Repo isolation (V14, PR #233)
+  Package identity is `(workspace_path, repo_name, package_name)` — NOT just `(workspace, package)`.
+  - `repo_name` = first path component relative to workspace root (e.g. `Quadim-Skill-Service`)
+  - Single-repo workspaces use `repo_name = ""` — unaffected
+  - Multi-repo workspaces MUST re-extract after upgrading past V14
+  - Without repo isolation, 52% of Quadim packages spanned multiple repos → 87% false-positive cycles
 
-  ### synthesis relate (now SQLite-backed)
-  After running `code-graph extract`, `relate` uses the persisted graph (instant):
+  ---
 
-  ```bash
-  # Fast (uses SQLite graph if populated):
-  synthesis relate "RelateCommand.java" -d /src/exoreaction
-
-  # Force re-extraction from files:
-  synthesis relate "RelateCommand.java" --refresh -d /src/exoreaction
-
-  # JSON output (new in CKG-1):
-  synthesis relate "RelateCommand.java" --format json -d /src/exoreaction
-  ```
-
-  ### synthesis impact (now SQLite-backed)
-  BFS traversal on SQLite `code_dependencies` when graph is populated:
+  ## CKG-2: Module Profiles + Health
 
   ```bash
-  # Fast BFS (uses SQLite graph if populated):
-  synthesis impact "SearchIndex.java" -d /src/exoreaction
+  synthesis code-graph describe -d /src/...               # All module profiles
+  synthesis code-graph describe --module "io.ex.syn.cli"  # Filter to one module
+  synthesis code-graph describe --instability             # Sort by instability desc
+  synthesis code-graph describe --refresh                 # Force recompute (bypass cache)
+  synthesis code-graph describe --format json
 
-  # Force re-extraction:
-  synthesis impact "SearchIndex.java" --refresh -d /src/exoreaction
-  ```
-
-  ### synthesis code-graph describe (CKG-2)
-  Show module profiles — fan-in, fan-out, instability, inferred purpose:
-
-  ```bash
-  # All modules sorted alphabetically:
-  synthesis code-graph describe -d /src/exoreaction
-
-  # Filter to one module:
-  synthesis code-graph describe --module "io.exoreaction.synthesis.cli" -d /src/exoreaction
-
-  # Sort by instability (most unstable first):
-  synthesis code-graph describe --instability -d /src/exoreaction
-
-  # Force recompute (bypass cache):
-  synthesis code-graph describe --refresh -d /src/exoreaction
-
-  # JSON output:
-  synthesis code-graph describe --format json -d /src/exoreaction
+  synthesis code-graph health -d /src/...                 # All health signals
+  synthesis code-graph health --errors-only               # HIGH severity only
+  synthesis code-graph health --format json
   ```
 
   **Instability metric (Robert C. Martin):** `instability = fanOut / (fanIn + fanOut)`
-  - `0.0` = maximally stable (many dependents, no outgoing deps) — should be foundation
-  - `1.0` = maximally unstable (no dependents, many outgoing deps) — should be entry/CLI
+  - `0.0` = maximally stable — should be foundation/core (many depend on it)
+  - `1.0` = maximally unstable — should be entry/CLI (no dependents)
   - Orphans (fanIn=0, fanOut=0) → 0.5 by convention
 
-  ### synthesis code-graph health (CKG-2)
-  Detect health signal violations in the code graph:
-
-  ```bash
-  # All signals (all severities):
-  synthesis code-graph health -d /src/exoreaction
-
-  # HIGH severity only:
-  synthesis code-graph health --errors-only -d /src/exoreaction
-
-  # JSON output:
-  synthesis code-graph health --format json -d /src/exoreaction
-  ```
-
-  **7 health signals implemented:**
+  **7 health signals:**
   | Signal | Severity | Condition |
   |--------|----------|-----------|
   | C001_CIRCULAR_DEPENDENCY | HIGH | Package A ↔ Package B mutual imports |
-  | C010_HIGH_FAN_IN_NO_TESTS | MEDIUM | fan_in > 5 and no test files |
+  | C010_HIGH_FAN_IN_NO_INTERFACE | MEDIUM | fan_in > 5 and no interface |
   | C012_GOD_PACKAGE | MEDIUM | total_files > 20 |
   | C013_UNSTABLE_CORE | HIGH | Core package (low fan-out) with instability > 0.5 |
   | C014_ORPHAN_CODE | LOW | Public class with fan_in = 0 |
   | C020_HOTSPOT | HIGH | commits_last_30_days > 10 |
   | C021_DOCUMENTATION_GAP | LOW | No README + no skill coverage |
 
-  ### synthesis code-graph gaps (CKG-3)
-  Detect quality gaps and compute completeness scores:
+  ---
+
+  ## CKG-3: Quality Gaps
 
   ```bash
-  # All gaps:
-  synthesis code-graph gaps -d /src/exoreaction
-
-  # Filter by severity:
-  synthesis code-graph gaps --severity HIGH -d /src/exoreaction
-
-  # Filter by type:
-  synthesis code-graph gaps --type MISSING_TESTS -d /src/exoreaction
-
-  # Filter to one module:
-  synthesis code-graph gaps --module "io.exoreaction.synthesis.graph" -d /src/exoreaction
-
-  # Show completeness scores per module:
-  synthesis code-graph gaps --score -d /src/exoreaction
-
-  # JSON output:
-  synthesis code-graph gaps --format json -d /src/exoreaction
+  synthesis code-graph gaps -d /src/...                   # All gaps
+  synthesis code-graph gaps --severity HIGH               # Filter by severity
+  synthesis code-graph gaps --type MISSING_TESTS          # Filter by type
+  synthesis code-graph gaps --module "io.ex.syn.graph"    # Filter to module
+  synthesis code-graph gaps --score                       # Show completeness scores (0.0-1.0)
+  synthesis code-graph gaps --format json
   ```
 
   **5 gap types:**
@@ -196,41 +135,27 @@ instructions: |
   | MISSING_TESTS | HIGH | Module has Java files but no test counterparts |
   | MISSING_INTERFACE | MEDIUM | fan_in > 3 but no interface defined |
   | UNDOCUMENTED_HIGH_VALUE | MEDIUM | fan_in > 5 with no Javadoc |
-  | MISSING_README | LOW | Module has no README.md |
+  | MISSING_README | LOW | No README.md |
   | MISSING_PACKAGE_INFO | LOW | No package-info.java |
 
   **Completeness scoring:** `score = 1.0 - Σ(penalties)` (floor 0.0)
-  - HIGH gap: -0.30 per gap
-  - MEDIUM gap: -0.15 per gap
-  - LOW gap: -0.05 per gap
+  - HIGH gap: -0.30 | MEDIUM gap: -0.15 | LOW gap: -0.05
 
-  ### synthesis code-graph (no subcommand) — DAG view (CKG-4)
-  Default view: full package dependency DAG grouped by architectural layer:
+  ---
+
+  ## CKG-4: DAG Visualization (default command)
 
   ```bash
-  # ASCII DAG (default, same as --layers):
-  synthesis code-graph -d /src/exoreaction
-
-  # Show circular dependency pairs:
-  synthesis code-graph --cycles -d /src/exoreaction
-
-  # Show unstable high-coupling packages (instability >0.7 AND fan-in >2):
-  synthesis code-graph --hotspots -d /src/exoreaction
-
-  # All packages sorted by instability descending:
-  synthesis code-graph --instability -d /src/exoreaction
-
-  # Layer diagram with SDP violation markers (same as default):
-  synthesis code-graph --layers -d /src/exoreaction
-
-  # SQL/YAML → Java cross-format links:
-  synthesis code-graph --cross-format -d /src/exoreaction
-
-  # Mermaid graph TD output (max 30 packages, paste into mermaid.live):
-  synthesis code-graph --format mermaid -d /src/exoreaction
+  synthesis code-graph -d /src/...                        # ASCII DAG by layer (default)
+  synthesis code-graph --cycles                           # Circular dependency pairs
+  synthesis code-graph --hotspots                         # Unstable high-coupling packages (instability >0.7 AND fan-in >2)
+  synthesis code-graph --instability                      # All packages sorted instability desc
+  synthesis code-graph --layers                           # Same as default (explicit)
+  synthesis code-graph --cross-format                     # SQL/YAML → Java cross-format links
+  synthesis code-graph --format mermaid                   # Mermaid graph TD (max 30 packages)
   ```
 
-  **4-tier architectural layers (Martin instability metric):**
+  **4-tier architectural layers:**
   | Layer | Name | Instability | Expected contents |
   |-------|------|-------------|-------------------|
   | 1 | Foundation | 0.00-0.25 | Core models, domain types, interfaces |
@@ -238,170 +163,186 @@ instructions: |
   | 3 | Application | 0.51-0.75 | Orchestrators, use cases |
   | 4 | Entry/CLI | 0.76-1.00 | Commands, main, MCP server |
 
-  **Stable Dependencies Principle:** A package in Layer 1 (stable) importing from Layer 4 (unstable)
-  is a violation — shown in both `--layers` and `--cycles` output.
+  ---
+
+  ## CKG-5: Security Analysis (NEW — v1.14.0)
+
+  ```bash
+  synthesis code-graph security -d /src/...               # All findings (text output)
+  synthesis code-graph security --refresh                 # Re-analyze before display
+  synthesis code-graph security --severity HIGH           # Filter by severity (HIGH/MEDIUM/LOW/INFO)
+  synthesis code-graph security --errors-only             # HIGH only (alias for --severity HIGH)
+  synthesis code-graph security --type S001_SQL_INJECTION # Filter by signal type
+  synthesis code-graph security --module "io.ex.syn.cli"  # Filter by package
+  synthesis code-graph security --attack-surface          # Show attack surface map (entry→sink paths)
+  synthesis code-graph security --scan-secrets            # Also scan non-Java files for secrets
+  synthesis code-graph security --format json             # JSON output for CI/automation
+  ```
+
+  ### 21 Security Signals
+
+  **Traditional Security (S001-S014):**
+  | Signal | Severity | Detects |
+  |--------|----------|---------|
+  | S001_SQL_INJECTION | HIGH | String concatenation in SQL context |
+  | S002_HARDCODED_SECRET | HIGH | Passwords/keys/tokens in string literals |
+  | S003_WEAK_CRYPTO | MEDIUM | MD5, SHA-1 usage |
+  | S004_INSECURE_RANDOM | MEDIUM | java.util.Random in security context |
+  | S005_XXE_VULNERABILITY | HIGH | XML parser without FEATURE_SECURE_PROCESSING |
+  | S006_PATH_TRAVERSAL | HIGH | Unvalidated path construction from user input |
+  | S007_UNSAFE_DESERIALIZATION | HIGH | ObjectInputStream without ObjectInputFilter |
+  | S008_SSRF | HIGH | User-controlled HTTP requests |
+  | S009_EXPOSED_INTERNAL | MEDIUM | Internal API exposed via public endpoint |
+  | S010_DEPENDENCY_KNOWN_VULN | HIGH | CVE match in declared pom.xml dependencies |
+  | S011_OVERLY_BROAD_CATCH | LOW | catch(Exception e) or catch(Throwable t) |
+  | S012_OPEN_REDIRECT | HIGH | User-controlled redirect URL |
+  | S013_TEMP_FILE_RACE | LOW | java.io.File.createTempFile without secure flag |
+  | S014_LOG_INJECTION | MEDIUM | User input in log statements without sanitization |
+
+  **Agentic AI-Specific (S015-S021):**
+  | Signal | Severity | Detects |
+  |--------|----------|---------|
+  | S015_ATTACK_SURFACE_ENTRY | INFO | CLI command entry points (informational inventory) |
+  | S016_DIRECT_PROMPT_INJECTION | HIGH | User-controlled params flowing into prompt construction |
+  | S017_RAG_POISONING | HIGH | Search results piped into prompts without sanitization |
+  | S018_UNCONFIRMED_AGENTIC_ACTION | HIGH | Destructive MCP tool action without dryRun check |
+  | S019_UNVALIDATED_AGENTIC_PATH | HIGH | Path from agent params without startsWith containment check |
+  | S020_TOOL_RESULT_INJECTION | HIGH | Tool result content passed to LLM without boundary |
+  | S021_MISSING_PROMPT_BOUNDARIES | HIGH | Prompt templates lacking `<system>`/`<user>` boundary tags |
+
+  ### Dependency CVE Catalog
+  `DependencyInventoryExtractor` parses `pom.xml` and matches against embedded `known-vulnerabilities.json`:
+  - Log4Shell (CVE-2021-44228): log4j-core < 2.17.1
+  - Text4Shell (CVE-2022-42889): commons-text < 1.10.0
+  - Jackson (CVE-2022-42003): jackson-databind < 2.13.2
+  - Spring4Shell, Spring Security, etc.
+
+  ### Attack Surface Map
+  `--attack-surface` uses BFS on `code_dependencies` to trace paths from CLI entry points to sinks.
+  Each edge shows `sinkType` (file-io, sql, network, ai) and `hopCount`.
+
+  ### Known False Positive Patterns
+  | Signal | Scenario | Notes |
+  |--------|----------|-------|
+  | S001 | Internal SQL string building | ~50% FP — fires on `"DELETE FROM " + tableName` even when tableName is a constant |
+  | S002 | Regex patterns for detection | `"-----BEGIN.*PRIVATE KEY"` in security scanners triggers S002 |
+  | S015 | All CLI commands | Informational only — not vulnerabilities, just entry point inventory |
+
+  ---
+
+  ## SQLite Schema
+
+  ### V13 — Code Knowledge Graph
+  ```sql
+  code_dependencies(
+    workspace_path, repo_name, source_file, source_class, source_package,
+    target_file, target_class, target_package, dependency_type, is_external, last_computed,
+    UNIQUE(workspace_path, repo_name, source_file, target_class, target_package)
+  )
+  module_profiles(
+    workspace_path, repo_name, module_path, package_name, inferred_purpose,
+    fan_in, fan_out, instability, total_files, confidence, last_computed,
+    UNIQUE(workspace_path, repo_name, module_path)
+  )
+  cross_format_links(workspace_path, source_file, target_file, link_type, entity_name, last_computed)
+  code_quality_gaps(
+    workspace_path, repo_name, module_path, gap_type, description, severity, file_path, suggestion, last_computed
+  )
+  ```
+
+  ### V14 — Repo Isolation (added `repo_name` to V13 tables)
+
+  ### V15 — Security Analysis
+  ```sql
+  security_findings(
+    workspace_path, signal_id, severity, cwe_id, file_path, line_number,
+    class_name, package_name, description, evidence, suggestion, flow_type, last_computed,
+    UNIQUE(workspace_path, signal_id, file_path, line_number)
+  )
+  declared_dependencies(
+    workspace_path, group_id, artifact_id, version, scope, pom_file, last_computed,
+    UNIQUE(workspace_path, group_id, artifact_id, pom_file)
+  )
+  attack_surface_edges(
+    workspace_path, entry_file, entry_class, sink_file, sink_class,
+    sink_type, hop_count, path, last_computed,
+    UNIQUE(workspace_path, entry_file, sink_file, sink_type)
+  )
+  ```
 
   ---
 
   ## Automatic Maintenance (Phase 10)
 
-  `synthesis maintain` now includes **Phase 10: Code Graph** which runs automatically:
-  - If graph is empty → runs full extraction
-  - If graph is populated → runs incremental update (git-aware: only changed files)
-  - If workspace has no `.java` files → skips entirely (document workspace)
+  `synthesis maintain` includes Phase 10 (Code Graph) and Phase 11 (Security) automatically:
+  - If graph is empty → full extraction; if populated → incremental (git-aware)
+  - If no `.java` files → skips (document workspace)
   - Respects `--dry-run` and `--verbose`
 
+  ---
+
+  ## Multi-Codebase Scale Reference (Feb 22, 2026, post-V14 re-extraction)
+
+  | Workspace | Repos | Files | Module Profiles | Deps | Cycles | Time |
+  |-----------|------:|------:|----------------:|-----:|-------:|-----:|
+  | Synthesis (self) | 1 | 501 | 31 | 4,026 | 2 | ~34s |
+  | Elprint | 1 | 1,194 | 266 | 11,723 | 17 | ~120s |
+  | Quadim | 38 | 2,771 | 810 | 27,908 | 82 | ~16min |
+  | Cantara | 54 | 4,273 | 1,198 | 37,199 | 156 | ~7min |
+  | eXOReaction | ~10 | 3,057 | 386 | 24,624 | 88 | ~205s |
+
+  **Note:** Quadim/Cantara cycles increased post-V14 (82 from 47, 156 from 128) because cross-repo
+  deps within shared namespaces are now visible — these are REAL cycles, not false positives.
+  Elprint decreased (17 from 22) — 5 false positives removed.
+
+  ---
+
+  ## Security Findings by Workspace (Feb 22, 2026)
+
+  | Workspace | Total | HIGH | Key findings |
+  |-----------|------:|-----:|-------------|
+  | Synthesis | 253 | 47 | 23 prompt injection, 12 missing boundaries, 4 RAG poisoning |
+  | Elprint | 378 | 118 | 92 SQL injection (legacy), 26 hardcoded secrets |
+  | Quadim | 857 | 36 | 24 XXE in Whydah auth XML parsers |
+  | Cantara | 836 | 95 | **3 real CVEs** (Text4Shell + 2x Jackson), 21 XXE, 40 SQL |
+  | eXOReaction | 560 | 81 | Mix (includes Synthesis agentic signals) |
+
+  Critical CVEs in Cantara: CVE-2022-42889 (Text4Shell RCE, `reactiveservices/pom.xml`)
+
+  ---
+
+  ## High-Value Demo Flow
+
   ```bash
-  synthesis maintain -d /src/exoreaction --verbose
-  # Shows: "Phase 10/10: Code Graph - updating 3 changed files"
+  # Find real CVE instantly (vs running Maven Dependency Check):
+  synthesis code-graph security -d /src/cantara --type S010_DEPENDENCY_KNOWN_VULN
+
+  # Agentic security on AI tool (Synthesis itself):
+  synthesis code-graph security -d /src/exoreaction/Synthesis --severity HIGH
+
+  # Attack surface: 1,092 paths from 89 CLI entry points:
+  synthesis code-graph security -d /src/exoreaction/Synthesis --attack-surface
+
+  # Architecture DAG in 30 seconds:
+  synthesis code-graph -d /src/exoreaction/Synthesis --layers
+
+  # Cycle detection across 38-repo monorepo:
+  synthesis code-graph -d /src/quadim --cycles
   ```
 
   ---
 
-  ## High-Value Queries (SQLite)
-
-  | Question | Approach |
-  |----------|---------|
-  | "Who calls this class?" | `synthesis relate "Foo.java"` (callers shown under "Referenced by") |
-  | "What does this package depend on?" | `synthesis relate "SomeService.java" --format json` |
-  | "What breaks if I change this?" | `synthesis impact "CoreClass.java"` (BFS up the graph) |
-  | "What's the blast radius?" | `synthesis impact "SearchIndex.java" --depth 3` |
-
-  ---
-
-  ## Architecture
-
-  ### CodeGraphExtractor
-  Wraps existing extraction classes (`ViolationDetector`, `GraphBuilder`, `CrossFormatLinker`).
-  - `extractAndPersist(projectRoot, conn)` — full extraction, clears old data first
-  - `incrementalUpdate(projectRoot, conn, changedFiles)` — per-file update, replaces only changed
-  - `findJavaFiles(root)` — walk, filter `.java` only
-  - `buildClassToFileMap(files, root)` — maps class name → relative path
-
-  ### CodeGraphRepository
-  DAO for all four CKG tables. Uses `INSERT OR REPLACE` for idempotency.
-  - `saveDependency(conn, dep)` / `getDependenciesFrom(conn, workspace, file)`
-  - `getDependenciesTo(conn, workspace, targetClass)` — callers
-  - `countDependencies(conn, workspace)` — for stats
-  - `clearDependencies(conn, workspace, file)` — for incremental updates
-
-  ### CodeGraphStats
-  Result record from extraction: `filesProcessed`, `dependenciesFound`, `crossFormatLinksFound`, `elapsedMs`.
-
-  ---
-
-  ## SQLite Tables
-
-  ```sql
-  -- Class-level dependency edges
-  code_dependencies(
-    workspace_path, source_file, source_class, source_package,
-    target_file, target_class, target_package, dependency_type, is_external,
-    last_computed,
-    UNIQUE(workspace_path, source_file, target_class, target_package)
-  )
-
-  -- Module profiles (CKG-2: fan-in/out, instability)
-  module_profiles(
-    workspace_path, module_path, package_name, inferred_purpose,
-    fan_in, fan_out, instability, total_files, confidence, last_computed,
-    UNIQUE(workspace_path, module_path)
-  )
-
-  -- Cross-format links (SQL→Java, YAML→Java, doc→code)
-  cross_format_links(
-    workspace_path, source_file, target_file, link_type, entity_name,
-    last_computed,
-    UNIQUE(workspace_path, source_file, target_file, entity_name)
-  )
-
-  -- Quality gaps (CKG-3: missing tests, interfaces, docs)
-  code_quality_gaps(
-    workspace_path, module_path, gap_type, description, severity, file_path,
-    suggestion, last_computed,
-    UNIQUE(workspace_path, module_path, gap_type, file_path)
-  )
-  ```
-
-  ---
-
-  ## Implementation Status (all done, Feb 22, 2026)
-
-  | Phase | Version | Deliverables |
-  |-------|---------|-------------|
-  | **CKG-1** (done) | v1.12.x | Persist dependency graph; fast relate/impact; code-graph extract |
-  | **CKG-2** (done) | v1.12.x | Module profiles; health signals (C001-C022); code-graph describe/health |
-  | **CKG-3** (done) | v1.12.x | Quality gap detection; completeness scoring; code-graph gaps |
-  | **CKG-4** (done) | v1.12.x | DAG visualization; cycles; hotspots; instability; full code-graph |
-
-  ### CKG-2 Health Signals (implemented)
-  | Signal | Condition |
-  |--------|---------|
-  | C001_CIRCULAR_DEPENDENCY | Package A ↔ Package B mutual imports |
-  | C010_HIGH_FAN_IN_NO_INTERFACE | fan_in > 5 and no interface |
-  | C012_GOD_PACKAGE | total_files > 20 |
-  | C013_UNSTABLE_CORE | Core package with instability > 0.5 |
-  | C014_ORPHAN_CODE | Public class with fan_in = 0 |
-  | C020_HOTSPOT | commits_last_30_days > 10 |
-  | C021_DOCUMENTATION_GAP | No README + no skill coverage |
-
-  ### CKG-4 DAG Flags (implemented)
-  | Flag | What it shows |
-  |------|--------------|
-  | (none) / `--layers` | Full ASCII DAG grouped by architectural layer |
-  | `--cycles` | Circular dependency pairs (A ↔ B) |
-  | `--hotspots` | Unstable high-coupling packages (instability > 0.7 AND fan-in > 2) |
-  | `--instability` | All packages sorted by instability descending |
-  | `--cross-format` | SQL/YAML to Java cross-format links |
-  | `--format mermaid` | Mermaid graph TD output (max 30 packages) |
-
-  Design document: `/src/exoreaction/Synthesis/docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md`
-  Dogfooding findings: `/src/exoreaction/Synthesis/docs/analysis/CKG-DOGFOODING-FINDINGS.md`
-
-  ---
-
-  ## Known Bugs (filed Feb 22, 2026 — NOT YET FIXED)
-
-  | Issue | Severity | Description |
-  |-------|----------|-------------|
-  | #215 | HIGH | C001 health signal overcounts edges (reports class-level, not package-level) |
-  | #216 | HIGH | C010 false positive — test package detection uses wrong source root |
-  | #217 | HIGH | `target/` build dir scanned → cross-format links double-counted |
-  | #218 | HIGH | `describe` requires `--refresh` after `extract` (should auto-compute) |
-  | #223 | HIGH | `is_external` uses simple class name not FQN → Spring/stdlib wrongly internal |
-  | #224 | HIGH | cross-format links not persisted when count > ~100K (silent transaction failure) |
-  | #225 | HIGH | `--cycles` returns "No code graph data" for populated graph (quadim) |
-  | #219 | MEDIUM | `inferPurpose()` too conservative — 28/31 packages show "General purpose" |
-  | #220 | MEDIUM | C012 god package threshold should be configurable (suggest 30, not 15) |
-  | #226 | MEDIUM | non-Java projects (Nuxt.js, CloudFormation) mixed into Java CKG |
-  | #221 | LOW | Better error message when workspace has no `.synthesis/` config |
-
-  **#223 root cause detail:**
-  `buildClassToFileMap` maps simple class names (`"Service"`) not FQN (`"org.springframework.stereotype.Service"`).
-  When any project file is named `Service.java`, ALL `import org.springframework.stereotype.Service` imports
-  get marked `is_external=0`. Fix: store FQN in classToFileMap and look up by FQN.
-
-  **#217 root cause detail:**
-  `CrossFormatLinker` (or `CodeGraphExtractor`) scans `target/classes/` alongside `src/main/resources/`,
-  creating duplicate cross-format links for every SQL migration file. Fix: respect `isBuildArtifact()` filter.
-
-  ---
-
-  ## Multi-Codebase Scale Reference (Feb 22, 2026)
-
-  | Workspace | Repos | Files | Packages | Deps | Cross-format | Cycles | Time |
-  |-----------|-------|-------|----------|------|--------------|--------|------|
-  | Synthesis (self) | 1 | 501 | 31 | 4,026 | 280 | 2 | 33s |
-  | Quadim | 38 | 2,771 | 222 | 27,908 | 0* | 10+ | 16min |
-  | Cantara | 54 | 4,316 | 749 | 37,199 | 15,592 | 128 | 7min |
-
-  *Quadim cross-format links not persisted due to #224 (100,054 computed but 0 saved)
-
-  ---
+  ## Related Files
+  - Design doc: `docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md`
+  - Synthesis dogfooding: `docs/analysis/CKG-DOGFOODING-FINDINGS.md`
+  - Security findings: `docs/analysis/CKG-SECURITY-FINDINGS.md`
+  - Per-workspace: `docs/analysis/CKG-ELPRINT-FINDINGS.md`, `CKG-QUADIM-FINDINGS.md`, etc.
+  - Portfolio overview: `docs/analysis/CKG-PORTFOLIO-OVERVIEW.md`
+  - Release notes: `docs/releases/CKG-RELEASE-NOTES.md`
 
   ## Related Skills
+  - `synthesis-security-analysis.yaml` — dedicated security workflow skill
   - `synthesis-knowledge-graph.yaml` — parallel system for document workspaces
-  - `synthesis-relate-dependencies.yaml` — relate command usage patterns
-  - `synthesis-architecture-monitoring.yaml` — architecture health monitoring
-  - `synthesis-database-migrations.md` — Flyway patterns (V13 = CKG tables)
-  - `synthesis-development.md` — architecture details
+  - `synthesis-relate-dependencies.yaml` — relate/impact usage patterns
+  - `synthesis-database-migrations.md` — Flyway patterns (V13-V15 = CKG tables)
+  - `synthesis-development.md` — architecture and class details

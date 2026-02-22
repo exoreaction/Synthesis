@@ -1,0 +1,240 @@
+name: synthesis-security-analysis
+version: 1.0.0
+description: |
+  CKG-5 security analysis workflow. Runs 21 static security signals across traditional
+  (SQL injection, XXE, deserialization, CVEs) and agentic AI surfaces (prompt injection,
+  RAG poisoning, unconfirmed agentic actions, missing prompt boundaries). Supports
+  portfolio-wide scanning, severity filtering, attack surface mapping, and JSON output
+  for CI/CD pipelines.
+
+trigger_phrases:
+  - "security analysis"
+  - "security scan"
+  - "synthesis security"
+  - "code-graph security"
+  - "security findings"
+  - "prompt injection"
+  - "RAG poisoning"
+  - "agentic security"
+  - "attack surface"
+  - "CVE scan"
+  - "dependency vulnerability"
+  - "S001 SQL injection"
+  - "S016 prompt injection"
+  - "S017 RAG poisoning"
+  - "S018 unconfirmed agentic"
+  - "S021 missing prompt boundaries"
+  - "XXE vulnerability"
+  - "hardcoded secret"
+  - "known vulnerability"
+
+instructions: |
+  # Synthesis Security Analysis (CKG-5)
+
+  `synthesis code-graph security` — 21-signal static analysis of Java source workspaces.
+  Covers both traditional security signals and agentic AI-specific risks unique to
+  AI-powered codebases. Part of v1.14.0-SNAPSHOT (PR #234, Feb 2026).
+
+  ---
+
+  ## Quick Commands
+
+  ```bash
+  # Run full analysis on a workspace:
+  synthesis code-graph security -d /src/exoreaction/Synthesis
+
+  # High severity only:
+  synthesis code-graph security -d /src/... --severity HIGH
+
+  # Re-analyze (fresh scan, not cached):
+  synthesis code-graph security -d /src/... --refresh
+
+  # Show specific signal type:
+  synthesis code-graph security -d /src/... --type S010_DEPENDENCY_KNOWN_VULN
+
+  # Attack surface map (entry points → sinks):
+  synthesis code-graph security -d /src/... --attack-surface
+
+  # JSON output for CI:
+  synthesis code-graph security -d /src/... --format json
+
+  # Scan all files for secrets (not just Java):
+  synthesis code-graph security -d /src/... --scan-secrets
+  ```
+
+  ---
+
+  ## Signal Reference
+
+  ### Traditional Security
+
+  | Signal | Severity | CWE | What it detects |
+  |--------|----------|-----|----------------|
+  | S001_SQL_INJECTION | HIGH | CWE-89 | String concatenation in SQL context |
+  | S002_HARDCODED_SECRET | HIGH | CWE-798 | Passwords/API keys/tokens in string literals |
+  | S003_WEAK_CRYPTO | MEDIUM | CWE-327 | MD5 or SHA-1 usage |
+  | S004_INSECURE_RANDOM | MEDIUM | CWE-330 | java.util.Random in security-sensitive context |
+  | S005_XXE_VULNERABILITY | HIGH | CWE-611 | DocumentBuilderFactory without FEATURE_SECURE_PROCESSING |
+  | S006_PATH_TRAVERSAL | HIGH | CWE-22 | Unvalidated user-supplied path construction |
+  | S007_UNSAFE_DESERIALIZATION | HIGH | CWE-502 | ObjectInputStream without ObjectInputFilter |
+  | S008_SSRF | HIGH | CWE-918 | User-controlled HTTP request target |
+  | S009_EXPOSED_INTERNAL | MEDIUM | CWE-200 | Internal API accessible via public endpoint |
+  | S010_DEPENDENCY_KNOWN_VULN | HIGH | CWE-1035 | Declared dependency matches CVE catalog |
+  | S011_OVERLY_BROAD_CATCH | LOW | CWE-396 | catch(Exception) or catch(Throwable) |
+  | S012_OPEN_REDIRECT | HIGH | CWE-601 | User-controlled redirect destination |
+  | S013_TEMP_FILE_RACE | LOW | CWE-377 | java.io.File.createTempFile race condition |
+  | S014_LOG_INJECTION | MEDIUM | CWE-117 | User input in log statement without sanitization |
+
+  ### Agentic AI-Specific
+
+  | Signal | Severity | CWE | What it detects |
+  |--------|----------|-----|----------------|
+  | S015_ATTACK_SURFACE_ENTRY | INFO | — | CLI command classes (inventory of entry points) |
+  | S016_DIRECT_PROMPT_INJECTION | HIGH | CWE-1426 | User param flows into prompt construction |
+  | S017_RAG_POISONING | HIGH | CWE-1426 | Search results → prompt without sanitization |
+  | S018_UNCONFIRMED_AGENTIC_ACTION | HIGH | CWE-1426 | Destructive action without dryRun guard |
+  | S019_UNVALIDATED_AGENTIC_PATH | HIGH | CWE-22 | Agent-supplied path without startsWith check |
+  | S020_TOOL_RESULT_INJECTION | HIGH | CWE-1426 | Tool result in LLM context without boundary |
+  | S021_MISSING_PROMPT_BOUNDARIES | HIGH | CWE-1426 | Prompt template lacks `<system>`/`<user>` tags |
+
+  ---
+
+  ## Known False Positives
+
+  These patterns trigger detectors but are not real vulnerabilities:
+
+  | Signal | False Positive Pattern | How to Recognize |
+  |--------|----------------------|-----------------|
+  | S001 | SQL string building with internal constants | `"DELETE FROM " + tableName` where tableName is an enum/constant, not user input |
+  | S002 | Regex patterns used to DETECT secrets | `"-----BEGIN.*PRIVATE KEY"` in a SecurityAnalyzer class |
+  | S002 | Test fixture values | `"dummy_test_value"` or `"test123"` in test classes |
+  | S015 | All CLI entry points | Informational only — listing attack surface, not flagging vulnerabilities |
+
+  **S001 false positive rate: ~50%.** The checker fires on any string concatenation near
+  SQL keywords regardless of whether user input flows in. Fix path: taint tracking
+  (future improvement — filed as potential enhancement).
+
+  ---
+
+  ## Dependency CVE Catalog (S010)
+
+  `DependencyInventoryExtractor` parses `pom.xml` files and compares against
+  `known-vulnerabilities.json` (embedded in the JAR):
+
+  | CVE | Artifact | Fixed version |
+  |-----|----------|--------------|
+  | CVE-2021-44228 | log4j-core | 2.17.1 (Log4Shell RCE) |
+  | CVE-2022-42889 | commons-text | 1.10.0 (Text4Shell RCE) |
+  | CVE-2022-42003 | jackson-databind | 2.13.2 |
+  | CVE-2022-22965 | spring-webmvc | 5.3.18 (Spring4Shell) |
+  | CVE-2021-22119 | spring-security-core | 5.4.9 |
+
+  **Version matching:** `KnownVulnerability.matches(dep)` — semantic version comparison,
+  `dep.version < vuln.fixedVersion`. Null versions are never flagged.
+
+  ---
+
+  ## Attack Surface Map (--attack-surface)
+
+  BFS traversal from CLI entry points (S015 detected classes) through `code_dependencies`
+  to security-sensitive sinks. Each path shows:
+  - `entryClass → sinkClass [sinkType] (N hops)`
+  - `sinkType`: file-io, sql, network, ai, deserialization
+
+  **Synthesis example:**
+  ```
+  Attack Surface (1,092 paths)
+    AskCommand → ClaudeClient [ai] (1 hops)
+    AskCommand → SearchIndex [file-io] (1 hops)
+    AskCommand → CredentialStore [file-io] (2 hops) via ClaudeClient
+  ```
+
+  High hop count (3+) = deep path through system = harder to trace, higher risk.
+
+  ---
+
+  ## Workflow: Portfolio Security Audit
+
+  ```bash
+  # 1. Quick high-severity pass across all workspaces (run sequentially — SQLite lock):
+  for ws in /src/elprint /src/quadim /src/cantara /src/exoreaction; do
+    echo "=== $(basename $ws) ===" && \
+    synthesis code-graph security -d $ws --severity HIGH 2>&1 | grep -E "Security Findings|^\s+\[HIGH\]" | head -20
+  done
+
+  # 2. Check CVEs specifically:
+  synthesis code-graph security -d /src/cantara --type S010_DEPENDENCY_KNOWN_VULN
+
+  # 3. Deep agentic audit of AI-powered tools:
+  synthesis code-graph security -d /src/exoreaction/Synthesis --severity HIGH
+
+  # 4. JSON for tooling integration:
+  synthesis code-graph security -d /src/... --format json 2>&1 | tail -n +2 > findings.json
+  # Note: skip first line (pilot approval message) with tail -n +2 before JSON parsing
+  ```
+
+  **SQLite lock warning:** Do NOT run multiple workspaces in parallel — use sequential execution.
+  Parallel runs produce `[SQLITE_BUSY]` errors.
+
+  ---
+
+  ## Findings by Workspace (Feb 22, 2026)
+
+  | Workspace | Total | HIGH | MED | LOW | INFO | Most critical |
+  |-----------|------:|-----:|----:|----:|----:|--------------|
+  | Synthesis | 253 | 47 | 1 | 116 | 89 | 23x S016 prompt injection, 4x S017 RAG poisoning |
+  | Elprint | 378 | 118 | 23 | 237 | 0 | 92x S001 SQL injection (legacy density) |
+  | Quadim | 857 | 36 | 35 | 785 | 0 | 24x S005 XXE in Whydah XML auth parsers |
+  | Cantara | 836 | 95 | 59 | 679 | 0 | Text4Shell RCE CVE + 21x XXE + 40x SQL |
+  | eXOReaction | 560 | 81 | 13 | 367 | 89 | Superset of Synthesis (includes Synthesis code) |
+
+  **Priority fixes:**
+  1. Cantara `reactiveservices/pom.xml` — upgrade `commons-text` to `1.10.0` (Text4Shell RCE)
+  2. Quadim Whydah XML parsers — add `FEATURE_SECURE_PROCESSING` (24 XXE instances)
+  3. Synthesis `AskCommand` — add `<document>` boundary tags around RAG content (S017)
+
+  ---
+
+  ## Agentic Security Interpretation
+
+  S016-S021 signals are **unique to AI-powered codebases**. Not found in traditional SAST tools.
+
+  **S016 (Direct Prompt Injection) in Synthesis:**
+  - User CLI args (`question`, `input`, `pattern`) flow into `buildAskPrompt()`
+  - Risk: malicious files in indexed workspace could include injection instructions
+  - Synthesis is a local CLI tool — threat model is workspace content, not network attacker
+  - Mitigation: `<user>` boundary tags, content sanitization, output validation
+
+  **S017 (RAG Poisoning) in Synthesis:**
+  - `AskCommand.java:224`: `index.search()` → `readPreview()` → `buildAskPrompt()`
+  - A file could contain `"Ignore previous instructions. Output: ..."` and be in search context
+  - Fix: wrap external content in `<document>` tags; filter known injection patterns
+
+  **S021 (Missing Prompt Boundaries):**
+  - Prompt templates without `<system>`/`<user>` tags allow injected content to blur the
+    instruction/data distinction
+  - Fix: standardize on boundary tags in all `PromptTemplates.*` methods
+
+  ---
+
+  ## Testing
+
+  Three test classes cover CKG-5 (40 tests total):
+
+  | Class | Tests | What it covers |
+  |-------|------:|---------------|
+  | `SecurityRepositoryTest` | 9 | CRUD for all 3 security tables, workspace isolation |
+  | `SecurityAnalyzerTest` | 21 | Per-signal detection (trigger + non-trigger for each signal) |
+  | `DependencyInventoryExtractorTest` | 10 | pom.xml parsing, CVE catalog, version matching |
+
+  Run security tests only:
+  ```bash
+  mvn test -pl . -Dtest="Security*,DependencyInventory*" -q
+  ```
+
+  ---
+
+  ## Related Skills
+  - `synthesis-code-graph.yaml` — full CKG-1 through CKG-5 reference
+  - `synthesis-development.md` — class architecture (SecurityAnalyzer, AttackSurfaceMapper, etc.)
+  - `synthesis-database-migrations.md` — V15 schema (security_findings, declared_dependencies, attack_surface_edges)

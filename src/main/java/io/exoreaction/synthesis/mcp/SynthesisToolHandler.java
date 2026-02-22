@@ -892,6 +892,8 @@ public class SynthesisToolHandler {
                 ? params.get("level").asText() : "basic";
         boolean force = params != null && params.has("force")
                 && params.get("force").asBoolean(false);
+        boolean dryRun = params != null && params.has("dryRun")
+                && params.get("dryRun").asBoolean(false);
 
         Path workspacePath = resolveWorkspace(params);
         WorkspaceManager workspace = validateWorkspace(workspacePath);
@@ -934,10 +936,22 @@ public class SynthesisToolHandler {
                         attrs.lastModifiedTime().toInstant(), null);
 
                 io.exoreaction.synthesis.analyzer.AnalysisResult analysis = analyzers.analyze(metadata);
+
+                if (dryRun) {
+                    ObjectNode response = mapper.createObjectNode();
+                    response.put("generated", false);
+                    response.put("dryRun", true);
+                    response.put("sourcePath", resolved.toString());
+                    response.put("message", "dryRun=true: no files written");
+                    response.put("level", level.name());
+                    return response;
+                }
+
                 Optional<Path> companionPath = generator.generate(metadata, analysis, List.of());
 
                 ObjectNode response = mapper.createObjectNode();
                 response.put("generated", companionPath.isPresent());
+                response.put("dryRun", false);
                 response.put("sourcePath", resolved.toString());
                 if (companionPath.isPresent()) {
                     response.put("companionPath", companionPath.get().toString());
@@ -970,6 +984,12 @@ public class SynthesisToolHandler {
                                     attrs.lastModifiedTime().toInstant(), null);
 
                             io.exoreaction.synthesis.analyzer.AnalysisResult analysis = analyzers.analyze(metadata);
+
+                            if (dryRun) {
+                                skipped++;
+                                continue;
+                            }
+
                             Optional<Path> companion = generator.generate(metadata, analysis, List.of());
 
                             if (companion.isPresent()) generated++;
@@ -984,6 +1004,7 @@ public class SynthesisToolHandler {
                 response.put("generated", generated);
                 response.put("skipped", skipped);
                 response.put("errors", errors);
+                response.put("dryRun", dryRun);
                 response.put("level", level.name());
                 response.put("workspace", workspacePath.toString());
 
