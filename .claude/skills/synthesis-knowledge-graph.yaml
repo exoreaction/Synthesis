@@ -1,0 +1,248 @@
+name: synthesis-knowledge-graph
+version: 1.0.0
+description: |
+  Semantic knowledge graph for document workspaces. Directories get centroid (what they ARE),
+  wants (what they WANT TO BECOME), health signals, and bidding-based file routing.
+  Commands: synthesis describe, knowledge-graph (kg), structure, evolution, feedback, route-explain.
+
+trigger_phrases:
+  - "synthesis knowledge-graph"
+  - "synthesis kg"
+  - "synthesis describe"
+  - "synthesis structure"
+  - "synthesis evolution"
+  - "synthesis feedback"
+  - "synthesis route-explain"
+  - "directory centroid"
+  - "directory wants"
+  - "directory health"
+  - "knowledge graph"
+  - "want satisfaction"
+  - "bidding routing"
+  - "directory archetype"
+  - "W020"
+  - "W021"
+  - "I020"
+  - "I021"
+
+instructions: |
+  # Synthesis Knowledge Graph
+
+  The knowledge graph adds semantic awareness to document workspaces. All data lives in SQLite —
+  no changes inside source trees. Only applies to DOCUMENT-classified directories (not CODE).
+
+  ---
+
+  ## Core Concepts
+
+  ### Centroid — What a Directory IS
+  - Computed from file enrichment signatures: ranked topics, named entities, document types, confidence
+  - Aggregated by `CentroidComputer` from per-file `EnrichmentSignature` data
+  - Updated incrementally as files are synced
+  - Confidence: 0.0 (no data) → 1.0 (fully confident)
+
+  ### Wants — What a Directory WANTS TO BECOME
+  - Inferred from README + directory name + parent centroid + manual overrides
+  - Bootstrapped by `WantsBootstrapper` (4-tier cold start):
+    1. Parse README.md for intent signals
+    2. Infer from directory name vocabulary
+    3. Inherit from parent centroid
+    4. Apply manual overrides in config
+  - Satisfaction score = topicCoverage*0.5 + entityCoverage*0.3 + gapsFilled*0.2
+
+  ### Health Signals
+  | Signal | Meaning | Condition |
+  |--------|---------|-----------|
+  | W020   | Want starvation | satisfaction < 0.1, directory age > 3 days |
+  | W021   | Want drift | satisfaction < 0.4 AND centroid confidence > 0.5 |
+  | I020   | Want fulfillment | satisfaction improving, wants being met |
+  | I021   | Want conflict | two directories competing for same files |
+
+  ### Routing Cascade (Phase 1-4)
+  1. **RoutingHints** (learned patterns) — highest priority
+  2. **ConfigRules** (glob + keyword in config.yaml)
+  3. **DirectoryBidder** (enrichment-based bidding) — if file is enriched
+  4. **DirectoryScorer** (identity-based scoring) — fallback
+
+  ### Bidding (DirectoryBidder)
+  Directories with wants bid for enriched files using Jaccard similarity:
+  - Topics overlap: weight 0.40
+  - Entities overlap: weight 0.45
+  - Document type match: weight 0.10
+  - Timeframe match: weight 0.05
+  Winner gets PHYSICAL membership. Near-winners may get VIRTUAL membership.
+
+  ### Archetypes (6 built-in)
+  `ArchetypeRegistry` matches directory centroid+wants against:
+  - `client-opportunity` — leads, prospects, CRM-style content
+  - `project` — time-bound work with deliverables
+  - `methodology` — process, framework, playbook content
+  - `marketing-campaign` — campaigns, content calendars
+  - `product` — product specs, roadmaps, feature docs
+  - `archive` — historical, completed, frozen content
+
+  ### DirectoryClassifier — Code vs Document
+  Synthesis only applies centroid/wants/health to DOCUMENT directories.
+  Source code directories (detected via build files like pom.xml, Cargo.toml, go.mod) are
+  classified as CODE and skip the entire knowledge graph pipeline.
+  Exception: `docs/` inside code repos is carved out as DOCUMENT.
+
+  ---
+
+  ## Commands
+
+  ### synthesis describe
+  Show knowledge profile for directories (centroid + wants + health):
+
+  ```bash
+  synthesis describe -d /home/totto/Documents
+  synthesis describe -d /home/totto/Documents --path "eXOReaction/clients"
+  synthesis describe -d /home/totto/Documents --health-only
+  synthesis describe -d /home/totto/Documents --format json
+  ```
+
+  Output includes:
+  - Directory path + classification (DOCUMENT/CODE/etc.)
+  - Centroid: top topics, entities, confidence
+  - Wants: wanted topics/entities, satisfaction score
+  - Health: signal (healthy/starving/drifting/bootstrapping)
+  - Outliers: files that don't belong
+
+  ### synthesis knowledge-graph (alias: kg)
+  Full graph view — all directory profiles with relationships:
+
+  ```bash
+  synthesis knowledge-graph -d /home/totto/Documents
+  synthesis kg -d /home/totto/Documents --format mermaid
+  synthesis kg -d /home/totto/Documents --health-signals
+  synthesis kg -d /home/totto/Documents --archetypes
+  ```
+
+  ### synthesis structure
+  Structural analysis — how directories relate, which are hubs:
+
+  ```bash
+  synthesis structure -d /home/totto/Documents
+  synthesis structure -d /home/totto/Documents --unstable
+  synthesis structure -d /home/totto/Documents --orphans
+  ```
+
+  ### synthesis evolution (alias: evo)
+  Long-term evolution report — how the workspace is changing:
+
+  ```bash
+  synthesis evolution -d /home/totto/Documents
+  synthesis evo -d /home/totto/Documents --since 30d
+  synthesis evolution -d /home/totto/Documents --format markdown
+  ```
+
+  ### synthesis feedback
+  Accept or reject routing suggestions to train the system:
+
+  ```bash
+  synthesis feedback accept "report.md" "eXOReaction/reports" -d /home/totto/Documents
+  synthesis feedback reject "report.md" "eXOReaction/archive" -d /home/totto/Documents
+  synthesis feedback list -d /home/totto/Documents
+  ```
+
+  Accepting adds +0.02 to the directory's score; rejecting adds -0.01 (via `RoutingLearner`).
+
+  ### synthesis route-explain
+  Explain why a file would be routed to a specific directory:
+
+  ```bash
+  synthesis route-explain "filename.md" -d /home/totto/Documents
+  synthesis route-explain "filename.md" -d /home/totto/Documents --verbose
+  ```
+
+  Shows: top-scored candidates, score breakdown (content + scope + centroid match + wants match),
+  routing method used (hint/bid/identity), ambiguity flag.
+
+  ---
+
+  ## SQLite Tables
+
+  | Table | Migration | Contents |
+  |-------|-----------|---------|
+  | `directory_centroids` | V10 | Per-directory centroid (topics_json, entities_json, confidence, classification) |
+  | `file_enrichment_signatures` | V10 | Per-file enrichment (topics, entities, doc type) |
+  | `virtual_memberships` | V11 | Virtual membership proposals |
+  | `routing_feedback` | V11 | Accepted/rejected routing decisions |
+
+  All queries are UNIQUE-constrained on `(workspace_path, directory_path)` — idempotent updates.
+
+  ---
+
+  ## Key Classes
+
+  | Class | Package | Role |
+  |-------|---------|------|
+  | `DirectoryCentroid` | org | What a directory IS |
+  | `DirectoryWants` | org | What a directory WANTS TO BECOME |
+  | `DirectoryProfile` | org | Wrapper (identity + centroid + wants + health) |
+  | `DirectoryHealth` | org | Health status enum |
+  | `DirectoryClassification` | org | DOCUMENT/CODE/MEDIA/GENERATED/UNKNOWN enum |
+  | `DirectoryClassifier` | org | 4-tier heuristic classification |
+  | `EnrichmentSignature` | org | Per-file semantic data |
+  | `EnrichmentSignatureExtractor` | org | 3-tier extraction (companion→Lucene→filename) |
+  | `CentroidComputer` | org | Frequency-ranked topic aggregation |
+  | `WantsBootstrapper` | org | 4-tier cold-start |
+  | `WantSatisfactionComputer` | org | Satisfaction score formula |
+  | `DirectoryBidder` | org | Jaccard-based bidding engine |
+  | `VirtualMembershipManager` | org | SQLite-backed virtual memberships |
+  | `DirectoryArchetype` | org | Archetype pattern |
+  | `ArchetypeRegistry` | org | 6 built-in archetypes |
+  | `GapAnalyzer` | org | Aspirational gap detection |
+  | `RoutingLearner` | org | Feedback-based score adjustment |
+  | `RoutingContext` | org | Caller preferences (threshold, skipTransient) |
+  | `RoutingDecision` | org | Full routing result with reasoning |
+  | `RoutingConfidence` | org | CERTAIN/HIGH/MODERATE/LOW/NONE enum |
+  | `W020Check` | cli | Want starvation health check |
+  | `W021Check` | cli | Want drift health check |
+  | `I020Check` | cli | Want fulfillment health check |
+  | `I021Check` | cli | Want conflict health check |
+  | `DescribeCommand` | cli | synthesis describe |
+  | `KnowledgeGraphCommand` | cli | synthesis knowledge-graph |
+  | `StructuralAnalysisCommand` | cli | synthesis structure |
+  | `EvolutionReportCommand` | cli | synthesis evolution |
+  | `FeedbackCommand` | cli | synthesis feedback |
+  | `RouteExplainCommand` | cli | synthesis route-explain |
+
+  ---
+
+  ## Common Workflows
+
+  ### Check workspace health
+  ```bash
+  synthesis describe -d /home/totto/Documents --health-only
+  # Look for W020 (starving) and W021 (drifting) signals
+  synthesis health -d /home/totto/Documents
+  # W020/W021 appear as health signals alongside E0xx/W0xx
+  ```
+
+  ### Understand why a file was routed somewhere
+  ```bash
+  synthesis route-explain "my-report.md" -d /home/totto/Documents --verbose
+  # Shows full scoring breakdown: content/scope/centroid/wants scores
+  ```
+
+  ### Train routing preferences
+  ```bash
+  synthesis feedback list -d /home/totto/Documents        # See pending suggestions
+  synthesis feedback accept "file.md" "target/dir" -d /home/totto/Documents
+  synthesis feedback reject "file.md" "wrong/dir" -d /home/totto/Documents
+  ```
+
+  ### See full knowledge graph
+  ```bash
+  synthesis kg -d /home/totto/Documents                   # ASCII overview
+  synthesis kg -d /home/totto/Documents --format mermaid  # Mermaid diagram
+  ```
+
+  ---
+
+  ## Related Skills
+  - `synthesis-workspace-cleanup.yaml` — sweep, prune, rebalance, health
+  - `synthesis-relate-dependencies.yaml` — relate/impact (uses code graph when available)
+  - `synthesis-code-graph.yaml` — code dependency persistence (parallel system for source repos)
+  - `synthesis-development.md` — architecture details for developing new features

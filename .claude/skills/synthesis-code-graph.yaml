@@ -1,0 +1,233 @@
+name: synthesis-code-graph
+version: 1.0.0
+description: |
+  Code dependency graph for source code workspaces. Persists import/extends/implements
+  relationships to SQLite, making `synthesis relate` and `synthesis impact` instant.
+  Commands: synthesis code-graph extract (alias: cg), relate --refresh, impact --refresh.
+
+trigger_phrases:
+  - "synthesis code-graph"
+  - "synthesis cg"
+  - "code dependency graph"
+  - "persist dependency graph"
+  - "code graph extract"
+  - "code knowledge graph"
+  - "CKG"
+  - "CodeGraphExtractor"
+  - "CodeGraphRepository"
+  - "code_dependencies"
+  - "module profiles"
+  - "instability metric"
+  - "who calls"
+  - "callers of"
+  - "what breaks if I change"
+  - "fan-in fan-out"
+
+instructions: |
+  # Synthesis Code Graph
+
+  Persists Java source code dependency relationships to SQLite. Makes `synthesis relate` and
+  `synthesis impact` instant (SQLite lookup vs file re-reading on every invocation).
+
+  Only applies to source code workspaces (CODE-classified directories). Document workspaces
+  use the knowledge graph system instead.
+
+  ---
+
+  ## What It Stores
+
+  ### code_dependencies (V13 migration)
+  Class-level dependency edges extracted from Java source files:
+  - `source_file`, `source_class`, `source_package`
+  - `target_class`, `target_package`, `target_file` (if in-project)
+  - `dependency_type`: "import", "extends", "implements", "annotation"
+  - `is_external`: 0 (in-project) or 1 (stdlib/third-party)
+
+  ### module_profiles (V13, for CKG-2)
+  Package-level aggregate metrics (future: module profiles with fan-in/fan-out/instability).
+
+  ### cross_format_links (V13)
+  SQL→Java, YAML→Java, doc→code links.
+
+  ### code_quality_gaps (V13, for CKG-3)
+  Missing tests, interfaces, docs per module (future: quality gap detection).
+
+  ---
+
+  ## Commands
+
+  ### synthesis code-graph extract (alias: cg)
+  Build or rebuild the persistent code dependency graph:
+
+  ```bash
+  # Full extraction (all Java files)
+  synthesis code-graph extract -d /src/exoreaction
+
+  # Incremental update (changed files only, git-aware)
+  synthesis code-graph extract --incremental -d /src/exoreaction
+  synthesis cg extract --incremental -d /src/exoreaction
+
+  # Preview: count Java files, show what would happen, no writes
+  synthesis code-graph extract --dry-run -d /src/exoreaction
+
+  # Show current graph statistics
+  synthesis code-graph extract --stats -d /src/exoreaction
+  ```
+
+  **Output (full extraction):**
+  ```
+  Code Graph: Extracting dependencies...
+  Files processed: 347
+  Dependencies found: 1,842
+  Cross-format links: 23
+  Elapsed: 4.2s
+  Graph persisted to SQLite.
+  ```
+
+  **Output (--stats):**
+  ```
+  Code Graph Status: populated
+  Dependencies: 1,842
+  Files with deps: 347
+  Last extracted: 2026-02-22T08:05:09Z
+  ```
+
+  ### synthesis relate (now SQLite-backed)
+  After running `code-graph extract`, `relate` uses the persisted graph (instant):
+
+  ```bash
+  # Fast (uses SQLite graph if populated):
+  synthesis relate "RelateCommand.java" -d /src/exoreaction
+
+  # Force re-extraction from files:
+  synthesis relate "RelateCommand.java" --refresh -d /src/exoreaction
+
+  # JSON output (new in CKG-1):
+  synthesis relate "RelateCommand.java" --format json -d /src/exoreaction
+  ```
+
+  ### synthesis impact (now SQLite-backed)
+  BFS traversal on SQLite `code_dependencies` when graph is populated:
+
+  ```bash
+  # Fast BFS (uses SQLite graph if populated):
+  synthesis impact "SearchIndex.java" -d /src/exoreaction
+
+  # Force re-extraction:
+  synthesis impact "SearchIndex.java" --refresh -d /src/exoreaction
+  ```
+
+  ---
+
+  ## Automatic Maintenance (Phase 10)
+
+  `synthesis maintain` now includes **Phase 10: Code Graph** which runs automatically:
+  - If graph is empty → runs full extraction
+  - If graph is populated → runs incremental update (git-aware: only changed files)
+  - If workspace has no `.java` files → skips entirely (document workspace)
+  - Respects `--dry-run` and `--verbose`
+
+  ```bash
+  synthesis maintain -d /src/exoreaction --verbose
+  # Shows: "Phase 10/10: Code Graph - updating 3 changed files"
+  ```
+
+  ---
+
+  ## High-Value Queries (SQLite)
+
+  | Question | Approach |
+  |----------|---------|
+  | "Who calls this class?" | `synthesis relate "Foo.java"` (callers shown under "Referenced by") |
+  | "What does this package depend on?" | `synthesis relate "SomeService.java" --format json` |
+  | "What breaks if I change this?" | `synthesis impact "CoreClass.java"` (BFS up the graph) |
+  | "What's the blast radius?" | `synthesis impact "SearchIndex.java" --depth 3` |
+
+  ---
+
+  ## Architecture
+
+  ### CodeGraphExtractor
+  Wraps existing extraction classes (`ViolationDetector`, `GraphBuilder`, `CrossFormatLinker`).
+  - `extractAndPersist(projectRoot, conn)` — full extraction, clears old data first
+  - `incrementalUpdate(projectRoot, conn, changedFiles)` — per-file update, replaces only changed
+  - `findJavaFiles(root)` — walk, filter `.java` only
+  - `buildClassToFileMap(files, root)` — maps class name → relative path
+
+  ### CodeGraphRepository
+  DAO for all four CKG tables. Uses `INSERT OR REPLACE` for idempotency.
+  - `saveDependency(conn, dep)` / `getDependenciesFrom(conn, workspace, file)`
+  - `getDependenciesTo(conn, workspace, targetClass)` — callers
+  - `countDependencies(conn, workspace)` — for stats
+  - `clearDependencies(conn, workspace, file)` — for incremental updates
+
+  ### CodeGraphStats
+  Result record from extraction: `filesProcessed`, `dependenciesFound`, `crossFormatLinksFound`, `elapsedMs`.
+
+  ---
+
+  ## SQLite Tables
+
+  ```sql
+  -- Class-level dependency edges
+  code_dependencies(
+    workspace_path, source_file, source_class, source_package,
+    target_file, target_class, target_package, dependency_type, is_external,
+    last_computed,
+    UNIQUE(workspace_path, source_file, target_class, target_package)
+  )
+
+  -- Module profiles (CKG-2: fan-in/out, instability)
+  module_profiles(
+    workspace_path, module_path, package_name, inferred_purpose,
+    fan_in, fan_out, instability, total_files, confidence, last_computed,
+    UNIQUE(workspace_path, module_path)
+  )
+
+  -- Cross-format links (SQL→Java, YAML→Java, doc→code)
+  cross_format_links(
+    workspace_path, source_file, target_file, link_type, entity_name,
+    last_computed,
+    UNIQUE(workspace_path, source_file, target_file, entity_name)
+  )
+
+  -- Quality gaps (CKG-3: missing tests, interfaces, docs)
+  code_quality_gaps(
+    workspace_path, module_path, gap_type, description, severity, file_path,
+    suggestion, last_computed,
+    UNIQUE(workspace_path, module_path, gap_type, file_path)
+  )
+  ```
+
+  ---
+
+  ## Roadmap
+
+  | Phase | Version | Deliverables |
+  |-------|---------|-------------|
+  | **CKG-1** (done) | v1.12.x | Persist dependency graph; fast relate/impact; code-graph extract |
+  | **CKG-2** | v1.13.x | Module profiles; health signals (C001-C022); code-graph describe/health |
+  | **CKG-3** | v1.14.x | Quality gap detection; completeness scoring; code-graph gaps |
+  | **CKG-4** | v1.15.x | DAG visualization; cycles; hotspots; instability; full code-graph |
+
+  ### CKG-2 Health Signals (upcoming)
+  | Signal | Condition |
+  |--------|---------|
+  | C001_CIRCULAR_DEPENDENCY | Package A ↔ Package B mutual imports |
+  | C010_HIGH_FAN_IN_NO_INTERFACE | fan_in > 5 and no interface |
+  | C012_GOD_PACKAGE | total_files > 20 |
+  | C013_UNSTABLE_CORE | Core package with instability > 0.5 |
+  | C014_ORPHAN_CODE | Public class with fan_in = 0 |
+  | C020_HOTSPOT | commits_last_30_days > 10 |
+  | C021_DOCUMENTATION_GAP | No README + no skill coverage |
+
+  Design document: `/src/exoreaction/Synthesis/docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md`
+
+  ---
+
+  ## Related Skills
+  - `synthesis-knowledge-graph.yaml` — parallel system for document workspaces
+  - `synthesis-relate-dependencies.yaml` — relate command usage patterns
+  - `synthesis-architecture-monitoring.yaml` — architecture health monitoring
+  - `synthesis-database-migrations.md` — Flyway patterns (V13 = CKG tables)
+  - `synthesis-development.md` — architecture details

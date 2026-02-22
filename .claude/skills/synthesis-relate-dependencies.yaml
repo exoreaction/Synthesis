@@ -1,8 +1,10 @@
 name: synthesis-relate-dependencies
-version: 1.0.0
+version: 1.1.0
 description: |
   Show bidirectional relationships, imports, and dependencies for any file in a Synthesis workspace.
   Answers "what depends on this?" and "what does this depend on?" with optional Mermaid diagrams.
+  For source code workspaces with a persisted code graph, relate uses instant SQLite lookups.
+  Use --refresh to force re-extraction. Use --format json for machine-readable output.
 
 trigger_phrases:
   - "synthesis relate"
@@ -54,6 +56,13 @@ instructions: |
   - `--depth N` - How many levels of relationships to follow (default: 1, try 2-3 for deeper analysis)
   - `--verbose` or `-v` - Show detailed reference information (line numbers, context)
   - `--mermaid` - Output as Mermaid diagram (for visualization)
+  - `--refresh` - Force re-extraction from files (bypass SQLite cache)
+  - `--format json` - Machine-readable JSON output
+
+  ### Performance Note (CKG-1)
+  For source code workspaces with a persisted code graph, `relate` uses instant SQLite lookups.
+  To initialize or refresh: `synthesis code-graph extract -d <workspace>`
+  Without a persisted graph, relate falls back to live file-reading (slower).
 
   ---
 
