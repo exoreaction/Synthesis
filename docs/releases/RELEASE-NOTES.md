@@ -1,6 +1,6 @@
 # Synthesis Release Notes
 
-**From first commit to v1.12.2 -- the full story.**
+**From first commit to v1.13.1 -- the full story.**
 
 This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 51 CLI commands, 3,842 tests, 13 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server) -- all in 9 days and 341 commits.
 
@@ -24,6 +24,8 @@ This document covers the complete development history of Synthesis, from its fir
 - [v1.10.x -- Knowledge Integrity and Code Intelligence (February 19-20, 2026)](#v110x----knowledge-integrity-and-code-intelligence-february-19-20-2026)
 - [v1.11.x -- Self-Organizing Workspace (February 20, 2026)](#v111x----self-organizing-workspace-february-20-2026)
 - [v1.12.x -- Knowledge Graph (February 21-22, 2026)](#v112x----knowledge-graph-february-21-22-2026)
+- [v1.13.0 -- Bugfixes: Rebalance + Health (February 22, 2026)](#v1130----bugfixes-rebalance--health-february-22-2026)
+- [v1.13.1 -- CKG Dogfooding Fixes (February 22, 2026)](#v1131----ckg-dogfooding-fixes-february-22-2026)
 - [Current State](#current-state)
 
 ---
@@ -924,13 +926,138 @@ The knowledge graph was the intellectual core of Synthesis. Directories that kno
 
 ---
 
+---
+
+## v1.13.0 -- Bugfixes: Rebalance + Health (February 22, 2026)
+
+**Version:** v1.13.0
+**Tests:** 3,842 → 3,893 (51 new tests)
+**Fixes:** #209, #212
+
+Two significant bugfixes that were blocking real-world use of `synthesis maintain --rebalance` and `synthesis health --fix-config`.
+
+### fix(rebalance): eliminate 275 false positives + strengthen scoring (#209)
+
+**Problem:** `synthesis maintain --rebalance` reported 275 rebalance candidates on a real workspace — almost all false positives. Made the feature unusable in practice.
+
+**Root causes and fixes:**
+
+| Root cause | Fix |
+|------------|-----|
+| Threshold 0.5 too low — generic files matched almost anywhere | Raised to **0.7** |
+| `.git` internals walked (FETCH_HEAD, packed-refs, etc.) | `.git` directories now excluded |
+| `old-*` / `snapshot-*` archives incorrectly flagged | Frozen subtrees excluded at archive top level |
+| Generic types (documentation, media) over-scored | Generic types: **+0.15** (was +0.30) |
+| No reward for filename → directory name alignment | New filename-token scoring: up to **+0.25** |
+
+**Result:** 275 → 6 real rebalance candidates on the same workspace.
+
+**New scoring in `DirectoryScorer`:**
+- `GENERIC_TYPES` constant: documentation, data, media, visual, report, document, config, archive, artifact
+- `computeFilenameTokenScore()` — tokenizes filename, compares against dir path tokens, overlap ratio × 0.25
+- Example: `synthesis-demo.mp4` now scores strongly for `products/Synthesis/media/` but weakly for generic `media/`
+
+**Tests:** 17 new test cases in `DirectoryScorerTest`; 34 new cases in `MaintainCommandRebalanceTest`.
+
+### fix(health): E002 `.synthesisignore` integration (#212)
+
+**Problem:** Build-artifact directories (node_modules/, target/, etc.) were either always indexed (polluting search results) or required manual exclusion with no tooling support.
+
+**Solution:** Full `.synthesisignore` integration with a clear design invariant:
+
+| Layer | Behaviour |
+|-------|-----------|
+| `HealthCommand.findBuildArtifacts()` | Always scans — **blind to `.synthesisignore`**. Health reports disk reality. |
+| `DirectoryScanner` | Respects `.synthesisignore` — excluded dirs are not indexed. |
+| `health --fix-config` (E002) | Prompts `y/N` per artifact before appending to `.synthesisignore`. Never auto-applies. |
+| `synthesis init` | Proposes default `.synthesisignore` (node_modules/, target/, .gradle/, etc.) with confirmation. |
+
+**New API:**
+- `DirectoryScanner.parseSynthesisIgnore(Path)` — strips comments/blanks, component-based matching at any depth
+- `HealthCommand.appendToSynthesisIgnore(Path, String)` — creates/appends, idempotent (no duplicates)
+- `InitCommand.proposeSynthesisIgnore(Path)` — skips if exists; auto-creates in `--yes` mode
+
+**Tests:** 12 new tests in `HealthE002Test` covering all invariants.
+
+---
+
+## v1.13.1 -- CKG Dogfooding Fixes (February 22, 2026)
+
+**Version:** v1.13.1-SNAPSHOT
+**Tests:** 3,893 → 3,865 (net; see note below)
+**PR:** #222
+**Fixes:** #215, #216, #217, #218, #219, #220, #221
+
+Seven issues discovered during a dogfooding session — running Synthesis against itself using `synthesis code-graph` on the Synthesis source tree. All 7 are in the Code Knowledge Graph subsystem.
+
+> **Note on test count:** The PR added 30+ new tests but also updated existing threshold tests (C012 god-package threshold raised, see #220), resulting in a net count of 3,865 passing tests.
+
+### Bugs fixed
+
+**#215 — C001 circular dependency edge count corrected**
+
+`C001_CIRCULAR_DEPENDENCY` was reporting inflated counts (e.g. "30 edges each way") because the health analyser aggregated class-level import rows instead of package-level edges. Rewrote `detectCircularDependencies()` to `GROUP BY source_package, target_package` first, then detect mutual pairs — matching the logic already used by `DagRenderer.detectCycles()`. Now correctly reports directional counts (e.g. "3 edges config→core, 10 edges core→config").
+
+**#216 — C010 false positive: packages with tests were flagged as untested**
+
+`C010_HIGH_FAN_IN_NO_TESTS` fired for packages that had full test coverage (e.g. `util` with 12 test files, `core` with 11). The detector was looking for packages with "test" in the package name rather than the standard Maven layout (`src/test/java/<same-package>/`). Replaced with a filesystem check: `hasTestFilesOnDisk()` mirrors the package path under `src/test/java/` and looks for `*Test.java` or `*Tests.java` files.
+
+**#217 — Cross-format links doubled by scanning `target/`**
+
+`synthesis code-graph --cross-format` reported ~280 links but roughly half were duplicates from both `src/main/resources/` and `target/classes/` being scanned. Added `isBuildArtifact(workspaceRoot, path)` utility and applied it as a filter in `findJavaFiles()`, `findSqlFiles()`, and the cross-format YAML/SQL walk. Covers `target/`, `build/`, and `out/` at any depth.
+
+**#218 — `code-graph describe` required `--refresh` after every extract**
+
+After `synthesis code-graph extract`, running `describe` without `--refresh` showed "No module profiles found." Fixed by: (a) auto-running `ModuleProfileComputer` at the end of `ExtractSub.runFull()` and `runIncremental()`, and (b) auto-computing in `DescribeSub` when `module_profiles` is empty but `code_dependencies` is populated.
+
+### Improvements
+
+**#219 — `inferPurpose()` heuristics: 28/31 packages showed "General purpose"**
+
+Extended `matchSegment()` in `ModuleProfileComputer` with 13 new segment mappings:
+
+| Segments | Purpose label |
+|----------|--------------|
+| changelog, tracking, track | Change tracking |
+| enrichment, enrich | Media enrichment |
+| summary, report | Reporting / summarization |
+| research | Research engine |
+| staging, stage | Staging pipeline |
+| metrics, telemetry | Operational metrics |
+| validate, validation | Validation |
+| workspace | Workspace management |
+| update | Update management |
+| utils, utility | Shared utilities |
+| configuration | Configuration management |
+
+17 new test cases added to `ModuleProfileComputerTest`.
+
+**#220 — C012 god-package threshold raised from 15 to 30**
+
+The default of 15 was generating noise — `util` (20 files) triggered alongside `cli` (128 files). Threshold raised to 30 and extracted to a named constant `GOD_PACKAGE_THRESHOLD`. At threshold 30: `cli` (128), `org` (72), and `graph` (36) correctly fire; `report` (21), `core` (21), `util` (20), and `analyzer` (18) no longer fire.
+
+**#221 — Helpful error when wrong `-d` path given**
+
+`synthesis code-graph extract -d /src/exoreaction` (parent of the actual workspace) was silently exiting with code 2. Extended `WorkspaceManager.validate()` to walk down 1-2 levels and suggest child workspaces, alongside existing ancestor detection:
+
+```
+Error: '/src/exoreaction' is not a Synthesis workspace (no .synthesis/ directory found).
+
+Did you mean one of these?
+  /src/exoreaction/Synthesis    (synthesis workspace)
+
+Run 'synthesis init' to initialize a new workspace.
+```
+
+---
+
 ## Current State
 
-**Version:** v1.12.2-SNAPSHOT
+**Version:** v1.13.1-SNAPSHOT
 **Date:** February 22, 2026
 **Days since first commit:** 9
-**Total commits:** 341
-**Tests:** 3,842 (all passing)
+**Total commits:** 348
+**Tests:** 3,865 (all passing)
 
 ### Commands (51 subcommands)
 
@@ -1123,6 +1250,8 @@ io.exoreaction.synthesis/
 | v1.12.0 | Feb 21 | 9-phase maintain orchestrator, guided init |
 | v1.12.1 | Feb 21 | Health fix-config phantom removal |
 | v1.12.2 | Feb 22 | Knowledge graph (P1-P4), Code Knowledge Graph (CKG-1 through CKG-4), 3,842 tests |
+| v1.13.0 | Feb 22 | Rebalance false-positive fix (#209), .synthesisignore health integration (#212), 3,893 tests |
+| v1.13.1 | Feb 22 | CKG dogfooding: 4 bugs + 3 improvements (PR #222), 3,865 tests |
 
 ---
 
