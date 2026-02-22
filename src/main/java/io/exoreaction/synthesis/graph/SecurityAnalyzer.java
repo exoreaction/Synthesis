@@ -315,6 +315,9 @@ public class SecurityAnalyzer {
 
             // Skip pattern definition lines (detector's own regex strings)
             if (line.contains("Pattern.compile(")) continue;
+            // Skip regex continuation lines — strings with metacharacters are pattern definitions, not credentials
+            if (line.contains(".*") || line.contains("\\w") || line.contains("\\s")
+                    || line.contains("[^") || line.contains("(?")) continue;
 
             // Skip lines containing test/mock exclusion words
             boolean excluded = SECRET_EXCLUSIONS.stream().anyMatch(lineLower::contains);
