@@ -21,6 +21,33 @@ Cross-workspace summary of the Code Knowledge Graph run across all eXOReaction-r
 
 ---
 
+## ⚠ Reliability Warning (Issue #232 — Repo Isolation Missing)
+
+**Multi-repo workspace analysis is unreliable until #232 is fixed.**
+
+The CKG uses `(workspace_path, package_name)` as package identity — there is no repo dimension.
+When multiple repos share the same Java package namespace (e.g., 38 Quadim microservices all using
+`ai.quadim.api.*`), classes from all repos are merged into a single package node.
+
+| Workspace | Packages Spanning >1 Repo | Impact |
+|-----------|---------------------------|--------|
+| Quadim | **52% (114/216 packages)** | 87% of cycles likely false positives |
+| Cantara | 15% (117/735 packages) | Moderate impact on shared Whydah packages |
+| exoreaction | 14% (57/384 packages) | Moderate impact |
+| Synthesis (single repo) | 0% | **Unaffected** ✅ |
+| Elprint (distinct namespaces) | Low | Mostly unaffected ✅ |
+
+Concrete consequence: `ai.quadim.api.service` shows 86 files and fan-out 46 — it is actually
+~25 separate repos × 3-4 files each, each individually clean. The 47 Quadim cycles detected
+are almost certainly cross-repo package merging artifacts, not real architectural problems.
+
+**Treat all cycle, fan-in/fan-out, hotspot, and god-package findings for Quadim, Cantara, and
+exoreaction as provisional until #232 is resolved.**
+
+Synthesis-on-itself analysis remains fully valid.
+
+---
+
 ## Comparative Metrics (all post-fix, v1.13.1)
 
 | Metric | Synthesis | Elprint | Quadim | Cantara | exoreaction |

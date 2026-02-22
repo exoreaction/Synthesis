@@ -10,6 +10,24 @@ reactive services (xorcery), and developer infrastructure. 54 repos.
 
 ---
 
+## ⚠ Reliability Warning (Issue #232 — Repo Isolation Missing)
+
+**15% of Cantara packages span multiple repos — partially affects this analysis.**
+
+Cantara's 54 repos use more distinct namespaces than Quadim (each Whydah component has its own
+package prefix), so the impact is lower. However, shared `net.whydah.sso.*` and
+`com.exoreaction.reactiveservices.*` namespaces are merged across repos:
+
+- Whydah cycle counts may be inflated by cross-repo merging (auth/dao/utils in multiple repos)
+- Fan-in counts for Spring `@Autowired` (272) are correct — it's an external dependency, unaffected
+- `cantara-docsite` (single repo, distinct namespace) findings are fully reliable
+
+The overall pattern (Whydah has significant debt, reactive services are clean) is likely still
+correct directionally, but exact cycle counts and health signal numbers are provisional until
+#232 is resolved.
+
+---
+
 ## Extraction Stats (post-fix, PR #222 + #228)
 
 ```

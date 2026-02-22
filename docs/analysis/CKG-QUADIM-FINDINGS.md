@@ -10,6 +10,24 @@ Quadim — production SaaS platform for skills management, HR analytics, and com
 
 ---
 
+## ⚠ Reliability Warning (Issue #232 — Repo Isolation Missing)
+
+**52% of detected Quadim packages span multiple repos — this analysis is provisional.**
+
+Quadim has 38 microservices all using the `ai.quadim.api.*` namespace. The CKG merges them
+into shared package nodes. Key consequences:
+
+- `ai.quadim.api.service` (86 files, fan-out 46) = ~25 repos × ~3 files each — not a god package
+- **87% of the 47 detected cycles are likely false positives** (cross-repo merging artifacts)
+- `api/controller` god-controller (fan-out 40) = collective deps of ~20 separate controllers
+- Instability scores, hotspots, and health signals for `ai.quadim.api.*` packages are unreliable
+
+The DTO foundation finding (overlord fan-in: 43, instability: 0.04) remains likely valid — DTOs
+are truly foundational across all repos. But all cycle and hotspot findings should be reverified
+after #232 is fixed.
+
+---
+
 ## Extraction Stats (post-fix, PR #222 + #228)
 
 ```
