@@ -16,7 +16,7 @@ the codebase architecture, and following established patterns.
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
 - **Version:** 1.12.2-SNAPSHOT (as of Feb 2026)
-- **Tests:** 3,746 (JUnit 5)
+- **Tests:** 3,842 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)
@@ -142,8 +142,15 @@ io.exoreaction.synthesis
   |   |-- CrossFormatLinker           # SQL→Java, YAML→Java cross-format links
   |   |-- KnowledgeEdgeScanner        # Skill/doc→source edges, drift calculation
   |   |-- CodeGraphExtractor          # Persists dependency extraction to SQLite (CKG-1)
-  |   |-- CodeGraphRepository         # DAO: code_dependencies + cross_format_links
-  |   +-- CodeGraphStats              # Extraction statistics record
+  |   |-- CodeGraphRepository         # DAO: code_dependencies, module_profiles, cross_format_links, code_quality_gaps
+  |   |-- CodeGraphStats              # Extraction statistics record
+  |   |-- ModuleProfileComputer       # Fan-in/fan-out/instability (Martin metric) per package (CKG-2)
+  |   |-- CodeHealthAnalyzer          # 7 health signals: C001 circular, C010-C014 structure, C020-C021 quality (CKG-2)
+  |   |-- CodeHealthSignal            # Health signal record (signalId, severity, modulePath, description)
+  |   |-- QualityGapDetector          # 5 gap types: missing tests/interface/docs/README/package-info (CKG-3)
+  |   |-- QualityGap                  # Quality gap record (modulePath, gapType, severity, suggestion)
+  |   |-- CompletenessScorer          # Completeness score 0.0-1.0 with weighted penalties per gap (CKG-3)
+  |   +-- DagRenderer                 # ASCII + Mermaid DAG; 4-tier layer grouping; cycle/hotspot/violation detection (CKG-4)
   |
   |-- ai/                             # AI integration
   |   |-- ClaudeClient                # Anthropic API wrapper

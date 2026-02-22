@@ -117,6 +117,130 @@ instructions: |
   synthesis impact "SearchIndex.java" --refresh -d /src/exoreaction
   ```
 
+  ### synthesis code-graph describe (CKG-2)
+  Show module profiles — fan-in, fan-out, instability, inferred purpose:
+
+  ```bash
+  # All modules sorted alphabetically:
+  synthesis code-graph describe -d /src/exoreaction
+
+  # Filter to one module:
+  synthesis code-graph describe --module "io.exoreaction.synthesis.cli" -d /src/exoreaction
+
+  # Sort by instability (most unstable first):
+  synthesis code-graph describe --instability -d /src/exoreaction
+
+  # Force recompute (bypass cache):
+  synthesis code-graph describe --refresh -d /src/exoreaction
+
+  # JSON output:
+  synthesis code-graph describe --format json -d /src/exoreaction
+  ```
+
+  **Instability metric (Robert C. Martin):** `instability = fanOut / (fanIn + fanOut)`
+  - `0.0` = maximally stable (many dependents, no outgoing deps) — should be foundation
+  - `1.0` = maximally unstable (no dependents, many outgoing deps) — should be entry/CLI
+  - Orphans (fanIn=0, fanOut=0) → 0.5 by convention
+
+  ### synthesis code-graph health (CKG-2)
+  Detect health signal violations in the code graph:
+
+  ```bash
+  # All signals (all severities):
+  synthesis code-graph health -d /src/exoreaction
+
+  # HIGH severity only:
+  synthesis code-graph health --errors-only -d /src/exoreaction
+
+  # JSON output:
+  synthesis code-graph health --format json -d /src/exoreaction
+  ```
+
+  **7 health signals implemented:**
+  | Signal | Severity | Condition |
+  |--------|----------|-----------|
+  | C001_CIRCULAR_DEPENDENCY | HIGH | Package A ↔ Package B mutual imports |
+  | C010_HIGH_FAN_IN_NO_TESTS | MEDIUM | fan_in > 5 and no test files |
+  | C012_GOD_PACKAGE | MEDIUM | total_files > 20 |
+  | C013_UNSTABLE_CORE | HIGH | Core package (low fan-out) with instability > 0.5 |
+  | C014_ORPHAN_CODE | LOW | Public class with fan_in = 0 |
+  | C020_HOTSPOT | HIGH | commits_last_30_days > 10 |
+  | C021_DOCUMENTATION_GAP | LOW | No README + no skill coverage |
+
+  ### synthesis code-graph gaps (CKG-3)
+  Detect quality gaps and compute completeness scores:
+
+  ```bash
+  # All gaps:
+  synthesis code-graph gaps -d /src/exoreaction
+
+  # Filter by severity:
+  synthesis code-graph gaps --severity HIGH -d /src/exoreaction
+
+  # Filter by type:
+  synthesis code-graph gaps --type MISSING_TESTS -d /src/exoreaction
+
+  # Filter to one module:
+  synthesis code-graph gaps --module "io.exoreaction.synthesis.graph" -d /src/exoreaction
+
+  # Show completeness scores per module:
+  synthesis code-graph gaps --score -d /src/exoreaction
+
+  # JSON output:
+  synthesis code-graph gaps --format json -d /src/exoreaction
+  ```
+
+  **5 gap types:**
+  | Gap Type | Severity | Condition |
+  |----------|----------|-----------|
+  | MISSING_TESTS | HIGH | Module has Java files but no test counterparts |
+  | MISSING_INTERFACE | MEDIUM | fan_in > 3 but no interface defined |
+  | UNDOCUMENTED_HIGH_VALUE | MEDIUM | fan_in > 5 with no Javadoc |
+  | MISSING_README | LOW | Module has no README.md |
+  | MISSING_PACKAGE_INFO | LOW | No package-info.java |
+
+  **Completeness scoring:** `score = 1.0 - Σ(penalties)` (floor 0.0)
+  - HIGH gap: -0.30 per gap
+  - MEDIUM gap: -0.15 per gap
+  - LOW gap: -0.05 per gap
+
+  ### synthesis code-graph (no subcommand) — DAG view (CKG-4)
+  Default view: full package dependency DAG grouped by architectural layer:
+
+  ```bash
+  # ASCII DAG (default, same as --layers):
+  synthesis code-graph -d /src/exoreaction
+
+  # Show circular dependency pairs:
+  synthesis code-graph --cycles -d /src/exoreaction
+
+  # Show unstable high-coupling packages (instability >0.7 AND fan-in >2):
+  synthesis code-graph --hotspots -d /src/exoreaction
+
+  # All packages sorted by instability descending:
+  synthesis code-graph --instability -d /src/exoreaction
+
+  # Layer diagram with SDP violation markers (same as default):
+  synthesis code-graph --layers -d /src/exoreaction
+
+  # SQL/YAML → Java cross-format links:
+  synthesis code-graph --cross-format -d /src/exoreaction
+
+  # Mermaid graph TD output (max 30 packages, paste into mermaid.live):
+  synthesis code-graph --format mermaid -d /src/exoreaction
+  ```
+
+  **4-tier architectural layers (Martin instability metric):**
+  | Layer | Name | Instability | Expected contents |
+  |-------|------|-------------|-------------------|
+  | 1 | Foundation | 0.00-0.25 | Core models, domain types, interfaces |
+  | 2 | Core Services | 0.26-0.50 | Service implementations, repositories |
+  | 3 | Application | 0.51-0.75 | Orchestrators, use cases |
+  | 4 | Entry/CLI | 0.76-1.00 | Commands, main, MCP server |
+
+  **Stable Dependencies Principle:** A package in Layer 1 (stable) importing from Layer 4 (unstable)
+  is a violation — shown in both `--layers` and `--cycles` output.
+
   ---
 
   ## Automatic Maintenance (Phase 10)

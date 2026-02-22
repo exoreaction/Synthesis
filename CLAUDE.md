@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,746 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and code knowledge graph (CKG-1).
+**Validated:** 36,342 files indexed, 3,842 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-4, all complete).
 
 ---
 
@@ -144,11 +144,28 @@ synthesis knowledge-graph                   # Full knowledge graph view (alias: 
 synthesis structure                         # Structural analysis of workspace
 synthesis evolution                         # Long-term evolution report (alias: evo)
 
-# Code graph (source code workspaces)
+# Code graph (source code workspaces) — CKG-1 through CKG-4 complete
 synthesis code-graph extract                # Build/rebuild persistent code dependency graph (alias: cg)
 synthesis code-graph extract --dry-run      # Preview: count Java files, no changes
-synthesis code-graph extract --incremental  # Incremental update (changed files only)
+synthesis code-graph extract --incremental  # Incremental update (changed files only, git-aware)
 synthesis code-graph extract --stats        # Show current graph statistics
+synthesis code-graph describe               # Show module profiles: fan-in, fan-out, instability (CKG-2)
+synthesis code-graph describe --module X    # Filter to a specific module path
+synthesis code-graph describe --instability # Sort by instability descending
+synthesis code-graph describe --refresh     # Force recompute profiles from raw deps
+synthesis code-graph health                 # Show health signals C001-C021 (CKG-2)
+synthesis code-graph health --errors-only   # HIGH severity signals only
+synthesis code-graph gaps                   # Show quality gaps: missing tests, interfaces, docs (CKG-3)
+synthesis code-graph gaps --severity HIGH   # Filter by severity (HIGH/MEDIUM/LOW)
+synthesis code-graph gaps --type MISSING_TESTS  # Filter by gap type
+synthesis code-graph gaps --score           # Show completeness scores per module (0.0-1.0)
+synthesis code-graph                        # Package DAG grouped by architectural layer (CKG-4, default)
+synthesis code-graph --cycles               # Show circular dependency pairs (A ↔ B)
+synthesis code-graph --hotspots             # Unstable high-coupling packages (instability >0.7, fan-in >2)
+synthesis code-graph --instability          # All packages sorted by instability descending
+synthesis code-graph --layers               # Full layer diagram with SDP violations
+synthesis code-graph --cross-format         # SQL/YAML → Java cross-format links
+synthesis code-graph --format mermaid       # Mermaid graph TD output (max 30 packages)
 
 # Workspace hygiene (self-organizing workspace)
 synthesis sync                          # Directory identity sync (discover dirs, write .synthesis.md identity files)
