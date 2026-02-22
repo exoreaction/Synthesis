@@ -10,10 +10,7 @@ import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
-import io.exoreaction.synthesis.graph.CodeGraphExtractor;
-import io.exoreaction.synthesis.graph.CodeGraphRepository;
-import io.exoreaction.synthesis.graph.CodeGraphStats;
-import io.exoreaction.synthesis.graph.ModuleProfileComputer;
+import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
@@ -1002,13 +999,29 @@ public class MaintainOrchestrator {
         }
 
         // Compute module profiles after extraction (CKG-2.04)
+        CodeGraphRepository graphRepo = new CodeGraphRepository();
         int profileCount = 0;
         try {
-            ModuleProfileComputer profileComputer =
-                    new ModuleProfileComputer(new CodeGraphRepository());
+            ModuleProfileComputer profileComputer = new ModuleProfileComputer(graphRepo);
             profileCount = profileComputer.computeAndPersist(workspaceRoot.toString(), conn);
         } catch (Exception e) {
             // Module profile computation failure should not fail the phase
+        }
+
+        // Detect quality gaps and compute completeness scores (CKG-3.04)
+        int gapCount = 0;
+        try {
+            QualityGapDetector gapDetector = new QualityGapDetector(graphRepo);
+            gapCount = gapDetector.detectAndPersist(workspaceRoot.toString(), workspaceRoot, conn);
+
+            // Compute completeness scores
+            java.util.List<QualityGap> allGaps = graphRepo.getQualityGaps(conn, workspaceRoot.toString());
+            java.util.Map<String, java.util.List<QualityGap>> gapsByModule =
+                    CodeGraphCommand.groupByModule(allGaps);
+            CompletenessScorer scorer = new CompletenessScorer();
+            scorer.computeAndPersistAll(workspaceRoot.toString(), conn, gapsByModule);
+        } catch (Exception e) {
+            // Quality gap detection failure should not fail the phase
         }
 
         List<String> details = new ArrayList<>();
@@ -1018,12 +1031,17 @@ public class MaintainOrchestrator {
             details.add(stats.crossFormatLinks() + " cross-format link(s)");
             details.add(stats.packagesFound() + " package(s)");
             details.add(profileCount + " module profile(s) computed");
+            details.add(gapCount + " quality gap(s) detected");
             details.add(stats.elapsedMs() + "ms");
         }
 
+        String summary = stats.dependenciesFound() + " dependency edge(s) extracted in "
+                + stats.elapsedMs() + "ms";
+        if (gapCount > 0) {
+            summary += ", " + gapCount + " gap(s) detected";
+        }
+
         return PhaseResult.success(10, "Code Graph", stats.dependenciesFound(),
-                stats.dependenciesFound() + " dependency edge(s) extracted in "
-                        + stats.elapsedMs() + "ms",
-                details);
+                summary, details);
     }
 }

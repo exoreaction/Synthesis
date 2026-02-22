@@ -284,6 +284,153 @@ public class CodeGraphRepository {
     }
 
     // -----------------------------------------------------------------------
+    // code_quality_gaps
+    // -----------------------------------------------------------------------
+
+    /**
+     * Inserts or replaces a quality gap.
+     * Uses INSERT OR REPLACE (SQLite UPSERT) on the UNIQUE constraint
+     * (workspace_path, module_path, gap_type, file_path).
+     */
+    public void upsertQualityGap(Connection conn, String workspacePath, QualityGap gap,
+                                   long lastComputed) throws SQLException {
+        String sql = """
+            INSERT OR REPLACE INTO code_quality_gaps (
+                workspace_path, module_path, gap_type, description,
+                severity, file_path, suggestion, last_computed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, gap.modulePath());
+            ps.setString(3, gap.gapType());
+            ps.setString(4, gap.description());
+            ps.setString(5, gap.severity());
+            ps.setString(6, gap.filePath());
+            ps.setString(7, gap.suggestion());
+            ps.setLong(8, lastComputed);
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Returns all quality gaps for a workspace.
+     */
+    public List<QualityGap> getQualityGaps(Connection conn, String workspacePath)
+            throws SQLException {
+        String sql = """
+            SELECT module_path, gap_type, severity, description, file_path, suggestion
+            FROM code_quality_gaps
+            WHERE workspace_path = ?
+            ORDER BY severity, module_path
+            """;
+        List<QualityGap> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new QualityGap(
+                            rs.getString("module_path"),
+                            rs.getString("gap_type"),
+                            rs.getString("severity"),
+                            rs.getString("description"),
+                            rs.getString("file_path"),
+                            rs.getString("suggestion")
+                    ));
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Returns quality gaps filtered by gap type.
+     */
+    public List<QualityGap> getQualityGapsByType(Connection conn, String workspacePath,
+                                                    String gapType) throws SQLException {
+        String sql = """
+            SELECT module_path, gap_type, severity, description, file_path, suggestion
+            FROM code_quality_gaps
+            WHERE workspace_path = ? AND gap_type = ?
+            ORDER BY module_path
+            """;
+        List<QualityGap> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, gapType);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new QualityGap(
+                            rs.getString("module_path"),
+                            rs.getString("gap_type"),
+                            rs.getString("severity"),
+                            rs.getString("description"),
+                            rs.getString("file_path"),
+                            rs.getString("suggestion")
+                    ));
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Returns quality gaps filtered by severity.
+     */
+    public List<QualityGap> getQualityGapsBySeverity(Connection conn, String workspacePath,
+                                                        String severity) throws SQLException {
+        String sql = """
+            SELECT module_path, gap_type, severity, description, file_path, suggestion
+            FROM code_quality_gaps
+            WHERE workspace_path = ? AND severity = ?
+            ORDER BY module_path
+            """;
+        List<QualityGap> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, severity);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new QualityGap(
+                            rs.getString("module_path"),
+                            rs.getString("gap_type"),
+                            rs.getString("severity"),
+                            rs.getString("description"),
+                            rs.getString("file_path"),
+                            rs.getString("suggestion")
+                    ));
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Deletes all quality gaps for a workspace.
+     * Used before re-detection to avoid stale gaps.
+     */
+    public int deleteAllQualityGaps(Connection conn, String workspacePath) throws SQLException {
+        String sql = "DELETE FROM code_quality_gaps WHERE workspace_path = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Counts total quality gaps for a workspace.
+     */
+    public int countQualityGaps(Connection conn, String workspacePath) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM code_quality_gaps WHERE workspace_path = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 

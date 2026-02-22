@@ -49,7 +49,8 @@ import java.util.stream.Stream;
         subcommands = {
                 CodeGraphCommand.ExtractSub.class,
                 CodeGraphCommand.DescribeSub.class,
-                CodeGraphCommand.HealthSub.class
+                CodeGraphCommand.HealthSub.class,
+                CodeGraphCommand.GapsSub.class
         }
 )
 public class CodeGraphCommand implements Callable<Integer> {
@@ -65,6 +66,7 @@ public class CodeGraphCommand implements Callable<Integer> {
         System.out.println("    extract    Extract code dependencies and persist to SQLite");
         System.out.println("    describe   Show module profiles (packages, fan-in/out, instability)");
         System.out.println("    health     Detect code health signals (circular deps, hotspots, etc.)");
+        System.out.println("    gaps       Show quality gaps and completeness scores per module");
         System.out.println();
         return 0;
     }
@@ -556,6 +558,205 @@ public class CodeGraphCommand implements Callable<Integer> {
             if (s == null) return "";
             return s.replace("\\", "\\\\").replace("\"", "\\\"");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subcommand: gaps
+    // -----------------------------------------------------------------------
+
+    /**
+     * Shows quality gaps detected in the code knowledge graph: missing tests,
+     * interfaces, documentation, etc. Optionally shows completeness scores.
+     *
+     * <p>Use {@code --refresh} to re-detect gaps before display.
+     * Use {@code --score} to show completeness scores per module.
+     *
+     * @since v1.12.2 (CKG-3.03)
+     */
+    @Command(name = "gaps",
+            description = "Show quality gaps and completeness scores per module",
+            mixinStandardHelpOptions = true)
+    static class GapsSub implements Callable<Integer> {
+
+        @ParentCommand
+        private CodeGraphCommand parent;
+
+        @Option(names = {"--type"},
+                description = "Filter by gap type (e.g., MISSING_TESTS)")
+        private String typeFilter;
+
+        @Option(names = {"--severity"},
+                description = "Filter by severity (HIGH, MEDIUM, LOW)")
+        private String severityFilter;
+
+        @Option(names = {"--module"},
+                description = "Filter by module name substring")
+        private String moduleFilter;
+
+        @Option(names = {"--format"},
+                description = "Output format: text or json (default: text)",
+                defaultValue = "text")
+        private String format;
+
+        @Option(names = {"--refresh"},
+                description = "Re-detect gaps before display",
+                defaultValue = "false")
+        private boolean refresh;
+
+        @Option(names = {"--score"},
+                description = "Show completeness score per module",
+                defaultValue = "false")
+        private boolean showScore;
+
+        @Override
+        public Integer call() {
+            try {
+                Path workspaceRoot = parent.parent.getWorkspaceRoot();
+                WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+                var validation = workspace.validate();
+                if (validation.isPresent()) {
+                    AnsiOutput.printError(validation.get());
+                    return 1;
+                }
+
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                Connection conn = db.getConnection();
+                String wsPath = workspaceRoot.toString();
+
+                CodeGraphRepository repo = new CodeGraphRepository();
+
+                if (refresh) {
+                    // Re-extract, recompute profiles, then detect gaps
+                    CodeGraphExtractor extractor = new CodeGraphExtractor();
+                    extractor.extractAndPersist(workspaceRoot, conn);
+                    ModuleProfileComputer computer = new ModuleProfileComputer(repo);
+                    computer.computeAndPersist(wsPath, conn);
+
+                    QualityGapDetector detector = new QualityGapDetector(repo);
+                    detector.detectAndPersist(wsPath, workspaceRoot, conn);
+
+                    // Compute completeness scores
+                    List<QualityGap> allGaps = repo.getQualityGaps(conn, wsPath);
+                    Map<String, List<QualityGap>> gapsByModule = groupByModule(allGaps);
+                    CompletenessScorer scorer = new CompletenessScorer();
+                    scorer.computeAndPersistAll(wsPath, conn, gapsByModule);
+                }
+
+                // Load gaps with optional filters
+                List<QualityGap> gaps;
+                if (typeFilter != null && !typeFilter.isBlank()) {
+                    gaps = repo.getQualityGapsByType(conn, wsPath, typeFilter.toUpperCase(Locale.ROOT));
+                } else if (severityFilter != null && !severityFilter.isBlank()) {
+                    gaps = repo.getQualityGapsBySeverity(conn, wsPath, severityFilter.toUpperCase(Locale.ROOT));
+                } else {
+                    gaps = repo.getQualityGaps(conn, wsPath);
+                }
+
+                // Apply module filter
+                if (moduleFilter != null && !moduleFilter.isBlank()) {
+                    String filter = moduleFilter.toLowerCase(Locale.ROOT);
+                    gaps = gaps.stream()
+                            .filter(g -> g.modulePath().toLowerCase(Locale.ROOT).contains(filter))
+                            .toList();
+                }
+
+                if ("json".equalsIgnoreCase(format)) {
+                    printGapsJson(gaps, showScore);
+                } else {
+                    printGapsText(gaps, showScore);
+                }
+
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Code graph gaps analysis failed: " + e.getMessage());
+                return 1;
+            }
+        }
+
+        private void printGapsText(List<QualityGap> gaps, boolean showScore) {
+            System.out.println();
+            if (gaps.isEmpty()) {
+                System.out.println("No quality gaps detected. All modules look healthy.");
+                System.out.println();
+                return;
+            }
+
+            // Group by module
+            Map<String, List<QualityGap>> byModule = groupByModule(gaps);
+
+            int totalGaps = gaps.size();
+            int totalModules = byModule.size();
+            System.out.println("Quality Gaps (" + totalGaps + " gap"
+                    + (totalGaps != 1 ? "s" : "") + " across " + totalModules + " module"
+                    + (totalModules != 1 ? "s" : "") + ")");
+            System.out.println();
+
+            CompletenessScorer scorer = showScore ? new CompletenessScorer() : null;
+
+            for (Map.Entry<String, List<QualityGap>> entry : byModule.entrySet()) {
+                String modulePath = entry.getKey();
+                List<QualityGap> moduleGaps = entry.getValue();
+
+                if (showScore && scorer != null) {
+                    double score = scorer.score(moduleGaps);
+                    System.out.println("  " + modulePath + "  [score: " + String.format("%.2f", score) + "]");
+                } else {
+                    System.out.println("  " + modulePath);
+                }
+
+                for (QualityGap gap : moduleGaps) {
+                    System.out.println("    [" + gap.severity() + "] " + gap.gapType());
+                    System.out.println("      " + gap.description());
+                    if (gap.suggestion() != null && !gap.suggestion().isBlank()) {
+                        System.out.println("      -> " + gap.suggestion());
+                    }
+                }
+                System.out.println();
+            }
+        }
+
+        private void printGapsJson(List<QualityGap> gaps, boolean showScore) {
+            CompletenessScorer scorer = showScore ? new CompletenessScorer() : null;
+            Map<String, List<QualityGap>> byModule = groupByModule(gaps);
+
+            System.out.println("[");
+            int idx = 0;
+            for (QualityGap gap : gaps) {
+                System.out.println("  {");
+                System.out.println("    \"modulePath\": \"" + escape(gap.modulePath()) + "\",");
+                System.out.println("    \"gapType\": \"" + escape(gap.gapType()) + "\",");
+                System.out.println("    \"severity\": \"" + gap.severity() + "\",");
+                System.out.println("    \"description\": \"" + escape(gap.description()) + "\",");
+                if (gap.filePath() != null) {
+                    System.out.println("    \"filePath\": \"" + escape(gap.filePath()) + "\",");
+                }
+                System.out.println("    \"suggestion\": \"" + escape(gap.suggestion()) + "\"");
+                System.out.println("  }" + (idx < gaps.size() - 1 ? "," : ""));
+                idx++;
+            }
+            System.out.println("]");
+        }
+
+        private static String escape(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Groups quality gaps by module path using a {@link LinkedHashMap} to preserve
+     * insertion order (which is already sorted by severity).
+     */
+    static Map<String, List<QualityGap>> groupByModule(List<QualityGap> gaps) {
+        Map<String, List<QualityGap>> byModule = new LinkedHashMap<>();
+        for (QualityGap gap : gaps) {
+            byModule.computeIfAbsent(gap.modulePath(), k -> new ArrayList<>()).add(gap);
+        }
+        return byModule;
     }
 
     // -----------------------------------------------------------------------
