@@ -223,6 +223,155 @@ class DescribeCommandTest {
                 "Should note empty workspace. Output: " + output);
     }
 
+    // ---- P4-09: Natural language and health ----
+
+    @Test
+    void describe_directoryShowsHealth() throws Exception {
+        initWorkspace(tempDir);
+        Path dir = Files.createDirectories(tempDir.resolve("alpha"));
+
+        DirectoryIdentityParser parser = new DirectoryIdentityParser();
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("report"), List.of("pdf"), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.7, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("renewable energy"), List.of("GreenField"),
+                "2026-Q1", List.of("report"),
+                0.8, 5, 0, Instant.now());
+        DirectoryWants wants = DirectoryWants.empty();
+        DirectoryHealth health = DirectoryHealth.compute(centroid, wants);
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid, wants, health);
+        parser.writeProfile(dir.resolve(".synthesis.md"), profile);
+
+        String output = runDescribe(tempDir, dir);
+
+        assertTrue(output.contains("Health:"),
+                "Should show health section. Output: " + output);
+        assertTrue(output.contains("healthy"),
+                "Should show healthy status. Output: " + output);
+    }
+
+    @Test
+    void describe_directoryShowsNaturalLanguage() throws Exception {
+        initWorkspace(tempDir);
+        Path dir = Files.createDirectories(tempDir.resolve("alpha"));
+
+        DirectoryIdentityParser parser = new DirectoryIdentityParser();
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("report"), List.of("pdf"), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.7, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("renewable energy"), List.of("GreenField"),
+                "2026-Q1", List.of("report"),
+                0.8, 5, 0, Instant.now());
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid,
+                DirectoryWants.empty(),
+                DirectoryHealth.compute(centroid, DirectoryWants.empty()));
+        parser.writeProfile(dir.resolve(".synthesis.md"), profile);
+
+        String output = runDescribe(tempDir, dir);
+
+        // Should contain natural language summary
+        assertTrue(output.contains("This directory"),
+                "Should contain natural language summary. Output: " + output);
+        assertTrue(output.contains("renewable energy"),
+                "NL summary should mention topics. Output: " + output);
+    }
+
+    @Test
+    void generateNaturalLanguageSummary_withCentroid() {
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of(), List.of(), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.5, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("renewable energy", "sustainability"),
+                List.of("GreenField Energy"),
+                "2026-Q1", List.of("proposal"),
+                0.85, 8, 0, Instant.now());
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid,
+                DirectoryWants.empty(),
+                DirectoryHealth.compute(centroid, DirectoryWants.empty()));
+
+        String summary = DescribeCommand.generateNaturalLanguageSummary("test/dir", profile);
+
+        assertTrue(summary.contains("renewable energy"));
+        assertTrue(summary.contains("GreenField Energy"));
+        assertTrue(summary.contains("high confidence"));
+    }
+
+    @Test
+    void generateNaturalLanguageSummary_emptyProfile() {
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of(), List.of(), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.5, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryProfile profile = new DirectoryProfile(identity,
+                DirectoryCentroid.empty(), DirectoryWants.empty(),
+                DirectoryHealth.empty());
+
+        String summary = DescribeCommand.generateNaturalLanguageSummary("test/dir", profile);
+
+        assertTrue(summary.contains("not yet been analyzed"));
+    }
+
+    @Test
+    void generateNaturalLanguageSummary_starvingDirectory() {
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of(), List.of(), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.5, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("some topic"), List.of(),
+                "2026-Q1", List.of("document"),
+                0.5, 3, 0, Instant.now());
+        DirectoryWants wants = new DirectoryWants(
+                List.of("renewable energy"), List.of(), List.of(),
+                "readme", 0.05);
+        DirectoryHealth health = DirectoryHealth.compute(centroid, wants);
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid, wants, health);
+
+        String summary = DescribeCommand.generateNaturalLanguageSummary("test/dir", profile);
+
+        assertTrue(summary.contains("needs more content"),
+                "Should mention starving status. Summary: " + summary);
+    }
+
+    @Test
+    void describe_workspaceShowsHealthSummary() throws Exception {
+        initWorkspace(tempDir);
+        Path dir = Files.createDirectories(tempDir.resolve("alpha"));
+
+        DirectoryIdentityParser parser = new DirectoryIdentityParser();
+        DirectoryIdentity identity = new DirectoryIdentity(
+                List.of("report"), List.of("pdf"), List.of(),
+                ScopeLevel.ORGANIZATION, null, null,
+                0.7, null, "test", "",
+                List.of(), List.of(), false, List.of());
+        DirectoryCentroid centroid = new DirectoryCentroid(
+                List.of("topic"), List.of(),
+                "2026-Q1", List.of("report"),
+                0.8, 5, 0, Instant.now());
+        DirectoryProfile profile = new DirectoryProfile(identity, centroid,
+                DirectoryWants.empty(),
+                DirectoryHealth.compute(centroid, DirectoryWants.empty()));
+        parser.writeProfile(dir.resolve(".synthesis.md"), profile);
+
+        String output = runDescribeWorkspace(tempDir);
+
+        assertTrue(output.contains("Health:"),
+                "Should show health summary. Output: " + output);
+        assertTrue(output.contains("healthy"),
+                "Health should mention healthy count. Output: " + output);
+    }
+
     // ---- formatConfidence ----
 
     @Test

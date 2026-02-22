@@ -204,7 +204,118 @@ public class DescribeCommand implements Callable<Integer> {
             }
         }
 
+        // Health (P4-09)
+        DirectoryHealth health = profile.health();
+        if (!health.isEmpty()) {
+            out.println();
+            out.println("  Health:");
+            out.println("    Status: " + health.status());
+            out.println("    Cohesion: " + String.format("%.2f", health.cohesion()));
+            out.println("    Satisfaction: " + String.format("%.2f", health.satisfaction()));
+            if (health.drift()) {
+                out.println("    Drift: detected (centroid diverging from wants)");
+            }
+        }
+
+        // Natural language summary (P4-09)
+        out.println();
+        out.println("  " + generateNaturalLanguageSummary(relativePath, profile));
+
         return 0;
+    }
+
+    /**
+     * Generates a natural language summary of a directory's profile.
+     * Template-based (no AI required), enhanced when centroid and wants are present.
+     */
+    static String generateNaturalLanguageSummary(String dirPath,
+                                                   DirectoryProfile profile) {
+        DirectoryCentroid centroid = profile.centroid();
+        DirectoryWants wants = profile.wants();
+        DirectoryHealth health = profile.health();
+
+        StringBuilder sb = new StringBuilder();
+
+        if (centroid.isEmpty() && wants.isEmpty()) {
+            sb.append("This directory has not yet been analyzed. ");
+            sb.append("Run 'synthesis sync --enrich-centroids' to discover its identity.");
+            return sb.toString();
+        }
+
+        // What the directory IS
+        if (!centroid.isEmpty()) {
+            sb.append("This directory ");
+
+            if (!centroid.topics().isEmpty()) {
+                sb.append("focuses on ");
+                sb.append(formatTopicList(centroid.topics()));
+            }
+
+            if (!centroid.entities().isEmpty()) {
+                if (!centroid.topics().isEmpty()) {
+                    sb.append(", involving ");
+                } else {
+                    sb.append("involves ");
+                }
+                sb.append(formatEntityList(centroid.entities()));
+            }
+
+            sb.append(". ");
+
+            // Confidence narrative
+            if (centroid.confidence() >= 0.8) {
+                sb.append("The system has high confidence in this assessment");
+            } else if (centroid.confidence() >= 0.5) {
+                sb.append("The system has moderate confidence in this assessment");
+            } else {
+                sb.append("The system has limited confidence in this assessment");
+            }
+            sb.append(String.format(" (based on %d enriched files). ", centroid.contributingFiles()));
+        }
+
+        // What the directory WANTS
+        if (!wants.isEmpty() && !wants.topics().isEmpty()) {
+            if (wants.satisfaction() >= 0.7) {
+                sb.append("Its stated goals are being well met");
+                sb.append(String.format(" (%.0f%% satisfaction). ", wants.satisfaction() * 100));
+            } else if (wants.satisfaction() >= 0.3) {
+                sb.append("Its stated goals are partially met");
+                sb.append(String.format(" (%.0f%% satisfaction). ", wants.satisfaction() * 100));
+            } else {
+                sb.append("It is looking for content about ");
+                sb.append(formatTopicList(wants.topics()));
+                sb.append(" but this need is largely unmet");
+                sb.append(String.format(" (%.0f%% satisfaction). ", wants.satisfaction() * 100));
+            }
+        }
+
+        // Health narrative
+        if (health != null && !health.isEmpty()) {
+            switch (health.status()) {
+                case "healthy" -> {
+                    // Don't add anything for healthy - the above already tells the story
+                }
+                case "bootstrapping" -> sb.append("This directory is still building its identity.");
+                case "starving" -> sb.append("This directory needs more content to fulfill its purpose.");
+                case "drifting" -> sb.append("Warning: the actual content is diverging from stated goals.");
+            }
+        }
+
+        return sb.toString().trim();
+    }
+
+    private static String formatTopicList(List<String> topics) {
+        if (topics.size() == 1) return topics.get(0);
+        if (topics.size() == 2) return topics.get(0) + " and " + topics.get(1);
+        return String.join(", ", topics.subList(0, topics.size() - 1))
+                + ", and " + topics.get(topics.size() - 1);
+    }
+
+    private static String formatEntityList(List<String> entities) {
+        if (entities.size() == 1) return entities.get(0);
+        if (entities.size() == 2) return entities.get(0) + " and " + entities.get(1);
+        return String.join(", ", entities.subList(0, entities.size() - 1))
+                + ", and " + entities.get(entities.size() - 1);
     }
 
     /**
@@ -288,6 +399,34 @@ public class DescribeCommand implements Callable<Integer> {
             out.println();
         }
 
+        // Health categories (P4-09)
+        long healthy = entries.stream()
+                .filter(e -> !e.profile.health().isEmpty())
+                .filter(e -> "healthy".equals(e.profile.health().status()))
+                .count();
+        long bootstrapping = entries.stream()
+                .filter(e -> !e.profile.health().isEmpty())
+                .filter(e -> "bootstrapping".equals(e.profile.health().status()))
+                .count();
+        long drifting = entries.stream()
+                .filter(e -> !e.profile.health().isEmpty())
+                .filter(e -> "drifting".equals(e.profile.health().status()))
+                .count();
+
+        if (drifting > 0) {
+            out.println("  Drifting directories (content diverging from goals):");
+            entries.stream()
+                    .filter(e -> !e.profile.health().isEmpty())
+                    .filter(e -> "drifting".equals(e.profile.health().status()))
+                    .forEach(e -> {
+                        out.printf("    %-40s satisfaction: %.0f%%%n",
+                                e.relativePath + "/",
+                                e.profile.wants().isEmpty() ? 0.0
+                                        : e.profile.wants().satisfaction() * 100);
+                    });
+            out.println();
+        }
+
         // Summary
         long totalDirs = entries.size();
         long withCentroidCount = withCentroids.size();
@@ -298,8 +437,60 @@ public class DescribeCommand implements Callable<Integer> {
         out.println("  Summary: " + totalDirs + " directories total, "
                 + withCentroidCount + " with centroids, "
                 + withWantsCount + " with wants");
+        out.println("  Health: " + healthy + " healthy, "
+                + starving.size() + " starving, "
+                + bootstrapping + " bootstrapping, "
+                + drifting + " drifting");
+
+        // Natural language workspace summary (P4-09)
+        out.println();
+        out.println("  " + generateWorkspaceSummary(entries));
 
         return 0;
+    }
+
+    /**
+     * Generates a natural language workspace summary.
+     */
+    static String generateWorkspaceSummary(List<DirectoryProfileEntry> entries) {
+        long total = entries.size();
+        long withCentroids = entries.stream()
+                .filter(e -> !e.profile.centroid().isEmpty())
+                .count();
+        long healthy = entries.stream()
+                .filter(e -> !e.profile.health().isEmpty())
+                .filter(e -> "healthy".equals(e.profile.health().status()))
+                .count();
+        long starving = entries.stream()
+                .filter(e -> !e.profile.health().isEmpty())
+                .filter(e -> "starving".equals(e.profile.health().status()))
+                .count();
+
+        StringBuilder sb = new StringBuilder();
+
+        if (withCentroids == 0) {
+            sb.append("This workspace has not been enriched yet. ");
+            sb.append("Run 'synthesis sync --enrich-centroids' to discover directory identities.");
+        } else {
+            double enrichmentRatio = (double) withCentroids / total;
+            if (enrichmentRatio >= 0.8) {
+                sb.append("This workspace is well-analyzed");
+            } else if (enrichmentRatio >= 0.5) {
+                sb.append("This workspace is partially analyzed");
+            } else {
+                sb.append("This workspace has limited analysis coverage");
+            }
+            sb.append(String.format(" (%d of %d directories have centroids). ", withCentroids, total));
+
+            if (healthy > 0) {
+                sb.append(String.format("%d directories are healthy. ", healthy));
+            }
+            if (starving > 0) {
+                sb.append(String.format("%d directories need more content to fulfill their stated purpose. ", starving));
+            }
+        }
+
+        return sb.toString().trim();
     }
 
     /**
