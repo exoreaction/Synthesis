@@ -18,6 +18,7 @@ import java.sql.ResultSet;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
+import java.util.stream.Collectors;
 
 /**
  * {@code synthesis code-graph} -- manage the persisted code knowledge graph.
@@ -44,7 +45,7 @@ import java.util.stream.Stream;
 @Command(
         name = "code-graph",
         aliases = {"cg"},
-        description = "Manage the persisted code knowledge graph (extract, query)",
+        description = "Code knowledge graph: dependency DAG, health signals, quality gaps",
         mixinStandardHelpOptions = true,
         subcommands = {
                 CodeGraphCommand.ExtractSub.class,
@@ -58,17 +59,168 @@ public class CodeGraphCommand implements Callable<Integer> {
     @ParentCommand
     private SynthesisApp parent;
 
+    @Option(names = "--cycles", description = "Show circular dependencies")
+    boolean cycles;
+
+    @Option(names = "--hotspots", description = "Show unstable high-coupling packages")
+    boolean hotspots;
+
+    @Option(names = "--instability", description = "Sort packages by instability descending")
+    boolean instability;
+
+    @Option(names = "--layers", description = "Show layer diagram with violations")
+    boolean layers;
+
+    @Option(names = "--cross-format", description = "Show SQL/YAML->Java cross-format links")
+    boolean crossFormat;
+
+    @Option(names = "--format", description = "Output format: text (default) or mermaid")
+    String format = "text";
+
     @Override
     public Integer call() {
-        System.out.println("  Use 'synthesis code-graph <subcommand>' for graph operations.");
+        try {
+            Path workspaceRoot = parent.getWorkspaceRoot();
+            WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
+            var validation = workspace.validate();
+            if (validation.isPresent()) {
+                AnsiOutput.printError(validation.get());
+                return 1;
+            }
+
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            String wsPath = workspaceRoot.toString();
+
+            CodeGraphRepository repo = new CodeGraphRepository();
+            DagRenderer renderer = new DagRenderer(repo);
+
+            // Check if graph has data
+            int profileCount = countProfiles(conn, wsPath);
+            if (profileCount == 0) {
+                System.out.println();
+                System.out.println("No code graph data. Run first: synthesis code-graph extract -d <workspace>");
+                System.out.println();
+                return 0;
+            }
+
+            if (cycles) {
+                return showCycles(renderer, wsPath, conn);
+            }
+            if (hotspots) {
+                return showHotspots(renderer, wsPath, conn);
+            }
+            if (instability) {
+                return showInstability(renderer, wsPath, conn);
+            }
+            if (crossFormat) {
+                return showCrossFormat(repo, wsPath, conn);
+            }
+
+            // Default (no flags or --layers): show full DAG
+            if ("mermaid".equalsIgnoreCase(format)) {
+                String output = renderer.renderMermaid(wsPath, conn);
+                System.out.println(output);
+            } else {
+                String output = renderer.renderAscii(wsPath, conn);
+                System.out.println(output);
+            }
+
+            return 0;
+        } catch (Exception e) {
+            AnsiOutput.printError("Code graph failed: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    private int showCycles(DagRenderer renderer, String wsPath, Connection conn) throws Exception {
+        List<DagRenderer.CircularDep> cycleList = renderer.findCycles(wsPath, conn);
         System.out.println();
-        System.out.println("  Subcommands:");
-        System.out.println("    extract    Extract code dependencies and persist to SQLite");
-        System.out.println("    describe   Show module profiles (packages, fan-in/out, instability)");
-        System.out.println("    health     Detect code health signals (circular deps, hotspots, etc.)");
-        System.out.println("    gaps       Show quality gaps and completeness scores per module");
+        if (cycleList.isEmpty()) {
+            System.out.println("No circular dependencies detected.");
+        } else {
+            System.out.println("Circular Dependencies (" + cycleList.size() + " cycle"
+                    + (cycleList.size() != 1 ? "s" : "") + ")");
+            System.out.println();
+            for (DagRenderer.CircularDep c : cycleList) {
+                System.out.println("  [!] " + c.packageA() + " \u2194 " + c.packageB());
+                System.out.println("      " + c.packageA() + " \u2192 " + c.packageB()
+                        + ": " + c.edgesAtoB() + " edges");
+                System.out.println("      " + c.packageB() + " \u2192 " + c.packageA()
+                        + ": " + c.edgesBtoA() + " edges");
+                System.out.println();
+            }
+        }
         System.out.println();
         return 0;
+    }
+
+    private int showHotspots(DagRenderer renderer, String wsPath, Connection conn) throws Exception {
+        List<DagRenderer.ModuleProfile> hotspotList = renderer.findHotspots(wsPath, conn);
+        System.out.println();
+        if (hotspotList.isEmpty()) {
+            System.out.println("No hotspots detected (instability > 0.7 AND fan-in > 2).");
+        } else {
+            System.out.println("Hotspot Packages (" + hotspotList.size() + " found)");
+            System.out.println("  Criteria: instability > 0.7 AND fan-in > 2");
+            System.out.println();
+            for (DagRenderer.ModuleProfile p : hotspotList) {
+                System.out.println("  \u26a0 " + p.modulePath());
+                System.out.println("    fan-in: " + p.fanIn() + "  fan-out: " + p.fanOut()
+                        + "  instability: " + String.format("%.2f", p.instability()));
+                System.out.println();
+            }
+        }
+        System.out.println();
+        return 0;
+    }
+
+    private int showInstability(DagRenderer renderer, String wsPath, Connection conn) throws Exception {
+        List<DagRenderer.ModuleProfile> sorted = renderer.sortedByInstability(wsPath, conn);
+        System.out.println();
+        System.out.println("Packages by Instability (descending)");
+        System.out.println();
+        for (DagRenderer.ModuleProfile p : sorted) {
+            String bar = instabilityBar(p.instability());
+            System.out.println(String.format("  %-50s %s %.2f  (fan-in: %d, fan-out: %d)",
+                    p.modulePath(), bar, p.instability(), p.fanIn(), p.fanOut()));
+        }
+        System.out.println();
+        return 0;
+    }
+
+    private int showCrossFormat(CodeGraphRepository repo, String wsPath, Connection conn) throws Exception {
+        List<CodeGraphRepository.CrossFormatLinkRecord> links = repo.getCrossFormatLinks(conn, wsPath);
+        System.out.println();
+        if (links.isEmpty()) {
+            System.out.println("No cross-format links found.");
+        } else {
+            System.out.println("Cross-Format Links (" + links.size() + " found)");
+            System.out.println();
+            for (CodeGraphRepository.CrossFormatLinkRecord link : links) {
+                System.out.println("  " + link.sourceFile() + " \u2192 " + link.targetFile());
+                System.out.println("    type: " + link.linkType() + "  entity: " + link.entityName());
+                System.out.println();
+            }
+        }
+        System.out.println();
+        return 0;
+    }
+
+    private static String instabilityBar(double instability) {
+        int filled = (int) Math.round(instability * 10);
+        int empty = 10 - filled;
+        return "\u2588".repeat(filled) + "\u2591".repeat(empty);
+    }
+
+    private int countProfiles(Connection conn, String wsPath) throws Exception {
+        String sql = "SELECT COUNT(*) FROM module_profiles WHERE workspace_path = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, wsPath);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

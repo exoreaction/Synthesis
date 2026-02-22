@@ -211,14 +211,13 @@ class CodeGraphDescribeCommandTest {
     // =========================================================================
 
     @Test
-    void help_lists_describe_subcommand() throws Exception {
+    void no_subcommand_shows_empty_graph_message() throws Exception {
         setupWorkspace(tempDir);
 
         String output = runCodeGraph(tempDir);
 
-        assertTrue(output.contains("describe"),
-                "Help should list 'describe' subcommand: " + output);
-        assertTrue(output.contains("health"),
-                "Help should list 'health' subcommand: " + output);
+        // When no subcommand and no data, shows empty graph message
+        assertTrue(output.contains("No code graph data"),
+                "Should show empty graph message: " + output);
     }
 }

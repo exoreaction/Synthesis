@@ -123,14 +123,12 @@ class CodeGraphCommandTest {
     // =========================================================================
 
     @Test
-    void no_subcommand_shows_help() throws Exception {
+    void no_subcommand_no_data_shows_empty_message() throws Exception {
         setupWorkspace(tempDir);
         String output = runCodeGraph(tempDir);
 
-        assertTrue(output.contains("extract"),
-                "Help should mention 'extract' subcommand: " + output);
-        assertTrue(output.contains("code-graph"),
-                "Help should mention 'code-graph': " + output);
+        assertTrue(output.contains("No code graph data"),
+                "Should show empty graph message when no data: " + output);
     }
 
     // =========================================================================
