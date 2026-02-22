@@ -202,6 +202,23 @@ public class HealthCommand implements Callable<Integer> {
                     "synthesis sync --enrich-centroids"));
         }
 
+        // I020: Want fulfillment (positive signal — directories getting what they want)
+        I020Check i020 = new I020Check();
+        List<I020Check.I020Finding> i020Findings = i020.check(workspaceRoot);
+        for (I020Check.I020Finding finding : i020Findings) {
+            issues.add(new HealthIssue(
+                    HealthIssue.Severity.INFO, "I020", finding.message()));
+        }
+
+        // I021: Want conflict (multiple directories bidding for the same content)
+        I021Check i021 = new I021Check();
+        List<I021Check.I021Finding> i021Findings = i021.check(workspaceRoot);
+        for (I021Check.I021Finding finding : i021Findings) {
+            issues.add(new HealthIssue(
+                    HealthIssue.Severity.INFO, "I021", finding.message(),
+                    "synthesis describe"));
+        }
+
         printIssues(issues);
 
         int score = calculateScore(issues);
