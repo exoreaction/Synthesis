@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,271 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 3,746 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and code knowledge graph (CKG-1).
 
 ---
 
@@ -29,7 +29,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 14 tables, managed by Flyway (V1-V6, V8, V9; V7 intentionally reserved)
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V13; V7 intentionally reserved). V10-V13 added in Feb 2026 for knowledge graph.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
 - **Package root:** `io.exoreaction.synthesis.*` (30 packages)
@@ -134,6 +134,22 @@ synthesis changed --since 7d            # Files changed since date
 synthesis diff HEAD~1                   # Git diff integration
 synthesis watch                         # File watcher daemon (real-time monitoring)
 
+# Knowledge graph (document workspaces)
+synthesis route-explain "filename"          # Explain routing decision for a file
+synthesis describe                          # Show knowledge profiles for all directories
+synthesis describe --path "docs/features"   # Show profile for specific directory
+synthesis feedback accept "filename" "path" # Accept a routing suggestion
+synthesis feedback reject "filename" "path" # Reject a routing suggestion
+synthesis knowledge-graph                   # Full knowledge graph view (alias: kg)
+synthesis structure                         # Structural analysis of workspace
+synthesis evolution                         # Long-term evolution report (alias: evo)
+
+# Code graph (source code workspaces)
+synthesis code-graph extract                # Build/rebuild persistent code dependency graph (alias: cg)
+synthesis code-graph extract --dry-run      # Preview: count Java files, no changes
+synthesis code-graph extract --incremental  # Incremental update (changed files only)
+synthesis code-graph extract --stats        # Show current graph statistics
+
 # Workspace hygiene (self-organizing workspace)
 synthesis sync                          # Directory identity sync (discover dirs, write .synthesis.md identity files)
 synthesis sweep --dry-run               # Identify stale root-level files; route via directory identity
@@ -207,6 +223,67 @@ Parsed by `DirectoryIdentityParser`. Written by `SyncCommand`.
 
 ---
 
+## Knowledge Graph System (v1.12.2)
+
+The knowledge graph adds semantic awareness to the directory identity system. All data stored in SQLite — no changes inside source trees.
+
+### Document Knowledge Graph (Phases 1-4)
+
+**Centroid** (what a directory IS): Computed from file enrichment signatures — ranked topics, named entities, document types, confidence score. Aggregated by `CentroidComputer` from per-file `EnrichmentSignature` data.
+
+**Wants** (what a directory WANTS TO BECOME): Inferred from README + directory name + parent centroid + overrides. Satisfaction score = topicCoverage*0.5 + entityCoverage*0.3 + gapsFilled*0.2. Bootstrapped by `WantsBootstrapper` (4-tier cold start).
+
+**Bidding pull model**: `DirectoryBidder` uses Jaccard similarity to let directories bid for enriched files (topics 40%, entities 45%, type 10%, timeframe 5%). A directory wins if its wants overlap the file's enrichment signature above threshold.
+
+**Health signals**: W020 (want starvation: satisfaction < 0.1), W021 (want drift: satisfaction < 0.4 with confident centroid), I020 (want fulfillment), I021 (want conflict).
+
+**Archetypes**: 6 built-in patterns (client-opportunity, project, methodology, marketing-campaign, product, archive) matched against centroid+wants for automatic classification.
+
+**Routing cascade**: RoutingHints (learned) → ConfigRules (glob/keyword) → DirectoryBidder (enrichment bidding) → DirectoryScorer (identity-based).
+
+**Key classes**: `DirectoryCentroid`, `DirectoryWants`, `DirectoryProfile`, `DirectoryHealth`, `EnrichmentSignature`, `EnrichmentSignatureExtractor`, `CentroidComputer`, `WantsBootstrapper`, `DirectoryBidder`, `WantSatisfactionComputer`, `VirtualMembershipManager`, `DirectoryArchetype`, `ArchetypeRegistry`, `GapAnalyzer`, `RoutingLearner`
+
+**SQLite tables (V10-V11)**: `directory_centroids`, `file_enrichment_signatures`, `virtual_memberships`, `routing_feedback`
+
+### DirectoryClassifier — Gating Logic
+
+Prevents document knowledge graph features (centroid/wants/health) from polluting source code directories.
+
+```
+DOCUMENT — centroid ✓, wants ✓, health ✓, routing ✓
+CODE      — centroid ✗, wants ✗, health ✗, routing ✗  (inferred from build files)
+MEDIA     — centroid ✓, wants ✗, health ✓, routing ✓
+GENERATED — centroid ✗, wants ✗, health ✗, routing ✗
+```
+
+**4-tier heuristic**:
+1. Ancestor build file (pom.xml, Cargo.toml, go.mod, package.json, etc.) → CODE
+2. Path patterns (src/main/java, src/test/, node_modules, __pycache__) → CODE/GENERATED
+3. Content signals (majority .java/.py/.rs/.go files) → CODE
+4. Carve-out: `docs/` inside code repos → DOCUMENT (override)
+
+V12 migration: `classification` column in `directory_centroids`.
+
+### Code Knowledge Graph (CKG-1)
+
+Parallel system for source code repos. All metadata in SQLite only — no `.synthesis.md` inside source trees.
+
+**What it stores** (V13 migration, 4 tables):
+- `code_dependencies`: class-level import/extends/implements edges
+- `module_profiles`: fan-in, fan-out, instability (Martin metric), domain concepts (future: CKG-2)
+- `cross_format_links`: SQL→Java, YAML→Java, doc→code links
+- `code_quality_gaps`: missing tests, interfaces, docs (future: CKG-3)
+
+**`synthesis code-graph extract`**: persists dependency graph. `--incremental` uses git to detect changed files. `--dry-run` counts Java files without writing. `--stats` shows current graph status.
+
+**`synthesis relate` / `synthesis impact`**: now query persisted SQLite graph first (instant); fall back to live file-reading when graph empty. Use `--refresh` to force re-extraction.
+
+**`synthesis maintain` Phase 10**: automatically runs incremental code graph update after indexing.
+
+**Key classes**: `CodeGraphExtractor`, `CodeGraphRepository`, `CodeGraphStats`, `CodeDependency`, `CrossFormatLinkRecord`
+
+---
+
 ## .synthesisignore — Indexing Exclusions
 
 A `.synthesisignore` file at the workspace root tells `DirectoryScanner` to skip directories during
@@ -267,7 +344,7 @@ directory named `node_modules` at any depth.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (3,221)
++-- src/test/                          # JUnit 5 tests (3,746)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 +-- .claude/skills/                    # 32 Claude Code skills (see below)
@@ -332,6 +409,8 @@ These skills describe how to USE Synthesis features -- valid both when working o
 | `synthesis-workspace-management` | Workspace lifecycle (init, scan, maintain) |
 | `synthesis-track-movements` | File movement tracking implementation |
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
+| `synthesis-knowledge-graph` | `synthesis knowledge-graph`, `describe`, `feedback`, `structure`, `evolution` | Document knowledge graph: centroid, wants, health, bidding, archetypes |
+| `synthesis-code-graph` | `synthesis code-graph extract`, `cg` | Code dependency persistence, fast relate/impact |
 
 **Start here for new work:** `synthesis-development` -- covers architecture decisions, patterns, and how to navigate the codebase.
 
@@ -352,6 +431,10 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`synthesis explain --file <name>` bare filename resolution:** Accepts absolute, workspace-relative, or bare filename. Falls back to `index.search()` if not on disk -- exact filename match preferred over score. On failure suggests `synthesis search <name>`.
 - **`synthesis summary --since` temporal context:** Parses `7d`/`24h`/`2w`/`3m`/`2026-01-15`, loads `ChangeEvent`s from `SnapshotManager.getChangesForWorkspace()`, injects compact change summary into the AI prompt (not just the output). Requires `synthesis maintain` to have run at least once to populate snapshots.
 - **Directory identity `.synthesis.md` format:** YAML front matter with `synthesis.accepts.types/formats/patterns`, `synthesis.scope`, `synthesis.confidence`. Parsed by `DirectoryIdentityParser`. Written by `SyncCommand`.
+- **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
+- **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
+- **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V13.
 
 ---
 
