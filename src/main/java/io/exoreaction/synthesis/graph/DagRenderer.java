@@ -31,6 +31,7 @@ public class DagRenderer {
 
     /**
      * Render full package DAG grouped by layer (ASCII).
+     * In multi-repo workspaces, package labels are prefixed with the repo name.
      */
     public String renderAscii(String workspacePath, Connection conn) throws SQLException {
         List<ModuleProfile> profiles = loadModuleProfiles(conn, workspacePath);
@@ -41,6 +42,8 @@ public class DagRenderer {
         List<PackageEdge> edges = loadInternalPackageEdges(conn, workspacePath);
         List<CircularDep> cycles = detectCycles(edges);
         List<LayerViolation> violations = detectLayerViolations(profiles, edges);
+
+        boolean multiRepo = isMultiRepoResult(profiles);
 
         int totalPackages = profiles.size();
         int totalEdges = edges.stream().mapToInt(e -> e.edgeCount).sum();
@@ -65,13 +68,16 @@ public class DagRenderer {
                     .append(layerRanges[layer]).append(")\n");
 
             for (ModuleProfile p : layerProfiles) {
-                sb.append("    ").append(p.modulePath)
+                String displayPath = multiRepo && !p.repoName().isEmpty()
+                        ? p.repoName() + "/" + p.modulePath()
+                        : p.modulePath();
+                sb.append("    ").append(displayPath)
                         .append(String.format("  fan-in: %d  fan-out: %d  instability: %.2f",
-                                p.fanIn, p.fanOut, p.instability));
+                                p.fanIn(), p.fanOut(), p.instability()));
 
-                if (isCliPackage(p.packageName)) {
+                if (isCliPackage(p.packageName())) {
                     sb.append(" (expected)");
-                } else if (p.instability > 0.6) {
+                } else if (p.instability() > 0.6) {
                     sb.append(" \u26a0");
                 } else {
                     sb.append(" \u2713");
@@ -99,6 +105,7 @@ public class DagRenderer {
 
     /**
      * Render package DAG as Mermaid graph TD.
+     * In multi-repo workspaces, packages are grouped into subgraphs by repo name.
      */
     public String renderMermaid(String workspacePath, Connection conn) throws SQLException {
         List<ModuleProfile> profiles = loadModuleProfiles(conn, workspacePath);
@@ -107,6 +114,7 @@ public class DagRenderer {
         }
 
         List<PackageEdge> edges = loadInternalPackageEdges(conn, workspacePath);
+        boolean multiRepo = isMultiRepoResult(profiles);
 
         // Limit to top 30 packages if more (too large to render)
         if (profiles.size() > 30) {
@@ -115,29 +123,59 @@ public class DagRenderer {
 
         // Build a set of included package names for edge filtering
         Set<String> includedPackages = profiles.stream()
-                .map(p -> p.packageName)
+                .map(p -> p.packageName())
                 .collect(Collectors.toSet());
 
         StringBuilder sb = new StringBuilder();
         sb.append("graph TD\n");
 
-        // Node declarations
-        for (ModuleProfile p : profiles) {
-            String nodeId = toMermaidId(p.packageName);
-            String label = lastSegment(p.packageName);
-            double stability = 1.0 - p.instability;
-            sb.append("    ").append(nodeId)
-                    .append("[\"").append(label)
-                    .append("\\nstability: ").append(String.format("%.2f", stability))
-                    .append("\"]\n");
+        if (multiRepo) {
+            // Group profiles by repo for subgraph rendering
+            Map<String, List<ModuleProfile>> byRepo = new LinkedHashMap<>();
+            for (ModuleProfile p : profiles) {
+                byRepo.computeIfAbsent(p.repoName(), k -> new ArrayList<>()).add(p);
+            }
+            for (Map.Entry<String, List<ModuleProfile>> entry : byRepo.entrySet()) {
+                String repoName = entry.getKey();
+                if (!repoName.isEmpty()) {
+                    sb.append("    subgraph ").append(repoName).append("\n");
+                }
+                for (ModuleProfile p : entry.getValue()) {
+                    String nodeId = toMermaidId(p.repoName() + "." + p.packageName());
+                    String label = lastSegment(p.packageName());
+                    double stability = 1.0 - p.instability();
+                    sb.append("        ").append(nodeId)
+                            .append("[\"").append(label)
+                            .append("\\nstability: ").append(String.format("%.2f", stability))
+                            .append("\"]\n");
+                }
+                if (!repoName.isEmpty()) {
+                    sb.append("    end\n");
+                }
+            }
+        } else {
+            // Node declarations (single-repo)
+            for (ModuleProfile p : profiles) {
+                String nodeId = toMermaidId(p.packageName());
+                String label = lastSegment(p.packageName());
+                double stability = 1.0 - p.instability();
+                sb.append("    ").append(nodeId)
+                        .append("[\"").append(label)
+                        .append("\\nstability: ").append(String.format("%.2f", stability))
+                        .append("\"]\n");
+            }
         }
 
         // Edges (only internal, only between included packages)
         for (PackageEdge edge : edges) {
-            if (includedPackages.contains(edge.sourcePackage)
-                    && includedPackages.contains(edge.targetPackage)) {
-                String fromId = toMermaidId(edge.sourcePackage);
-                String toId = toMermaidId(edge.targetPackage);
+            if (includedPackages.contains(edge.sourcePackage())
+                    && includedPackages.contains(edge.targetPackage())) {
+                String fromId = multiRepo
+                        ? toMermaidId(edge.repoName() + "." + edge.sourcePackage())
+                        : toMermaidId(edge.sourcePackage());
+                String toId = multiRepo
+                        ? toMermaidId(edge.repoName() + "." + edge.targetPackage())
+                        : toMermaidId(edge.targetPackage());
                 sb.append("    ").append(fromId).append(" --> ").append(toId).append("\n");
             }
         }
@@ -160,8 +198,8 @@ public class DagRenderer {
             throws SQLException {
         List<ModuleProfile> all = loadModuleProfiles(conn, workspacePath);
         return all.stream()
-                .filter(p -> p.instability > 0.7 && p.fanIn > 2)
-                .sorted(Comparator.comparingInt((ModuleProfile p) -> p.fanIn).reversed())
+                .filter(p -> p.instability() > 0.7 && p.fanIn() > 2)
+                .sorted(Comparator.comparingInt((ModuleProfile p) -> p.fanIn()).reversed())
                 .toList();
     }
 
@@ -172,7 +210,7 @@ public class DagRenderer {
             throws SQLException {
         List<ModuleProfile> all = loadModuleProfiles(conn, workspacePath);
         return all.stream()
-                .sorted(Comparator.comparingDouble((ModuleProfile p) -> p.instability).reversed())
+                .sorted(Comparator.comparingDouble((ModuleProfile p) -> p.instability()).reversed())
                 .toList();
     }
 
@@ -193,9 +231,9 @@ public class DagRenderer {
     // -----------------------------------------------------------------------
 
     /** Simple ModuleProfile record for rendering (subset of DB columns). */
-    public record ModuleProfile(String modulePath, String packageName, String inferredPurpose,
-                                int fanIn, int fanOut, double instability,
-                                int totalFiles, double completeness) {}
+    public record ModuleProfile(String repoName, String modulePath, String packageName,
+                                String inferredPurpose, int fanIn, int fanOut,
+                                double instability, int totalFiles, double completeness) {}
 
     /** A circular dependency pair. */
     public record CircularDep(String packageA, String packageB,
@@ -209,8 +247,8 @@ public class DagRenderer {
     // Internal: edge aggregation record
     // -----------------------------------------------------------------------
 
-    /** Aggregated package-to-package edge (internal only). */
-    record PackageEdge(String sourcePackage, String targetPackage, int edgeCount) {}
+    /** Aggregated package-to-package edge (internal only, scoped by repo). */
+    record PackageEdge(String repoName, String sourcePackage, String targetPackage, int edgeCount) {}
 
     // -----------------------------------------------------------------------
     // Data loading
@@ -227,30 +265,41 @@ public class DagRenderer {
         // Try with completeness_score first; if column doesn't exist, fall back
         String sql;
         boolean hasCompleteness = columnExists(conn, "module_profiles", "completeness_score");
+        boolean hasRepoName = columnExists(conn, "module_profiles", "repo_name");
+
         if (hasCompleteness) {
             sql = """
-                SELECT module_path, package_name, inferred_purpose,
+                SELECT %s module_path, package_name, inferred_purpose,
                        fan_in, fan_out, instability, total_files,
                        COALESCE(completeness_score, 1.0) as completeness
                 FROM module_profiles
                 WHERE workspace_path = ?
-                ORDER BY package_name
-                """;
+                ORDER BY %s package_name
+                """.formatted(
+                    hasRepoName ? "repo_name," : "",
+                    hasRepoName ? "repo_name," : ""
+                );
         } else {
             sql = """
-                SELECT module_path, package_name, inferred_purpose,
+                SELECT %s module_path, package_name, inferred_purpose,
                        fan_in, fan_out, instability, total_files
                 FROM module_profiles
                 WHERE workspace_path = ?
-                ORDER BY package_name
-                """;
+                ORDER BY %s package_name
+                """.formatted(
+                    hasRepoName ? "repo_name," : "",
+                    hasRepoName ? "repo_name," : ""
+                );
         }
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    String repoName = hasRepoName ? rs.getString("repo_name") : "";
+                    if (repoName == null) repoName = "";
                     profiles.add(new ModuleProfile(
+                            repoName,
                             rs.getString("module_path"),
                             rs.getString("package_name"),
                             rs.getString("inferred_purpose"),
@@ -267,27 +316,31 @@ public class DagRenderer {
     }
 
     /**
-     * Load all internal package-to-package edges (aggregated from code_dependencies).
+     * Load all internal package-to-package edges (aggregated from code_dependencies),
+     * scoped by repo_name for correct isolation.
      */
     List<PackageEdge> loadInternalPackageEdges(Connection conn, String workspacePath)
             throws SQLException {
         String sql = """
-            SELECT source_package, target_package, COUNT(*) as edge_count
+            SELECT repo_name, source_package, target_package, COUNT(*) as edge_count
             FROM code_dependencies
             WHERE workspace_path = ?
               AND is_external = 0
               AND source_package != ''
               AND target_package != ''
               AND source_package != target_package
-            GROUP BY source_package, target_package
-            ORDER BY source_package, target_package
+            GROUP BY repo_name, source_package, target_package
+            ORDER BY repo_name, source_package, target_package
             """;
         List<PackageEdge> edges = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    String repoName = rs.getString("repo_name");
+                    if (repoName == null) repoName = "";
                     edges.add(new PackageEdge(
+                            repoName,
                             rs.getString("source_package"),
                             rs.getString("target_package"),
                             rs.getInt("edge_count")
@@ -303,35 +356,35 @@ public class DagRenderer {
     // -----------------------------------------------------------------------
 
     private List<CircularDep> detectCycles(List<PackageEdge> edges) {
-        // Build lookup: (source, target) -> edgeCount
+        // Build lookup: (repo|source -> target) -> edgeCount, scoped by repo
         Map<String, Integer> edgeMap = new HashMap<>();
         for (PackageEdge e : edges) {
-            edgeMap.put(e.sourcePackage + " -> " + e.targetPackage, e.edgeCount);
+            edgeMap.put(e.repoName() + "|" + e.sourcePackage() + " -> " + e.targetPackage(), e.edgeCount());
         }
 
-        // Find mutual pairs
+        // Find mutual pairs within the same repo
         List<CircularDep> cycles = new ArrayList<>();
         Set<String> seen = new HashSet<>();
 
         for (PackageEdge e : edges) {
-            String reverseKey = e.targetPackage + " -> " + e.sourcePackage;
+            String reverseKey = e.repoName() + "|" + e.targetPackage() + " -> " + e.sourcePackage();
             if (edgeMap.containsKey(reverseKey)) {
                 // Normalize to avoid duplicate pairs (alphabetical order)
                 String pairKey;
                 String pkgA, pkgB;
                 int aToB, bToA;
-                if (e.sourcePackage.compareTo(e.targetPackage) <= 0) {
-                    pairKey = e.sourcePackage + "|" + e.targetPackage;
-                    pkgA = e.sourcePackage;
-                    pkgB = e.targetPackage;
-                    aToB = e.edgeCount;
+                if (e.sourcePackage().compareTo(e.targetPackage()) <= 0) {
+                    pairKey = e.repoName() + "|" + e.sourcePackage() + "|" + e.targetPackage();
+                    pkgA = e.sourcePackage();
+                    pkgB = e.targetPackage();
+                    aToB = e.edgeCount();
                     bToA = edgeMap.get(reverseKey);
                 } else {
-                    pairKey = e.targetPackage + "|" + e.sourcePackage;
-                    pkgA = e.targetPackage;
-                    pkgB = e.sourcePackage;
+                    pairKey = e.repoName() + "|" + e.targetPackage() + "|" + e.sourcePackage();
+                    pkgA = e.targetPackage();
+                    pkgB = e.sourcePackage();
                     aToB = edgeMap.get(reverseKey);
-                    bToA = e.edgeCount;
+                    bToA = e.edgeCount();
                 }
                 if (seen.add(pairKey)) {
                     cycles.add(new CircularDep(pkgA, pkgB, aToB, bToA));
@@ -344,24 +397,24 @@ public class DagRenderer {
 
     private List<LayerViolation> detectLayerViolations(List<ModuleProfile> profiles,
                                                         List<PackageEdge> edges) {
-        // Build instability map
+        // Build instability map keyed by (repo_name|package_name)
         Map<String, Double> instabilityMap = new HashMap<>();
         for (ModuleProfile p : profiles) {
-            instabilityMap.put(p.packageName, p.instability);
+            instabilityMap.put(p.repoName() + "|" + p.packageName(), p.instability());
         }
 
         List<LayerViolation> violations = new ArrayList<>();
         for (PackageEdge e : edges) {
-            Double fromInst = instabilityMap.get(e.sourcePackage);
-            Double toInst = instabilityMap.get(e.targetPackage);
+            Double fromInst = instabilityMap.get(e.repoName() + "|" + e.sourcePackage());
+            Double toInst = instabilityMap.get(e.repoName() + "|" + e.targetPackage());
 
             if (fromInst != null && toInst != null) {
                 // Violation: source is more stable (lower instability) than target (higher instability)
                 // i.e., stable package depends on unstable package
                 if (fromInst < toInst) {
                     violations.add(new LayerViolation(
-                            e.sourcePackage, e.targetPackage,
-                            fromInst, toInst, e.edgeCount));
+                            e.sourcePackage(), e.targetPackage(),
+                            fromInst, toInst, e.edgeCount()));
                 }
             }
         }
@@ -372,7 +425,7 @@ public class DagRenderer {
     private Map<Integer, List<ModuleProfile>> groupByLayer(List<ModuleProfile> profiles) {
         Map<Integer, List<ModuleProfile>> byLayer = new LinkedHashMap<>();
         for (ModuleProfile p : profiles) {
-            int layer = layerForInstability(p.instability);
+            int layer = layerForInstability(p.instability());
             byLayer.computeIfAbsent(layer, k -> new ArrayList<>()).add(p);
         }
         return byLayer;
@@ -402,6 +455,20 @@ public class DagRenderer {
         int slash = packageName.lastIndexOf('/');
         int idx = Math.max(dot, slash);
         return idx >= 0 ? packageName.substring(idx + 1) : packageName;
+    }
+
+    /**
+     * Returns true if the result set contains multiple distinct repo names.
+     */
+    private static boolean isMultiRepoResult(List<ModuleProfile> profiles) {
+        Set<String> repos = new HashSet<>();
+        for (ModuleProfile p : profiles) {
+            repos.add(p.repoName());
+            if (repos.size() > 1) return true;
+        }
+        // Single repo is multi-repo only if the one repo name is non-empty
+        // (but a single non-empty repo is still "single effective repo" — not multi)
+        return false;
     }
 
     private boolean columnExists(Connection conn, String table, String column)

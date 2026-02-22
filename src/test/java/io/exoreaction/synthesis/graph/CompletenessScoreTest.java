@@ -120,7 +120,7 @@ class CompletenessScoreTest {
     void computeAndPersistAll_adds_column_if_missing() throws SQLException {
         // Insert a module profile
         CodeGraphRepository repo = new CodeGraphRepository();
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "String", "java.lang", "import", true, NOW));
         ModuleProfileComputer computer = new ModuleProfileComputer(repo);
         computer.computeAndPersist(WS, conn);
@@ -140,9 +140,9 @@ class CompletenessScoreTest {
     void computeAndPersistAll_updates_module_profiles() throws SQLException {
         // Set up a module profile
         CodeGraphRepository repo = new CodeGraphRepository();
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "String", "java.lang", "import", true, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 null, "List", "java.util", "import", true, NOW));
         ModuleProfileComputer computer = new ModuleProfileComputer(repo);
         computer.computeAndPersist(WS, conn);
@@ -170,7 +170,7 @@ class CompletenessScoreTest {
     void computeAndPersistAll_idempotent() throws SQLException {
         // Set up a module profile
         CodeGraphRepository repo = new CodeGraphRepository();
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "String", "java.lang", "import", true, NOW));
         ModuleProfileComputer computer = new ModuleProfileComputer(repo);
         computer.computeAndPersist(WS, conn);

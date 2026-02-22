@@ -56,9 +56,9 @@ class CodeHealthAnalyzerTest {
     @Test
     void analyze_circular_dependency() throws SQLException {
         // A -> B and B -> A (mutual import)
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/B.java", "B", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/A.java", "A", "com.a", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -80,15 +80,15 @@ class CodeHealthAnalyzerTest {
     void analyze_circular_dependency_package_level_edge_counts() throws SQLException {
         // Multiple class-level edges between same two packages:
         // 3 edges from com.a -> com.b, 2 edges from com.b -> com.a
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A1.java", "A1", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A1.java", "A1", "com.a",
                 "src/B1.java", "B1", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A2.java", "A2", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A2.java", "A2", "com.a",
                 "src/B1.java", "B1", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A3.java", "A3", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A3.java", "A3", "com.a",
                 "src/B2.java", "B2", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B1.java", "B1", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B1.java", "B1", "com.b",
                 "src/A1.java", "A1", "com.a", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B2.java", "B2", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B2.java", "B2", "com.b",
                 "src/A2.java", "A2", "com.a", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -108,7 +108,7 @@ class CodeHealthAnalyzerTest {
     @Test
     void analyze_no_circular_for_one_way_dependency() throws SQLException {
         // Only A -> B, not B -> A
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/B.java", "B", "com.b", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -126,7 +126,7 @@ class CodeHealthAnalyzerTest {
     void analyze_god_package() throws SQLException {
         // Create a package with 31 files (> 30 threshold)
         for (int i = 0; i < 31; i++) {
-            repo.upsertDependency(conn, new CodeDependency(WS,
+            repo.upsertDependency(conn, new CodeDependency(WS, "",
                     "src/File" + i + ".java", "File" + i, "com.big",
                     null, "String", "java.lang", "import", true, NOW));
         }
@@ -150,7 +150,7 @@ class CodeHealthAnalyzerTest {
     void analyze_no_god_package_under_threshold() throws SQLException {
         // Create a package with 30 files (= 30, not > 30)
         for (int i = 0; i < 30; i++) {
-            repo.upsertDependency(conn, new CodeDependency(WS,
+            repo.upsertDependency(conn, new CodeDependency(WS, "",
                     "src/File" + i + ".java", "File" + i, "com.normal",
                     null, "String", "java.lang", "import", true, NOW));
         }
@@ -170,14 +170,14 @@ class CodeHealthAnalyzerTest {
     void analyze_unstable_core_package() throws SQLException {
         // Create a "core" package that imports more than it is imported (instability > 0.5)
         // core imports from 3 packages but only 1 package imports core
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.example.core",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Core.java", "Core", "com.example.core",
                 "src/Util.java", "Util", "com.example.util", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.example.core",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Core.java", "Core", "com.example.core",
                 "src/Db.java", "Db", "com.example.db", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.example.core",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Core.java", "Core", "com.example.core",
                 "src/Cfg.java", "Cfg", "com.example.config", "import", false, NOW));
         // Only one package imports core
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/App.java", "App", "com.example.app",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/App.java", "App", "com.example.app",
                 "src/Core.java", "Core", "com.example.core", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -200,7 +200,7 @@ class CodeHealthAnalyzerTest {
     @Test
     void analyze_orphan_code() throws SQLException {
         // Package with no internal fan-in or fan-out (only external deps)
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Orphan.java", "Orphan", "com.orphan",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Orphan.java", "Orphan", "com.orphan",
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -219,7 +219,7 @@ class CodeHealthAnalyzerTest {
     @Test
     void analyze_orphan_code_excluded_for_cli() throws SQLException {
         // CLI packages are expected to have no fan-in -- should NOT trigger C014
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.example.cli",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Cli.java", "Cli", "com.example.cli",
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -240,12 +240,12 @@ class CodeHealthAnalyzerTest {
         // Create a package imported by 6 others (fan_in > 5) with no test package
         String targetPkg = "com.example.shared";
         for (int i = 0; i < 6; i++) {
-            repo.upsertDependency(conn, new CodeDependency(WS,
+            repo.upsertDependency(conn, new CodeDependency(WS, "",
                     "src/User" + i + ".java", "User" + i, "com.user" + i,
                     "src/Shared.java", "Shared", targetPkg, "import", false, NOW));
         }
         // Shared package itself
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Shared.java", "Shared", targetPkg,
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Shared.java", "Shared", targetPkg,
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -263,11 +263,11 @@ class CodeHealthAnalyzerTest {
         // Create a package imported by 6 others (fan_in > 5)
         String targetPkg = "com.example.shared";
         for (int i = 0; i < 6; i++) {
-            repo.upsertDependency(conn, new CodeDependency(wsPath,
+            repo.upsertDependency(conn, new CodeDependency(wsPath, "",
                     "src/User" + i + ".java", "User" + i, "com.user" + i,
                     "src/Shared.java", "Shared", targetPkg, "import", false, NOW));
         }
-        repo.upsertDependency(conn, new CodeDependency(wsPath, "src/Shared.java", "Shared", targetPkg,
+        repo.upsertDependency(conn, new CodeDependency(wsPath, "", "src/Shared.java", "Shared", targetPkg,
                 null, "String", "java.lang", "import", true, NOW));
 
         // Create corresponding test directory with a *Test.java file
@@ -291,11 +291,11 @@ class CodeHealthAnalyzerTest {
         // Create a high fan-in package whose name doesn't match any known heuristic
         String targetPkg = "com.example.stuff";
         for (int i = 0; i < 6; i++) {
-            repo.upsertDependency(conn, new CodeDependency(WS,
+            repo.upsertDependency(conn, new CodeDependency(WS, "",
                     "src/User" + i + ".java", "User" + i, "com.user" + i,
                     "src/Stuff.java", "Stuff", targetPkg, "import", false, NOW));
         }
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Stuff.java", "Stuff", targetPkg,
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Stuff.java", "Stuff", targetPkg,
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -313,9 +313,9 @@ class CodeHealthAnalyzerTest {
     void analyze_no_signals_for_healthy_workspace() throws SQLException {
         // A simple clean dependency: core <- service <- cli
         // core has reasonable fan-in, no circulars, no god packages
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Service.java", "Service", "com.service",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Service.java", "Service", "com.service",
                 "src/Core.java", "Core", "com.core", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.cli",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Cli.java", "Cli", "com.cli",
                 "src/Service.java", "Service", "com.service", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -327,6 +327,46 @@ class CodeHealthAnalyzerTest {
     }
 
     // -----------------------------------------------------------------------
+    // Multi-repo isolation (V14): cycle detection scoped by repo
+    // -----------------------------------------------------------------------
+
+    @Test
+    void analyze_no_false_cycle_across_repos() throws SQLException {
+        // RepoA: com.shared -> com.a.util
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoA",
+                "RepoA/src/Shared.java", "Shared", "com.shared",
+                "RepoA/src/AUtil.java", "AUtil", "com.a.util", "import", false, NOW));
+        // RepoB: com.a.util -> com.shared (different repo!)
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoB",
+                "RepoB/src/AUtil.java", "AUtil", "com.a.util",
+                "RepoB/src/Shared.java", "Shared", "com.shared", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
+
+        // This should NOT produce a cycle -- the edges are in different repos
+        assertTrue(signals.stream().noneMatch(s -> s.signalId().equals("C001_CIRCULAR_DEPENDENCY")),
+                "Cross-repo edges should NOT trigger false circular dependency");
+    }
+
+    @Test
+    void analyze_same_repo_cycle_still_detected() throws SQLException {
+        // Both edges in RepoA: com.a -> com.b and com.b -> com.a
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoA",
+                "RepoA/src/A.java", "A", "com.a",
+                "RepoA/src/B.java", "B", "com.b", "import", false, NOW));
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoA",
+                "RepoA/src/B.java", "B", "com.b",
+                "RepoA/src/A.java", "A", "com.a", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+        List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
+
+        assertTrue(signals.stream().anyMatch(s -> s.signalId().equals("C001_CIRCULAR_DEPENDENCY")),
+                "Same-repo mutual dependency should still trigger C001");
+    }
+
+    // -----------------------------------------------------------------------
     // Severity ordering
     // -----------------------------------------------------------------------
 
@@ -334,13 +374,13 @@ class CodeHealthAnalyzerTest {
     void analyze_signals_sorted_by_severity() throws SQLException {
         // Set up conditions for multiple signal types
         // C001 (HIGH): circular dependency
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/B.java", "B", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/A.java", "A", "com.a", "import", false, NOW));
 
         // C014 (LOW): orphan
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Orphan.java", "Orphan", "com.orphan",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Orphan.java", "Orphan", "com.orphan",
                 null, "List", "java.util", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);

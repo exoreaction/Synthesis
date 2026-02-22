@@ -48,7 +48,7 @@ class CodeGraphRepositoryTest {
 
     @Test
     void upsertDependency_and_queryFrom() throws SQLException {
-        CodeDependency dep = new CodeDependency(WS, "src/Foo.java", "Foo", "com.example",
+        CodeDependency dep = new CodeDependency(WS, "", "src/Foo.java", "Foo", "com.example",
                 "src/Bar.java", "Bar", "com.example.util", "import", false, NOW);
 
         repo.upsertDependency(conn, dep);
@@ -62,9 +62,9 @@ class CodeGraphRepositoryTest {
 
     @Test
     void upsertDependency_replaces_on_duplicate() throws SQLException {
-        CodeDependency dep1 = new CodeDependency(WS, "src/Foo.java", "Foo", "com.example",
+        CodeDependency dep1 = new CodeDependency(WS, "", "src/Foo.java", "Foo", "com.example",
                 null, "Bar", "com.example.util", "import", true, NOW);
-        CodeDependency dep2 = new CodeDependency(WS, "src/Foo.java", "Foo", "com.example",
+        CodeDependency dep2 = new CodeDependency(WS, "", "src/Foo.java", "Foo", "com.example",
                 "src/Bar.java", "Bar", "com.example.util", "import", false, NOW + 100);
 
         repo.upsertDependency(conn, dep1);
@@ -78,11 +78,11 @@ class CodeGraphRepositoryTest {
 
     @Test
     void getDependenciesTo_finds_callers() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/Bar.java", "Bar", "com.bar", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/Bar.java", "Bar", "com.bar", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/C.java", "C", "com.c",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/C.java", "C", "com.c",
                 "src/Baz.java", "Baz", "com.baz", "import", false, NOW));
 
         List<CodeDependency> callers = repo.getDependenciesTo(conn, WS, "Bar", "com.bar");
@@ -91,7 +91,7 @@ class CodeGraphRepositoryTest {
 
     @Test
     void getDependenciesTo_without_package() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "Bar", "com.bar", "import", false, NOW));
 
         List<CodeDependency> callers = repo.getDependenciesTo(conn, WS, "Bar", null);
@@ -100,9 +100,9 @@ class CodeGraphRepositoryTest {
 
     @Test
     void getIncomingForFile_finds_by_target_file() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/Bar.java", "Bar", "com.bar", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/Bar.java", "Bar", "com.bar", "extends", false, NOW));
 
         List<CodeDependency> incoming = repo.getIncomingForFile(conn, WS, "src/Bar.java");
@@ -111,9 +111,9 @@ class CodeGraphRepositoryTest {
 
     @Test
     void deleteDependenciesForFile_removes_only_that_file() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/Bar.java", "Bar", "com.bar", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/Bar.java", "Bar", "com.bar", "import", false, NOW));
 
         int deleted = repo.deleteDependenciesForFile(conn, WS, "src/A.java");
@@ -125,9 +125,9 @@ class CodeGraphRepositoryTest {
 
     @Test
     void deleteAllDependencies_clears_workspace() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "Bar", "com.bar", "import", true, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 null, "Baz", "com.baz", "import", true, NOW));
 
         int deleted = repo.deleteAllDependencies(conn, WS);
@@ -139,9 +139,9 @@ class CodeGraphRepositoryTest {
     void countDependencies_returns_correct_count() throws SQLException {
         assertEquals(0, repo.countDependencies(conn, WS));
 
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "Bar", "com.bar", "import", true, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "Baz", "com.baz", "import", true, NOW));
 
         assertEquals(2, repo.countDependencies(conn, WS));
@@ -154,7 +154,7 @@ class CodeGraphRepositoryTest {
 
     @Test
     void isPopulated_returns_true_when_data_exists() throws SQLException {
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 null, "Bar", "com.bar", "import", true, NOW));
 
         assertTrue(repo.isPopulated(conn, WS));
@@ -241,9 +241,9 @@ class CodeGraphRepositoryTest {
         String ws1 = "/workspace1";
         String ws2 = "/workspace2";
 
-        repo.upsertDependency(conn, new CodeDependency(ws1, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(ws1, "", "src/A.java", "A", "com.a",
                 null, "Bar", "com.bar", "import", true, NOW));
-        repo.upsertDependency(conn, new CodeDependency(ws2, "src/X.java", "X", "com.x",
+        repo.upsertDependency(conn, new CodeDependency(ws2, "", "src/X.java", "X", "com.x",
                 null, "Yak", "com.yak", "import", true, NOW));
 
         assertEquals(1, repo.countDependencies(conn, ws1));

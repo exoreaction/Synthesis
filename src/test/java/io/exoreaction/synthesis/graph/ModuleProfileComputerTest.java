@@ -53,11 +53,11 @@ class ModuleProfileComputerTest {
     @Test
     void computeAndPersist_single_package() throws SQLException {
         // Package com.example.core has one file importing from com.example.util
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.example.core",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Core.java", "Core", "com.example.core",
                 "src/Util.java", "Util", "com.example.util", "import", false, NOW));
 
         // Package com.example.util has a file
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Util.java", "Util", "com.example.util",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Util.java", "Util", "com.example.util",
                 null, "List", "java.util", "import", true, NOW));
 
         int count = computer.computeAndPersist(WS, conn);
@@ -78,11 +78,11 @@ class ModuleProfileComputerTest {
     @Test
     void computeAndPersist_multiple_packages() throws SQLException {
         // Set up 3 packages with various dependencies
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/B.java", "B", "com.b", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/C.java", "C", "com.c", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/C.java", "C", "com.c", "import", false, NOW));
 
         int count = computer.computeAndPersist(WS, conn);
@@ -98,7 +98,7 @@ class ModuleProfileComputerTest {
     @Test
     void computeAndPersist_replaces_stale_data() throws SQLException {
         // First run
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/B.java", "B", "com.b", "import", false, NOW));
         int count1 = computer.computeAndPersist(WS, conn);
         assertTrue(count1 > 0);
@@ -125,14 +125,14 @@ class ModuleProfileComputerTest {
     @Test
     void instability_fully_stable() throws SQLException {
         // Package com.core is imported by 3 others but imports nothing
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/A.java", "A", "com.a",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/A.java", "A", "com.a",
                 "src/Core.java", "Core", "com.core", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/B.java", "B", "com.b",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/B.java", "B", "com.b",
                 "src/Core.java", "Core", "com.core", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/C.java", "C", "com.c",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/C.java", "C", "com.c",
                 "src/Core.java", "Core", "com.core", "import", false, NOW));
         // Core itself only imports external stuff
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Core.java", "Core", "com.core",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Core.java", "Core", "com.core",
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -146,9 +146,9 @@ class ModuleProfileComputerTest {
     @Test
     void instability_fully_unstable() throws SQLException {
         // Package com.cli imports others but nobody imports it
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.cli",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Cli.java", "Cli", "com.cli",
                 "src/Core.java", "Core", "com.core", "import", false, NOW));
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Cli.java", "Cli", "com.cli",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Cli.java", "Cli", "com.cli",
                 "src/Util.java", "Util", "com.util", "import", false, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -165,7 +165,7 @@ class ModuleProfileComputerTest {
         // We create a package that appears as a source but only with self-referential imports
         // Actually, for this test: a package that exists but has fan_in=0 and fan_out=0
         // We need a package that appears in code_dependencies but with no cross-package deps
-        repo.upsertDependency(conn, new CodeDependency(WS, "src/Orphan.java", "Orphan", "com.orphan",
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/Orphan.java", "Orphan", "com.orphan",
                 null, "String", "java.lang", "import", true, NOW));
 
         computer.computeAndPersist(WS, conn);
@@ -363,6 +363,88 @@ class ModuleProfileComputerTest {
         // the caller overrides to 0.30 when fanIn+fanOut==0.
         var result = computer.inferPurposeResult("com.example.obscure");
         assertEquals(0.40, result.confidence(), 0.001);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-repo isolation (V14)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void computeAndPersist_multi_repo_separate_profiles() throws SQLException {
+        // Two repos in the same workspace sharing the package namespace "com.shared"
+        // Repo A: com.shared -> com.a.util (internal)
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoA",
+                "RepoA/src/Core.java", "Core", "com.shared",
+                "RepoA/src/Util.java", "Util", "com.a.util", "import", false, NOW));
+        // Repo B: com.shared -> com.b.util (internal)
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoB",
+                "RepoB/src/Core.java", "Core", "com.shared",
+                "RepoB/src/Helper.java", "Helper", "com.b.util", "import", false, NOW));
+
+        int count = computer.computeAndPersist(WS, conn);
+
+        // Should produce separate profiles for RepoA/com.shared and RepoB/com.shared
+        assertTrue(count >= 4, "Should produce at least 4 profiles (2 repos x 2 packages): " + count);
+
+        // Verify each repo's com.shared has fan_out=1, NOT fan_out=2 (merged)
+        ModuleProfileRow repoAShared = loadProfileByRepo(conn, WS, "RepoA", "com/shared");
+        ModuleProfileRow repoBShared = loadProfileByRepo(conn, WS, "RepoB", "com/shared");
+        assertNotNull(repoAShared, "RepoA com/shared profile should exist");
+        assertNotNull(repoBShared, "RepoB com/shared profile should exist");
+        assertEquals(1, repoAShared.fanOut, "RepoA com/shared fan_out should be 1");
+        assertEquals(1, repoBShared.fanOut, "RepoB com/shared fan_out should be 1");
+    }
+
+    @Test
+    void computeAndPersist_multi_repo_fanin_not_cross_contaminated() throws SQLException {
+        // RepoA: com.a.app imports com.shared
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoA",
+                "RepoA/src/App.java", "App", "com.a.app",
+                "RepoA/src/Shared.java", "Shared", "com.shared", "import", false, NOW));
+        // RepoB: com.b.app imports com.shared
+        repo.upsertDependency(conn, new CodeDependency(WS, "RepoB",
+                "RepoB/src/App.java", "App", "com.b.app",
+                "RepoB/src/Shared.java", "Shared", "com.shared", "import", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+
+        // Each repo's com.shared should have fan_in=1, NOT fan_in=2
+        ModuleProfileRow repoAShared = loadProfileByRepo(conn, WS, "RepoA", "com/shared");
+        ModuleProfileRow repoBShared = loadProfileByRepo(conn, WS, "RepoB", "com/shared");
+        assertNotNull(repoAShared);
+        assertNotNull(repoBShared);
+        assertEquals(1, repoAShared.fanIn, "RepoA com/shared fan_in should be 1 (not 2)");
+        assertEquals(1, repoBShared.fanIn, "RepoB com/shared fan_in should be 1 (not 2)");
+    }
+
+    private ModuleProfileRow loadProfileByRepo(Connection conn, String wsPath, String repoName, String modulePath)
+            throws SQLException {
+        String sql = """
+            SELECT module_path, package_name, inferred_purpose,
+                   fan_in, fan_out, instability, total_files, confidence
+            FROM module_profiles
+            WHERE workspace_path = ? AND repo_name = ? AND module_path = ?
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, wsPath);
+            ps.setString(2, repoName);
+            ps.setString(3, modulePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new ModuleProfileRow(
+                            rs.getString("module_path"),
+                            rs.getString("package_name"),
+                            rs.getString("inferred_purpose"),
+                            rs.getInt("fan_in"),
+                            rs.getInt("fan_out"),
+                            rs.getDouble("instability"),
+                            rs.getInt("total_files"),
+                            rs.getDouble("confidence")
+                    );
+                }
+            }
+        }
+        return null;
     }
 
     private int countAllProfiles(Connection conn, String wsPath) throws SQLException {

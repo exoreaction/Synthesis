@@ -46,6 +46,13 @@ public class QualityGapDetector {
      */
     public int detectAndPersist(String workspacePath, Path workspaceRoot,
                                  Connection conn) throws SQLException {
+        // Load profiles to get repo_name per gap
+        List<ModuleProfileRow> profiles = loadModuleProfiles(conn, workspacePath);
+        Map<String, String> moduleToRepo = new HashMap<>();
+        for (ModuleProfileRow p : profiles) {
+            moduleToRepo.put(p.modulePath(), p.repoName());
+        }
+
         List<QualityGap> gaps = detect(workspacePath, workspaceRoot, conn);
 
         // Clear old gaps for this workspace, then insert new ones
@@ -53,7 +60,8 @@ public class QualityGapDetector {
 
         long now = Instant.now().getEpochSecond();
         for (QualityGap gap : gaps) {
-            repository.upsertQualityGap(conn, workspacePath, gap, now);
+            String repoName = moduleToRepo.getOrDefault(gap.modulePath(), "");
+            repository.upsertQualityGap(conn, workspacePath, repoName, gap, now);
         }
 
         LOG.fine("Detected " + gaps.size() + " quality gaps for " + workspacePath);
@@ -303,13 +311,13 @@ public class QualityGapDetector {
     // -----------------------------------------------------------------------
 
     /**
-     * Loads all module profiles for the workspace.
+     * Loads all module profiles for the workspace, including repo_name.
      */
     private List<ModuleProfileRow> loadModuleProfiles(Connection conn, String workspacePath)
             throws SQLException {
         List<ModuleProfileRow> profiles = new ArrayList<>();
         String sql = """
-            SELECT module_path, package_name, inferred_purpose,
+            SELECT repo_name, module_path, package_name, inferred_purpose,
                    fan_in, fan_out, instability, total_files
             FROM module_profiles
             WHERE workspace_path = ?
@@ -318,7 +326,10 @@ public class QualityGapDetector {
             ps.setString(1, workspacePath);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+                    String repoName = rs.getString("repo_name");
+                    if (repoName == null) repoName = "";
                     profiles.add(new ModuleProfileRow(
+                            repoName,
                             rs.getString("module_path"),
                             rs.getString("package_name"),
                             rs.getString("inferred_purpose"),
@@ -386,6 +397,7 @@ public class QualityGapDetector {
      * Internal record for module profile data used during detection.
      */
     record ModuleProfileRow(
+            String repoName,
             String modulePath,
             String packageName,
             String inferredPurpose,

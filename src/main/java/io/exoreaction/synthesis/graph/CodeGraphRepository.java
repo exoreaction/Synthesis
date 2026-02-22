@@ -25,9 +25,13 @@ public class CodeGraphRepository {
 
     /**
      * Represents a single class-level dependency edge.
+     *
+     * @param repoName the repository name (first path component relative to workspace root),
+     *                 or empty string for single-repo workspaces
      */
     public record CodeDependency(
             String workspacePath,
+            String repoName,
             String sourceFile,
             String sourceClass,
             String sourcePackage,
@@ -58,22 +62,23 @@ public class CodeGraphRepository {
     public void upsertDependency(Connection conn, CodeDependency dep) throws SQLException {
         String sql = """
             INSERT OR REPLACE INTO code_dependencies (
-                workspace_path, source_file, source_class, source_package,
+                workspace_path, repo_name, source_file, source_class, source_package,
                 target_file, target_class, target_package,
                 dependency_type, is_external, last_computed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, dep.workspacePath());
-            ps.setString(2, dep.sourceFile());
-            ps.setString(3, dep.sourceClass());
-            ps.setString(4, dep.sourcePackage());
-            ps.setString(5, dep.targetFile());
-            ps.setString(6, dep.targetClass());
-            ps.setString(7, dep.targetPackage());
-            ps.setString(8, dep.dependencyType());
-            ps.setInt(9, dep.isExternal() ? 1 : 0);
-            ps.setLong(10, dep.lastComputed());
+            ps.setString(2, dep.repoName() != null ? dep.repoName() : "");
+            ps.setString(3, dep.sourceFile());
+            ps.setString(4, dep.sourceClass());
+            ps.setString(5, dep.sourcePackage());
+            ps.setString(6, dep.targetFile());
+            ps.setString(7, dep.targetClass());
+            ps.setString(8, dep.targetPackage());
+            ps.setString(9, dep.dependencyType());
+            ps.setInt(10, dep.isExternal() ? 1 : 0);
+            ps.setLong(11, dep.lastComputed());
             ps.executeUpdate();
         }
     }
@@ -357,25 +362,26 @@ public class CodeGraphRepository {
     /**
      * Inserts or replaces a quality gap.
      * Uses INSERT OR REPLACE (SQLite UPSERT) on the UNIQUE constraint
-     * (workspace_path, module_path, gap_type, file_path).
+     * (workspace_path, repo_name, module_path, gap_type, file_path).
      */
-    public void upsertQualityGap(Connection conn, String workspacePath, QualityGap gap,
-                                   long lastComputed) throws SQLException {
+    public void upsertQualityGap(Connection conn, String workspacePath, String repoName,
+                                   QualityGap gap, long lastComputed) throws SQLException {
         String sql = """
             INSERT OR REPLACE INTO code_quality_gaps (
-                workspace_path, module_path, gap_type, description,
+                workspace_path, repo_name, module_path, gap_type, description,
                 severity, file_path, suggestion, last_computed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
-            ps.setString(2, gap.modulePath());
-            ps.setString(3, gap.gapType());
-            ps.setString(4, gap.description());
-            ps.setString(5, gap.severity());
-            ps.setString(6, gap.filePath());
-            ps.setString(7, gap.suggestion());
-            ps.setLong(8, lastComputed);
+            ps.setString(2, repoName != null ? repoName : "");
+            ps.setString(3, gap.modulePath());
+            ps.setString(4, gap.gapType());
+            ps.setString(5, gap.description());
+            ps.setString(6, gap.severity());
+            ps.setString(7, gap.filePath());
+            ps.setString(8, gap.suggestion());
+            ps.setLong(9, lastComputed);
             ps.executeUpdate();
         }
     }
@@ -518,8 +524,17 @@ public class CodeGraphRepository {
     }
 
     private CodeDependency mapDependency(ResultSet rs) throws SQLException {
+        // repo_name may not exist in older databases; handle gracefully
+        String repoName = "";
+        try {
+            repoName = rs.getString("repo_name");
+            if (repoName == null) repoName = "";
+        } catch (SQLException ignored) {
+            // Column does not exist in pre-V14 databases
+        }
         return new CodeDependency(
                 rs.getString("workspace_path"),
+                repoName,
                 rs.getString("source_file"),
                 rs.getString("source_class"),
                 rs.getString("source_package"),
