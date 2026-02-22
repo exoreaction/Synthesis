@@ -356,6 +356,46 @@ instructions: |
   | `--format mermaid` | Mermaid graph TD output (max 30 packages) |
 
   Design document: `/src/exoreaction/Synthesis/docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md`
+  Dogfooding findings: `/src/exoreaction/Synthesis/docs/analysis/CKG-DOGFOODING-FINDINGS.md`
+
+  ---
+
+  ## Known Bugs (filed Feb 22, 2026 — NOT YET FIXED)
+
+  | Issue | Severity | Description |
+  |-------|----------|-------------|
+  | #215 | HIGH | C001 health signal overcounts edges (reports class-level, not package-level) |
+  | #216 | HIGH | C010 false positive — test package detection uses wrong source root |
+  | #217 | HIGH | `target/` build dir scanned → cross-format links double-counted |
+  | #218 | HIGH | `describe` requires `--refresh` after `extract` (should auto-compute) |
+  | #223 | HIGH | `is_external` uses simple class name not FQN → Spring/stdlib wrongly internal |
+  | #224 | HIGH | cross-format links not persisted when count > ~100K (silent transaction failure) |
+  | #225 | HIGH | `--cycles` returns "No code graph data" for populated graph (quadim) |
+  | #219 | MEDIUM | `inferPurpose()` too conservative — 28/31 packages show "General purpose" |
+  | #220 | MEDIUM | C012 god package threshold should be configurable (suggest 30, not 15) |
+  | #226 | MEDIUM | non-Java projects (Nuxt.js, CloudFormation) mixed into Java CKG |
+  | #221 | LOW | Better error message when workspace has no `.synthesis/` config |
+
+  **#223 root cause detail:**
+  `buildClassToFileMap` maps simple class names (`"Service"`) not FQN (`"org.springframework.stereotype.Service"`).
+  When any project file is named `Service.java`, ALL `import org.springframework.stereotype.Service` imports
+  get marked `is_external=0`. Fix: store FQN in classToFileMap and look up by FQN.
+
+  **#217 root cause detail:**
+  `CrossFormatLinker` (or `CodeGraphExtractor`) scans `target/classes/` alongside `src/main/resources/`,
+  creating duplicate cross-format links for every SQL migration file. Fix: respect `isBuildArtifact()` filter.
+
+  ---
+
+  ## Multi-Codebase Scale Reference (Feb 22, 2026)
+
+  | Workspace | Repos | Files | Packages | Deps | Cross-format | Cycles | Time |
+  |-----------|-------|-------|----------|------|--------------|--------|------|
+  | Synthesis (self) | 1 | 501 | 31 | 4,026 | 280 | 2 | 33s |
+  | Quadim | 38 | 2,771 | 222 | 27,908 | 0* | 10+ | 16min |
+  | Cantara | 54 | 4,316 | 749 | 37,199 | 15,592 | 128 | 7min |
+
+  *Quadim cross-format links not persisted due to #224 (100,054 computed but 0 saved)
 
   ---
 

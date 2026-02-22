@@ -424,7 +424,7 @@ After `describe --refresh`: `--cross-format` correctly shows these links (they A
 
 ---
 
-## Cross-Codebase Comparison (confirmed Feb 22)
+## Cross-Codebase Comparison (pre-fix, Feb 22)
 
 | Metric | Synthesis (self) | Cantara | Quadim |
 |--------|-----------------|---------|--------|
@@ -436,6 +436,7 @@ After `describe --refresh`: `--cross-format` correctly shows these links (they A
 | Hotspots | 0 | 37 | 7 |
 | Architecture quality | ★★★★★ | ★★☆☆☆ | ★★★★☆ |
 | Extraction time | 33s | 417s | 985s |
+| Cross-format links (raw) | 280 | 15,592 | 100,054 |
 
 **Key insight:** The 4-tier layer model correctly identifies architecture quality:
 - **Synthesis** (purpose-built, 9 days old): Clean, 2 cycles, 0 hotspots — healthy young codebase
@@ -456,4 +457,61 @@ After `describe --refresh`: `--cross-format` correctly shows these links (they A
 
 ---
 
-*Last updated: February 22, 2026 — ongoing, add findings below as exploration continues*
+## Post-Fix Results (PR #222 + PR #228, Feb 22)
+
+All 13 bugs filed during the dogfooding session (#215-#227) were fixed and merged same day via two PRs:
+- **PR #222** (`fix(ckg): 7 dogfooding fixes`): #215 (C001 edge count), #216 (C010 false positive), #217 (target/ doublecount), #218 (describe --refresh), #219 (inferPurpose), #220 (C012 threshold), #221 (workspace error message)
+- **PR #228** (`fix(ckg): FQN resolution, batch inserts, cycles guard, skip non-Java repos`): #223 (is_external FQN), #224 (cross-format persistence), #225 (--cycles no data), #226 (non-Java skip), #227 (DAG flags auto-compute)
+
+### Before / After Comparison
+
+| Metric | Synthesis | Cantara | Quadim |
+|--------|-----------|---------|--------|
+| Cross-format (before) | 280 | 15,592 | 100,054 |
+| Cross-format (after) | **141** (-50%) | **8,004** (-49%) | **52,290** (-48%) |
+| Extraction time (before) | 33s | 417s | 985s |
+| Extraction time (after) | 33s | **289s** (-31%) | **252s** (-74%) |
+| Module profiles (before) | required `--refresh` | required `--refresh` | required `--refresh` |
+| Module profiles (after) | **auto-computed** | **auto-computed** | **auto-computed** |
+| `--cycles` (before) | worked | worked | "No code graph data" |
+| `--cycles` (after) | works | works | **47 cycles, works directly** |
+
+### Verified Fix: `--cycles` on Quadim (no --refresh needed)
+
+```
+synthesis code-graph --cycles -d /src/quadim
+→ 47 cycles shown correctly ✅
+```
+
+### Verified Fix: `--cross-format` on Quadim (only src/ paths)
+
+```
+synthesis code-graph --cross-format -d /src/quadim
+→ 52,290 links shown
+→ All paths under src/main/resources/ (no target/ duplicates) ✅
+```
+
+### Key Observations Post-Fix
+
+- **~49% cross-format reduction** across all codebases — confirms `target/` was inflating counts by ~2x
+- **4x speedup on Quadim** (985s → 252s) — most of the extraction time was wasted scanning `target/` dirs
+- **FQN fix**: Spring `@Autowired` and `java.util.*` classes no longer misclassified as internal packages
+- **Non-Java skip**: Quadim's Nuxt.js frontend and CloudFormation repos excluded from Java CKG
+- **Auto-compute profiles**: All DAG flag commands (`--cycles`, `--hotspots`, `--instability`, `--layers`, `--cross-format`) now work immediately after `extract` without requiring `describe --refresh`
+
+### Updated Cross-Codebase Comparison (post-fix)
+
+| Metric | Synthesis | Cantara | Quadim |
+|--------|-----------|---------|--------|
+| Files | 501 | 4,273 | 2,771 |
+| Dependencies | 4,036 | 36,964 | 27,908 |
+| Packages | 31 | 746 | 222 |
+| Cross-format links | 141 | 8,004 | 52,290 |
+| Circular deps | 2 | 128 | 47 |
+| Health signals | ~18 | ~163 | ~49 |
+| Hotspots | 0 | 37 | 7 |
+| Extraction time | 33s | 289s | 252s |
+
+---
+
+*Last updated: February 22, 2026 — all CKG dogfooding bugs fixed and verified*
