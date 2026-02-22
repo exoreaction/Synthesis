@@ -291,4 +291,188 @@ Both are ~5.6s. The SQLite fast path IS working (slight improvement visible), bu
 
 ---
 
+---
+
+## Multi-Codebase Dogfooding (Feb 22, 2026)
+
+Running CKG on cantara (54 repos) and quadim (38 repos) after Synthesis-on-itself.
+
+---
+
+## Cantara Workspace (`/src/cantara`)
+
+```
+Files processed:    4316
+Dependencies found: 37199
+Cross-format links: 15592   ← includes target/ double-count bug
+Packages found:     749
+External deps:      23919
+Elapsed:            417s (7 min)
+```
+
+### Architecture Observations
+
+- **833 module profiles** (749 source packages + external packages visible in graph)
+- **Most stable core:** `org/springframework/beans/factory/annotation` — fan-in: **272** across 54 repos (Spring `@Autowired` used everywhere — correct)
+- **Most widely-used internal:** `net.whydah.sso.*` packages (Whydah SSO model/helpers/config) — fan-in 40-70 range
+- **`com/exoreaction/reactiveservices/disruptor`** — fan-in: 19, instability: 0.00 — highly stable event bus
+- **`com/exoreaction/reactiveservices/jaxrs`** — fan-in: 23, instability: 0.12 — shared JAX-RS layer
+
+### Circular Dependencies (128 cycles)
+
+Significant architectural debt in Whydah packages:
+- `net/whydah/identity ↔ net/whydah/identity/dataimport` (8 edges)
+- `net/whydah/identity/application ↔ net/whydah/identity/dataimport` (32 edges each way!)
+- `net/whydah/sso/session ↔ ...` (4 C001 signals)
+- `net/whydah/sts/application ↔ ...` (4 C001 signals)
+- `no/cantara/docsite/cache` — **9 circular dep pairs** (most in any single package)
+
+**Experiment packages:** `dev/xorcery/alchemy/experiment2 ↔ experiment2/functions` (4+14 edges) — PoC/research code, expected
+
+### Health Signals (163 issues)
+
+37 **hotspots** — packages with both high coupling (instability > 0.7) AND many callers (fan-in > 2):
+- `net/whydah/service` — fan-in: 10, fan-out: 27, instability: 0.73 ⚠
+- `net/whydah/sts/user` — fan-in: 6, fan-out: 31, instability: 0.84 ⚠
+- `net/whydah/identity/application` — fan-in: 5, fan-out: 20, instability: 0.80 ⚠
+
+**`cantara-docsite` is structurally broken:**
+- 9 circular dep C001 signals
+- 11 C013 unstable-core signals (domain packages with high instability)
+- 9 C010 missing-test signals
+- Needs architectural cleanup (cache/client/domain/config/links all tangled)
+
+### C001 Bug Confirmed on Cantara
+
+Health signal says "16 edges each way" for `docsite/contexts ↔ resources` — actual is 4+4.
+Same overcounting pattern as Synthesis: health reports class-level counts, not package-level.
+
+### Cross-Format Links: target/ Bug at Scale
+
+15,592 links includes pairs like:
+```
+Whydah-UserIdentityBackend/target/classes/db/migration/mariadb/V1_1_0__appModelJson.sql → Main.java
+Whydah-UserIdentityBackend/src/main/resources/db/migration/mariadb/V1_1_0__appModelJson.sql → Main.java
+```
+Exact same link twice. Real count is ~7,800. Fix: exclude `target/` from scanning.
+
+**Cross-repo SQL links work:** SQL from `Whydah-UserIdentityBackend` correctly linked to `ConfigService-Dashboard/Main.java` via table-reference — this is valuable multi-repo intelligence.
+
+---
+
+## Quadim Workspace (`/src/quadim`)
+
+```
+Files processed:    2771
+Dependencies found: 27908
+Cross-format links: 100054  ← reported during extraction
+Packages found:     222
+External deps:      20612
+Elapsed:            985s (16 min)
+```
+
+### Architecture Observations
+
+- **146 module profiles** computed (222 found during extraction — some overlap/external)
+- **4 HIGH health signals only** — much cleaner than cantara's 163. Modern Spring Boot microservices.
+- **DTO layer is the clear foundation:** `ai/quadim/api/dto/overlord` — fan-in: **43**, instability: 0.04
+- **`ai/quadim/api/controller`** — fan-in: 3, fan-out: 40, instability: 0.93 — hotspot, too many outgoing deps
+- **`ai/quadim/api/security/whydah`** — confirms Quadim uses Cantara's Whydah for authentication (cross-repo dependency pattern visible!)
+
+### Cross-Format Links: Persistence Bug (NEW)
+
+Extraction reported 100,054 links — but SQLite `cross_format_links` table has **0 rows** for quadim.
+
+```
+code_dependencies:   26,442 ✅
+module_profiles:        251 ✅
+cross_format_links:       0 ❌  (extraction says 100,054)
+code_quality_gaps:        0 ❌
+```
+
+**Cause:** 600 YAML + 1,162 SQL files in 38-repo workspace + 40 `target/` directories = catastrophic over-generation. The 100,054 link set likely triggers a transaction failure or SQLite limit during bulk insert, silently discarding all results.
+
+**Impact:** `--cross-format` returns "No code graph data" even though extraction succeeded.
+
+### `--cycles` Returns "No code graph data" Despite Having Data (NEW)
+
+`synthesis code-graph --cycles` shows "No code graph data" but SQLite has 26,442 internal deps.
+
+Manual query finds real cycles:
+```
+ai.quadim.api.service ↔ ai.quadim.api.service.lucene  (391 class-level edges!)
+ai.quadim.api.converter ↔ ai.quadim.api.entity         (360 edges)
+ai.quadim.api.qplatform.dto ↔ ai.quadim.api.qplatform.service (329 edges)
+```
+
+**Root cause TBD:** `DagRenderer.loadInternalPackageEdges()` filters `is_external=0`. Some data issue may cause the "no data" check in `CodeGraphCommand.call()` to return false even though `--cross-format` and `--cycles` flags should proceed.
+
+### `is_external` Classification Bug (NEW — Root Cause Found)
+
+`buildClassToFileMap` in `CodeGraphExtractor` maps **simple class names** (not FQN) to files:
+
+```java
+String targetClass = getSimpleClassName(imp);  // "Service" from "org.springframework.stereotype.Service"
+String targetFile = classToFile.get(targetClass);  // finds any project "Service.java"!
+boolean external = (targetFile == null);
+```
+
+If the project has `ai/quadim/api/UserService.java`, and any class imports `org.springframework.stereotype.Service`, the simple name "Service" matches... but it finds the wrong file. Result:
+- `org.springframework.stereotype` → is_external=0 (227 rows!) — **WRONG, is Spring**
+- `java.util` → is_external=0 (11 rows!) — **WRONG, is stdlib**
+- `org.springframework.context.annotation` → is_external=0 (101 rows!)
+
+**Impact:**
+- Cycle detection finds false cycles through external packages
+- fan-out inflated (counts external deps as internal outgoing)
+- Instability calculations slightly off
+
+**Fix:** Build classToFileMap using **fully qualified names** (package + class), not just simple names.
+
+### Health Discrepancy: C001 Mismatch Between Flags
+
+`health --errors-only` shows:
+```
+[HIGH] C001 -- quadim/ai ↔ quadim/pages (60 edges each way)
+[HIGH] C001 -- quadim/ai ↔ quadim/web_driver (26 edges each way)
+```
+
+But `--cycles` shows nothing. Root cause: `quadim/ai`, `quadim/pages`, `quadim/web_driver` are **Nuxt.js frontend directories** (`Quadim-Ai-Nuxt` repo), not Java packages. The C001 health signal uses directory-level module paths; `--cycles` uses Java package names. They're from different module systems entirely.
+
+**Finding:** CKG is picking up non-Java projects (Nuxt.js, CloudFormation YAML) and mixing their module structure with Java packages. Need language-specific module detection.
+
+---
+
+## Cross-Codebase Comparison
+
+| Metric | Synthesis (self) | Cantara | Quadim |
+|--------|-----------------|---------|--------|
+| Files | 501 | 4,316 | 2,771 |
+| Dependencies | 4,026 | 37,199 | 27,908 |
+| Packages | 31 | 749 | 222 |
+| Circular deps | 2 | 128 | 10+ (cycles bug) |
+| Health signals | 18 | 163 | 4 |
+| Hotspots | 0 | 37 | 7 |
+| Architecture quality | ★★★★★ | ★★☆☆☆ | ★★★★☆ |
+| Extraction time | 33s | 417s | 985s |
+
+**Key insight:** The 4-tier layer model correctly identifies architecture quality:
+- Synthesis (purpose-built, 9 days old): Clean, 2 cycles, 0 hotspots
+- Quadim (production SaaS, years old): Minor issues, 4 HIGH signals, well-structured DTOs
+- Cantara (multi-repo, years old): Significant debt, especially in Whydah IAM services
+
+---
+
+## Additional Bugs Found (Multi-Codebase Session)
+
+| Priority | Issue | Effort |
+|----------|-------|--------|
+| HIGH | **Bug: `is_external` uses simple class name not FQN** — stdlib/Spring wrongly marked internal | Medium |
+| HIGH | **Bug: cross-format links not persisted** when count is very large (quadim: 0/100054 saved) | Medium |
+| HIGH | **Bug: `--cycles` shows "No code graph data"** for populated graph (quadim) | Small |
+| MEDIUM | **Finding: non-Java projects mixed in** (Nuxt.js dirs, CloudFormation YAML treated as Java packages) | Medium |
+| LOW | Extraction time for large multi-repo workspaces (quadim: 16 min) — consider parallelism | Large |
+
+---
+
 *Last updated: February 22, 2026 — ongoing, add findings below as exploration continues*
