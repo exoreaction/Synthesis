@@ -215,6 +215,73 @@ public class CodeGraphRepository {
     }
 
     /**
+     * Batch-inserts cross-format links in chunks to avoid transaction size limits.
+     * Uses INSERT OR IGNORE to skip duplicates without rolling back the transaction.
+     *
+     * @param conn  database connection
+     * @param links list of links to insert
+     * @param batchSize number of rows per transaction (default 1000)
+     * @return number of rows successfully inserted
+     */
+    public int batchInsertCrossFormatLinks(Connection conn, List<CrossFormatLinkRecord> links,
+                                            int batchSize) throws SQLException {
+        if (links.isEmpty()) return 0;
+
+        String sql = """
+            INSERT OR IGNORE INTO cross_format_links (
+                workspace_path, source_file, target_file,
+                link_type, entity_name, last_computed
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """;
+
+        int totalInserted = 0;
+        boolean originalAutoCommit = conn.getAutoCommit();
+
+        for (int i = 0; i < links.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, links.size());
+            List<CrossFormatLinkRecord> batch = links.subList(i, end);
+
+            try {
+                conn.setAutoCommit(false);
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    for (CrossFormatLinkRecord link : batch) {
+                        ps.setString(1, link.workspacePath());
+                        ps.setString(2, link.sourceFile());
+                        ps.setString(3, link.targetFile());
+                        ps.setString(4, link.linkType());
+                        ps.setString(5, link.entityName());
+                        ps.setLong(6, link.lastComputed());
+                        ps.addBatch();
+                    }
+                    int[] results = ps.executeBatch();
+                    for (int r : results) {
+                        if (r >= 0 || r == Statement.SUCCESS_NO_INFO) {
+                            totalInserted++;
+                        }
+                    }
+                }
+                conn.commit();
+            } catch (SQLException e) {
+                LOG.warning("Cross-format link batch insert failed at offset " + i
+                        + " (batch size " + batch.size() + "): " + e.getMessage());
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackEx) {
+                    LOG.warning("Rollback failed: " + rollbackEx.getMessage());
+                }
+            } finally {
+                try {
+                    conn.setAutoCommit(originalAutoCommit);
+                } catch (SQLException ignored) {
+                    // best effort
+                }
+            }
+        }
+
+        return totalInserted;
+    }
+
+    /**
      * Deletes all cross-format links for a workspace.
      */
     public int deleteAllCrossFormatLinks(Connection conn, String workspacePath) throws SQLException {
