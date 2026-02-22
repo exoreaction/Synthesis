@@ -127,8 +127,8 @@ public class ModuleProfileComputer {
             case "cli", "command" -> "CLI command implementations";
             case "core", "domain" -> "Core domain model";
             case "db", "persistence" -> "Data persistence";
-            case "config", "settings" -> "Configuration management";
-            case "util", "common" -> "Shared utilities";
+            case "config", "configuration", "settings" -> "Configuration management";
+            case "util", "utils", "utility", "common" -> "Shared utilities";
             case "api", "rest", "controller" -> "API endpoint handlers";
             case "service", "business" -> "Business logic services";
             case "graph", "analysis" -> "Graph analysis and visualization";
@@ -138,7 +138,17 @@ public class ModuleProfileComputer {
             case "mcp" -> "MCP server protocol";
             case "lsp" -> "LSP server protocol";
             case "org" -> "Organization and routing";
-            case "staging" -> "File staging pipeline";
+            case "staging", "stage" -> "Staging pipeline";
+            case "changelog", "tracking", "track" -> "Change tracking";
+            case "enrichment", "enrich" -> "Media enrichment";
+            case "summary" -> "Reporting / summarization";
+            case "report" -> "Reporting / summarization";
+            case "research" -> "Research engine";
+            case "metrics", "telemetry" -> "Operational metrics";
+            case "validate", "validation" -> "Validation";
+            case "workspace" -> "Workspace management";
+            case "update" -> "Update management";
+            case "ai" -> "AI service integration";
             default -> null;
         };
     }

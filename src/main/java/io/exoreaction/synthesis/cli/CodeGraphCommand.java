@@ -346,6 +346,12 @@ public class CodeGraphCommand implements Callable<Integer> {
             System.out.println("  Packages found:     " + stats.packagesFound());
             System.out.println("  External deps:      " + stats.externalDeps());
             System.out.println("  Elapsed:            " + stats.elapsedMs() + " ms");
+
+            // Auto-compute module profiles after successful extraction
+            ModuleProfileComputer profileComputer = new ModuleProfileComputer(new CodeGraphRepository());
+            int profileCount = profileComputer.computeAndPersist(workspaceRoot.toString(), conn);
+            System.out.println("  Module profiles:    " + profileCount);
+
             System.out.println();
             return 0;
         }
@@ -367,6 +373,12 @@ public class CodeGraphCommand implements Callable<Integer> {
             System.out.println("  Packages found:     " + stats.packagesFound());
             System.out.println("  External deps:      " + stats.externalDeps());
             System.out.println("  Elapsed:            " + stats.elapsedMs() + " ms");
+
+            // Auto-compute module profiles after successful extraction
+            ModuleProfileComputer profileComputer = new ModuleProfileComputer(new CodeGraphRepository());
+            int profileCount = profileComputer.computeAndPersist(workspaceRoot.toString(), conn);
+            System.out.println("  Module profiles:    " + profileCount);
+
             System.out.println();
             return 0;
         }
@@ -454,8 +466,19 @@ public class CodeGraphCommand implements Callable<Integer> {
                 List<ModuleProfile> profiles = loadProfiles(conn, wsPath);
 
                 if (profiles.isEmpty()) {
+                    // Check if code_dependencies has data -- if so, auto-compute profiles
+                    CodeGraphRepository autoRepo = new CodeGraphRepository();
+                    if (autoRepo.isPopulated(conn, wsPath)) {
+                        System.out.println("  (profiles auto-computed from existing dependency graph)");
+                        ModuleProfileComputer autoComputer = new ModuleProfileComputer(autoRepo);
+                        autoComputer.computeAndPersist(wsPath, conn);
+                        profiles = loadProfiles(conn, wsPath);
+                    }
+                }
+
+                if (profiles.isEmpty()) {
                     System.out.println();
-                    System.out.println("No module profiles found. Run: synthesis code-graph extract && synthesis code-graph describe --refresh");
+                    System.out.println("No module profiles found. Run: synthesis code-graph extract");
                     System.out.println();
                     return 0;
                 }
