@@ -31,6 +31,9 @@ public class CodeHealthAnalyzer {
 
     private static final Logger LOG = Logger.getLogger(CodeHealthAnalyzer.class.getName());
 
+    /** Minimum number of files in a package to trigger the C012 god package signal. */
+    static final int GOD_PACKAGE_THRESHOLD = 30;
+
     /**
      * Analyzes the code knowledge graph for health signals.
      *
@@ -248,11 +251,12 @@ public class CodeHealthAnalyzer {
         String sql = """
             SELECT module_path, package_name, total_files
             FROM module_profiles
-            WHERE workspace_path = ? AND total_files > 15
+            WHERE workspace_path = ? AND total_files > ?
             """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
+            ps.setInt(2, GOD_PACKAGE_THRESHOLD);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String modulePath = rs.getString(1);
@@ -262,7 +266,7 @@ public class CodeHealthAnalyzer {
                             "C012_GOD_PACKAGE",
                             "MEDIUM",
                             modulePath,
-                            "Package has " + totalFiles + " files (threshold: 15)",
+                            "Package has " + totalFiles + " files (threshold: " + GOD_PACKAGE_THRESHOLD + ")",
                             "Split into sub-packages by feature area"
                     ));
                 }

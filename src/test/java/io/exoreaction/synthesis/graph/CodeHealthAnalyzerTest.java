@@ -124,8 +124,8 @@ class CodeHealthAnalyzerTest {
 
     @Test
     void analyze_god_package() throws SQLException {
-        // Create a package with 16 files (> 15 threshold)
-        for (int i = 0; i < 16; i++) {
+        // Create a package with 31 files (> 30 threshold)
+        for (int i = 0; i < 31; i++) {
             repo.upsertDependency(conn, new CodeDependency(WS,
                     "src/File" + i + ".java", "File" + i, "com.big",
                     null, "String", "java.lang", "import", true, NOW));
@@ -135,20 +135,21 @@ class CodeHealthAnalyzerTest {
         List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
 
         assertTrue(signals.stream().anyMatch(s -> s.signalId().equals("C012_GOD_PACKAGE")),
-                "Should detect god package with 16 files");
+                "Should detect god package with 31 files");
 
         CodeHealthSignal god = signals.stream()
                 .filter(s -> s.signalId().equals("C012_GOD_PACKAGE"))
                 .findFirst().orElse(null);
         assertNotNull(god);
         assertEquals("MEDIUM", god.severity());
-        assertTrue(god.description().contains("16"), "Should mention 16 files");
+        assertTrue(god.description().contains("31"), "Should mention 31 files");
+        assertTrue(god.description().contains("30"), "Should mention threshold 30");
     }
 
     @Test
     void analyze_no_god_package_under_threshold() throws SQLException {
-        // Create a package with 15 files (= 15, not > 15)
-        for (int i = 0; i < 15; i++) {
+        // Create a package with 30 files (= 30, not > 30)
+        for (int i = 0; i < 30; i++) {
             repo.upsertDependency(conn, new CodeDependency(WS,
                     "src/File" + i + ".java", "File" + i, "com.normal",
                     null, "String", "java.lang", "import", true, NOW));
@@ -158,7 +159,7 @@ class CodeHealthAnalyzerTest {
         List<CodeHealthSignal> signals = analyzer.analyze(WS, conn);
 
         assertTrue(signals.stream().noneMatch(s -> s.signalId().equals("C012_GOD_PACKAGE")),
-                "15 files should not trigger god package (threshold is > 15)");
+                "30 files should not trigger god package (threshold is > 30)");
     }
 
     // -----------------------------------------------------------------------
