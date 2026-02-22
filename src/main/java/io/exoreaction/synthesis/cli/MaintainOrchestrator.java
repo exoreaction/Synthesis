@@ -39,7 +39,7 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 /**
- * Orchestrates the 10-phase {@code synthesis maintain} workspace loop.
+ * Orchestrates the 11-phase {@code synthesis maintain} workspace loop.
  *
  * <p>Each phase is run in strict order. A phase failure is captured as a
  * {@link PhaseResult#failed} entry and does NOT abort subsequent phases.
@@ -55,6 +55,7 @@ import java.util.stream.Stream;
  * Phase 8:  Track       — file movement tracking + changelog snapshots
  * Phase 9:  Prune       — remove empty directories
  * Phase 10: Code Graph  — update persisted code dependency graph (CKG-1)
+ * Phase 11: Security    — security analysis (S001-S021)
  * </pre>
  *
  * <p>The orchestrator does NOT print anything to stdout/stderr. All output
@@ -99,7 +100,7 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Runs all 10 phases in sequence.
+     * Runs all 11 phases in sequence.
      *
      * @return aggregate result containing per-phase results and timing
      * @throws Exception only if workspace validation fails (phases themselves catch exceptions)
@@ -145,6 +146,9 @@ public class MaintainOrchestrator {
 
         // Phase 10: Code Graph
         results.add(runPhase(10, "Code Graph", this::runCodeGraph));
+
+        // Phase 11: Security
+        results.add(runPhase(11, "Security", this::runSecurity));
 
         return new MaintainResult(results, System.currentTimeMillis() - start);
     }
@@ -1043,5 +1047,59 @@ public class MaintainOrchestrator {
 
         return PhaseResult.success(10, "Code Graph", stats.dependenciesFound(),
                 summary, details);
+    }
+
+    // =========================================================================
+    // Phase 11: Security
+    // =========================================================================
+
+    private PhaseResult runSecurity() throws Exception {
+        // Same Java-file gate as Phase 10
+        boolean hasJavaFiles;
+        try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
+            hasJavaFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.toString().contains("/."))
+                    .findFirst()
+                    .isPresent();
+        }
+
+        if (!hasJavaFiles) {
+            return PhaseResult.skipped(11, "Security", "no code files found");
+        }
+
+        if (options.dryRun()) {
+            return PhaseResult.success(11, "Security", 0,
+                    "security analysis would be performed", List.of());
+        }
+
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        java.sql.Connection conn = db.getConnection();
+
+        SecurityAnalyzer analyzer = new SecurityAnalyzer();
+        SecurityAnalysisOptions secOpts = SecurityAnalysisOptions.defaults();
+        List<SecuritySignal> signals = analyzer.analyze(workspaceRoot, conn, secOpts);
+
+        int highCount = (int) signals.stream()
+                .filter(s -> "HIGH".equals(s.severity())).count();
+        int medCount = (int) signals.stream()
+                .filter(s -> "MEDIUM".equals(s.severity())).count();
+
+        List<String> details = new ArrayList<>();
+        if (options.verbose()) {
+            for (SecuritySignal s : signals) {
+                details.add("[" + s.severity() + "] " + s.signalId() + " " + s.filePath());
+            }
+        }
+
+        String summary = signals.size() + " finding(s)";
+        if (highCount > 0) {
+            summary += " (" + highCount + " HIGH";
+            if (medCount > 0) summary += ", " + medCount + " MEDIUM";
+            summary += ")";
+        }
+
+        return PhaseResult.success(11, "Security", signals.size(), summary, details);
     }
 }
