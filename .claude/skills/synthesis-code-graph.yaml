@@ -226,7 +226,17 @@ instructions: |
   |--------|----------|-------|
   | S001 | Internal SQL string building | ~50% FP — fires on `"DELETE FROM " + tableName` even when tableName is a constant |
   | S002 | Regex patterns for detection | `"-----BEGIN.*PRIVATE KEY"` in security scanners triggers S002 |
+  | S010 | XML-commented dependencies | `<!-- <dependency>commons-text 1.9</dependency> -->` — **FIXED in 11edd4e** (strips `<!--...-->` before parsing) |
   | S015 | All CLI commands | Informational only — not vulnerabilities, just entry point inventory |
+
+  ### Remediations Applied to Synthesis itself (Feb 22-23, 2026)
+  | Fix | PR | What changed |
+  |-----|----|-------------|
+  | Prompt injection (S016/S021) | #243 | `PromptTemplates`: `sanitizeUserInput()` + XML boundary tags on all prompts |
+  | RAG poisoning (S017) | #243 | `ReportPrompts`, `ResearchPrompts`, `CodeExplainer`: `<context>`/`<user_question>` boundaries |
+  | Unconfirmed action (S018) | #243 | `SynthesisToolHandler`: `dryRun` check before file writes |
+  | DELETE allowlist (S001) | #243 | `SynthesisDatabase`: `CLEANUP_TABLE_ALLOWLIST` guards all DELETE operations |
+  | S010 XML comments (FP) | #245 | `DependencyInventoryExtractor`: strips `<!--...-->` before pom.xml parsing |
 
   ---
 
