@@ -81,9 +81,21 @@ public class ReportRenderer {
 
     /**
      * Formats a period code into human-readable text.
+     * Supports dynamic day-based periods (e.g. "5d" = "Last 5 days").
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
      */
     public static String formatPeriod(String period) {
         if (period == null) return "Last 7 days";
+        // Handle dynamic day-based periods (e.g. "5d", "12d")
+        if (period.endsWith("d")) {
+            try {
+                int days = Integer.parseInt(period.substring(0, period.length() - 1));
+                return "Last " + days + " day" + (days != 1 ? "s" : "");
+            } catch (NumberFormatException ignored) {
+                // Fall through
+            }
+        }
         return switch (period) {
             case "1w" -> "Last 7 days";
             case "2w" -> "Last 14 days";
@@ -94,9 +106,21 @@ public class ReportRenderer {
 
     /**
      * Converts a period code to a description for AI prompts.
+     * Supports dynamic day-based periods (e.g. "5d").
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
      */
     public static String periodToDescription(String period) {
         if (period == null) return "the last 7 days";
+        // Handle dynamic day-based periods
+        if (period.endsWith("d")) {
+            try {
+                int days = Integer.parseInt(period.substring(0, period.length() - 1));
+                return "the last " + days + " day" + (days != 1 ? "s" : "");
+            } catch (NumberFormatException ignored) {
+                // Fall through
+            }
+        }
         return switch (period) {
             case "1w" -> "the last 7 days";
             case "2w" -> "the last 14 days";

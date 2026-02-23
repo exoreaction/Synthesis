@@ -167,17 +167,34 @@ public class BusinessDocumentFinder {
     }
 
     /**
-     * Parses a period string (e.g. "1w", "2w", "1m") into a cutoff {@link Instant}.
+     * Parses a period string (e.g. "1w", "2w", "1m", "5d") into a cutoff {@link Instant}.
      * Documents modified before the cutoff should be excluded (except anchor docs).
      * Unknown period strings default to 1 week.
+     *
+     * <p>Supports dynamic day-based periods (e.g. "5d" = 5 days ago) for the
+     * report history "since last report" feature.
      *
      * @param period the period string
      * @return the earliest acceptable last-modified timestamp
      * @see <a href="https://github.com/exoreaction/Synthesis/issues/46">#46</a>
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
      */
     public static Instant parsePeriodCutoff(String period) {
         LocalDate today = LocalDate.now();
-        LocalDate cutoff = switch (period) {
+        LocalDate cutoff;
+
+        // Handle dynamic day-based periods (e.g. "5d", "12d")
+        if (period != null && period.endsWith("d")) {
+            try {
+                int days = Integer.parseInt(period.substring(0, period.length() - 1));
+                cutoff = today.minusDays(days);
+                return cutoff.atStartOfDay(ZoneId.systemDefault()).toInstant();
+            } catch (NumberFormatException ignored) {
+                // Fall through to switch
+            }
+        }
+
+        cutoff = switch (period) {
             case "2w" -> today.minusWeeks(2);
             case "1m" -> today.minusMonths(1);
             default -> today.minusWeeks(1);
