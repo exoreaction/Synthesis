@@ -61,7 +61,7 @@ synthesis -d ~/projects/my-project status
 | **Developer** | [Quick Start](docs/guides/QUICK-START.md) / [User Guide](docs/guides/USER-GUIDE.md) | 5-15 min |
 | **Engineering Manager** | [Team Adoption Guide](docs/perspectives/ENGINEERING-MANAGER.md) | 10 min |
 | **Architect** | [Architecture Intelligence](docs/perspectives/ARCHITECT.md) | 12 min |
-| **Executive / VP Eng** | [Executive Brief](docs/perspectives/EXECUTIVE-BRIEF.md) | 5 min |
+| **Executive / VP Eng** | [Executive Brief](docs/perspectives/EXECUTIVE.md) | 5 min |
 
 Not a developer? Start at the [Role Selector](docs/perspectives/README.md) to find the guide written for your perspective.
 
@@ -208,7 +208,7 @@ cd Synthesis
 mvn clean package -DskipTests
 
 # Run directly
-java -jar target/synthesis-1.0.0-SNAPSHOT.jar --help
+java -jar target/synthesis-1.14.0-SNAPSHOT.jar --help
 ```
 
 ### Environment Variables
@@ -586,14 +586,14 @@ io.exoreaction.synthesis/
 # Compile
 mvn compile
 
-# Run tests (282 tests)
+# Run tests (3,933 tests)
 mvn test
 
 # Build executable JAR
 mvn package
 
 # Run directly
-java -jar target/synthesis-1.0.0-SNAPSHOT.jar --help
+java -jar target/synthesis-1.14.0-SNAPSHOT.jar --help
 ```
 
 ### Adding a New Analyzer
