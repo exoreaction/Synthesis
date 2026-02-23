@@ -55,6 +55,14 @@ public class SecurityAnalyzer {
             "-----BEGIN.*PRIVATE KEY");
     private static final Set<String> SECRET_EXCLUSIONS = Set.of(
             "test", "fake", "mock", "example", "sample", "dummy", "placeholder");
+    // Property path pattern: lower.dotted.names (config keys, not secrets)
+    private static final Pattern PROPERTY_KEY_PATTERN = Pattern.compile(
+            "\"[a-z][a-z0-9]*(\\.[a-z][a-z0-9.]*)+\"");
+    // Well-known JDK non-secret defaults
+    private static final Set<String> WELL_KNOWN_DEFAULTS = Set.of("changeit");
+    // Common HTTP form field name values (not credentials)
+    private static final Set<String> FORM_FIELD_NAMES = Set.of(
+            "password", "username", "email", "token");
 
     // -- S003: Weak crypto --
     private static final Pattern WEAK_MD5 = Pattern.compile("getInstance\\s*\\(\\s*\"MD5\"\\s*\\)");
@@ -253,6 +261,13 @@ public class SecurityAnalyzer {
     // S001: SQL Injection
     // -----------------------------------------------------------------------
 
+    // Patterns for S001 false positive suppression
+    private static final Pattern S001_LOG_STATEMENT = Pattern.compile(
+            "^\\s*(?:log|logger|LOG)\\w*\\.(?:debug|info|warn|error|trace)\\s*\\(|^\\s*System\\.out\\.print",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern S001_HTML_INDICATOR = Pattern.compile(
+            "<br\\s*/?>|</|<div|<p>|<html|<table", Pattern.CASE_INSENSITIVE);
+
     List<SecuritySignal> checkS001(String content, String filePath,
                                      String className, String packageName) {
         List<SecuritySignal> signals = new ArrayList<>();
@@ -270,6 +285,7 @@ public class SecurityAnalyzer {
             for (int i = 0; i < lines.length; i++) {
                 String line = lines[i];
                 if (SQL_CONCAT.matcher(line).find() && !line.contains("PreparedStatement")) {
+                    if (isS001FalsePositive(line)) continue;
                     signals.add(new SecuritySignal(
                             "S001_SQL_INJECTION", "HIGH", "CWE-89",
                             filePath, i + 1, className, packageName,
@@ -288,6 +304,7 @@ public class SecurityAnalyzer {
             if (SQL_CONCAT.matcher(line).find()
                     || SQL_EXECUTE_CONCAT.matcher(line).find()
                     || (STATEMENT_EXECUTE.matcher(line).find() && line.contains("+"))) {
+                if (isS001FalsePositive(line)) continue;
                 signals.add(new SecuritySignal(
                         "S001_SQL_INJECTION", "HIGH", "CWE-89",
                         filePath, i + 1, className, packageName,
@@ -300,6 +317,17 @@ public class SecurityAnalyzer {
         return signals;
     }
 
+    /** Checks if a line matching S001 SQL patterns is actually a false positive. */
+    private static boolean isS001FalsePositive(String line) {
+        // Suppress log/print statements
+        if (S001_LOG_STATEMENT.matcher(line).find()) return true;
+        // Suppress HTML strings containing SQL keywords
+        if (S001_HTML_INDICATOR.matcher(line).find()) return true;
+        // Suppress JPQL with getSimpleName()/getName() — class name from code, not user input
+        if (line.contains(".getSimpleName()") || line.contains(".getName()")) return true;
+        return false;
+    }
+
     // -----------------------------------------------------------------------
     // S002: Hardcoded Secrets
     // -----------------------------------------------------------------------
@@ -307,7 +335,11 @@ public class SecurityAnalyzer {
     List<SecuritySignal> checkS002(String content, String filePath,
                                      String className, String packageName) {
         List<SecuritySignal> signals = new ArrayList<>();
-        String[] lines = content.split("\n");
+
+        // Strip single-line comments before matching (mirrors PR #245 XML comment approach)
+        String strippedContent = stripSingleLineComments(content);
+
+        String[] lines = strippedContent.split("\n");
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
@@ -322,6 +354,15 @@ public class SecurityAnalyzer {
             // Skip lines containing test/mock exclusion words
             boolean excluded = SECRET_EXCLUSIONS.stream().anyMatch(lineLower::contains);
             if (excluded) continue;
+
+            // Skip property key name constants (dotted lowercase path, e.g. "admin.connection.password")
+            if (PROPERTY_KEY_PATTERN.matcher(line).find()) continue;
+
+            // Skip well-known JDK default values (e.g. "changeit" for cacerts)
+            if (isWellKnownDefault(line)) continue;
+
+            // Skip common HTTP form field name values (e.g. PASSWORD = "password")
+            if (isFormFieldName(line)) continue;
 
             Pattern[] patterns = {SECRET_PASSWORD, SECRET_API_KEY, SECRET_TOKEN,
                     SECRET_GENERAL, SECRET_PRIVATE_KEY};
@@ -339,6 +380,27 @@ public class SecurityAnalyzer {
             }
         }
         return signals;
+    }
+
+    /** Strips single-line comments (// to end of line) from content. */
+    private static String stripSingleLineComments(String content) {
+        return content.replaceAll("//[^\n]*", "");
+    }
+
+    /** Checks if the line's string value is a well-known non-secret default. */
+    private static boolean isWellKnownDefault(String line) {
+        for (String known : WELL_KNOWN_DEFAULTS) {
+            if (line.contains("\"" + known + "\"")) return true;
+        }
+        return false;
+    }
+
+    /** Checks if the assigned string value is a common HTTP form field name. */
+    private static boolean isFormFieldName(String line) {
+        for (String fieldName : FORM_FIELD_NAMES) {
+            if (line.contains("\"" + fieldName + "\"")) return true;
+        }
+        return false;
     }
 
     // -----------------------------------------------------------------------
@@ -466,10 +528,45 @@ public class SecurityAnalyzer {
         // Skip if file uses ObjectInputFilter
         if (DESER_FILTER.matcher(content).find()) return signals;
 
+        // Detect JSON-P / Bouncy Castle imports — their readObject() is not a deserialization sink
+        boolean hasJsonApi = content.contains("javax.json") || content.contains("jakarta.json")
+                || content.contains("org.bouncycastle.openssl.PEMParser");
+
+        // Detect in-memory copy pattern: ObjectOutputStream → ByteArrayOutputStream paired with ObjectInputStream
+        boolean hasInMemoryCopy = content.contains("ByteArrayOutputStream")
+                && content.contains("ObjectOutputStream")
+                && content.contains("ByteArrayInputStream")
+                && content.contains("ObjectInputStream");
+
         String[] lines = content.split("\n");
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             if (UNSAFE_DESER_OIS.matcher(line).find()) {
+                // Skip readObject() calls that are not ObjectInputStream.readObject()
+                if (line.contains("readObject") && !line.contains("new ObjectInputStream")
+                        && !line.contains("XMLDecoder")) {
+                    // If JSON-P / Bouncy Castle import present, check whether this is truly ObjectInputStream
+                    if (hasJsonApi) {
+                        boolean isOisReceiver = line.contains("ObjectInputStream");
+                        if (!isOisReceiver) {
+                            // Check a few lines above for ObjectInputStream variable declaration
+                            boolean oisDeclaredNearby = false;
+                            for (int j = Math.max(0, i - 5); j < i; j++) {
+                                if (lines[j].contains("ObjectInputStream")) {
+                                    oisDeclaredNearby = true;
+                                    break;
+                                }
+                            }
+                            if (!oisDeclaredNearby) continue; // Skip — likely JSON-P or Bouncy Castle readObject
+                        }
+                    }
+                }
+
+                // Skip in-memory deep copy pattern (serialize this → byte array → deserialize)
+                if (hasInMemoryCopy && (line.contains("ObjectInputStream") || line.contains("readObject"))) {
+                    continue;
+                }
+
                 signals.add(new SecuritySignal(
                         "S007_UNSAFE_DESERIALIZATION", "HIGH", "CWE-502",
                         filePath, i + 1, className, packageName,

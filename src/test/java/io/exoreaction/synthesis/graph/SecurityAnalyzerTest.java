@@ -114,6 +114,64 @@ class SecurityAnalyzerTest {
                 "File with no SQL API imports should not trigger S001 on generic execute() (#238)");
     }
 
+    // Regression #248: S001 should not flag log/print statements
+    @Test
+    void s001_does_not_flag_log_statements() {
+        String code = """
+                package com.example.db;
+                import java.sql.*;
+                class Dao {
+                    void query(String table) {
+                        log.debug("SELECT * FROM " + table);
+                        logger.info("DELETE FROM " + table);
+                        LOG.warn("UPDATE users SET " + value);
+                        System.out.println("SELECT count FROM " + table);
+                    }
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS001(code, "src/Dao.java", "Dao", "com.example.db");
+        assertTrue(signals.isEmpty(),
+                "Log/print statements should not trigger S001 even with SQL keywords + concatenation (#248)");
+    }
+
+    // Regression #248: S001 should not flag HTML strings containing SQL keywords
+    @Test
+    void s001_does_not_flag_html_strings_with_sql_keywords() {
+        String code = """
+                package com.example.db;
+                import java.sql.*;
+                class HtmlRenderer {
+                    String render(String name) {
+                        return "<table><tr><td>Select " + name + "</td></tr></table>";
+                    }
+                    String buildHelp() {
+                        return "Please <br/> SELECT an option from " + options;
+                    }
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS001(code, "src/HtmlRenderer.java", "HtmlRenderer", "com.example.db");
+        assertTrue(signals.isEmpty(),
+                "HTML strings containing SQL keywords should not trigger S001 (#248)");
+    }
+
+    // Regression #248: S001 should not flag JPQL with getSimpleName()/getName()
+    @Test
+    void s001_does_not_flag_jpql_with_class_getSimpleName() {
+        String code = """
+                package com.example.db;
+                import java.sql.*;
+                class JpaDao {
+                    void findAll() {
+                        String jpql = "SELECT e FROM " + getClass().getSimpleName() + " e";
+                        String jpql2 = "DELETE FROM " + entity.getClass().getName() + " WHERE id = :id";
+                    }
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS001(code, "src/JpaDao.java", "JpaDao", "com.example.db");
+        assertTrue(signals.isEmpty(),
+                "JPQL with getSimpleName()/getName() should not trigger S001 (#248)");
+    }
+
     // -----------------------------------------------------------------------
     // S002: Hardcoded Secrets
     // -----------------------------------------------------------------------
@@ -189,6 +247,70 @@ class SecurityAnalyzerTest {
                 "String with .* metacharacter must not trigger S002 as a hardcoded secret (#244)");
     }
 
+    // Regression #249: S002 should not flag property key name constants
+    @Test
+    void s002_does_not_flag_property_key_name_constants() {
+        String code = """
+                package com.example;
+                class Config {
+                    private static final String PROP_KEY = "smsgw.target365.apikey";
+                    private static final String DB_PASS_PROP = "admin.connection.password";
+                    private static final String TOKEN_PROP = "oauth.client.token.secret";
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS002(code, "src/Config.java", "Config", "com.example");
+        assertTrue(signals.isEmpty(),
+                "Property key names in dotted lowercase format should not trigger S002 (#249)");
+    }
+
+    // Regression #249: S002 should not flag well-known JDK defaults like "changeit"
+    @Test
+    void s002_does_not_flag_well_known_jdk_defaults() {
+        String code = """
+                package com.example;
+                class TrustStoreConfig {
+                    private static final String password = "changeit";
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS002(code, "src/TrustStoreConfig.java", "TrustStoreConfig", "com.example");
+        assertTrue(signals.isEmpty(),
+                "Well-known JDK default 'changeit' should not trigger S002 (#249)");
+    }
+
+    // Regression #249: S002 should not flag commented-out code with passwords
+    @Test
+    void s002_does_not_flag_commented_out_secrets() {
+        String code = """
+                package com.example;
+                class Config {
+                    // private static final String password = "oldPassword123";
+                    // String apiKey = "sk-abc123def456";
+                    private static final String dbUrl = "jdbc:h2:mem:testdb";
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS002(code, "src/Config.java", "Config", "com.example");
+        assertTrue(signals.isEmpty(),
+                "Commented-out lines with password-like strings should not trigger S002 (#249)");
+    }
+
+    // Regression #249 bonus: S002 should not flag form field name constants
+    @Test
+    void s002_does_not_flag_form_field_name_constants() {
+        String code = """
+                package com.example;
+                class FormFields {
+                    public static final String USERNAME_FIELD = "username";
+                    public static final String EMAIL_FIELD = "email";
+                    public static final String PASSWORD_FIELD = "password";
+                    public static final String TOKEN_FIELD = "token";
+                }
+                """;
+        // "password", "username", "email", "token" are form field names, not secrets
+        List<SecuritySignal> signals = analyzer.checkS002(code, "src/FormFields.java", "FormFields", "com.example");
+        assertTrue(signals.isEmpty(),
+                "HTTP form field name constants should not trigger S002 (#249)");
+    }
+
     // -----------------------------------------------------------------------
     // S003: Weak Cryptography
     // -----------------------------------------------------------------------
@@ -256,6 +378,50 @@ class SecurityAnalyzerTest {
                 """;
         List<SecuritySignal> signals = analyzer.checkS007(code, "src/Loader.java", "Loader", "com.example");
         assertTrue(signals.isEmpty(), "ObjectInputFilter should suppress S007");
+    }
+
+    // Regression #247: S007 should not flag JSON-P JsonReader.readObject()
+    @Test
+    void s007_does_not_flag_json_p_reader_readObject() {
+        String code = """
+                package com.example;
+                import javax.json.Json;
+                import javax.json.JsonObject;
+                import javax.json.JsonReader;
+                class JsonParser {
+                    JsonObject parse(InputStream is) {
+                        JsonReader reader = Json.createReader(is);
+                        JsonObject obj = reader.readObject();
+                        return obj;
+                    }
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS007(code, "src/JsonParser.java", "JsonParser", "com.example");
+        assertTrue(signals.isEmpty(),
+                "JSON-P JsonReader.readObject() should not trigger S007 — not Java deserialization (#247)");
+    }
+
+    // Regression #247: S007 should not flag in-memory serialize→deserialize copy
+    @Test
+    void s007_does_not_flag_in_memory_serialization_copy() {
+        String code = """
+                package com.example;
+                import java.io.*;
+                class DeepCopy {
+                    Object deepCopy(Object original) throws Exception {
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        ObjectOutputStream oos = new ObjectOutputStream(baos);
+                        oos.writeObject(original);
+                        oos.flush();
+                        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+                        ObjectInputStream ois = new ObjectInputStream(bais);
+                        return ois.readObject();
+                    }
+                }
+                """;
+        List<SecuritySignal> signals = analyzer.checkS007(code, "src/DeepCopy.java", "DeepCopy", "com.example");
+        assertTrue(signals.isEmpty(),
+                "In-memory serialize/deserialize deep copy should not trigger S007 (#247)");
     }
 
     // -----------------------------------------------------------------------
