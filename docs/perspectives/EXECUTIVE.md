@@ -2,7 +2,7 @@
 
 **Your weekly briefing, pipeline status, and client health -- generated in 30 seconds, not 3 hours. Now with real temporal insights and a self-organizing workspace.**
 
-*Updated for Synthesis v1.11.1 (~2,500 tests passing) -- February 2026*
+*Updated for Synthesis v1.15.0 (3,933 tests passing) -- February 2026*
 
 ---
 
@@ -229,6 +229,22 @@ synthesis staging ingest && synthesis staging route && synthesis maintain
 The routing engine now uses AI-powered content classification. Even binary files -- PDFs, images, invoices -- get analyzed and routed to the correct organizational folder. A downloaded invoice from Client X automatically ends up in the Client X directory.
 
 **Result:** Less time on file organization. More reliable data for reports.
+
+---
+
+## Security Posture (CKG-5)
+
+Synthesis v1.15.0 includes automated security analysis across your entire codebase portfolio. This is relevant for executives because:
+
+**Risk visibility without hiring a security consultant.** A single command scans all repositories for known vulnerabilities (CVEs), hardcoded credentials, and architectural security issues. In a Feb 22, 2026 scan of 5 workspaces (~12,000 files), Synthesis found 3 real CVEs in production dependencies -- including a critical remote code execution vulnerability (Text4Shell). All findings were triaged within hours.
+
+**AI-specific security.** As your team adopts AI tools (Claude Code, Copilot, Cursor), new attack surfaces emerge: prompt injection, RAG poisoning, unconfirmed AI-initiated actions. Synthesis is the only tool that detects these. When Synthesis scanned itself, it found 23 prompt injection vectors and 12 missing security boundaries -- and fixed them the same day.
+
+**Compliance and audit trail.** Security findings are persisted in the database and trackable over time. Run weekly scans to show trending improvement in your security posture.
+
+```
+synthesis code-graph security --severity HIGH --format json
+```
 
 ---
 

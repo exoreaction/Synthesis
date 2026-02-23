@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,932 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
+**Validated:** 36,342 files indexed, 3,933 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
 
 ---
 
@@ -368,7 +368,7 @@ directory named `node_modules` at any depth.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (3,746)
++-- src/test/                          # JUnit 5 tests (3,933)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 +-- .claude/skills/                    # 32 Claude Code skills (see below)
@@ -458,7 +458,13 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V13.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V15.
+- **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:
+  - `PromptTemplates.java`: `sanitizeUserInput()` + XML boundary tags (`<system>`, `<user>`, `<document>`) on all prompts
+  - `SynthesisDatabase.java`: `CLEANUP_TABLE_ALLOWLIST` guard prevents arbitrary table names in DELETE operations
+  - `SynthesisToolHandler.java`: `dryRun` parameter check before file writes (S018 fix)
+  - `DependencyInventoryExtractor.java`: strips XML comments before pom.xml parsing (S010 false positive fix, commit 11edd4e)
+- **S010 false positive in XML comments**: Before commit 11edd4e, the S010 scanner would flag dependencies inside XML comment blocks (`<!-- ... -->`) in pom.xml files. Now fixed -- commented-out dependencies are stripped before parsing.
 
 ---
 

@@ -308,6 +308,23 @@ Detects:
 - **Test coverage gaps** -- source files without test counterparts
 - **High coupling** -- files with excessive incoming references
 
+### Security Analysis
+
+```bash
+synthesis code-graph security                           # All security findings
+synthesis code-graph security --severity HIGH           # HIGH severity only
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN  # Dependency CVE scan
+synthesis code-graph security --attack-surface          # Entry point to sink paths
+synthesis code-graph security --scan-secrets            # Also scan non-Java files for secrets
+synthesis code-graph security --format json             # JSON output for scripting
+```
+
+Runs 21 static security signals across your codebase covering SQL injection, XXE, hardcoded secrets, dependency CVEs, and agentic AI-specific risks (prompt injection, RAG poisoning, unconfirmed actions, missing prompt boundaries). Results are persisted to SQLite and updated during `synthesis maintain`.
+
+The dependency CVE scanner parses `pom.xml` files and matches against an embedded catalog (Log4Shell, Text4Shell, Spring4Shell, Jackson vulnerabilities). No Maven Dependency Check or internet access required.
+
+**Interpreting results:** Not every finding is actionable. S001 (SQL injection) has a ~50% false positive rate because it fires on internal string concatenation near SQL keywords. S015 (attack surface entry) is informational only. S010 (dependency CVE) has near-zero false positives and always warrants investigation.
+
 ### Visual Dependency Graphs
 
 ```bash
@@ -574,6 +591,9 @@ synthesis ttl set "*.tmp" --days 1      # Set file expiry rules
 synthesis ttl check --archive           # Move expired files to archive
 synthesis sync                          # Write directory identity files
 synthesis archive audit                 # Audit archive for savings
+synthesis code-graph security               # Security analysis (21 signals)
+synthesis code-graph security --severity HIGH  # HIGH only
+synthesis code-graph security --attack-surface # Entry-to-sink paths
 synthesis enrich                        # Make binary files searchable
 synthesis enrich --path "docs/**"       # Target enrichment to subtree
 synthesis summary --since 7d            # Temporal AI summary
@@ -583,7 +603,7 @@ synthesis credentials status            # Check API key
 
 ---
 
-**Synthesis v1.11.1 -- ~2,500 tests passing -- February 2026**
+**Synthesis v1.15.0 -- 3,933 tests passing -- February 2026**
 
 **Related guides:**
 - [Architecture Guide](./ARCHITECT.md) -- deep dependency analysis

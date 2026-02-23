@@ -411,6 +411,76 @@ The knowledge graph edges (built by `KnowledgeEdgeScanner`, validated by `Knowle
 
 ---
 
+## Security Analysis (CKG-5)
+
+CKG-5 adds static security analysis to the code knowledge graph. 21 signal types covering traditional security surfaces and agentic AI-specific risks.
+
+### Traditional Security Signals (S001-S014)
+
+| Signal | Severity | What it detects |
+|--------|----------|-----------------|
+| S001_SQL_INJECTION | HIGH | String concatenation in SQL context |
+| S002_HARDCODED_SECRET | HIGH | Passwords, keys, tokens in string literals |
+| S003_WEAK_CRYPTO | MEDIUM | MD5, SHA-1 usage |
+| S005_XXE_VULNERABILITY | HIGH | XML parser without FEATURE_SECURE_PROCESSING |
+| S006_PATH_TRAVERSAL | HIGH | Unvalidated path construction from user input |
+| S007_UNSAFE_DESERIALIZATION | HIGH | ObjectInputStream without ObjectInputFilter |
+| S010_DEPENDENCY_KNOWN_VULN | HIGH | CVE match in declared pom.xml dependencies |
+
+### Agentic AI-Specific Signals (S016-S021)
+
+These signals are unique to Synthesis -- no other SAST tool detects them. They target risks specific to AI-powered codebases:
+
+| Signal | Severity | What it detects |
+|--------|----------|-----------------|
+| S016_DIRECT_PROMPT_INJECTION | HIGH | User-controlled params flowing into prompt construction |
+| S017_RAG_POISONING | HIGH | Search results piped into prompts without sanitization |
+| S018_UNCONFIRMED_AGENTIC_ACTION | HIGH | File writes/deletes without dry-run check |
+| S019_UNVALIDATED_AGENTIC_PATH | HIGH | Path from agent params without containment check |
+| S020_TOOL_RESULT_INJECTION | HIGH | Tool result content passed to LLM without boundary |
+| S021_MISSING_PROMPT_BOUNDARIES | HIGH | Prompt templates lacking XML boundary tags |
+
+As AI agents become embedded in development workflows, these signals detect architectural vulnerabilities that traditional SAST tools are blind to. S016-S021 address the trust boundary between human instructions, AI-retrieved content, and agent-generated actions.
+
+### Attack Surface Mapping
+
+```bash
+synthesis code-graph security --attack-surface -d /src/your-workspace
+```
+
+Uses BFS on the persisted dependency graph to trace paths from CLI entry points to security-sensitive sinks (file I/O, SQL, network, AI). Each path shows sink type and hop count. For Synthesis itself, this mapped 1,092 paths from 89 CLI entry points, identifying `AskCommand` as the primary risk entry point (user input -> search results -> AI prompt construction).
+
+### Dependency CVE Scanning
+
+```bash
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN -d /src/cantara
+```
+
+Parses `pom.xml` files and matches declared dependencies against an embedded CVE catalog (Log4Shell, Text4Shell, Spring4Shell, Jackson CVE-2022-42003, Protobuf CVE-2022-3171). No Maven Dependency Check required -- results are instant.
+
+In a portfolio scan (Feb 22, 2026), this found 3 real CVEs across the Cantara workspace: two jackson-databind vulnerabilities and one Text4Shell (which turned out to be a false positive -- the dependency was inside an XML comment block, now handled by an S010 scanner fix in commit 11edd4e).
+
+### Architecture Governance with Security
+
+Extend the CI architecture gate to include security:
+
+```bash
+synthesis code-graph security --severity HIGH --format json > security-report.json
+# Fail build if new HIGH findings appear
+```
+
+Combine with existing structural analysis:
+
+```bash
+synthesis code-graph health --errors-only     # Structural health
+synthesis code-graph gaps --severity HIGH      # Quality gaps
+synthesis code-graph security --severity HIGH  # Security findings
+```
+
+This gives a three-dimensional view of architecture quality: structural integrity, completeness, and security posture.
+
+---
+
 ## Visual Dependency Graphs
 
 ### Graph Types
@@ -470,7 +540,7 @@ For architects evaluating the tool itself:
 | Graph generation | 2.3 sec (58 nodes, 429 edges) |
 | Incremental scan | 156-345 ms (1,000 files) |
 
-**Test coverage:** ~2,500 tests (JUnit 5).
+**Test coverage:** 3,933 tests (JUnit 5).
 
 **Security model:** All processing is local. Core features require no network access. AI features (optional) require explicit opt-in and send only selected content to the Claude API.
 
@@ -504,6 +574,10 @@ synthesis prune --yes                       # Remove empty directories
 synthesis research --topic architecture     # Deep AI analysis
 synthesis research --passes architecture,security,synthesis
 synthesis research --estimate               # Cost preview
+synthesis code-graph security --severity HIGH  # Security findings (HIGH only)
+synthesis code-graph security --attack-surface # Entry-to-sink path map
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN  # CVE scan
+synthesis code-graph security --format json    # Machine-readable output
 synthesis insights                          # Codebase health metrics
 synthesis perspectives "question"           # Multi-angle analysis
 synthesis summary --since 7d               # Temporal AI summary
@@ -511,7 +585,7 @@ synthesis summary --since 7d               # Temporal AI summary
 
 ---
 
-**Synthesis v1.11.1 -- ~2,500 tests passing -- February 2026**
+**Synthesis v1.15.0 -- 3,933 tests passing -- February 2026**
 
 **Related guides:**
 - [Developer Guide](./DEVELOPER.md) -- for your team members

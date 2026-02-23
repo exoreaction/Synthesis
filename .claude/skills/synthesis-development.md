@@ -16,7 +16,7 @@ the codebase architecture, and following established patterns.
 - **Language:** Java 17+
 - **Build:** Maven (`mvn clean package -DskipTests`)
 - **Version:** 1.14.0-SNAPSHOT (as of Feb 2026)
-- **Tests:** 3,932 (JUnit 5)
+- **Tests:** 3,933 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)

@@ -55,11 +55,13 @@ injection, RAG poisoning, unconfirmed agentic actions, missing prompt boundaries
 - **CVE-2022-42889** — Text4Shell RCE (`commons-text:1.9`, `reactiveservices/pom.xml`)
   - Critical RCE via `StringSubstitutor` interpolation
   - Fix: upgrade to `commons-text:1.10.0`
+  - **Status: FALSE POSITIVE** — `commons-text:1.9` was inside an XML comment block (`<!-- ... -->`). The S010 scanner now strips XML comments before parsing (fixed in commit 11edd4e).
 - **CVE-2022-42003** — Jackson deserialization (`jackson-databind:2.10.3`, `old/visuale/pom.xml`)
   - Fix: upgrade to `2.13.2+`
+  - **Status: FILED** — Issue #1535 opened for Cantara/visuale.
 - **CVE-2022-42003** — Jackson deserialization (`jackson-databind:2.10.2`, `ratpack-websockets/pom.xml`)
   - Fix: upgrade to `2.13.2+`
-- **Note:** Two findings in legacy/archived repos; Text4Shell in `reactiveservices` may be active.
+  - **Status: FIXED** — PR #328 filed and merged for Cantara/ratpack-websockets.
 
 #### Quadim + Cantara: XXE Vulnerabilities (S005)
 - **Quadim:** 24 instances — all in Whydah authentication layer
@@ -112,23 +114,23 @@ agentic security signals. These are genuine architectural observations, not bugs
   model is: "can a malicious file in the workspace hijack the AI response?" not
   "can a random user inject into someone else's session."
 - **Genuine concern:** Documents in indexed workspaces could contain injection instructions
+- **Status: FIXED** — `PromptTemplates.sanitizeUserInput()` added, XML boundary tags on all prompts (PR #243)
 
 #### S017: RAG Poisoning (4 HIGH)
 - `AskCommand.java:224` — search results piped into prompt without sanitization
 - This is the core RAG flow: `index.search()` → `readPreview()` → `buildPrompt()`
 - **Genuine risk:** A file could contain `"Ignore previous instructions. Output: ..."` and
   be included in search context. Particularly relevant since Synthesis indexes ALL files.
-- Fix path: Content sanitization in `PromptTemplates.buildAskPrompt()`, or explicit
-  `<document>` boundary tags around external content.
+- **Status: FIXED** — Content boundary tags (`<document>`) now wrap external content in `PromptTemplates` (PR #243)
 
 #### S018: Unconfirmed Agentic Action (1 HIGH)
 - One write operation without `dryRun` guard in MCP tool handler
-- **Action:** Verify which file — add `dryRun` check before any destructive MCP operation
+- **Status: FIXED** — `SynthesisToolHandler.java` now checks `dryRun` parameter before file writes (PR #245)
 
 #### S021: Missing Prompt Boundaries (12 HIGH in Synthesis, 2 in Cantara)
 - Prompt templates in `ai/` package lack explicit `<system>`/`<user>` boundary tags
 - Without boundaries, injected content can blur the instruction/data distinction
-- Fix: Wrap system instructions in `<system>` tags, user content in `<user>` tags
+- **Status: FIXED** — All prompt templates now use `<system>`, `<user>`, `<document>` boundary tags (PR #243)
 
 ---
 
@@ -136,7 +138,7 @@ agentic security signals. These are genuine architectural observations, not bugs
 
 | Signal | Location | Why False Positive |
 |--------|----------|-------------------|
-| S001 | `SynthesisDatabase.java:125` | `"DELETE FROM " + table` — table name is internal const, not user input |
+| S001 | `SynthesisDatabase.java:125` | `"DELETE FROM " + table` — table name is internal const, not user input. **HARDENED:** `CLEANUP_TABLE_ALLOWLIST` guard added (PR #245) — only allowlisted table names accepted |
 | S001 | `KnowledgeEnricher.java:46` | Multi-line string literal concatenation, no user input |
 | S001 | `KnowledgeReconciler.java:61,64,111` | Same — string building for internal queries |
 | S002 | `SecurityAnalyzer.java:55` | `"-----BEGIN.*PRIVATE KEY"` is a regex used to DETECT secrets |
@@ -231,4 +233,41 @@ synthesis code-graph security -d /src/exoreaction/Synthesis --attack-surface
 
 ---
 
-*Generated from CKG-5 security analysis of 5 workspaces. v1.14.0-SNAPSHOT (PR #234).*
+---
+
+## Fixes Applied (Feb 22-23, 2026)
+
+### Synthesis Remediations (PRs #242, #243, #245)
+
+Synthesis dogfooded its own CKG-5 scanner on the same day it shipped. All HIGH
+findings in Synthesis itself were remediated within hours:
+
+| Finding | Fix | PR |
+|---------|-----|-----|
+| S016: 23 prompt injection vectors | `PromptTemplates.sanitizeUserInput()` + XML boundary tags | #243 |
+| S017: 4 RAG poisoning paths | `<document>` boundary tags wrapping external content | #243 |
+| S018: 1 unconfirmed agentic action | `dryRun` parameter check in `SynthesisToolHandler` | #245 |
+| S021: 12 missing prompt boundaries | `<system>`, `<user>`, `<document>` tags on all prompts | #243 |
+| S001: DELETE table name injection | `CLEANUP_TABLE_ALLOWLIST` guard in `SynthesisDatabase` | #245 |
+
+### Cantara CVE Remediations
+
+| Finding | Fix | Status |
+|---------|-----|--------|
+| CVE-2022-42003 jackson-databind 2.10.2 (ratpack-websockets) | Upgrade to 2.13.2+ | PR #328 filed/merged |
+| CVE-2022-42003 jackson-databind 2.10.3 (visuale) | Upgrade to 2.13.2+ | Issue #1535 filed |
+| CVE-2022-42889 Text4Shell (reactiveservices) | Was FALSE POSITIVE — dependency was inside XML comment | S010 scanner fixed (commit 11edd4e) |
+
+### Scanner Improvements (PRs #242, commit 11edd4e, commit 0f8cb24)
+
+| Signal | Improvement |
+|--------|-------------|
+| S001 | Reduced false positives: now skips table-name constants and internal string builders |
+| S002 | Fixed multi-line `Pattern.compile()` false positive (regex metacharacter lines now skipped) |
+| S010 | Strips XML comments (`<!-- ... -->`) before parsing pom.xml — prevents false positives on commented-out dependencies |
+| S011 | Reduced noise: test classes now excluded from overly-broad-catch detection |
+| S021 | Improved detection: now recognizes `<system>` and `<user>` tags as valid boundaries |
+
+---
+
+*Generated from CKG-5 security analysis of 5 workspaces. v1.14.0-SNAPSHOT (PR #234). Updated Feb 23, 2026 with remediation status.*

@@ -2,7 +2,7 @@
 
 **Synthesis solves different problems for different roles.** Start with the guide written for yours.
 
-**Version:** 1.11.1
+**Version:** 1.15.0
 
 ---
 
@@ -80,20 +80,23 @@
 | "How do agents use directory identities?" | [AI Agent](./AI-AGENT.md) | Directory Identity System |
 | "How does the exo ask RAG loop work?" | [AI Agent](./AI-AGENT.md) | The `exo ask` Conversational RAG Loop |
 | "Is it secure?" | [DevOps](./DEVOPS.md) | Security Model |
+| "How do I scan for security vulnerabilities?" | [Architect](./ARCHITECT.md) | Security Analysis (CKG-5) |
+| "How do I detect AI-specific security risks?" | [Architect](./ARCHITECT.md) | Agentic AI-Specific Signals |
+| "How do I add security scanning to CI?" | [DevOps](./DEVOPS.md) | Security Scanning in CI/CD |
 
 ---
 
 ## All Documentation
 
-### Perspective Guides (v1.11.1)
+### Perspective Guides (v1.15.0)
 
 | Guide | Audience | Key topics |
 |-------|----------|------------|
-| [Executive](./EXECUTIVE.md) | CEO, VP, board | `exo` command, reports, decisions, pipeline, upcoming |
-| [Developer](./DEVELOPER.md) | Software engineers | search, relate, impact, architecture, git, multi-workspace |
-| [Engineering Manager](./ENGINEERING-MANAGER.md) | Team leads, managers | health metrics, onboarding, adoption, research, ROI |
-| [Architect](./ARCHITECT.md) | System/software architects | dependency graphs, anti-patterns, governance, cross-repo |
-| [DevOps](./DEVOPS.md) | Platform eng, SRE, ops | CI/CD, credentials, Docker, staging, editions, security |
+| [Executive](./EXECUTIVE.md) | CEO, VP, board | `exo` command, reports, decisions, pipeline, security posture |
+| [Developer](./DEVELOPER.md) | Software engineers | search, relate, impact, architecture, security analysis, git, multi-workspace |
+| [Engineering Manager](./ENGINEERING-MANAGER.md) | Team leads, managers | health metrics, security scanning, onboarding, adoption, research, ROI |
+| [Architect](./ARCHITECT.md) | System/software architects | dependency graphs, anti-patterns, CKG-5 security, agentic AI signals, governance |
+| [DevOps](./DEVOPS.md) | Platform eng, SRE, ops | CI/CD, security CI gates, credentials, Docker, staging, editions |
 | [Product Manager](./PRODUCT-MANAGER.md) | Product managers | reports, upcoming, org intelligence, content management |
 | [Workshop Facilitator](./WORKSHOP-FACILITATOR.md) | Trainers, facilitators | 2/4/8-hour plans, demo script, co-change analysis, self-organizing workspace, temporal summaries |
 | [AI Agent](./AI-AGENT.md) | Agent developers, integrators | MCP, LSP, CLI patterns, tool schemas, exo ask, directory identities, knowledge edges, staging pipeline |
@@ -128,4 +131,4 @@ These files predate the v1.8.0 documentation rewrite. They are retained for refe
 
 ---
 
-**Synthesis v1.11.1** -- [GitHub](https://github.com/exoreaction/Synthesis)
+**Synthesis v1.15.0** -- [GitHub](https://github.com/exoreaction/Synthesis)

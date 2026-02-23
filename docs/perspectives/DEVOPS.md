@@ -589,6 +589,60 @@ Air-gapped editions (`core`, `enterprise`) disable the `ask` and `perspectives` 
 
 ---
 
+## Security Scanning in CI/CD (CKG-5)
+
+CKG-5 security analysis integrates into CI pipelines alongside existing architecture and health checks.
+
+### GitHub Actions: Security Gate
+
+```yaml
+      - name: Security analysis
+        run: |
+          synthesis code-graph extract
+          synthesis code-graph security --severity HIGH --format json > security-report.json
+          high_count=$(cat security-report.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('totalHigh',0))")
+          if [ "$high_count" -gt 0 ]; then
+            echo "HIGH severity security findings detected ($high_count)"
+            synthesis code-graph security --severity HIGH
+            exit 1
+          fi
+
+      - name: Dependency CVE check
+        run: |
+          synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN --format json > cve-report.json
+          # Fail on any known CVE in declared dependencies
+```
+
+### Scheduled Portfolio Scan
+
+For multi-workspace environments, scan all workspaces on a schedule:
+
+```bash
+# Weekly security audit across all workspaces
+for ws in /src/exoreaction /src/cantara /src/quadim; do
+  echo "=== Scanning $ws ==="
+  synthesis code-graph security -d "$ws" --severity HIGH --errors-only
+done
+```
+
+### Security Commands Reference
+
+```bash
+synthesis code-graph security                           # All findings (text)
+synthesis code-graph security --severity HIGH           # HIGH only
+synthesis code-graph security --errors-only             # Alias for --severity HIGH
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN  # CVE scan
+synthesis code-graph security --attack-surface          # Entry-to-sink BFS path map
+synthesis code-graph security --scan-secrets            # Non-Java secret scanning
+synthesis code-graph security --format json             # JSON for CI/automation
+synthesis code-graph security --refresh                 # Force re-analysis
+synthesis code-graph security --module <name>           # Scope to single module
+```
+
+The 21 signals cover traditional vulnerabilities (SQL injection, XXE, deserialization, hardcoded secrets, dependency CVEs) and agentic AI-specific surfaces (prompt injection, RAG poisoning, unconfirmed actions, missing prompt boundaries). Security findings are persisted in SQLite (`security_findings`, `declared_dependencies`, `attack_surface_edges` tables from V15 migration) and automatically updated during `synthesis maintain` Phase 11.
+
+---
+
 ## Performance Tuning
 
 ### Large Codebases (10,000+ files)
@@ -682,6 +736,12 @@ synthesis credentials set KEY value            # Store credential
 synthesis credentials status                   # Check credentials
 synthesis credentials clear KEY                # Remove credential
 
+# Security
+synthesis code-graph security --severity HIGH         # HIGH findings
+synthesis code-graph security --format json           # CI/automation output
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN  # CVE scan
+synthesis code-graph security --attack-surface        # Entry-to-sink paths
+
 # Reports & Architecture
 synthesis architecture --format json           # Machine-readable quality check
 synthesis insights                             # Codebase health report
@@ -698,7 +758,7 @@ synthesis update --health                      # Installation health check
 
 ---
 
-**Version:** v1.11.1 (Feb 2026) | ~2,500 tests passing
+**Version:** v1.15.0 (Feb 2026) | 3,933 tests passing
 
 **Related guides:**
 - [MCP Quick Start](../guides/MCP-QUICKSTART.md) -- AI agent integration

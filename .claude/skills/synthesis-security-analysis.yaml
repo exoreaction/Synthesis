@@ -108,11 +108,16 @@ instructions: |
   | S001 | SQL string building with internal constants | `"DELETE FROM " + tableName` where tableName is an enum/constant, not user input |
   | S002 | Regex patterns used to DETECT secrets | `"-----BEGIN.*PRIVATE KEY"` in a SecurityAnalyzer class |
   | S002 | Test fixture values | `"dummy_test_value"` or `"test123"` in test classes |
+  | S010 | Dependency inside XML comment block | `<!-- <dependency>commons-text 1.9</dependency> -->` — commented-out deps are NOT built |
   | S015 | All CLI entry points | Informational only — listing attack surface, not flagging vulnerabilities |
 
   **S001 false positive rate: ~50%.** The checker fires on any string concatenation near
   SQL keywords regardless of whether user input flows in. Fix path: taint tracking
   (future improvement — filed as potential enhancement).
+
+  **S010 XML comments (fixed in v1.14.0, commit 11edd4e):** `parsePomDependencies()` now
+  strips `<!-- ... -->` blocks before matching dependency tags. Pre-fix: Cantara/reactiveservices
+  `commons-text:1.9` was flagged as Text4Shell RCE (CVE-2022-42889) despite being commented out.
 
   ---
 
@@ -188,10 +193,12 @@ instructions: |
   | Cantara | 836 | 95 | 59 | 679 | 0 | Text4Shell RCE CVE + 21x XXE + 40x SQL |
   | eXOReaction | 560 | 81 | 13 | 367 | 89 | Superset of Synthesis (includes Synthesis code) |
 
-  **Priority fixes:**
-  1. Cantara `reactiveservices/pom.xml` — upgrade `commons-text` to `1.10.0` (Text4Shell RCE)
-  2. Quadim Whydah XML parsers — add `FEATURE_SECURE_PROCESSING` (24 XXE instances)
-  3. Synthesis `AskCommand` — add `<document>` boundary tags around RAG content (S017)
+  **Priority fixes (status Feb 23, 2026):**
+  1. Cantara `reactiveservices/pom.xml` — ~~upgrade `commons-text` to `1.10.0`~~ FALSE POSITIVE (dep was commented out; S010 XML comment fix applied)
+  2. Quadim Whydah XML parsers — add `FEATURE_SECURE_PROCESSING` (24 XXE instances) — open
+  3. Synthesis `AskCommand` — add `<document>` boundary tags around RAG content (S017) — open
+  4. Cantara `ratpack-websockets/pom.xml` — jackson-databind 2.10.2 → 2.13.4.2 ✅ PR #328
+  5. Cantara `visuale/pom.xml` — jackson-databind 2.10.3 → 2.13.4.2 — issue #1535 filed
 
   ---
 

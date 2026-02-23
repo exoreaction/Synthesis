@@ -1,10 +1,9 @@
 # Code Knowledge Graph (CKG) -- Release Notes
 
-**Version:** v1.12.2
-**Date:** February 22, 2026
-**Commits:** 5 (CKG-1 through CKG-4 + skill documentation)
-**Lines changed:** +7,346 / -75 across 40 files
-**Tests added:** 138 new tests (3,704 baseline to 3,842 total)
+**Version:** v1.15.0
+**Date:** February 22-23, 2026
+**Commits:** 10+ (CKG-1 through CKG-5, repo isolation, security remediations, false positive fixes)
+**Tests:** 3,933 total (JUnit 5)
 
 ---
 
@@ -18,15 +17,17 @@ The Code Knowledge Graph (CKG) transforms Synthesis from a file-and-document ind
 
 3. **Quality enforcement.** The system detects health signals (circular dependencies, god packages, unstable core modules, hotspots) and quality gaps (missing tests, missing interfaces, undocumented high-value modules) automatically. Completeness scoring quantifies how far each module is from structural completeness.
 
-CKG was implemented in four phases, each building on the previous:
+CKG was implemented in five phases, each building on the previous:
 
-| Phase | Scope | Tests |
-|-------|-------|-------|
-| CKG-1 | Dependency persistence + extract command | 42 |
-| CKG-2 | Module profiles + health signals | 39 |
-| CKG-3 | Quality gap detection + completeness scoring | 28 |
-| CKG-4 | DAG visualization + layer analysis | 29 |
-| **Total** | | **138** |
+| Phase | Scope | PR |
+|-------|-------|----|
+| CKG-1 | Dependency persistence + extract command | |
+| CKG-2 | Module profiles + health signals | |
+| CKG-3 | Quality gap detection + completeness scoring | |
+| CKG-4 | DAG visualization + layer analysis | |
+| CKG-5 | Security analysis (21 signals, traditional + agentic AI) | #234 |
+| Repo Isolation | Package identity scoped to (workspace, repo, package) | #233 |
+| Remediations | Dogfooding fixes: prompt boundaries, dryRun, DELETE allowlist | #242, #243, #245 |
 
 ---
 
@@ -546,3 +547,132 @@ This ensures the code graph stays current without manual re-extraction.
 ### Test code (13 test classes, 138 tests)
 
 All test classes reside under `src/test/java/io/exoreaction/synthesis/`.
+
+---
+
+## 11. CKG-5: Security Analysis (PR #234)
+
+**Commit:** `857cf86`
+**Issue scope:** CKG-5
+
+### What was built
+
+21-signal static security analysis covering traditional security surfaces and agentic AI-specific risks. This is the first SAST-style capability in Synthesis.
+
+**New classes:**
+- `SecurityAnalyzer` -- core analysis engine, regex-based signal detection across Java source files
+- `SecurityRepository` -- SQLite persistence for findings, dependencies, and attack surface edges
+- `SecuritySignal` -- signal type enum with severity, CWE ID, and description
+- `SecurityAnalysisOptions` -- CLI option container (severity filter, signal type, secrets scanning, etc.)
+- `AttackSurfaceMapper` -- BFS traversal from CLI entry points to security-sensitive sinks
+- `AttackSurfaceEdge` -- edge record (entry, sink, type, hop count, path)
+- `DependencyInventoryExtractor` -- pom.xml parser with embedded CVE catalog matching
+- `DeclaredDependency` -- dependency record (groupId, artifactId, version, scope, pomFile)
+
+**New DB tables (V15 migration):**
+- `security_findings` -- persists analysis results (signal, severity, CWE, file, line, evidence, suggestion)
+- `declared_dependencies` -- parsed pom.xml dependency inventory
+- `attack_surface_edges` -- BFS paths from entry to sink
+
+### Traditional Security Signals (S001-S014)
+
+| Signal | Severity | Detects |
+|--------|----------|---------|
+| S001_SQL_INJECTION | HIGH | String concatenation in SQL context |
+| S002_HARDCODED_SECRET | HIGH | Passwords/keys/tokens in string literals |
+| S003_WEAK_CRYPTO | MEDIUM | MD5, SHA-1 usage |
+| S004_INSECURE_RANDOM | MEDIUM | java.util.Random in security context |
+| S005_XXE_VULNERABILITY | HIGH | XML parser without FEATURE_SECURE_PROCESSING |
+| S006_PATH_TRAVERSAL | HIGH | Unvalidated path construction from user input |
+| S007_UNSAFE_DESERIALIZATION | HIGH | ObjectInputStream without ObjectInputFilter |
+| S008_SSRF | HIGH | User-controlled HTTP requests |
+| S009_EXPOSED_INTERNAL | MEDIUM | Internal API exposed via public endpoint |
+| S010_DEPENDENCY_KNOWN_VULN | HIGH | CVE match in declared pom.xml dependencies |
+| S011_OVERLY_BROAD_CATCH | LOW | catch(Exception e) or catch(Throwable t) |
+| S012_OPEN_REDIRECT | HIGH | User-controlled redirect URL |
+| S013_TEMP_FILE_RACE | LOW | java.io.File.createTempFile without secure flag |
+| S014_LOG_INJECTION | MEDIUM | User input in log statements without sanitization |
+
+### Agentic AI-Specific Signals (S016-S021)
+
+These are unique to Synthesis -- no other SAST tool detects them:
+
+| Signal | Severity | Detects |
+|--------|----------|---------|
+| S015_ATTACK_SURFACE_ENTRY | INFO | CLI command entry points (inventory) |
+| S016_DIRECT_PROMPT_INJECTION | HIGH | User params flowing into prompt construction |
+| S017_RAG_POISONING | HIGH | Search results piped into prompts without sanitization |
+| S018_UNCONFIRMED_AGENTIC_ACTION | HIGH | File writes/deletes without dryRun check |
+| S019_UNVALIDATED_AGENTIC_PATH | HIGH | Path from agent params without containment check |
+| S020_TOOL_RESULT_INJECTION | HIGH | Tool result content passed to LLM without boundary |
+| S021_MISSING_PROMPT_BOUNDARIES | HIGH | Prompt templates lacking XML boundary tags |
+
+### Embedded CVE Catalog
+
+`DependencyInventoryExtractor` matches declared dependencies against:
+- Log4Shell (CVE-2021-44228): log4j-core < 2.17.1
+- Text4Shell (CVE-2022-42889): commons-text < 1.10.0
+- Jackson (CVE-2022-42003): jackson-databind < 2.13.2
+- Spring4Shell (CVE-2022-22965)
+- Spring Security (CVE-2022-22978)
+- Protobuf (CVE-2022-3171)
+
+### Attack Surface Map
+
+`--attack-surface` uses BFS on `code_dependencies` to trace paths from CLI entry points
+(S015-tagged) to security-sensitive sinks. Each edge records sink type (file-io, sql,
+network, ai) and hop count. Synthesis self-scan: 1,092 paths from 89 CLI entry points.
+
+### Portfolio scan results (Feb 22, 2026)
+
+| Workspace | Files | Findings | HIGH | Key |
+|-----------|------:|------:|---:|-----|
+| Synthesis | 501 | 253 | 47 | 23 prompt injection, 12 missing boundaries, 4 RAG poisoning |
+| Elprint | 1,194 | 378 | 118 | 92 SQL injection (legacy), 26 hardcoded secrets |
+| Quadim | 2,771 | 857 | 36 | 24 XXE in Whydah auth XML parsers |
+| Cantara | 4,273 | 836 | 95 | 3 CVEs (Text4Shell + 2x Jackson) |
+| eXOReaction | 3,057 | 560 | 81 | Mix (includes Synthesis agentic signals) |
+
+---
+
+## 12. Repo Isolation (PR #233, V14 Migration)
+
+**Commit:** `4f8a489`
+
+Package identity changed from `(workspace_path, package_name)` to
+`(workspace_path, repo_name, package_name)`.
+
+**The problem:** In multi-repo workspaces (e.g., Quadim with 38 repos), packages
+from different repos sharing the same namespace (e.g., `com.quadim.api`) were
+merged into a single module profile. This produced 87% false-positive circular
+dependencies in Quadim.
+
+**The fix:** `repo_name` = first path component relative to workspace root. Single-repo
+workspaces use `repo_name = ""` and are unaffected. Multi-repo workspaces MUST re-extract
+after upgrading past V14.
+
+**Results post-V14 re-extraction:**
+- Quadim cycles: 47 -> 82 (increase: previously hidden real cycles now visible)
+- Cantara cycles: 128 -> 156 (same reason)
+- Elprint cycles: 22 -> 17 (5 false positives removed)
+
+---
+
+## 13. Security Remediations (PRs #242, #243, #245)
+
+Synthesis dogfooded CKG-5 on itself and fixed all HIGH findings the same day:
+
+| Finding | Fix | File |
+|---------|-----|------|
+| S016: 23 prompt injection vectors | `sanitizeUserInput()` + XML boundary tags | `PromptTemplates.java` |
+| S017: 4 RAG poisoning paths | `<document>` boundary tags on external content | `PromptTemplates.java` |
+| S018: 1 unconfirmed agentic action | `dryRun` parameter check | `SynthesisToolHandler.java` |
+| S021: 12 missing prompt boundaries | `<system>`, `<user>`, `<document>` tags | `PromptTemplates.java` |
+| S001: DELETE table name injection | `CLEANUP_TABLE_ALLOWLIST` guard | `SynthesisDatabase.java` |
+
+Scanner improvements (reduced false positives):
+- S001: Skip table-name constants and internal string builders
+- S002: Skip regex metacharacter lines, fix multi-line `Pattern.compile()` FP (commit 0f8cb24)
+- S010: Strip XML comments before pom.xml parsing (commit 11edd4e)
+- S011: Exclude test classes from overly-broad-catch detection
+- S021: Recognize `<system>` and `<user>` tags as valid boundaries

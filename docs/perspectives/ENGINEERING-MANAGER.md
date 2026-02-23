@@ -113,6 +113,35 @@ synthesis impact src/core/AuthService.java    # Co-change analysis
 
 Before approving changes, understand the blast radius. Shows which files tend to change together, helping you assess risk before merging.
 
+### 9. Security Analysis (CKG-5)
+
+```bash
+synthesis code-graph security -d /src/your-workspace              # All findings
+synthesis code-graph security -d /src/your-workspace --severity HIGH  # HIGH only
+synthesis code-graph security --type S010_DEPENDENCY_KNOWN_VULN   # CVE scan
+synthesis code-graph security --attack-surface                    # Entry-to-sink paths
+synthesis code-graph security --format json                       # For dashboards
+```
+
+Static security analysis across your entire portfolio. 21 signal types covering traditional vulnerabilities (SQL injection, XXE, hardcoded secrets, dependency CVEs) and agentic AI-specific surfaces (prompt injection, RAG poisoning, unconfirmed agentic actions, missing prompt boundaries).
+
+**What makes this different from traditional SAST:**
+- Runs across all repos in a workspace simultaneously -- portfolio-wide security posture in minutes
+- Dependency CVE scanning from pom.xml without running Maven Dependency Check
+- Agentic AI signals (S016-S021) detect risks specific to AI-powered tools -- no other SAST has these
+- Attack surface mapping traces BFS paths from CLI entry points to security-sensitive sinks
+
+**Portfolio scan results (Feb 22, 2026):**
+
+| Workspace | Files | HIGH findings | Key results |
+|-----------|------:|-----:|-------------|
+| Synthesis | 501 | 47 | 23 prompt injection, 4 RAG poisoning -- all fixed same day |
+| Elprint | 1,194 | 118 | 92 SQL injection (legacy service layer) |
+| Quadim | 2,771 | 36 | 24 XXE in Whydah auth XML parsers |
+| Cantara | 4,273 | 95 | 3 real CVEs found (jackson-databind, Text4Shell) |
+
+**Manager value:** Run `synthesis code-graph security --severity HIGH --format json` weekly. Track HIGH finding count over time as an engineering quality metric alongside test coverage and health score.
+
 ---
 
 ## Automated Housekeeping
@@ -447,6 +476,8 @@ synthesis health                            # Workspace health score (0-100)
 synthesis metrics                           # Performance statistics
 synthesis cross-repo-deps                   # Cross-repo dependency map
 synthesis graph --modules                   # Architecture overview
+synthesis code-graph security --severity HIGH  # Security findings (HIGH only)
+synthesis code-graph security --format json    # Security for dashboards/CI
 
 # Temporal Intelligence
 synthesis summary --since 7d               # AI summary of last week
@@ -480,7 +511,7 @@ synthesis org                               # Organization registry
 
 ---
 
-**Version:** v1.11.1 (Feb 2026) | ~2,500 tests passing
+**Version:** v1.15.0 (Feb 2026) | 3,933 tests passing
 
 **Related guides:**
 - [Developer Guide](./DEVELOPER.md) -- for your team members
