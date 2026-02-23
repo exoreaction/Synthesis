@@ -108,6 +108,34 @@ class DependencyInventoryExtractorTest {
         assertTrue(deps.isEmpty());
     }
 
+    @Test
+    void parsePomDependencies_skips_commented_out_dependencies() {
+        String pom = """
+                <project>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.apache.commons</groupId>
+                            <artifactId>commons-text</artifactId>
+                            <version>1.9</version>
+                        </dependency>
+                        <!--
+                        <dependency>
+                            <groupId>com.example</groupId>
+                            <artifactId>commented-out-lib</artifactId>
+                            <version>9.9.9</version>
+                        </dependency>
+                        -->
+                    </dependencies>
+                </project>
+                """;
+
+        List<DeclaredDependency> deps = extractor.parsePomDependencies(pom, "pom.xml");
+        assertEquals(1, deps.size(), "Only the active dependency should be returned");
+        assertEquals("commons-text", deps.get(0).artifactId());
+        assertTrue(deps.stream().noneMatch(d -> d.artifactId().equals("commented-out-lib")),
+                "Commented-out dependencies must not be extracted");
+    }
+
     // -----------------------------------------------------------------------
     // Known vulnerabilities catalog
     // -----------------------------------------------------------------------

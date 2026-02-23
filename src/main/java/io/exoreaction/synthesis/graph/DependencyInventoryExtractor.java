@@ -113,7 +113,9 @@ public class DependencyInventoryExtractor {
      */
     List<DeclaredDependency> parsePomDependencies(String content, String buildFile) {
         List<DeclaredDependency> deps = new ArrayList<>();
-        Matcher blockMatcher = DEPENDENCY_BLOCK.matcher(content);
+        // Strip XML comments so commented-out dependencies are not flagged as vulnerabilities
+        String cleaned = content.replaceAll("(?s)<!--.*?-->", "");
+        Matcher blockMatcher = DEPENDENCY_BLOCK.matcher(cleaned);
 
         while (blockMatcher.find()) {
             String block = blockMatcher.group(1);
