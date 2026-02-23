@@ -427,6 +427,61 @@ class MaintainOrchestratorTest {
     }
 
     // =========================================================================
+    // Phase 11: Security output format
+    // =========================================================================
+
+    @Test
+    void security_phase_produces_severity_breakdown_or_no_findings() throws Exception {
+        Path root = createMinimalWorkspace();
+        SynthesisConfig config = loadConfig(root);
+
+        MaintainOrchestrator orchestrator =
+                new MaintainOrchestrator(root, MaintainOptions.defaults(), config);
+        MaintainResult result = orchestrator.run();
+
+        PhaseResult security = result.phases().get(10);
+        assertEquals("Security", security.name());
+        assertTrue(security.succeeded(),
+                "Security phase should succeed: " + security.error());
+
+        // On a minimal workspace with no Java files, security is skipped
+        // On a workspace with Java files, it should show severity counts or "no findings"
+        String summary = security.summary();
+        assertTrue(
+                summary.contains("no findings")
+                        || summary.contains("no code files")
+                        || summary.contains("HIGH")
+                        || summary.contains("files scanned"),
+                "Security summary should show counts or 'no findings', got: " + summary);
+    }
+
+    @Test
+    void security_phase_with_java_files_shows_files_scanned() throws Exception {
+        Path root = createMinimalWorkspace();
+        // Add a Java file so security analysis actually runs
+        Path srcDir = Files.createDirectories(root.resolve("src"));
+        Files.writeString(srcDir.resolve("Main.java"),
+                "package test;\npublic class Main {\n    public static void main(String[] args) {}\n}\n");
+
+        SynthesisConfig config = loadConfig(root);
+
+        MaintainOrchestrator orchestrator =
+                new MaintainOrchestrator(root, MaintainOptions.defaults(), config);
+        MaintainResult result = orchestrator.run();
+
+        PhaseResult security = result.phases().get(10);
+        assertEquals("Security", security.name());
+        assertTrue(security.succeeded(),
+                "Security phase should succeed: " + security.error());
+
+        String summary = security.summary();
+        // Should either show "no findings" or severity counts with files scanned
+        assertTrue(
+                summary.contains("no findings") || summary.contains("files scanned"),
+                "Security summary should mention 'no findings' or 'files scanned', got: " + summary);
+    }
+
+    // =========================================================================
     // MaintainResult aggregate methods
     // =========================================================================
 

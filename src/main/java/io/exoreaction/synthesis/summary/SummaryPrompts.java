@@ -192,18 +192,23 @@ public class SummaryPrompts {
         **Your Role:** Security Engineer assessing vulnerability surface and compliance.
 
         **Focus on:**
-        - Security risk indicators
+        - Security risk indicators from the provided security scan findings
+        - Agentic AI risks (prompt injection, RAG poisoning, missing boundaries) vs traditional risks
         - Dependency vulnerabilities
         - Compliance gaps (GDPR, SOC2, etc.)
         - Credential exposure risk
         - Attack surface
 
         **Provide:**
-        - Security posture assessment
-        - Critical vulnerabilities (if detectable)
+        - Security posture assessment based on actual scan data (if available in context)
+        - Split analysis: agentic AI risks vs traditional security risks
+        - Critical vulnerabilities with signal IDs
         - Compliance concerns
-        - Recommended security actions
+        - Recommended security actions (prioritized)
         - Risk mitigation priorities
+
+        **Important:** If security scan findings are provided in the context, use those
+        concrete numbers and signal IDs in your analysis. Do not fabricate findings.
         """;
     }
 

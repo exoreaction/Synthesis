@@ -1,5 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
+import io.exoreaction.synthesis.summary.SummaryLevel;
+import io.exoreaction.synthesis.summary.SummaryPerspective;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -84,6 +86,28 @@ class SummaryCommandTest {
     void parseSince_unknownUnit_returnsNull() {
         assertNull(cmd.parseSince("5x"), "Should return null for unknown unit");
         assertNull(cmd.parseSince("5y"), "Should return null for unsupported unit");
+    }
+
+    // --- Security perspective uses correct enum ---
+
+    @Test
+    void security_perspective_resolves_to_SECURITY() {
+        SummaryPerspective perspective = SummaryPerspective.fromString("security");
+        assertEquals(SummaryPerspective.SECURITY, perspective);
+    }
+
+    @Test
+    void security_perspective_cli_value_is_stable() {
+        assertEquals("security", SummaryPerspective.SECURITY.cliValue());
+        assertEquals("Vulnerability surface, credential exposure, compliance",
+                SummaryPerspective.SECURITY.description());
+    }
+
+    @Test
+    void executive_level_resolves_correctly() {
+        assertEquals(SummaryLevel.EXECUTIVE, SummaryLevel.fromString("executive"));
+        assertEquals(SummaryLevel.MANAGER, SummaryLevel.fromString("manager"));
+        assertEquals(SummaryLevel.DEVELOPER, SummaryLevel.fromString("developer"));
     }
 
     // --- parseSince delegates to ChangedCommand ---

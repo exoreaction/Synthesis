@@ -124,6 +124,94 @@ public class SecurityRepository {
         }
     }
 
+    /**
+     * Counts non-suppressed findings grouped by severity for a workspace.
+     *
+     * @return a map from severity (HIGH, MEDIUM, LOW, INFO) to count
+     */
+    public java.util.Map<String, Integer> countFindingsBySeverity(Connection conn,
+                                                                    String workspacePath) throws SQLException {
+        String sql = """
+            SELECT severity, COUNT(*) AS cnt
+            FROM security_findings
+            WHERE workspace_path = ? AND suppressed = 0
+            GROUP BY severity
+            """;
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    counts.put(rs.getString("severity"), rs.getInt("cnt"));
+                }
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * Counts non-suppressed findings grouped by flow type for a workspace.
+     * Agentic flow types include "agentic"; all other values are classified as traditional.
+     *
+     * @return a map from flow type to count (keys: actual flow_type values from DB)
+     */
+    public java.util.Map<String, Integer> countFindingsByFlowType(Connection conn,
+                                                                    String workspacePath) throws SQLException {
+        String sql = """
+            SELECT COALESCE(flow_type, 'unknown') AS ft, COUNT(*) AS cnt
+            FROM security_findings
+            WHERE workspace_path = ? AND suppressed = 0
+            GROUP BY ft
+            """;
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    counts.put(rs.getString("ft"), rs.getInt("cnt"));
+                }
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * Returns the top N signals by finding count for a workspace, ordered by count descending.
+     *
+     * @return list of signal summaries (signalId, count, flowType)
+     */
+    public List<SignalSummary> getTopSignals(Connection conn, String workspacePath,
+                                              int limit) throws SQLException {
+        String sql = """
+            SELECT signal_id, COUNT(*) AS cnt,
+                   MAX(flow_type) AS flow_type
+            FROM security_findings
+            WHERE workspace_path = ? AND suppressed = 0
+            GROUP BY signal_id
+            ORDER BY cnt DESC
+            LIMIT ?
+            """;
+        List<SignalSummary> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new SignalSummary(
+                            rs.getString("signal_id"),
+                            rs.getInt("cnt"),
+                            rs.getString("flow_type")));
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Summary of a single signal across all findings.
+     */
+    public record SignalSummary(String signalId, int count, String flowType) {}
+
     // -----------------------------------------------------------------------
     // declared_dependencies
     // -----------------------------------------------------------------------

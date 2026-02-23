@@ -224,6 +224,17 @@ public class ReportPrompts {
 
     /**
      * Generates the executive synthesis prompt that combines all analysis passes.
+     * Overload without security section for backward compatibility.
+     */
+    public static String executivePass(List<ReportDocument> allDocs, ReportTarget target,
+                                        String pipelineContent, String activitiesContent,
+                                        String decisionsContent, String period) {
+        return executivePass(allDocs, target, pipelineContent, activitiesContent,
+                decisionsContent, period, null);
+    }
+
+    /**
+     * Generates the executive synthesis prompt that combines all analysis passes.
      *
      * @param allDocs            all discovered documents
      * @param target             the report target audience
@@ -231,11 +242,13 @@ public class ReportPrompts {
      * @param activitiesContent  output from activities pass (may be null)
      * @param decisionsContent   output from decisions pass (may be null)
      * @param period             the coverage period description
+     * @param securitySection    markdown security posture section (may be null)
      * @return the prompt string
      */
     public static String executivePass(List<ReportDocument> allDocs, ReportTarget target,
                                         String pipelineContent, String activitiesContent,
-                                        String decisionsContent, String period) {
+                                        String decisionsContent, String period,
+                                        String securitySection) {
         String docContent = formatDocuments(allDocs);
 
         StringBuilder previousAnalysis = new StringBuilder();
@@ -248,8 +261,23 @@ public class ReportPrompts {
         if (decisionsContent != null && !decisionsContent.isBlank()) {
             previousAnalysis.append("=== DECISIONS ANALYSIS ===\n").append(decisionsContent).append("\n\n");
         }
+        if (securitySection != null && !securitySection.isBlank()) {
+            previousAnalysis.append("=== SECURITY POSTURE (automated scan) ===\n")
+                    .append(securitySection).append("\n\n");
+        }
 
         String targetInstructions = getTargetInstructions(target);
+
+        String securityInstruction = securitySection != null && !securitySection.isBlank()
+                ? """
+
+                7.5. **Security Posture** (include if security data is provided above)
+                   - Include the automated security scan results
+                   - Split into agentic AI risks vs traditional risks
+                   - Keep it executive-friendly: counts and categories, not file paths
+                   - Note that this is continuously updated by Synthesis on every maintain run
+                """
+                : "";
 
         return """
                 <system>
@@ -305,12 +333,12 @@ public class ReportPrompts {
                    - This week: immediate actions
                    - Next two weeks: planned activities
                    - This quarter: strategic objectives
-
+                %s
                 Format as polished markdown. The report should be scannable in 5-7 minutes.
                 Use bold for key numbers and outcomes. Use bullet points, not paragraphs.
                 %s
                 </system>""".formatted(period, target.displayName(), previousAnalysis.toString(),
-                docContent, targetInstructions, CONSISTENCY_RULES);
+                docContent, targetInstructions, securityInstruction, CONSISTENCY_RULES);
     }
 
     /**

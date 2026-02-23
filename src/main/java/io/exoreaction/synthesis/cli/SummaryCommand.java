@@ -9,6 +9,7 @@ import io.exoreaction.synthesis.changelog.ChangeEvent;
 import io.exoreaction.synthesis.changelog.ChangeReportGenerator;
 import io.exoreaction.synthesis.changelog.SnapshotManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.SecurityPosture;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.summary.*;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -113,9 +114,11 @@ public class SummaryCommand implements Callable<Integer> {
             // Phase 3: Check cache (if enabled)
             // Bypass cache when --since is provided: temporal context is dynamic
             // and must always reflect the current change window.
+            // Also bypass cache for security perspective: findings change on each maintain run.
             String indexFingerprint = SummaryCache.generateIndexFingerprint(workspace.getIndexPath());
             SummaryResult result = null;
-            boolean useCache = !noCache && (since == null || since.isBlank());
+            boolean useCache = !noCache && (since == null || since.isBlank())
+                    && summaryPerspective != SummaryPerspective.SECURITY;
 
             if (useCache) {
                 try {
@@ -167,6 +170,35 @@ public class SummaryCommand implements Callable<Integer> {
                             temporalContext = "Changes since " + since +
                                     " (changelog not available — run 'synthesis maintain' first)";
                         }
+                    }
+                }
+
+                // Security posture: query DB findings for security perspective or executive level
+                SecurityPosture securityPosture = SecurityPosture.empty();
+                if (summaryPerspective == SummaryPerspective.SECURITY
+                        || summaryLevel == SummaryLevel.EXECUTIVE) {
+                    try {
+                        SynthesisDatabase secDb = SynthesisDatabase.getDefault();
+                        Connection secConn = secDb.getConnection();
+                        securityPosture = SecurityPosture.query(secConn, workspaceRoot.toString());
+                    } catch (Exception e) {
+                        // Graceful degradation: security data unavailable
+                    }
+                }
+
+                // Inject security context into temporal context for AI prompt
+                if (!securityPosture.noData()) {
+                    String secLevel = switch (summaryLevel) {
+                        case EXECUTIVE -> "executive";
+                        case MANAGER -> "manager";
+                        case DEVELOPER -> "developer";
+                    };
+                    String securityContext = "\n\n**Security Findings (from Synthesis CKG-5 scan):**\n"
+                            + securityPosture.format(secLevel);
+                    if (temporalContext != null) {
+                        temporalContext = temporalContext + securityContext;
+                    } else {
+                        temporalContext = securityContext;
                     }
                 }
 

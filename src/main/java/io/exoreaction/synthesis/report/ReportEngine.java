@@ -1,9 +1,12 @@
 package io.exoreaction.synthesis.report;
 
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.SecurityPosture;
 import io.exoreaction.synthesis.research.ResearchPassResult;
 
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -177,13 +180,26 @@ public class ReportEngine {
                 totalTokens += ResearchPassResult.estimateTokens(decisionsContent);
                 if (verbose) System.err.println(" done");
 
+                // Query security posture for executive/weekly reports
+                String securitySection = null;
+                try {
+                    SynthesisDatabase secDb = SynthesisDatabase.getDefault();
+                    Connection secConn = secDb.getConnection();
+                    SecurityPosture posture = SecurityPosture.query(secConn, workspaceRoot.toString());
+                    if (!posture.noData() && posture.totalCount() > 0) {
+                        securitySection = posture.formatMarkdown();
+                    }
+                } catch (Exception e) {
+                    // Security data unavailable -- not critical for report generation
+                }
+
                 // Pass 4: Executive synthesis
                 if (verbose) System.err.print("  Running executive synthesis...");
                 int synthesisTokens = Math.min(maxTokensPerPass * 2, 16000);
                 reportContent = client.generate(
                         ReportPrompts.executivePass(documents, target,
                                 pipelineContent, activitiesContent, decisionsContent,
-                                periodDescription),
+                                periodDescription, securitySection),
                         synthesisTokens);
                 totalTokens += ResearchPassResult.estimateTokens(reportContent);
                 if (verbose) System.err.println(" done");
@@ -368,7 +384,7 @@ public class ReportEngine {
                 String p4 = ReportPrompts.executivePass(
                         documents, target,
                         "(pipeline output)", "(activities output)", "(decisions output)",
-                        periodDisplay);
+                        periodDisplay, "(security posture)");
                 estimatedInputTokens = (p1.length() + p2.length() + p3.length() + p4.length()) / 4;
                 // Synthesis pass also receives previous pass outputs as input
                 estimatedInputTokens += maxTokensPerPass * 3;

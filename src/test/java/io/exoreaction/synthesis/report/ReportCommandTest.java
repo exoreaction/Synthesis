@@ -1,6 +1,16 @@
 package io.exoreaction.synthesis.report;
 
+import io.exoreaction.synthesis.graph.SecurityPosture;
+import io.exoreaction.synthesis.graph.SecurityRepository;
+import io.exoreaction.synthesis.graph.SecuritySignal;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,5 +95,65 @@ class ReportCommandTest {
         assertEquals("ceo", ReportTarget.CEO.cliValue());
         assertEquals("board", ReportTarget.BOARD.cliValue());
         assertEquals("investor", ReportTarget.INVESTOR.cliValue());
+    }
+
+    // --- Security posture in executive report ---
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void executiveReport_securitySection_includedInPrompt() {
+        // Verify that the executivePass prompt includes security section when provided
+        String securitySection = "## Security Posture\n| HIGH | 5 |\n| MEDIUM | 3 |";
+        List<ReportDocument> docs = List.of();
+
+        String prompt = ReportPrompts.executivePass(docs, ReportTarget.CEO,
+                "(pipeline)", "(activities)", "(decisions)", "1w", securitySection);
+
+        assertTrue(prompt.contains("SECURITY POSTURE"),
+                "Executive pass prompt should include security section header");
+        assertTrue(prompt.contains("Security Posture"),
+                "Executive pass prompt should include the security section content");
+        assertTrue(prompt.contains("HIGH | 5"),
+                "Executive pass prompt should include the actual findings data");
+    }
+
+    @Test
+    void executiveReport_noSecuritySection_whenNull() {
+        List<ReportDocument> docs = List.of();
+
+        String prompt = ReportPrompts.executivePass(docs, ReportTarget.CEO,
+                "(pipeline)", "(activities)", "(decisions)", "1w", null);
+
+        assertFalse(prompt.contains("SECURITY POSTURE"),
+                "Executive pass prompt should NOT include security header when null");
+    }
+
+    @Test
+    void executiveReport_securityPosture_queryAndFormat() throws Exception {
+        SynthesisDatabase db = new SynthesisDatabase(tempDir.resolve("report-test.db"));
+        Connection conn = db.getConnection();
+        SecurityRepository repo = new SecurityRepository();
+        long now = Instant.now().getEpochSecond();
+
+        // Insert test findings
+        repo.upsertFinding(conn, "/test/ws", new SecuritySignal(
+                "S001_SQL_INJECTION", "HIGH", "CWE-89",
+                "src/Dao.java", 42, "Dao", "com.test",
+                "SQL concat", null, "Use PreparedStatement", "direct"), now);
+        repo.upsertFinding(conn, "/test/ws", new SecuritySignal(
+                "S016_DIRECT_PROMPT_INJECTION", "HIGH", null,
+                "src/Agent.java", 10, "Agent", "com.test",
+                "Prompt injection", null, "Add boundary", "agentic"), now);
+
+        SecurityPosture posture = SecurityPosture.query(conn, "/test/ws");
+        String md = posture.formatMarkdown();
+
+        assertTrue(md.contains("## Security Posture"));
+        assertTrue(md.contains("| HIGH"));
+        assertTrue(md.contains("Agentic AI risks"));
+
+        db.close();
     }
 }

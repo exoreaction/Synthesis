@@ -1081,10 +1081,32 @@ public class MaintainOrchestrator {
         SecurityAnalysisOptions secOpts = SecurityAnalysisOptions.defaults();
         List<SecuritySignal> signals = analyzer.analyze(workspaceRoot, conn, secOpts);
 
-        int highCount = (int) signals.stream()
-                .filter(s -> "HIGH".equals(s.severity())).count();
-        int medCount = (int) signals.stream()
-                .filter(s -> "MEDIUM".equals(s.severity())).count();
+        // Query persisted findings by severity for the summary line
+        SecurityRepository secRepo = new SecurityRepository();
+        Map<String, Integer> severityCounts;
+        try {
+            severityCounts = secRepo.countFindingsBySeverity(conn, workspaceRoot.toString());
+        } catch (Exception e) {
+            // Graceful fallback: count from in-memory signals if DB query fails
+            severityCounts = new java.util.LinkedHashMap<>();
+            for (SecuritySignal s : signals) {
+                severityCounts.merge(s.severity(), 1, Integer::sum);
+            }
+        }
+
+        int highCount = severityCounts.getOrDefault("HIGH", 0);
+        int medCount = severityCounts.getOrDefault("MEDIUM", 0);
+        int lowCount = severityCounts.getOrDefault("LOW", 0);
+
+        // Count files scanned (Java files in workspace)
+        long filesScanned;
+        try (java.util.stream.Stream<java.nio.file.Path> walk = java.nio.file.Files.walk(workspaceRoot, 10)) {
+            filesScanned = walk
+                    .filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(p -> !p.toString().contains("/."))
+                    .count();
+        }
 
         List<String> details = new ArrayList<>();
         if (options.verbose()) {
@@ -1093,11 +1115,16 @@ public class MaintainOrchestrator {
             }
         }
 
-        String summary = signals.size() + " finding(s)";
-        if (highCount > 0) {
-            summary += " (" + highCount + " HIGH";
-            if (medCount > 0) summary += ", " + medCount + " MEDIUM";
-            summary += ")";
+        String summary;
+        if (highCount == 0 && medCount == 0 && lowCount == 0) {
+            summary = "no findings";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append(highCount).append(" HIGH");
+            sb.append(" \u00b7 ").append(medCount).append(" MEDIUM");
+            sb.append(" \u00b7 ").append(lowCount).append(" LOW");
+            sb.append(" (").append(String.format("%,d", filesScanned)).append(" files scanned)");
+            summary = sb.toString();
         }
 
         return PhaseResult.success(11, "Security", signals.size(), summary, details);
