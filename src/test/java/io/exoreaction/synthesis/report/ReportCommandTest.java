@@ -1,5 +1,6 @@
 package io.exoreaction.synthesis.report;
 
+import io.exoreaction.synthesis.cli.ReportCommand;
 import io.exoreaction.synthesis.graph.SecurityPosture;
 import io.exoreaction.synthesis.graph.SecurityRepository;
 import io.exoreaction.synthesis.graph.SecuritySignal;
@@ -95,6 +96,74 @@ class ReportCommandTest {
         assertEquals("ceo", ReportTarget.CEO.cliValue());
         assertEquals("board", ReportTarget.BOARD.cliValue());
         assertEquals("investor", ReportTarget.INVESTOR.cliValue());
+    }
+
+    // --- Dynamic period formatting (#250) ---
+
+    @Test
+    void reportRenderer_formatPeriod_handlesDynamicDayPeriods() {
+        assertEquals("Last 5 days", ReportRenderer.formatPeriod("5d"));
+        assertEquals("Last 1 day", ReportRenderer.formatPeriod("1d"));
+        assertEquals("Last 12 days", ReportRenderer.formatPeriod("12d"));
+        assertEquals("Last 30 days", ReportRenderer.formatPeriod("30d"));
+    }
+
+    @Test
+    void reportRenderer_periodToDescription_handlesDynamicDayPeriods() {
+        assertEquals("the last 5 days", ReportRenderer.periodToDescription("5d"));
+        assertEquals("the last 1 day", ReportRenderer.periodToDescription("1d"));
+        assertEquals("the last 12 days", ReportRenderer.periodToDescription("12d"));
+    }
+
+    @Test
+    void reportRenderer_formatPeriod_handlesNull() {
+        assertEquals("Last 7 days", ReportRenderer.formatPeriod(null));
+    }
+
+    // --- ReportCommand.periodToDays() (#250) ---
+
+    @Test
+    void periodToDays_standardPeriods() {
+        assertEquals(7, ReportCommand.periodToDays("1w"));
+        assertEquals(14, ReportCommand.periodToDays("2w"));
+        assertEquals(30, ReportCommand.periodToDays("1m"));
+    }
+
+    @Test
+    void periodToDays_dynamicDayPeriods() {
+        assertEquals(5, ReportCommand.periodToDays("5d"));
+        assertEquals(1, ReportCommand.periodToDays("1d"));
+        assertEquals(12, ReportCommand.periodToDays("12d"));
+        assertEquals(90, ReportCommand.periodToDays("90d"));
+    }
+
+    @Test
+    void periodToDays_nullDefaultsToSeven() {
+        assertEquals(7, ReportCommand.periodToDays(null));
+    }
+
+    @Test
+    void periodToDays_unknownDefaultsToSeven() {
+        assertEquals(7, ReportCommand.periodToDays("xyz"));
+    }
+
+    // --- BusinessDocumentFinder.parsePeriodCutoff with dynamic periods (#250) ---
+
+    @Test
+    void parsePeriodCutoff_handlesDynamicDayPeriods() {
+        Instant cutoff5d = BusinessDocumentFinder.parsePeriodCutoff("5d");
+        Instant cutoff1w = BusinessDocumentFinder.parsePeriodCutoff("1w");
+        Instant cutoff14d = BusinessDocumentFinder.parsePeriodCutoff("14d");
+        Instant cutoff2w = BusinessDocumentFinder.parsePeriodCutoff("2w");
+
+        // 5d cutoff should be more recent than 1w cutoff
+        assertTrue(cutoff5d.isAfter(cutoff1w),
+                "5d cutoff should be more recent than 1w cutoff");
+
+        // 14d and 2w should be approximately equal (both 14 days)
+        long diffMillis = Math.abs(cutoff14d.toEpochMilli() - cutoff2w.toEpochMilli());
+        assertTrue(diffMillis < 86_400_000,
+                "14d and 2w cutoffs should be within 1 day of each other");
     }
 
     // --- Security posture in executive report ---

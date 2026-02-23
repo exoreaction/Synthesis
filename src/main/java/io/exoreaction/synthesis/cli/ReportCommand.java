@@ -16,7 +16,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +48,9 @@ import java.util.concurrent.Callable;
  *   synthesis report --target board                     # Board format
  *   synthesis report --target investor                  # Investor format
  *   synthesis report --output report.md                 # Save to file
- *   synthesis report --period 2w                        # Coverage period (default: 1w)
+ *   synthesis report --period 2w                        # Coverage period (explicit)
+ *   synthesis report                                    # Auto-period: since last report, or 7d default
+ *   synthesis report --history                          # Show report generation history
  *   synthesis report --estimate                         # Show cost estimate, no AI call
  *   synthesis report --no-cache                         # Force fresh generation
  *   synthesis report --cache-stats                      # Cache statistics
@@ -77,9 +81,9 @@ public class ReportCommand implements Callable<Integer> {
 
     @Option(
             names = {"--period", "-p"},
-            description = "Coverage period: 1w (default), 2w, 1m"
+            description = "Coverage period: 1w, 2w, 1m (default: since last report, or 7d)"
     )
-    private String period = "1w";
+    private String period;
 
     @Option(
             names = {"--output", "-o"},
@@ -110,6 +114,12 @@ public class ReportCommand implements Callable<Integer> {
             description = "Clear all cached reports for this workspace"
     )
     private boolean cacheClear = false;
+
+    @Option(
+            names = {"--history"},
+            description = "Show report generation history (when each target/topic was last generated)"
+    )
+    private boolean showHistory = false;
 
     @Option(
             names = {"--product"},
@@ -160,6 +170,9 @@ public class ReportCommand implements Callable<Integer> {
             if (cacheClear) {
                 return clearCache(workspaceRoot);
             }
+            if (showHistory) {
+                return printHistory();
+            }
 
             // Validate mutual exclusivity of --product and --client
             if (product != null && client != null) {
@@ -189,9 +202,16 @@ public class ReportCommand implements Callable<Integer> {
                 reportTopic = ReportTopic.fromString(topic);
             }
 
+            // Resolve period: if not explicitly set, use history-based delta
+            boolean periodFromHistory = false;
+            if (period == null) {
+                period = resolvePeriodFromHistory(reportTarget.cliValue(), reportTopic.cliValue());
+                periodFromHistory = true;
+            }
+
             // Validate period
             if (!isValidPeriod(period)) {
-                AnsiOutput.printError("Invalid period: '" + period + "'. Valid periods: 1w, 2w, 1m");
+                AnsiOutput.printError("Invalid period: '" + period + "'. Valid periods: 1w, 2w, 1m, or Nd (e.g. 5d)");
                 return 1;
             }
 
@@ -319,6 +339,9 @@ public class ReportCommand implements Callable<Integer> {
                     System.err.println("Warning: Cache storage failed: " + e.getMessage());
                 }
             }
+
+            // Record in report history (#250)
+            recordReportHistory(reportTarget, reportTopic, result, documents);
 
             // Output
             String report = ReportRenderer.render(result);
@@ -457,7 +480,145 @@ public class ReportCommand implements Callable<Integer> {
     }
 
     private boolean isValidPeriod(String period) {
-        return "1w".equals(period) || "2w".equals(period) || "1m".equals(period);
+        if ("1w".equals(period) || "2w".equals(period) || "1m".equals(period)) {
+            return true;
+        }
+        // Accept dynamic day-based periods (e.g. "5d", "12d") from history delta
+        if (period != null && period.endsWith("d")) {
+            try {
+                int days = Integer.parseInt(period.substring(0, period.length() - 1));
+                return days > 0;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Resolves the period from report history. If a previous report exists for this
+     * (target, topic), computes the delta in days. Otherwise defaults to "1w" (7 days).
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
+     */
+    private String resolvePeriodFromHistory(String target, String topic) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            ReportHistoryRepository history = new ReportHistoryRepository(conn);
+            Optional<Integer> daysSince = history.daysSinceLastReport(target, topic);
+
+            if (daysSince.isPresent()) {
+                int days = daysSince.get();
+                Optional<Instant> lastGenerated = history.getLastGenerated(target, topic);
+                String lastDate = lastGenerated.map(instant ->
+                        instant.atZone(ZoneId.systemDefault())
+                                .format(DateTimeFormatter.ofPattern("MMM d"))).orElse("unknown");
+                System.err.println("  " + AnsiOutput.dim("Using period since last report: "
+                        + days + " day" + (days != 1 ? "s" : "")
+                        + " (last generated: " + lastDate + ")"));
+                return days + "d";
+            } else {
+                System.err.println("  " + AnsiOutput.dim(
+                        "No previous report for " + target + "/" + topic + ", defaulting to 7 days"));
+                return "1w";
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Could not query report history: " + e.getMessage());
+            return "1w";
+        }
+    }
+
+    /**
+     * Records successful report generation in the history table.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
+     */
+    private void recordReportHistory(ReportTarget reportTarget, ReportTopic reportTopic,
+                                      ReportResult result, List<ReportDocument> documents) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            ReportHistoryRepository history = new ReportHistoryRepository(conn);
+            history.recordGeneration(
+                    reportTarget.cliValue(),
+                    reportTopic.cliValue(),
+                    result.generatedAt(),
+                    periodToDays(result.period()),
+                    documents != null ? documents.size() : null,
+                    outputFile
+            );
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to record report history: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Shows the report generation history table.
+     *
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
+     */
+    private int printHistory() {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+            ReportHistoryRepository history = new ReportHistoryRepository(conn);
+            List<ReportHistoryRepository.ReportHistoryEntry> entries = history.getAllHistory();
+
+            if (entries.isEmpty()) {
+                System.out.println("No report history found. Run 'synthesis report' to generate your first report.");
+                return 0;
+            }
+
+            System.out.println("Report Generation History");
+            System.out.println("=".repeat(78));
+            System.out.printf("%-12s %-14s %-24s %-10s %-8s%n",
+                    "Target", "Topic", "Last Generated", "Period", "Sources");
+            System.out.println("-".repeat(78));
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                    .withZone(ZoneId.systemDefault());
+            for (ReportHistoryRepository.ReportHistoryEntry entry : entries) {
+                System.out.printf("%-12s %-14s %-24s %-10s %-8s%n",
+                        entry.target(),
+                        entry.topic(),
+                        formatter.format(entry.generatedAt()),
+                        entry.periodDays() + "d",
+                        entry.sourceDocuments() != null ? entry.sourceDocuments().toString() : "-");
+            }
+            System.out.println("=".repeat(78));
+            System.out.println(entries.size() + " report combination" + (entries.size() != 1 ? "s" : "") + " tracked.");
+
+            return 0;
+        } catch (Exception e) {
+            AnsiOutput.printError("Failed to retrieve report history: " + e.getMessage());
+            return 1;
+        }
+    }
+
+    /**
+     * Converts a period string to a number of days.
+     *
+     * @param period the period string (e.g. "1w", "2w", "1m", "5d")
+     * @return the number of days
+     * @see <a href="https://github.com/exoreaction/Synthesis/issues/250">#250</a>
+     */
+    public static int periodToDays(String period) {
+        if (period == null) return 7;
+        // Dynamic day-based period (e.g. "5d")
+        if (period.endsWith("d")) {
+            try {
+                return Integer.parseInt(period.substring(0, period.length() - 1));
+            } catch (NumberFormatException ignored) {
+                // Fall through
+            }
+        }
+        return switch (period) {
+            case "1w" -> 7;
+            case "2w" -> 14;
+            case "1m" -> 30;
+            default -> 7;
+        };
     }
 
     private String formatSize(long bytes) {
