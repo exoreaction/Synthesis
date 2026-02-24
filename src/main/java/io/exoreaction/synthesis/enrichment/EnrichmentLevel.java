@@ -1,7 +1,6 @@
 package io.exoreaction.synthesis.enrichment;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.config.CredentialStore;
 
 /**
@@ -9,7 +8,10 @@ import io.exoreaction.synthesis.config.CredentialStore;
  *
  * <p>Each tier builds on the previous:
  * <ul>
- *   <li><b>BASIC</b> -- Deterministic metadata only. Works everywhere, zero dependencies.</li>
+ *   <li><b>METADATA</b> -- File-system metadata only (size, modified date, filename).
+ *       Used as a fallback for files that exceed the AI enrichment size threshold.
+ *       No file content is read. Works everywhere, zero dependencies.</li>
+ *   <li><b>BASIC</b> -- Deterministic content metadata. Works everywhere, zero dependencies.</li>
  *   <li><b>LOCAL</b> -- Adds local tool output (Whisper transcripts, pdftoppm slides).
  *       Requires optional local binaries.</li>
  *   <li><b>AI</b> -- Adds cloud AI capabilities (Claude Vision, summaries).
@@ -24,6 +26,13 @@ import io.exoreaction.synthesis.config.CredentialStore;
  * </ul>
  */
 public enum EnrichmentLevel {
+
+    /**
+     * File-system metadata only (size, modified date, filename).
+     * No file content is read. Used as a fallback for oversized files that exceed
+     * the AI enrichment size threshold (e.g., PDFs larger than 10 MB).
+     */
+    METADATA,
 
     /** Deterministic metadata only. No external tools, no AI. Works in Core edition. */
     BASIC,
