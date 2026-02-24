@@ -245,7 +245,7 @@ Logs are written to `~/.synthesis/logs/lsp-server.log` (never to stdout, which i
 
 ### "Server not starting"
 
-1. Verify Java 17+ is installed: `java -version`
+1. Verify Java 21+ is installed: `java -version`
 2. Verify the JAR exists: `ls ~/.synthesis/lib/synthesis-lsp-server.jar`
 3. Check logs: `tail -f ~/.synthesis/logs/lsp-server.log`
 

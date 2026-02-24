@@ -23,7 +23,7 @@ readonly CANTARA_SNAPSHOTS="https://mvnrepo.cantara.no/content/repositories/snap
 readonly CANTARA_RELEASES="https://mvnrepo.cantara.no/content/repositories/releases"
 readonly GROUP_PATH="io/exoreaction"
 readonly ARTIFACT_ID="synthesis"
-readonly MIN_JAVA_VERSION=17
+readonly MIN_JAVA_VERSION=21
 
 # ---------------------------------------------------------------------------
 # Color Output
@@ -209,25 +209,25 @@ printf "\n"
 # ---------------------------------------------------------------------------
 step "Checking prerequisites..."
 
-# Check: Java 17+
+# Check: Java 21+
 if command_exists java; then
     JAVA_VER=$(get_java_version)
     if [ "$JAVA_VER" -ge "$MIN_JAVA_VERSION" ]; then
         info "Java $JAVA_VER found (>= $MIN_JAVA_VERSION required)"
     else
         error "Java $JAVA_VER found, but Java $MIN_JAVA_VERSION+ is required."
-        detail "Install Java 17+:"
-        detail "  Ubuntu/Debian: sudo apt install openjdk-17-jdk"
-        detail "  macOS:         brew install openjdk@17"
-        detail "  Fedora:        sudo dnf install java-17-openjdk"
+        detail "Install Java 21+:"
+        detail "  Ubuntu/Debian: sudo apt install openjdk-21-jdk"
+        detail "  macOS:         brew install openjdk@21"
+        detail "  Fedora:        sudo dnf install java-21-openjdk"
         exit 1
     fi
 else
     error "Java not found. Java $MIN_JAVA_VERSION+ is required."
-    detail "Install Java 17+:"
-    detail "  Ubuntu/Debian: sudo apt install openjdk-17-jdk"
-    detail "  macOS:         brew install openjdk@17"
-    detail "  Fedora:        sudo dnf install java-17-openjdk"
+    detail "Install Java 21+:"
+    detail "  Ubuntu/Debian: sudo apt install openjdk-21-jdk"
+    detail "  macOS:         brew install openjdk@21"
+    detail "  Fedora:        sudo dnf install java-21-openjdk"
     exit 1
 fi
 
@@ -514,7 +514,7 @@ set -euo pipefail
 
 readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
 readonly JAR_PATH="$SYNTHESIS_HOME/lib/current.jar"
-readonly MIN_JAVA_VERSION=17
+readonly MIN_JAVA_VERSION=21
 
 # ---------------------------------------------------------------------------
 # Color Output
@@ -542,7 +542,7 @@ fi
 # Check Java
 if ! command -v java >/dev/null 2>&1; then
     printf "${RED}Error:${NC} Java not found. Java %d+ is required.\n" "$MIN_JAVA_VERSION" >&2
-    printf "  Install: sudo apt install openjdk-17-jdk\n" >&2
+    printf "  Install: sudo apt install openjdk-21-jdk\n" >&2
     exit 1
 fi
 

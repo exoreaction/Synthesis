@@ -9,7 +9,7 @@ instructions: |
   **Official Repository:** https://github.com/exoreaction/Synthesis
   **License:** MIT (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
-  **Language:** Java 17+
+  **Language:** Java 21+
   **Status:** Production-ready (v1.8.4-SNAPSHOT as of Feb 18, 2026)
   **Latest:** Configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
 

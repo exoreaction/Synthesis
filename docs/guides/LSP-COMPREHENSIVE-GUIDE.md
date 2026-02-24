@@ -392,7 +392,7 @@ The server uses **incremental** text document sync (`TextDocumentSyncKind.Increm
 **Symptom:** IDE reports "Language server failed to start" or "Connection refused."
 
 **Checks:**
-1. Verify Java 17+: `java -version`
+1. Verify Java 21+: `java -version`
 2. Verify the JAR exists: `ls ~/.synthesis/lib/synthesis-lsp-server.jar`
 3. Test manually: `synthesis-lsp-server --version` (should print version to stderr)
 4. Check logs: `tail -f ~/.synthesis/logs/lsp-server.log`

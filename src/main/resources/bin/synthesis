@@ -23,7 +23,7 @@ set -euo pipefail
 
 readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
 readonly JAR_PATH="$SYNTHESIS_HOME/lib/current.jar"
-readonly MIN_JAVA_VERSION=17
+readonly MIN_JAVA_VERSION=21
 
 # ---------------------------------------------------------------------------
 # Color Output
@@ -55,9 +55,9 @@ fi
 if ! command -v java >/dev/null 2>&1; then
     printf "${RED}Error:${NC} Java not found. Java %d+ is required.\n" "$MIN_JAVA_VERSION" >&2
     printf "  Install:\n" >&2
-    printf "    Ubuntu/Debian: sudo apt install openjdk-17-jdk\n" >&2
-    printf "    macOS:         brew install openjdk@17\n" >&2
-    printf "    Fedora:        sudo dnf install java-17-openjdk\n" >&2
+    printf "    Ubuntu/Debian: sudo apt install openjdk-21-jdk\n" >&2
+    printf "    macOS:         brew install openjdk@21\n" >&2
+    printf "    Fedora:        sudo dnf install java-21-openjdk\n" >&2
     exit 1
 fi
 

@@ -54,7 +54,7 @@
 
 ### What Synthesis Is
 
-Synthesis is a Java 17+ CLI tool and MCP (Model Context Protocol) server designed to solve a concrete problem in AI-assisted development: AI tools have dramatically accelerated code *creation*, but comprehension and retrieval speed has not kept pace. The result is that 40–60% of developer time is consumed searching for context. Synthesis addresses this by indexing everything a team creates — source code, documentation, PDFs, videos, images — and making it instantly searchable with relationship tracking and AI-powered analysis.
+Synthesis is a Java 21+ CLI tool and MCP (Model Context Protocol) server designed to solve a concrete problem in AI-assisted development: AI tools have dramatically accelerated code *creation*, but comprehension and retrieval speed has not kept pace. The result is that 40–60% of developer time is consumed searching for context. Synthesis addresses this by indexing everything a team creates — source code, documentation, PDFs, videos, images — and making it instantly searchable with relationship tracking and AI-powered analysis.
 
 The product ships as three artifacts built from a single Maven project:
 - `synthesis.jar` — the primary CLI (35 subcommands)

@@ -15,7 +15,7 @@ enrichment_level: AI
 
 This is an infographic diagram illustrating how to integrate Synthesis and Claude Code to enhance an AI development workspace. The image is divided into three main phases: Phase 1 covers rapid setup and indexing through installation and configuration; Phase 2 details the AI Developer Toolkit with features like full-text search, relationship analysis, and workspace health monitoring; Phase 3 describes intelligent AI workflows including safe refactoring, instant onboarding, and impact analysis. Additional technical specifications, protocol standards, system requirements, and logging details are provided at the bottom. The design uses color-coded sections, icons, and visual elements to present the workflow progression.
 
-**Keywords:** Synthesis, Claude Code, AI development, rapid setup, indexing, full-text search, dependency analysis, architecture visualization, workspace health, safe refactoring, onboarding, impact analysis, MCP, JSON-RPC, Java 17, technical specifications, infographic, development tools, AI workflows
+**Keywords:** Synthesis, Claude Code, AI development, rapid setup, indexing, full-text search, dependency analysis, architecture visualization, workspace health, safe refactoring, onboarding, impact analysis, MCP, JSON-RPC, Java 21, technical specifications, infographic, development tools, AI workflows
 
 ## Keywords
 image, png

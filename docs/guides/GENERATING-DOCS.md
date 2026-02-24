@@ -112,7 +112,7 @@ Welcome to MyProject, a Spring Boot microservices platform for e-commerce.
 
 ### Prerequisites
 Based on `pom.xml` and `Dockerfile`, you'll need:
-- Java 17+
+- Java 21+
 - Maven 3.8+
 - Docker (for local database)
 
@@ -259,7 +259,7 @@ Client → REST API → Service Layer → Repository → PostgreSQL
 
 ## Technology Stack
 
-- **Backend:** Java 17, Spring Boot 3.x, Spring Data JPA
+- **Backend:** Java 21, Spring Boot 3.x, Spring Data JPA
 - **Database:** PostgreSQL 14 (primary), Redis 7 (cache)
 - **Messaging:** Apache Kafka 3.x
 - **API:** REST (JSON), OpenAPI 3.0 documentation

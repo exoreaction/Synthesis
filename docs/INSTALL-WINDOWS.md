@@ -19,7 +19,7 @@ Detailed installation instructions for Synthesis on Windows 10 and Windows 11.
 | **Git** | Source builds, version control | `winget install Git.Git` |
 | **Maven** | Source builds | `winget install Apache.Maven` |
 
-## Step 1: Install Java 17+
+## Step 1: Install Java 21+
 
 If Java is not installed or is below version 17:
 
