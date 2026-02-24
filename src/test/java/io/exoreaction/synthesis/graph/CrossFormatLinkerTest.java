@@ -176,4 +176,66 @@ class CrossFormatLinkerTest {
         assertTrue(linker.isYamlFile(yml));
         assertFalse(linker.isYamlFile(java));
     }
+
+    // -----------------------------------------------------------------------
+    // Binary / non-UTF-8 file handling (issue #252)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractTableNames_returnEmptyForBinaryFile(@TempDir Path tmp) throws IOException {
+        // Write a file with raw binary content that cannot be decoded as UTF-8
+        Path binaryFile = tmp.resolve("V99__binary.sql");
+        Files.write(binaryFile, new byte[]{(byte)0xFF, (byte)0xFE, (byte)0x00, (byte)0x01,
+                (byte)0xD8, (byte)0x00, (byte)0xDC, (byte)0x00}); // invalid UTF-8 sequence
+        SearchResult r = new SearchResult(binaryFile, "V99__binary.sql", 1.0f,
+                "V99__binary.sql", "sql", "SQL", null, null, null, 100L);
+
+        // Must not throw; should return empty list gracefully
+        List<String> tables = linker.extractTableNames(r, tmp);
+        assertTrue(tables.isEmpty(), "Binary file should yield no table names without throwing");
+    }
+
+    @Test
+    void findSqlToJavaLinks_skipsNonUtf8SqlFile(@TempDir Path tmp) throws IOException {
+        // Binary content masquerading as a SQL file
+        Path binaryFile = tmp.resolve("V98__bad.sql");
+        Files.write(binaryFile, new byte[]{(byte)0x89, (byte)0x50, (byte)0x4E, (byte)0x47,
+                (byte)0x0D, (byte)0x0A, (byte)0x1A, (byte)0x0A}); // PNG magic bytes
+        SearchResult sql = new SearchResult(binaryFile, "V98__bad.sql", 1.0f,
+                "V98__bad.sql", "sql", "SQL", null, null, null, 100L);
+
+        Path javaDir = tmp.resolve("src/main");
+        Files.createDirectories(javaDir);
+        Path javaPath = javaDir.resolve("Foo.java");
+        Files.writeString(javaPath, "class Foo {}");
+        SearchResult java = new SearchResult(javaPath, "src/main/Foo.java", 1.0f,
+                "Foo.java", "java", "Java", null, null, null, 100L);
+
+        // Must not throw; returns empty because no tables could be extracted
+        List<CrossFormatLinker.CrossFormatLink> links =
+                linker.findSqlToJavaLinks(sql, List.of(sql, java), tmp);
+        assertTrue(links.isEmpty(), "Binary SQL file should produce no links without throwing");
+    }
+
+    @Test
+    void findYamlToJavaLinks_skipsNonUtf8YamlFile(@TempDir Path tmp) throws IOException {
+        // Binary content masquerading as a YAML file
+        Path binaryFile = tmp.resolve("config.yaml");
+        Files.write(binaryFile, new byte[]{(byte)0xFF, (byte)0xD8, (byte)0xFF, (byte)0xE0,
+                (byte)0x00, (byte)0x10, (byte)0x4A, (byte)0x46}); // JPEG magic bytes
+        SearchResult yaml = new SearchResult(binaryFile, "config.yaml", 1.0f,
+                "config.yaml", "yaml", "YAML", null, null, null, 100L);
+
+        Path javaDir = tmp.resolve("src/main");
+        Files.createDirectories(javaDir);
+        Path javaPath = javaDir.resolve("Bar.java");
+        Files.writeString(javaPath, "class Bar {}");
+        SearchResult java = new SearchResult(javaPath, "src/main/Bar.java", 1.0f,
+                "Bar.java", "java", "Java", null, null, null, 100L);
+
+        // Must not throw; returns empty because YAML could not be read
+        List<CrossFormatLinker.CrossFormatLink> links =
+                linker.findYamlToJavaLinks(yaml, List.of(yaml, java), tmp);
+        assertTrue(links.isEmpty(), "Binary YAML file should produce no links without throwing");
+    }
 }

@@ -5,6 +5,7 @@ import io.exoreaction.synthesis.index.SearchResult;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
+import java.util.logging.Logger;
 import java.util.regex.*;
 import java.util.stream.*;
 
@@ -17,6 +18,8 @@ import java.util.stream.*;
  * </ul>
  */
 public class CrossFormatLinker {
+
+    private static final Logger log = Logger.getLogger(CrossFormatLinker.class.getName());
 
     public record CrossFormatLink(
         String targetPath,
@@ -71,7 +74,13 @@ public class CrossFormatLinker {
     public List<String> extractTableNames(SearchResult sqlFile, Path workspaceRoot) throws IOException {
         Path p = workspaceRoot.resolve(sqlFile.relativePath());
         if (!Files.exists(p)) return List.of();
-        String sql = Files.readString(p);
+        String sql;
+        try {
+            sql = Files.readString(p);
+        } catch (IOException e) {
+            log.fine("Skipping non-text file in cross-format linking: " + p);
+            return List.of();
+        }
         List<String> names = new ArrayList<>();
         Matcher m = CREATE_TABLE.matcher(sql);
         while (m.find()) names.add(m.group(1));
@@ -90,7 +99,13 @@ public class CrossFormatLinker {
                                                       Path workspaceRoot) throws IOException {
         Path p = workspaceRoot.resolve(yamlFile.relativePath());
         if (!Files.exists(p)) return List.of();
-        String yaml = Files.readString(p);
+        String yaml;
+        try {
+            yaml = Files.readString(p);
+        } catch (IOException e) {
+            log.fine("Skipping non-text file in cross-format linking: " + p);
+            return List.of();
+        }
 
         List<String> keys = new ArrayList<>();
         Matcher m = YAML_TOP_KEY.matcher(yaml);
