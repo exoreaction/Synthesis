@@ -170,13 +170,22 @@ public class EnrichCommand implements Callable<Integer> {
                     .filter(f -> matchesPathFilter(f.relativePath(), includeMatchers, excludeMatchers))
                     .toList();
 
-            if (enrichable.isEmpty()) {
-                AnsiOutput.printInfo("No binary files found to enrich"
-                        + (typeFilter != null ? " (filter: " + typeFilter + ")" : "")
-                        + (!pathPatterns.isEmpty() ? " (path: " + String.join(", ", pathPatterns) + ")" : "")
-                        + ".");
+            if (enrichable.isEmpty() && typeFilter != null && !typeFilter.equalsIgnoreCase("pdf")) {
+                // A type filter was given that excludes PDFs; nothing to process.
+                AnsiOutput.printInfo("No binary files found to enrich (filter: " + typeFilter + ").");
                 metricsSuccess = true;
                 return 0;
+            }
+
+            if (enrichable.isEmpty()) {
+                // No indexed files, but oversized PDFs may still need metadata companions.
+                // Fall through to the oversized-PDF pass below.
+                if (!pathPatterns.isEmpty()) {
+                    AnsiOutput.printInfo("No indexed binary files found to enrich (path: "
+                            + String.join(", ", pathPatterns) + "). Checking for oversized PDFs...");
+                } else {
+                    AnsiOutput.printInfo("No indexed binary files found to enrich. Checking for oversized PDFs...");
+                }
             }
 
             // Stats mode -- show coverage and exit
@@ -209,7 +218,7 @@ public class EnrichCommand implements Callable<Integer> {
             }
 
             if (dryRun) {
-                int r = showDryRun(enrichable, workspaceRoot);
+                int r = showDryRun(enrichable, workspaceRoot, config, includeMatchers, excludeMatchers);
                 metricsSuccess = (r == 0);
                 return r;
             }
@@ -291,7 +300,68 @@ public class EnrichCommand implements Callable<Integer> {
                 }
             }
 
-            long duration = System.currentTimeMillis() - startTime;
+            // Pass 2: Walk the filesystem for oversized PDFs that are not in the index.
+            // Files larger than maxFileSizeBytes (default 10 MB) are excluded by DirectoryScanner
+            // and therefore never reach the enrichment loop above. We walk the workspace
+            // directly to find .pdf files above the size threshold and generate
+            // metadata-only companions for them (enrichment_level: METADATA).
+            int oversizedGenerated = 0;
+            int oversizedSkipped = 0;
+            long sizeThreshold = config.getScan().getMaxFileSizeBytes();
+            try (var walk = Files.walk(workspaceRoot)) {
+                List<Path> oversizedPdfs = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> {
+                            String name = p.getFileName().toString().toLowerCase();
+                            return name.endsWith(".pdf");
+                        })
+                        .filter(p -> {
+                            try {
+                                return Files.size(p) > sizeThreshold;
+                            } catch (IOException ex) {
+                                return false;
+                            }
+                        })
+                        .filter(p -> !CompanionFileGenerator.isCompanionFile(p))
+                        .filter(p -> !CompanionFileGenerator.hasCompanion(p) || force)
+                        .filter(p -> {
+                            String rel = workspaceRoot.relativize(p).toString();
+                            return matchesPathFilter(rel, includeMatchers, excludeMatchers);
+                        })
+                        .toList();
+
+                if (!oversizedPdfs.isEmpty()) {
+                    AnsiOutput.printInfo("Oversized PDFs (>" + FileUtils.formatSize(sizeThreshold)
+                            + ") without companions: " + oversizedPdfs.size());
+                }
+
+                for (Path pdfPath : oversizedPdfs) {
+                    String rel = workspaceRoot.relativize(pdfPath).toString();
+                    if (dryRun) {
+                        System.out.println("  WOULD GENERATE (metadata-only)  " + rel + ".synthesis.md");
+                        oversizedGenerated++;
+                        continue;
+                    }
+                    try {
+                        Path companionPath = CompanionFileGenerator.generateOversizedPdfCompanion(pdfPath);
+                        oversizedGenerated++;
+                        generatedPaths.add(companionPath);
+                        if (verbose) {
+                            System.out.println("  GENERATE (metadata-only) " + rel + ".synthesis.md");
+                        }
+                    } catch (Exception e) {
+                        errors++;
+                        if (verbose) {
+                            AnsiOutput.printWarning("Error (oversized): " + rel + " - " + e.getMessage());
+                        }
+                    }
+                }
+            }
+
+            generated += oversizedGenerated;
+            skipped += oversizedSkipped;
+
+                        long duration = System.currentTimeMillis() - startTime;
             EnrichmentResult result = new EnrichmentResult(
                     enrichable.size(), generated, skipped, errors,
                     generatedPaths, duration, level);
@@ -433,11 +503,17 @@ public class EnrichCommand implements Callable<Integer> {
 
     /**
      * Shows what would be generated in dry-run mode.
+     *
+     * <p>Also lists oversized PDFs (files exceeding the scanner size threshold) that
+     * would receive metadata-only companions.
      */
-    private int showDryRun(List<SearchResult> enrichable, Path workspaceRoot) {
+    private int showDryRun(List<SearchResult> enrichable, Path workspaceRoot,
+                            SynthesisConfig config, List<PathMatcher> includeMatchers,
+                            List<PathMatcher> excludeMatchers) {
         int wouldGenerate = 0;
         int wouldSkip = 0;
 
+        // Pass 1: indexed files
         for (SearchResult file : enrichable) {
             if (CompanionFileGenerator.hasCompanion(file.path()) && !force) {
                 wouldSkip++;
@@ -446,6 +522,41 @@ public class EnrichCommand implements Callable<Integer> {
                 System.out.println("  WOULD GENERATE  " +
                         file.relativePath() + ".synthesis.md");
             }
+        }
+
+        // Pass 2: oversized PDFs not in the index
+        long sizeThreshold = config.getScan().getMaxFileSizeBytes();
+        try (var walk = java.nio.file.Files.walk(workspaceRoot)) {
+            List<Path> oversizedPdfs = walk
+                    .filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".pdf"))
+                    .filter(p -> {
+                        try {
+                            return java.nio.file.Files.size(p) > sizeThreshold;
+                        } catch (java.io.IOException ex) {
+                            return false;
+                        }
+                    })
+                    .filter(p -> !CompanionFileGenerator.isCompanionFile(p))
+                    .filter(p -> !CompanionFileGenerator.hasCompanion(p) || force)
+                    .filter(p -> {
+                        String rel = workspaceRoot.relativize(p).toString();
+                        return matchesPathFilter(rel, includeMatchers, excludeMatchers);
+                    })
+                    .toList();
+
+            if (!oversizedPdfs.isEmpty()) {
+                System.out.println();
+                AnsiOutput.printInfo("Oversized PDFs (>" + FileUtils.formatSize(sizeThreshold)
+                        + ") without companions: " + oversizedPdfs.size());
+                for (Path pdf : oversizedPdfs) {
+                    String rel = workspaceRoot.relativize(pdf).toString();
+                    System.out.println("  WOULD GENERATE (metadata-only)  " + rel + ".synthesis.md");
+                    wouldGenerate++;
+                }
+            }
+        } catch (java.io.IOException e) {
+            AnsiOutput.printWarning("Could not scan for oversized PDFs: " + e.getMessage());
         }
 
         System.out.println();
