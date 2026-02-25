@@ -38,11 +38,12 @@ Each task = one fresh interactive session. Record JSONL path before starting.
 ### Task 1: B3 — Cross-repo dependencies
 
 ```
-How many external repositories does Synthesis depend on, and what are the most
-critical cross-repo dependencies? Focus on direct dependencies (not transitive).
+How does Synthesis track file-level dependencies between repositories in a workspace?
+What CLI command surfaces cross-repo dependency data, and what scale of cross-repo
+tracking has been validated in production use?
 ```
 
-**Ground truth:** 58 repos, 429 dependencies. Most critical: lib-pcb, Cantara, Quadim.
+**Ground truth:** The `cross-repo-deps` command (and `graph --cross-repo`) maps file-level references between all indexed repositories. Validated at 58 repos, 429 cross-repo dependencies in <31 seconds.
 **Expected MCP tool:** `graph --cross-repo`
 **Expected calls:** 2-3 (vs Baseline: 9)
 
@@ -94,10 +95,10 @@ changes, and what data sources are queried.
 
 ```
 Describe the complete approval workflow in Synthesis — how does an admin approve
-a pilot user request? Show the command, the service class, and the database operation.
+a pilot user request? Show the command, the service class, and the storage mechanism.
 ```
 
-**Ground truth:** `synthesis pilot approve <email>` → `PilotCommand` → `ApprovalService.approve()` → `pilot_users` table INSERT.
+**Ground truth:** There is no `PilotCommand` class. Pilot approval is managed via a Slack-based flow: `TelemetryCommand` (subcommand `synthesis telemetry`) → `ApprovalService.isApproved(uuid)` → reads Slack `#synthesis-pilots` channel via Slack API, extracts UUIDs from messages. Status is cached locally to `~/.synthesis/approval-status` (a properties file, not a database table). Cache refreshes every 24 hours. Enforcement is soft (nag message, commands still execute).
 **Expected MCP tool:** `search "ApprovalService"` → `relate ApprovalService.java`
 **Expected calls:** 2-3 (vs Baseline: 5)
 
@@ -151,9 +152,60 @@ What are the Lucene field names and boost weights used in Synthesis search?
 List each field, its boost factor, and what aspect of a document it captures.
 ```
 
-**Ground truth:** 6 fields: `fileName` (2.5x), `headings` (2.5x), `summary` (1.5x), `content` (1.0x), `fileType` (1.5x), `language` (1.2x).
+**Ground truth:** 6 fields: `fileName` (3.0x), `headings` (2.5x), `keywords` (2.0x), `summary` (1.5x), `content` (1.0x), `relativePath` (1.0x).
 **Expected MCP tool:** `ask "search boost fields"` or `search "FIELD_BOOSTS"`
 **Expected calls:** 2-3 (vs Baseline: 5)
+
+---
+
+## Condition 5: MCP + System Prompt Hint
+
+**Setup:** Same as the MCP condition above, but add this line to the session's CLAUDE.md or project instructions before starting:
+
+> "Synthesis MCP tools are available. Prefer `search` over Grep for discovery, `relate` for callers/dependents, `code-graph` for architecture, `trace` for execution flow, `impact` for change analysis."
+
+**Condition configuration:**
+- CLAUDE.md: ✓ (standard project context + one-line decision heuristic above)
+- Knowledge skills (14): ✓ `synthesis-agent-patterns.md`, `synthesis-development.md`, etc.
+- Synthesis CLI skills (15): ✗ **EXCLUDED**
+- MCP tools: ✓ `search`, `relate`, `graph`, `stats`, `ask`, `explain`, `enrich`, `summary`
+
+**Same 9 tasks** — copy-paste the prompts from Tasks 1–9 above into fresh sessions.
+
+**Purpose:** Tests whether MCP underutilization is a prompting problem (fixable with one line) vs a schema problem (requires tool description rewrites, issue #271). If Condition 5 avg tool calls drop from 5.8 to ~4.0, the fix is the system prompt. If not, the tool description rewrites are needed.
+
+---
+
+### Task 10: T1 — Recent changes
+
+```
+What has changed in the Synthesis codebase in the last 7 days? Summarize the
+most significant modifications.
+```
+
+**Ground truth:** Use `changelog --since 7d`. Expected MCP tool: `changelog`. Expected calls: 1-2 (vs Grep alternative: 10+). Note: Answer will vary by run date.
+
+---
+
+### Task 11: T2 — Change impact
+
+```
+If I were to refactor SearchIndex.java — changing its public API — which other
+files in the codebase would be directly or transitively affected?
+```
+
+**Ground truth:** `impact SearchIndex.java` returns the transitive set. Expected MCP tool: `impact`. Expected calls: 1-2 (vs manual Grep+follow: 15+).
+
+---
+
+### Task 12: T3 — Security audit
+
+```
+Run a security analysis of the Synthesis codebase. What are the most significant
+vulnerability paths or security concerns in the dependency graph?
+```
+
+**Ground truth:** `security` command output. Expected MCP tool: `security`. Expected calls: 1-2. Note: Answer depends on current security findings.
 
 ---
 
@@ -172,6 +224,9 @@ After each session, fill in:
 | P5-R1 | | | | | | |
 | P5-R2 | | | | | | |
 | P5-A1 | | | | | | |
+| T1 | | | | | | |
+| T2 | | | | | | |
+| T3 | | | | | | |
 | **Average** | | | | | | |
 
 ## Extracting Metrics After Sessions
@@ -201,3 +256,9 @@ If MCP condition < Baseline (8.9 avg tool calls) → MCP wins the efficiency ben
 If MCP condition matches Knowledge (7.6 avg) → combining knowledge skills + MCP tools is optimal.
 
 The key comparison: MCP (knowledge + MCP tools, no CLI guides) vs CLI (knowledge + CLI guides + CLI tools).
+
+**Does a one-line system prompt hint fix MCP underutilization?**
+
+If Condition 5 avg tool calls ≈ Condition 4 (MCP) → hint makes no difference, schema rewrites needed (issue #271).
+If Condition 5 avg tool calls < Condition 4 by ≥1.5 → the hint is the fix, no schema rewrites needed.
+If Condition 5 avg tool calls < Baseline but > Condition 4 → partial fix, both hint + schema rewrites are optimal.

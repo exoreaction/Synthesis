@@ -12,15 +12,16 @@
 | Dimension | Value |
 |---|---|
 | Tasks | 12 (6 categories) |
-| Conditions | 3 (Baseline, Search, Full) |
+| Conditions | 4 (Baseline, Search, Full, MCP + Hint) |
 | Replicates (MVP) | 1 → 12 sessions |
 | Replicates (full) | 3 → 108 sessions |
 | Primary metrics | Tokens (4 types), wall clock, tool calls, correctness (0-3), hallucinations |
 
-**Three conditions:**
+**Four conditions:**
 1. **Baseline** — Claude Code, no Synthesis, standard tools only
 2. **Search** — Claude Code + `synthesis search` MCP tool
 3. **Full** — Claude Code + MCP + 46 skill files + full CLAUDE.md
+4. **MCP + Hint** — Same as MCP condition but CLAUDE.md includes one decision-heuristic line: "Synthesis MCP tools are available. Prefer `search` over Grep for discovery, `relate` for callers/dependents, `code-graph` for architecture, `trace` for execution flow, `impact` for change analysis."
 
 ---
 
@@ -381,6 +382,7 @@ compatibility with Phase 5 results) and multi-axis scores.
 | **Baseline** | Standard Claude Code, no CLAUDE.md, no MCP | High (blind searching) |
 | **Search** | Add `synthesis search` MCP tool only | Medium (targeted search) |
 | **Full** | MCP + 25 skills + full CLAUDE.md | Low (pre-loaded context) |
+| **MCP + Hint** | MCP + knowledge skills + one-line heuristic in CLAUDE.md | Medium-Low (prompted discovery) |
 
 > **⚠️ Critical — Workspace flag required:**
 > For source code tasks, agents MUST specify the workspace: `synthesis search -d /src/exoreaction "query"`
