@@ -14,6 +14,9 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Covers issue #76: {@code --path} and {@code --exclude} options for targeting
  * specific subdirectories or excluding patterns during enrichment.
+ *
+ * <p>Covers issue #256: {@code --path} prefix normalization so bare directory
+ * names (e.g. {@code knowledge-infrastructure/}) match files recursively.
  */
 class EnrichCommandPathFilterTest {
 
@@ -21,6 +24,11 @@ class EnrichCommandPathFilterTest {
 
     private PathMatcher glob(String pattern) {
         return FS.getPathMatcher("glob:" + pattern);
+    }
+
+    /** Helper: normalize then create glob matcher (mimics production code path). */
+    private PathMatcher normalizedGlob(String rawPattern) {
+        return FS.getPathMatcher("glob:" + EnrichCommand.normalizePathPattern(rawPattern));
     }
 
     // ---- no filters → all paths pass ----
@@ -109,5 +117,107 @@ class EnrichCommandPathFilterTest {
 
         // Outside include dir
         assertFalse(EnrichCommand.matchesPathFilter("Quadim/image.png", include, exclude));
+    }
+
+    // ==== Issue #256: normalizePathPattern tests ====
+
+    @Test
+    void normalize_trailingSlash_appendsDoublestar() {
+        assertEquals("knowledge-infrastructure/**",
+                EnrichCommand.normalizePathPattern("knowledge-infrastructure/"));
+        assertEquals("docs/**",
+                EnrichCommand.normalizePathPattern("docs/"));
+        assertEquals("eXOReaction/media/**",
+                EnrichCommand.normalizePathPattern("eXOReaction/media/"));
+    }
+
+    @Test
+    void normalize_bareDirName_appendsSlashDoublestar() {
+        assertEquals("docs/**",
+                EnrichCommand.normalizePathPattern("docs"));
+        assertEquals("knowledge-infrastructure/**",
+                EnrichCommand.normalizePathPattern("knowledge-infrastructure"));
+    }
+
+    @Test
+    void normalize_globAlreadyPresent_unchanged() {
+        assertEquals("docs/**", EnrichCommand.normalizePathPattern("docs/**"));
+        assertEquals("**/*.pdf", EnrichCommand.normalizePathPattern("**/*.pdf"));
+        assertEquals("docs/*.png", EnrichCommand.normalizePathPattern("docs/*.png"));
+        assertEquals("file?.txt", EnrichCommand.normalizePathPattern("file?.txt"));
+        assertEquals("[abc].txt", EnrichCommand.normalizePathPattern("[abc].txt"));
+        assertEquals("{a,b}.txt", EnrichCommand.normalizePathPattern("{a,b}.txt"));
+    }
+
+    @Test
+    void normalize_fileWithExtension_unchanged() {
+        // A pattern like "report.pdf" looks like a specific file, not a directory
+        assertEquals("report.pdf", EnrichCommand.normalizePathPattern("report.pdf"));
+    }
+
+    // ==== Issue #256: end-to-end path filter with bare prefix (the bug scenario) ====
+
+    @Test
+    void pathPrefixTrailingSlash_matchesFilesUnderDir() {
+        // This is the exact scenario from bug #256:
+        // --path knowledge-infrastructure/ should find files under that directory
+        List<PathMatcher> include = List.of(normalizedGlob("knowledge-infrastructure/"));
+
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "knowledge-infrastructure/image.png", include, List.of()));
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "knowledge-infrastructure/sub/deep/file.pdf", include, List.of()));
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "other-dir/image.png", include, List.of()));
+    }
+
+    @Test
+    void pathPrefixNoSlash_matchesFilesUnderDir() {
+        // --path knowledge-infrastructure (no trailing slash) should also work
+        List<PathMatcher> include = List.of(normalizedGlob("knowledge-infrastructure"));
+
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "knowledge-infrastructure/image.png", include, List.of()));
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "knowledge-infrastructure/sub/report.pdf", include, List.of()));
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "other-dir/image.png", include, List.of()));
+    }
+
+    @Test
+    void pathPrefixNoMatch_returnsEmpty() {
+        // --path with a dir that has no matching files
+        List<PathMatcher> include = List.of(normalizedGlob("nonexistent-dir/"));
+
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "knowledge-infrastructure/image.png", include, List.of()));
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "docs/report.pdf", include, List.of()));
+    }
+
+    @Test
+    void pathPrefixNestedDir_matchesFilesRecursively() {
+        // --path eXOReaction/media/ should match files recursively under that path
+        List<PathMatcher> include = List.of(normalizedGlob("eXOReaction/media/"));
+
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "eXOReaction/media/video.mp4", include, List.of()));
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "eXOReaction/media/images/photo.png", include, List.of()));
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "eXOReaction/docs/file.txt", include, List.of()));
+    }
+
+    @Test
+    void excludePrefixNormalized_excludesRecursively() {
+        // --exclude should also normalize, excluding a whole directory tree
+        List<PathMatcher> exclude = List.of(normalizedGlob("archive/"));
+
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "archive/old.png", List.of(), exclude));
+        assertFalse(EnrichCommand.matchesPathFilter(
+                "archive/deep/nested/file.pdf", List.of(), exclude));
+        assertTrue(EnrichCommand.matchesPathFilter(
+                "docs/image.png", List.of(), exclude));
     }
 }

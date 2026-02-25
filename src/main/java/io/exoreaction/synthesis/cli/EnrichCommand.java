@@ -153,12 +153,16 @@ public class EnrichCommand implements Callable<Integer> {
                 return 1;
             }
 
-            // Build path matchers for include/exclude filtering
+            // Build path matchers for include/exclude filtering.
+            // Normalize path patterns: bare prefixes like "docs/" become "docs/**"
+            // so they match files recursively under that directory.
             FileSystem fs = FileSystems.getDefault();
             List<PathMatcher> includeMatchers = pathPatterns.stream()
+                    .map(EnrichCommand::normalizePathPattern)
                     .map(p -> fs.getPathMatcher("glob:" + p))
                     .toList();
             List<PathMatcher> excludeMatchers = excludePatterns.stream()
+                    .map(EnrichCommand::normalizePathPattern)
                     .map(p -> fs.getPathMatcher("glob:" + p))
                     .toList();
 
@@ -387,6 +391,38 @@ public class EnrichCommand implements Callable<Integer> {
             long elapsed = (System.nanoTime() - startMs) / 1_000_000;
             parent.getMetrics().recordMcpInvocation("enrich", metricsWs, elapsed, null, metricsSuccess, null);
         }
+    }
+
+    /**
+     * Normalizes a path pattern for glob matching.
+     *
+     * <p>When a user supplies a bare directory prefix (e.g. {@code knowledge-infrastructure/}),
+     * Java's glob matcher treats it as a literal path that only matches the directory entry
+     * itself, not files underneath. This method appends {@code **} so that the pattern
+     * matches all files recursively under that directory.
+     *
+     * <p>Patterns that already contain glob meta-characters ({@code *}, {@code ?},
+     * {@code [}, {@code \{}) are returned unchanged.
+     *
+     * @param pattern the raw pattern from {@code --path} or {@code --exclude}
+     * @return a glob-ready pattern
+     */
+    static String normalizePathPattern(String pattern) {
+        // If the pattern already contains glob characters, leave it as-is
+        if (pattern.contains("*") || pattern.contains("?")
+                || pattern.contains("[") || pattern.contains("{")) {
+            return pattern;
+        }
+        // Bare directory prefix ending with '/' → append '**'
+        if (pattern.endsWith("/")) {
+            return pattern + "**";
+        }
+        // Bare name without extension or slash could be a directory name → append '/**'
+        // e.g. "knowledge-infrastructure" → "knowledge-infrastructure/**"
+        if (!pattern.contains(".")) {
+            return pattern + "/**";
+        }
+        return pattern;
     }
 
     /**
