@@ -12,7 +12,7 @@ Performance data for the Synthesis MCP server, measured on real workspaces. This
 | **RAM** | 16 GB |
 | **Storage** | NVMe SSD |
 | **OS** | Linux (kernel 6.x) / macOS 14+ |
-| **Java** | OpenJDK 17+ |
+| **Java** | OpenJDK 21+ |
 | **JVM settings** | Default (no tuning, no custom flags) |
 
 ### Test Workspace

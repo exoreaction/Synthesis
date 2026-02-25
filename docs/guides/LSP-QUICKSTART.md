@@ -4,7 +4,7 @@ Get Synthesis working in your IDE in under 5 minutes. Supports VSCode, IntelliJ 
 
 ## Prerequisites
 
-- **Java 17+** installed (`java -version` to verify)
+- **Java 21+** installed (`java -version` to verify)
 - **Synthesis** installed ([Installation Guide](../../README.md#installation))
 - A **workspace** already indexed (`synthesis init && synthesis scan`)
 

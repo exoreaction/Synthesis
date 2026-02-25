@@ -261,7 +261,7 @@ In air-gapped editions (`core`, `enterprise`), the `ask` and `perspectives` comm
 
 ## Installation
 
-**Requirements:** Java 17+ (tested with Java 24)
+**Requirements:** Java 21+ (tested with Java 24)
 
 ```bash
 # Option 1: Install script (recommended)

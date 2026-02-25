@@ -93,7 +93,7 @@ Bring workspace intelligence into your IDE: workspace symbols, document links, h
 
 ## Installation
 
-**Requirements:** Java 17 or later.
+**Requirements:** Java 21 or later.
 
 ### Linux / macOS
 
@@ -104,7 +104,7 @@ curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/inst
 ```
 
 This will:
-- Check prerequisites (Java 17+, git, curl)
+- Check prerequisites (Java 21+, git, curl)
 - Download the latest Synthesis JAR (from GitHub releases or Cantara Maven repository)
 - Install to `~/.synthesis/` with launcher script, updater, and symlink management
 - Add `~/.synthesis/bin` to your PATH
@@ -164,7 +164,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/exoreaction/Synthesis/
 ```
 
 This will:
-- Check prerequisites (Java 17+, PowerShell 5.1+)
+- Check prerequisites (Java 21+, PowerShell 5.1+)
 - Download the latest Synthesis JAR (same sources as Linux/macOS)
 - Install to `%USERPROFILE%\.synthesis\` with launcher (`synthesis.bat`), updater, and hard link management
 - Add `%USERPROFILE%\.synthesis\bin` to User PATH
@@ -605,7 +605,7 @@ java -jar target/synthesis-1.14.0-SNAPSHOT.jar --help
 
 ### Technology Stack
 
-- **Java 17+** with records, switch expressions, text blocks
+- **Java 21+** with records, switch expressions, text blocks
 - **Apache Lucene 10.1.0** for full-text search with ranking
 - **Picocli 4.7.7** for CLI framework
 - **Apache PDFBox 3.0.4** for PDF processing

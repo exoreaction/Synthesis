@@ -5,7 +5,7 @@ Technical reference for the Synthesis MCP (Model Context Protocol) server. This 
 **Protocol Version:** MCP v2024-11-05
 **Transport:** JSON-RPC 2.0 over stdio (one JSON message per line)
 **Server Name:** `synthesis`
-**Implementation:** Java 17+, Jackson JSON, Apache Lucene
+**Implementation:** Java 21+, Jackson JSON, Apache Lucene
 
 ---
 
@@ -784,7 +784,7 @@ The server processes one request at a time in a single-threaded read loop. Write
 |----------|-------|
 | Server name | `synthesis` |
 | Protocol version | `2024-11-05` |
-| Implementation | Java 17+ |
+| Implementation | Java 21+ |
 | JSON library | Jackson 2.x |
 | Search engine | Apache Lucene 10.1.0 |
 | LSP library | N/A (MCP only) |

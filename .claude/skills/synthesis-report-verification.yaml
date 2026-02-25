@@ -1,6 +1,6 @@
 name: synthesis-report-verification
-version: 1.1.0
-description: How to verify synthesis report command quality, find document discovery issues, and write report module tests. Includes configurable outputDir feature documentation.
+version: 1.3.0
+description: How to verify synthesis report command quality, find document discovery issues, and write report module tests. Includes configurable outputDir, report history tracking (PR #251), and delta-default behavior.
 created: 2026-02-18
 tags:
   - synthesis
@@ -55,6 +55,15 @@ instructions: |
   - Both `synthesis report` and `synthesis research` respect this setting
   - Entity co-location (`--client`/`--product`) is NOT affected by `outputDir`
 
+  **Report history tracking (PR #251, V16 migration):**
+  - `report_history` table: persists `(target, topic, generated_at, period_days, source_documents, output_file)`
+  - UNIQUE(target, topic) → UPSERT semantics — one row per (target, topic) pair
+  - `synthesis report` with NO `-p` flag → defaults to delta since last run (first run = 7 days)
+  - Informative output: `"Using period since last report: 7 days (last generated: Feb 16)"`
+  - `synthesis report --history` → shows table of all (target, topic) last-run timestamps
+  - Key class: `ReportHistoryRepository.java`
+  - Next migration: V17 (V16 = report_history, merged Feb 23, 2026)
+
   ---
 
   ## Verification Command Sequence
@@ -102,7 +111,13 @@ instructions: |
   synthesis report --cache-stats            # check hit counts
   synthesis report --topic pipeline --no-cache  # should re-generate AND re-store
 
-  # 9. Edge cases
+  # 9. Report history (PR #251, V16)
+  synthesis report --history                 # show table of (target, topic) last-run timestamps
+  synthesis report --topic executive         # no -p: uses delta since last run (first run = 7 days)
+  synthesis report --topic executive         # re-run: shorter delta (hours since last)
+  synthesis report --topic executive -p 2w  # explicit period still works, overrides default
+
+  # 10. Edge cases
   synthesis report --product NonExistentProduct  # expect error, not hallucination
   synthesis report --client NonExistentClient    # expect clean error message
   synthesis report --product Synthesis --client Mynder  # expect mutual-exclusion error
@@ -113,11 +128,16 @@ instructions: |
 
   ---
 
-  ## Known Issues (as of Feb 18, 2026)
+  ## Known Issues (as of Feb 23, 2026)
 
-  ### Fixed (v1.8.4-SNAPSHOT, in-progress PR)
+  ### Fixed (v1.16.1-SNAPSHOT, PR #251, V16 migration — Feb 23)
+  - **#250 Report period fixed, not smart**: `synthesis report` always required `-p`. Now defaults to
+    delta since last run per (target, topic). First run = 7 days. Table: `report_history`.
+    New flag: `--history` shows all last-run timestamps. 4,003 tests passing.
+
+  ### Fixed (v1.8.4-SNAPSHOT, merged)
   - **report.outputDir**: `SynthesisConfig.ReportConfig` + `WorkspaceManager.getReportsPath(config)`.
-    Entity co-location unaffected. 1,054 tests passing.
+    Entity co-location unaffected.
 
   ### Fixed (v1.8.3-SNAPSHOT, PR #55)
   - **#40 Date hallucination**: AI generated past deadlines (Jan 17) because prompts had no
@@ -294,6 +314,13 @@ related_skills:
   - executive-report-generator
 
 version_history:
+  - version: 1.3.0
+    date: 2026-02-23
+    changes:
+      - "Add report history tracking (PR #251, V16): report_history table, delta-default, --history flag"
+      - "Add verification sequence step 9: --history and delta-default behavior testing"
+      - "Update Known Issues: PR #251 as Fixed, test count 4,003"
+      - "Update architecture facts: report_history table, ReportHistoryRepository, V17 next migration"
   - version: 1.2.0
     date: 2026-02-19
     changes:

@@ -792,16 +792,16 @@ Any MCP-compatible client can connect to the Synthesis MCP server. The server co
 
 ### Server Won't Start
 
-**Symptom:** `Error: Java not found` or `Error: Java 11 found, but Java 17+ is required.`
+**Symptom:** `Error: Java not found` or `Error: Java 11 found, but Java 21+ is required.`
 
-**Fix:** Install Java 17 or later. Verify with `java -version`.
+**Fix:** Install Java 21 or later. Verify with `java -version`.
 
 ```bash
 # Ubuntu/Debian
-sudo apt install openjdk-17-jre
+sudo apt install openjdk-21-jre
 
 # macOS (Homebrew)
-brew install openjdk@17
+brew install openjdk@21
 
 # Verify
 java -version

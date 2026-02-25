@@ -3,7 +3,7 @@
 Detailed setup instructions for the Synthesis LSP server in each supported IDE. For a quick overview, see the [LSP Quick Start](./LSP-QUICKSTART.md).
 
 **Prerequisites for all IDEs:**
-- Java 17+ installed
+- Java 21+ installed
 - Synthesis installed (`synthesis --version` to verify)
 - Workspace indexed (`synthesis init && synthesis scan` in your project directory)
 

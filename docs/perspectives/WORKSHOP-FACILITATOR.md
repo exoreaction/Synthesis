@@ -11,7 +11,7 @@
 | **Audience** | Developers, technical leads, architects |
 | **Duration** | 2 hours (compact), 4 hours (standard), 6-8 hours (deep-dive) |
 | **Group size** | 8-30 participants (ideal: 12-16) |
-| **Prerequisites** | Laptop with Java 17+, access to a codebase |
+| **Prerequisites** | Laptop with Java 21+, access to a codebase |
 | **Version** | Synthesis 1.11.1 |
 
 **Learning outcomes:**
@@ -543,7 +543,7 @@ synthesis export-skills                       # Export bundled Synthesis skills
 | "Not a Synthesis workspace" | `synthesis init` |
 | No search results | Check `includePatterns` in `.synthesis/config.yaml` |
 | Scan is slow | Exclude `node_modules`, `target`, `build`, `.venv` |
-| Java not found | Install Java 17+ from adoptium.net |
+| Java not found | Install Java 21+ from adoptium.net |
 | AI features not working | `synthesis credentials set ANTHROPIC_API_KEY sk-ant-...` |
 | Graph won't render | Use `--format mermaid` and paste into mermaid.live |
 | `summary --since` shows no changes | Run `synthesis maintain` first to populate snapshots |

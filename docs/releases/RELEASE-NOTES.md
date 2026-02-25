@@ -93,7 +93,7 @@ Synthesis began as a response to a concrete problem: the lib-pcb project had gen
 
 ### Technical decisions
 
-- **Java 17+** -- records, switch expressions, text blocks for clean domain modeling
+- **Java 21+** -- records, switch expressions, text blocks for clean domain modeling
 - **Apache Lucene 10.1.0** -- production-grade full-text search, not a toy prototype
 - **picocli** -- annotation-driven CLI with completion, help generation, and nested subcommands
 - **Fat JAR via maven-shade** -- single deployable artifact, no classpath complexity

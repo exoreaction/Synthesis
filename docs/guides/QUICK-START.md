@@ -13,7 +13,7 @@
 
 ## Installation (30 seconds)
 
-**Requirements:** Java 17+ (check with `java -version`)
+**Requirements:** Java 21+ (check with `java -version`)
 
 **Install:**
 ```bash

@@ -4,7 +4,7 @@ Get Synthesis working with Claude Code or Cursor in under 5 minutes.
 
 ## Prerequisites
 
-- **Java 17+** installed (`java -version` to verify)
+- **Java 21+** installed (`java -version` to verify)
 - **Synthesis** installed ([Installation Guide](../../README.md#installation))
 - A **workspace** you want to search (any project directory)
 

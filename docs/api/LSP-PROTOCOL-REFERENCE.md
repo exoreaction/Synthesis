@@ -5,7 +5,7 @@ Technical reference for the Synthesis Language Server Protocol (LSP) server. Thi
 **Protocol Version:** LSP 3.17
 **Transport:** JSON-RPC 2.0 over stdio
 **Library:** Eclipse LSP4J 0.23.1
-**Implementation:** Java 17+
+**Implementation:** Java 21+
 
 ---
 
@@ -706,7 +706,7 @@ The server does not crash or disconnect on errors. All exceptions are caught and
 |----------|-------|
 | Server name | `Synthesis Language Server` |
 | Protocol version | LSP 3.17 |
-| Implementation language | Java 17+ |
+| Implementation language | Java 21+ |
 | LSP library | Eclipse LSP4J 0.23.1 |
 | Search engine | Apache Lucene 10.1.0 |
 | Log rotation | 5 MB, 3 files, append mode |

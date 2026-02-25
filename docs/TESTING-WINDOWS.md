@@ -34,7 +34,7 @@ if (Test-Path $PROFILE) {
 
 | # | Test | Steps | Expected | Status |
 |---|------|-------|----------|--------|
-| 1.1.1 | Java 17+ detected | Have Java 17+ installed, run `.\install.ps1` | `[INFO] Java NN found (>= 17 required)` | |
+| 1.1.1 | Java 21+ detected | Have Java 21+ installed, run `.\install.ps1` | `[INFO] Java NN found (>= 17 required)` | |
 | 1.1.2 | Java too old | Set PATH to Java 11 only, run `.\install.ps1` | Error message with install instructions, exit 1 | |
 | 1.1.3 | No Java | Remove Java from PATH, run `.\install.ps1` | Error message with install instructions, exit 1 | |
 | 1.1.4 | Git detected | Have git installed | `[INFO] Git found (git version X.Y.Z)` | |

@@ -2,7 +2,7 @@
 
 ## Context
 
-Synthesis is an open-source (MIT) Java 17+ CLI tool and MCP server for knowledge infrastructure.
+Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge infrastructure.
 It indexes code, docs, videos, PDFs, and media files across workspaces, providing sub-second
 search, relationship tracking, cross-repo dependency graphs, and AI-powered Q&A.
 
@@ -13,7 +13,7 @@ the codebase architecture, and following established patterns.
 
 - **Repository:** https://github.com/exoreaction/Synthesis
 - **Local Path:** `/src/exoreaction/Synthesis`
-- **Language:** Java 17+
+- **Language:** Java 21+
 - **Build:** Maven (`mvn clean package -DskipTests`)
 - **Version:** 1.10.1-SNAPSHOT (as of Feb 19, 2026)
 - **Tests:** 2,540+ (JUnit 5)

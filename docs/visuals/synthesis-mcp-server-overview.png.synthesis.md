@@ -15,7 +15,7 @@ enrichment_level: AI
 
 This is an infographic diagram illustrating the Synthesis MCP Server, presented as an "Ultimate AI Agent Power-Up." The image shows a stylized bridge design connecting different sections that detail prerequisites, deployment steps, core tools (search, relate, graph, stats), performance benchmarks, and a search syntax cheat sheet. Key metrics highlighted include 95% faster file discovery, zero breaking changes, and sub-second search speeds. The diagram uses color-coded sections (blue, purple, teal) and includes icons representing different functionalities.
 
-**Keywords:** Synthesis MCP Server, AI Agent, infographic, Java 17+, file discovery, codebase search, Apache Lucene, performance benchmarks, deployment guide, development tools, workspace indexing, API documentation
+**Keywords:** Synthesis MCP Server, AI Agent, infographic, Java 21+, file discovery, codebase search, Apache Lucene, performance benchmarks, deployment guide, development tools, workspace indexing, API documentation
 
 ## Keywords
 image, png

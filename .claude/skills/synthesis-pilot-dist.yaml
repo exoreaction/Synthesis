@@ -138,7 +138,7 @@ instructions: |
 
   📋 REQUIREMENTS:
 
-    ✓ Java 17 or later (required)
+    ✓ Java 21 or later (required)
     ✓ Internet connection (for downloading JARs)
     ✓ ~200MB disk space
 

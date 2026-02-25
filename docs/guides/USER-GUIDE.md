@@ -55,7 +55,7 @@ Finding information requires:
 ### Installation
 
 **Requirements:**
-- Java 17+ (tested with Java 24)
+- Java 21+ (tested with Java 24)
 - 150 MB disk space (for the JAR)
 - Linux, macOS, or Windows
 
