@@ -1723,6 +1723,532 @@ public class SynthesisToolHandler {
         }
     }
 
+
+    // -----------------------------------------------------------------------
+    // Group 1: Analysis tools (subprocess-based)
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleAnalyze(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("analyze"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("analysis", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("analyze failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "analyze failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleInsights(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("insights"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("insights", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("insights failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "insights failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handlePerspectives(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("question") || params.get("question").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: question");
+        String question = params.get("question").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("perspectives", question), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("perspectives", output);
+            response.put("question", question);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("perspectives failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "perspectives failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleResearch(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("query") || params.get("query").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: query");
+        String query = params.get("query").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("research", query), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("research", output);
+            response.put("query", query);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("research failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "research failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleArchitecture(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("architecture"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("architecture", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("architecture failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "architecture failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleCodeGraph(JsonNode params) throws McpToolException {
+        String subcommand = params != null && params.has("subcommand") ? params.get("subcommand").asText("") : "";
+        String flags = params != null && params.has("flags") ? params.get("flags").asText("") : "";
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            List<String> args = new ArrayList<>();
+            args.add("code-graph");
+            if (!subcommand.isBlank()) args.add(subcommand);
+            if (!flags.isBlank()) {
+                for (String f : flags.split("\\s+")) if (!f.isBlank()) args.add(f);
+            }
+            String output = runSynthesisCli(args, workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("graph", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("code-graph failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "code-graph failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 2: Workspace intelligence tools (subprocess-based)
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleDescribe(JsonNode params) throws McpToolException {
+        String path = params != null && params.has("path") ? params.get("path").asText("") : "";
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            List<String> args = new ArrayList<>();
+            args.add("describe");
+            if (!path.isBlank()) args.add(path);
+            String output = runSynthesisCli(args, workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("description", output);
+            if (!path.isBlank()) response.put("path", path);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("describe failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "describe failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleKnowledgeGraph(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("kg"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("knowledgeGraph", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("knowledge-graph failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "knowledge-graph failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleStructure(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("structure"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("structure", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("structure failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "structure failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleEvolution(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("evo"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("evolution", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("evolution failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "evolution failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleScatter(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("scatter"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("scatter", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("scatter failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "scatter failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleNaming(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("naming"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("naming", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("naming failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "naming failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleUpcoming(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("upcoming"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("upcoming", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("upcoming failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "upcoming failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleStatus(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("status"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("status", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("status failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "status failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleMcpStats(JsonNode params) throws McpToolException {
+        try {
+            String synthesisBin = System.getProperty("user.home") + "/.synthesis/bin/synthesis";
+            ProcessBuilder pb = new ProcessBuilder(List.of(synthesisBin, "mcp-stats"));
+            pb.redirectErrorStream(false);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            int exitCode = p.waitFor();
+            if (exitCode != 0) {
+                String err = new String(p.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "mcp-stats failed: " + err.trim());
+            }
+            ObjectNode response = mapper.createObjectNode();
+            response.put("stats", output);
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("mcp-stats failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "mcp-stats failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 3: Change tracking tools (subprocess-based)
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleDiff(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("ref") || params.get("ref").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: ref");
+        String ref = params.get("ref").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("diff", ref), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("diff", output);
+            response.put("ref", ref);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("diff failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "diff failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleChanged(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("since") || params.get("since").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: since");
+        String since = params.get("since").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("changed", "--since=" + since), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("changed", output);
+            response.put("since", since);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("changed failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "changed failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleTrack(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("track"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("tracking", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("track failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "track failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 4: Discovery & validation tools (subprocess-based)
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleWhich(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("pattern") || params.get("pattern").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: pattern");
+        String pattern = params.get("pattern").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("which", pattern), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("result", output);
+            response.put("pattern", pattern);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("which failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "which failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleDiscover(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("discover"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("discoveries", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("discover failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "discover failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleValidate(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("validate"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("validation", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("validate failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "validate failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleMetrics(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("metrics"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("metrics", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("metrics failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "metrics failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleTrace(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("from") || params.get("from").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: from");
+        if (!params.has("to") || params.get("to").asText().isBlank())
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: to");
+        String from = params.get("from").asText();
+        String to = params.get("to").asText();
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("trace", from, to), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("trace", output);
+            response.put("from", from);
+            response.put("to", to);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("trace failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "trace failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleCrossRepoDeps(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("cross-repo-deps"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("dependencies", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("cross-repo-deps failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "cross-repo-deps failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleLearn(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("learn"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("learnings", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("learn failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "learn failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 5: Maintenance tools (subprocess-based)
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleMaintain(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("maintain"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("maintenance", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("maintain failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "maintain failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleScan(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        try {
+            String output = runSynthesisCli(List.of("scan"), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("scan", output);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("scan failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "scan failed: " + e.getMessage());
+        }
+    }
     // -----------------------------------------------------------------------
     // Subprocess helper
     // -----------------------------------------------------------------------
