@@ -384,14 +384,18 @@ public class ExportCommand implements Callable<Integer> {
      * reports the count so users know to run {@code synthesis maintain} to enrich them.
      */
     private String exportAsKcp(SynthesisConfig config, List<SearchResult> results, Path workspaceRoot) {
-        // Step 1 — Filter: default to MARKDOWN only; respect explicit --type if given
+        // Step 1 — Filter: default to MARKDOWN only; respect explicit --type if given.
+        // Always exclude .synthesis.md companion files (Synthesis internals, not knowledge units).
         List<SearchResult> filtered;
         if (typeFilter == null) {
             filtered = results.stream()
                     .filter(r -> "MARKDOWN".equals(r.fileType()))
+                    .filter(r -> !r.relativePath().endsWith(".synthesis.md"))
                     .toList();
         } else {
-            filtered = results;
+            filtered = results.stream()
+                    .filter(r -> !r.relativePath().endsWith(".synthesis.md"))
+                    .toList();
         }
 
         StringBuilder sb = new StringBuilder();
@@ -484,10 +488,22 @@ public class ExportCommand implements Callable<Integer> {
         return slug;
     }
 
-    /** Returns the first sentence of summary (up to first '.' or 120 chars), YAML-safe. */
+    /** Returns the first sentence of summary (up to first '.' or 120 chars), YAML-safe.
+     *  A '.' is only treated as a sentence boundary when followed by whitespace or end-of-string,
+     *  not when embedded in a word (e.g. "llms.txt", "v0.1.0"). */
     private String toKcpIntent(String summary) {
         if (summary == null || summary.isBlank()) return "";
-        int dotPos = summary.indexOf('.');
+        int dotPos = -1;
+        int limit = Math.min(summary.length(), 121);
+        for (int i = 0; i < limit; i++) {
+            if (summary.charAt(i) == '.') {
+                int next = i + 1;
+                if (next >= summary.length() || summary.charAt(next) == ' ' || summary.charAt(next) == '\n') {
+                    dotPos = i;
+                    break;
+                }
+            }
+        }
         String sentence = (dotPos > 0 && dotPos <= 120)
                 ? summary.substring(0, dotPos + 1).trim()
                 : summary.substring(0, Math.min(summary.length(), 120)).trim();
