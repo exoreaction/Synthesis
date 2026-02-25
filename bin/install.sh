@@ -669,6 +669,16 @@ LSP_LAUNCHER_EOF
 chmod +x "$SYNTHESIS_HOME/bin/synthesis-lsp-server"
 info "Installed synthesis-lsp-server launcher"
 
+# Symlink all launchers into ~/bin so they are accessible even if
+# ~/.synthesis/bin is not yet on PATH in the current session (#267)
+mkdir -p "$USER_BIN_DIR"
+for launcher in synthesis synthesis-mcp-server synthesis-lsp-server synthesis-update; do
+    if [ -f "$SYNTHESIS_HOME/bin/$launcher" ]; then
+        ln -sf "$SYNTHESIS_HOME/bin/$launcher" "$USER_BIN_DIR/$launcher"
+    fi
+done
+info "Symlinked launchers into $USER_BIN_DIR"
+
 # ---------------------------------------------------------------------------
 # Step 7: Install Update Script
 # ---------------------------------------------------------------------------
