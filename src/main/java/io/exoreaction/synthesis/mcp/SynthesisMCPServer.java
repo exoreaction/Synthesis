@@ -403,6 +403,57 @@ public class SynthesisMCPServer {
                 createSummarySchema()
         ));
 
+
+        // Tool: changelog
+        toolsArray.add(createToolDefinition(
+                "changelog",
+                "Show workspace change history. Returns added, modified, and deleted files " +
+                        "with significance classification. Use to understand what changed recently.",
+                createChangelogSchema()
+        ));
+
+        // Tool: report
+        toolsArray.add(createToolDefinition(
+                "report",
+                "Generate AI-powered business reports. Topics: weekly executive, pipeline status, " +
+                        "activities, decisions. Target audiences: CEO, board, investor. " +
+                        "Requires ANTHROPIC_API_KEY.",
+                createReportSchema()
+        ));
+
+        // Tool: health
+        toolsArray.add(createToolDefinition(
+                "health",
+                "Run workspace structural health audit. Checks for phantom paths, build artifacts, " +
+                        "empty directories, and loose root files. Returns a health score (0-100) and grade.",
+                createHealthSchema()
+        ));
+
+        // Tool: security
+        toolsArray.add(createToolDefinition(
+                "security",
+                "Security analysis findings for the workspace. Shows vulnerability counts by severity " +
+                        "(HIGH/MEDIUM/LOW/INFO), including both traditional and agentic security signals. " +
+                        "Use --refresh to re-scan.",
+                createSecuritySchema()
+        ));
+
+        // Tool: impact
+        toolsArray.add(createToolDefinition(
+                "impact",
+                "Transitive change impact analysis. Given a file, shows the full blast radius: " +
+                        "all files that would be affected if it changes. Essential before refactoring.",
+                createImpactSchema()
+        ));
+
+        // Tool: export
+        toolsArray.add(createToolDefinition(
+                "export",
+                "Export the workspace index as Markdown, JSON, KCP, architecture doc, or onboarding guide. " +
+                        "Useful for sharing workspace overviews, generating AI context, or creating documentation.",
+                createExportSchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -430,6 +481,12 @@ public class SynthesisMCPServer {
                 case "enrich" -> toolHandler.handleEnrich(toolArgs);
                 case "explain" -> toolHandler.handleExplain(toolArgs);
                 case "summary" -> toolHandler.handleSummary(toolArgs);
+                case "changelog" -> toolHandler.handleChangelog(toolArgs);
+                case "report" -> toolHandler.handleReport(toolArgs);
+                case "health" -> toolHandler.handleHealth(toolArgs);
+                case "security" -> toolHandler.handleSecurity(toolArgs);
+                case "impact" -> toolHandler.handleImpact(toolArgs);
+                case "export" -> toolHandler.handleExport(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -807,6 +864,216 @@ public class SynthesisMCPServer {
         // No required parameters - all have defaults
         ArrayNode required = mapper.createArrayNode();
         schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createChangelogSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        ArrayNode sinceEnum = mapper.createArrayNode();
+        sinceEnum.add("24h");
+        sinceEnum.add("7d");
+        sinceEnum.add("2w");
+        sinceEnum.add("30d");
+        since.set("enum", sinceEnum);
+        since.put("default", "24h");
+        since.put("description", "Time period to look back for changes");
+        properties.set("since", since);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createReportSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode topic = mapper.createObjectNode();
+        topic.put("type", "string");
+        ArrayNode topicEnum = mapper.createArrayNode();
+        topicEnum.add("weekly");
+        topicEnum.add("pipeline");
+        topicEnum.add("activities");
+        topicEnum.add("executive");
+        topicEnum.add("decisions");
+        topic.set("enum", topicEnum);
+        topic.put("default", "weekly");
+        topic.put("description", "Report topic: weekly (full), pipeline, activities, executive, or decisions");
+        properties.set("topic", topic);
+
+        ObjectNode target = mapper.createObjectNode();
+        target.put("type", "string");
+        ArrayNode targetEnum = mapper.createArrayNode();
+        targetEnum.add("ceo");
+        targetEnum.add("board");
+        targetEnum.add("investor");
+        target.set("enum", targetEnum);
+        target.put("default", "ceo");
+        target.put("description", "Target audience for the report");
+        properties.set("target", target);
+
+        ObjectNode period = mapper.createObjectNode();
+        period.put("type", "string");
+        period.put("default", "1w");
+        period.put("description", "Coverage period: 1w, 2w, 1m");
+        properties.set("period", period);
+
+        ObjectNode noCache = mapper.createObjectNode();
+        noCache.put("type", "boolean");
+        noCache.put("default", false);
+        noCache.put("description", "Skip cache and force fresh generation");
+        properties.set("noCache", noCache);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createHealthSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createSecuritySchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode severity = mapper.createObjectNode();
+        severity.put("type", "string");
+        ArrayNode severityEnum = mapper.createArrayNode();
+        severityEnum.add("HIGH");
+        severityEnum.add("MEDIUM");
+        severityEnum.add("LOW");
+        severityEnum.add("INFO");
+        severity.set("enum", severityEnum);
+        severity.put("description", "Filter findings by severity level");
+        properties.set("severity", severity);
+
+        ObjectNode refresh = mapper.createObjectNode();
+        refresh.put("type", "boolean");
+        refresh.put("default", false);
+        refresh.put("description", "Re-run security analysis before returning results");
+        properties.set("refresh", refresh);
+
+        ObjectNode format = mapper.createObjectNode();
+        format.put("type", "string");
+        ArrayNode formatEnum = mapper.createArrayNode();
+        formatEnum.add("summary");
+        formatEnum.add("json");
+        format.set("enum", formatEnum);
+        format.put("default", "summary");
+        format.put("description", "Output format: summary (counts) or json (full findings)");
+        properties.set("format", format);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createImpactSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode filePath = mapper.createObjectNode();
+        filePath.put("type", "string");
+        filePath.put("description", "File path or class name to analyze change impact for");
+        properties.set("filePath", filePath);
+
+        ObjectNode depth = mapper.createObjectNode();
+        depth.put("type", "number");
+        depth.put("default", 3);
+        depth.put("description", "Maximum transitive dependency depth (1-10, default 3)");
+        properties.set("depth", depth);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("filePath");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createExportSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode format = mapper.createObjectNode();
+        format.put("type", "string");
+        ArrayNode formatEnum = mapper.createArrayNode();
+        formatEnum.add("markdown");
+        formatEnum.add("json");
+        formatEnum.add("kcp");
+        formatEnum.add("architecture-doc");
+        formatEnum.add("onboarding-guide");
+        format.set("enum", formatEnum);
+        format.put("default", "markdown");
+        format.put("description", "Export format: markdown, json, kcp, architecture-doc, or onboarding-guide");
+        properties.set("format", format);
+
+        ObjectNode fileType = mapper.createObjectNode();
+        fileType.put("type", "string");
+        fileType.put("description", "Filter by file type (e.g., CODE, MARKDOWN, YAML, PDF)");
+        properties.set("fileType", fileType);
+
+        ObjectNode limit = mapper.createObjectNode();
+        limit.put("type", "number");
+        limit.put("default", 1000);
+        limit.put("description", "Maximum number of entries to export (1-50000)");
+        properties.set("limit", limit);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
 
         return schema;
     }

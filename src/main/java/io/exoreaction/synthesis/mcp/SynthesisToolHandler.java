@@ -1279,6 +1279,481 @@ public class SynthesisToolHandler {
         }
     }
 
+
+    // -----------------------------------------------------------------------
+    // Tool: changelog
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns workspace change history for a given period.
+     *
+     * @param params JSON object with: since (default "24h"), workspace
+     * @return JSON object with: period, workspace, report (string)
+     */
+    public ObjectNode handleChangelog(JsonNode params) throws McpToolException {
+        String since = params != null && params.has("since") && !params.get("since").isNull()
+                ? params.get("since").asText() : "24h";
+        Path workspacePath = resolveWorkspace(params);
+
+        try {
+            // Try direct Java API first
+            java.time.Instant sinceInstant = io.exoreaction.synthesis.cli.ChangedCommand.parseSince(since);
+            if (sinceInstant != null) {
+                io.exoreaction.synthesis.db.SynthesisDatabase db =
+                        io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+                io.exoreaction.synthesis.changelog.SnapshotManager snapshots =
+                        new io.exoreaction.synthesis.changelog.SnapshotManager(db);
+                List<io.exoreaction.synthesis.changelog.ChangeEvent> events =
+                        snapshots.getChangesForWorkspace(workspacePath.toString(), sinceInstant);
+
+                io.exoreaction.synthesis.changelog.ChangeReportGenerator generator =
+                        new io.exoreaction.synthesis.changelog.ChangeReportGenerator();
+                String report = generator.generateReport(events, sinceInstant, java.time.Instant.now(), null);
+
+                ObjectNode response = mapper.createObjectNode();
+                response.put("period", since);
+                response.put("workspace", workspacePath.toString());
+                response.put("report", report);
+                return response;
+            }
+        } catch (Exception e) {
+            LOG.fine("Direct changelog API failed, falling back to CLI: " + e.getMessage());
+        }
+
+        // Fallback: subprocess
+        try {
+            String output = runSynthesisCli(List.of("changelog", "--since=" + since), workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("period", since);
+            response.put("workspace", workspacePath.toString());
+            response.put("report", output);
+            return response;
+        } catch (Exception e) {
+            LOG.warning("Changelog failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Changelog failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: report
+    // -----------------------------------------------------------------------
+
+    /**
+     * Generates a business report using AI analysis.
+     *
+     * @param params JSON object with: topic, target, period, noCache, workspace
+     * @return JSON object with: report (string), topic, target, workspace
+     */
+    public ObjectNode handleReport(JsonNode params) throws McpToolException {
+        String topic = params != null && params.has("topic") && !params.get("topic").isNull()
+                ? params.get("topic").asText() : "weekly";
+        String target = params != null && params.has("target") && !params.get("target").isNull()
+                ? params.get("target").asText() : "ceo";
+        String period = params != null && params.has("period") && !params.get("period").isNull()
+                ? params.get("period").asText() : "1w";
+        boolean noCache = params != null && params.has("noCache")
+                && params.get("noCache").asBoolean(false);
+        Path workspacePath = resolveWorkspace(params);
+
+        try {
+            // Try direct Java API
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+            Optional<io.exoreaction.synthesis.ai.ClaudeClient> clientOpt =
+                    io.exoreaction.synthesis.ai.ClaudeClient.create(config.getAi());
+
+            if (clientOpt.isPresent()) {
+                io.exoreaction.synthesis.report.ReportTarget reportTarget =
+                        io.exoreaction.synthesis.report.ReportTarget.valueOf(target.toUpperCase());
+                io.exoreaction.synthesis.report.ReportTopic reportTopic =
+                        io.exoreaction.synthesis.report.ReportTopic.valueOf(topic.toUpperCase());
+
+                io.exoreaction.synthesis.report.ReportEngine engine =
+                        new io.exoreaction.synthesis.report.ReportEngine(clientOpt.get(), config.getAi().getMaxTokens());
+                io.exoreaction.synthesis.report.ReportResult result =
+                        engine.generate(workspacePath, reportTarget, reportTopic, period, false);
+
+                ObjectNode response = mapper.createObjectNode();
+                response.put("report", result.finalReport());
+                response.put("topic", topic);
+                response.put("target", target);
+                response.put("workspace", workspacePath.toString());
+                return response;
+            }
+        } catch (IllegalArgumentException e) {
+            // Invalid enum value — fall through to subprocess
+            LOG.fine("Invalid report parameter: " + e.getMessage());
+        } catch (Exception e) {
+            LOG.fine("Direct report API failed, falling back to CLI: " + e.getMessage());
+        }
+
+        // Fallback: subprocess
+        try {
+            List<String> args = new java.util.ArrayList<>();
+            args.add("report");
+            args.add("--topic");
+            args.add(topic);
+            if (noCache) args.add("--no-cache");
+            String output = runSynthesisCli(args, workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("report", output);
+            response.put("topic", topic);
+            response.put("target", target);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (Exception e) {
+            LOG.warning("Report failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Report failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: health
+    // -----------------------------------------------------------------------
+
+    /**
+     * Runs workspace structural health audit.
+     *
+     * @param params JSON object with: workspace
+     * @return JSON object with: score, grade, errorCount, warningCount, issues[], workspace
+     */
+    public ObjectNode handleHealth(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+
+            List<io.exoreaction.synthesis.cli.HealthCommand.HealthIssue> issues = new ArrayList<>();
+
+            // E001: Phantom sub-workspace paths
+            var phantoms = io.exoreaction.synthesis.cli.HealthCommand.findPhantomSubWorkspaces(workspacePath, config);
+            if (!phantoms.isEmpty()) {
+                issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                        io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.ERROR,
+                        "E001",
+                        phantoms.size() + " phantom sub-workspace path(s) in config",
+                        "synthesis health --fix-config"));
+            }
+
+            // E002: Build artifacts
+            var artifacts = io.exoreaction.synthesis.cli.HealthCommand.findBuildArtifacts(workspacePath);
+            if (!artifacts.isEmpty()) {
+                issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                        io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.ERROR,
+                        "E002",
+                        "Build artifacts found: " + artifacts.size() + " location(s)"));
+            }
+
+            // W001: Empty directories
+            var emptyDirs = io.exoreaction.synthesis.cli.HealthCommand.findEmptyDirectories(workspacePath);
+            if (!emptyDirs.isEmpty()) {
+                issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                        io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.WARNING,
+                        "W001",
+                        emptyDirs.size() + " empty director" + (emptyDirs.size() == 1 ? "y" : "ies")));
+            }
+
+            // W002: Excessive loose root files
+            int looseFiles = io.exoreaction.synthesis.cli.HealthCommand.countLooseRootFiles(workspacePath);
+            if (looseFiles > 3) {
+                issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                        io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.WARNING,
+                        "W002",
+                        looseFiles + " files at workspace root (expected: 1-3)",
+                        "synthesis sweep"));
+            }
+
+            int score = io.exoreaction.synthesis.cli.HealthCommand.calculateScore(issues);
+            String grade = io.exoreaction.synthesis.cli.HealthCommand.scoreGrade(score);
+
+            long errorCount = issues.stream()
+                    .filter(i -> i.severity() == io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.ERROR)
+                    .count();
+            long warningCount = issues.stream()
+                    .filter(i -> i.severity() == io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.WARNING)
+                    .count();
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("score", score);
+            response.put("grade", grade);
+            response.put("errorCount", errorCount);
+            response.put("warningCount", warningCount);
+            response.put("workspace", workspacePath.toString());
+
+            ArrayNode issuesArray = mapper.createArrayNode();
+            for (var issue : issues) {
+                ObjectNode issueNode = mapper.createObjectNode();
+                issueNode.put("severity", issue.severity().name());
+                issueNode.put("code", issue.code());
+                issueNode.put("description", issue.description());
+                if (issue.fix() != null) {
+                    issueNode.put("fix", issue.fix());
+                }
+                if (!issue.details().isEmpty()) {
+                    ArrayNode details = mapper.createArrayNode();
+                    for (String detail : issue.details()) {
+                        details.add(detail);
+                    }
+                    issueNode.set("details", details);
+                }
+                issuesArray.add(issueNode);
+            }
+            response.set("issues", issuesArray);
+
+            return response;
+        } catch (Exception e) {
+            LOG.warning("Health check failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Health check failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: security
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns security analysis findings for a workspace.
+     *
+     * @param params JSON object with: severity, refresh, format, workspace
+     * @return JSON object with: totalCount, highCount, mediumCount, lowCount, summary, workspace
+     */
+    public ObjectNode handleSecurity(JsonNode params) throws McpToolException {
+        String severity = params != null && params.has("severity") && !params.get("severity").isNull()
+                ? params.get("severity").asText() : null;
+        boolean refresh = params != null && params.has("refresh")
+                && params.get("refresh").asBoolean(false);
+        String format = params != null && params.has("format") && !params.get("format").isNull()
+                ? params.get("format").asText() : "summary";
+        Path workspacePath = resolveWorkspace(params);
+
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            java.sql.Connection conn = db.getConnection();
+            io.exoreaction.synthesis.graph.SecurityRepository repo =
+                    new io.exoreaction.synthesis.graph.SecurityRepository();
+
+            // Optionally refresh by running analysis
+            if (refresh) {
+                try {
+                    String output = runSynthesisCli(List.of("code-graph", "security"), workspacePath);
+                    // Ignore output — we'll query the DB for fresh data
+                } catch (Exception e) {
+                    LOG.fine("Security refresh via CLI failed: " + e.getMessage());
+                }
+            }
+
+            Map<String, Integer> counts = repo.countFindingsBySeverity(conn, workspacePath.toString());
+            int total = repo.countFindings(conn, workspacePath.toString());
+            int high = counts.getOrDefault("HIGH", 0);
+            int medium = counts.getOrDefault("MEDIUM", 0);
+            int low = counts.getOrDefault("LOW", 0);
+            int info = counts.getOrDefault("INFO", 0);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("totalCount", total);
+            response.put("highCount", high);
+            response.put("mediumCount", medium);
+            response.put("lowCount", low);
+            response.put("infoCount", info);
+            response.put("workspace", workspacePath.toString());
+
+            if ("json".equalsIgnoreCase(format)) {
+                List<io.exoreaction.synthesis.graph.SecuritySignal> findings;
+                if (severity != null && !severity.isBlank()) {
+                    findings = repo.getFindingsBySeverity(conn, workspacePath.toString(), severity.toUpperCase());
+                } else {
+                    findings = repo.getFindings(conn, workspacePath.toString());
+                }
+
+                ArrayNode findingsArray = mapper.createArrayNode();
+                for (var signal : findings) {
+                    ObjectNode node = mapper.createObjectNode();
+                    node.put("signalId", signal.signalId());
+                    node.put("severity", signal.severity());
+                    node.put("filePath", signal.filePath());
+                    node.put("description", signal.description());
+                    if (signal.suggestion() != null) {
+                        node.put("suggestion", signal.suggestion());
+                    }
+                    findingsArray.add(node);
+                }
+                response.set("findings", findingsArray);
+            } else {
+                // Summary format
+                StringBuilder summary = new StringBuilder();
+                summary.append("Security Analysis: ").append(total).append(" finding(s)\n");
+                summary.append("  HIGH: ").append(high).append("\n");
+                summary.append("  MEDIUM: ").append(medium).append("\n");
+                summary.append("  LOW: ").append(low).append("\n");
+                summary.append("  INFO: ").append(info).append("\n");
+                response.put("summary", summary.toString());
+            }
+
+            return response;
+        } catch (Exception e) {
+            LOG.warning("Security analysis failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Security analysis failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: impact
+    // -----------------------------------------------------------------------
+
+    /**
+     * Transitive change impact analysis for a file.
+     *
+     * @param params JSON object with: filePath (required), depth, workspace
+     * @return JSON object with: target, totalImpact, riskLevel, report (string), workspace
+     */
+    public ObjectNode handleImpact(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("filePath")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: filePath");
+        }
+
+        String filePath = params.get("filePath").asText();
+        if (filePath == null || filePath.isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Parameter 'filePath' must not be empty");
+        }
+
+        int depth = params.has("depth") ? params.get("depth").asInt(3) : 3;
+        if (depth < 1) depth = 1;
+        if (depth > 10) depth = 10;
+
+        Path workspacePath = resolveWorkspace(params);
+
+        // Use subprocess — ImpactCommand uses picocli injection and complex BFS
+        try {
+            List<String> args = new java.util.ArrayList<>();
+            args.add("impact");
+            args.add(filePath);
+            args.add("--depth");
+            args.add(String.valueOf(depth));
+            args.add("--format");
+            args.add("text");
+            String output = runSynthesisCli(args, workspacePath);
+
+            // Parse basic metrics from output
+            int totalImpact = 0;
+            String riskLevel = "UNKNOWN";
+            for (String line : output.split("\n")) {
+                if (line.contains("Total impact:")) {
+                    try {
+                        totalImpact = Integer.parseInt(line.replaceAll("[^0-9]", ""));
+                    } catch (NumberFormatException ignored) {}
+                }
+                if (line.contains("Risk level:") || line.contains("Risk:")) {
+                    riskLevel = line.replaceAll(".*(?:Risk level:|Risk:)\\s*", "").trim();
+                }
+            }
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("target", filePath);
+            response.put("totalImpact", totalImpact);
+            response.put("riskLevel", riskLevel);
+            response.put("report", output);
+            response.put("depth", depth);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("Impact analysis failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Impact analysis failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tool: export
+    // -----------------------------------------------------------------------
+
+    /**
+     * Exports the workspace index in various formats.
+     *
+     * @param params JSON object with: format, fileType, limit, workspace
+     * @return JSON object with: content (string), format, fileCount, workspace
+     */
+    public ObjectNode handleExport(JsonNode params) throws McpToolException {
+        String format = params != null && params.has("format") && !params.get("format").isNull()
+                ? params.get("format").asText() : "markdown";
+        String fileType = params != null && params.has("fileType") && !params.get("fileType").isNull()
+                ? params.get("fileType").asText() : null;
+        int limit = params != null && params.has("limit") ? params.get("limit").asInt(1000) : 1000;
+        if (limit < 1) limit = 1;
+        if (limit > 50000) limit = 50000;
+
+        Path workspacePath = resolveWorkspace(params);
+        WorkspaceManager workspace = validateWorkspace(workspacePath);
+
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+
+            List<SearchResult> results;
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                results = index.listAll(fileType, limit);
+            }
+
+            if (results.isEmpty()) {
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                        "No files in index. Run 'synthesis scan' first.");
+            }
+
+            String content = io.exoreaction.synthesis.cli.ExportCommand.exportContent(
+                    format, config, results, workspacePath, fileType);
+
+            if (content == null) {
+                throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                        "Unknown export format: " + format
+                                + ". Use 'markdown', 'json', 'architecture-doc', 'onboarding-guide', or 'kcp'.");
+            }
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("content", content);
+            response.put("format", format);
+            response.put("fileCount", results.size());
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("Export failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Export failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Subprocess helper
+    // -----------------------------------------------------------------------
+
+    /**
+     * Runs a Synthesis CLI command as a subprocess, capturing stdout.
+     *
+     * @param args          command arguments (e.g., ["changelog", "--since=24h"])
+     * @param workspacePath workspace directory to pass via -d flag
+     * @return the stdout output as a string
+     * @throws McpToolException if the process exits with a non-zero code
+     */
+    private String runSynthesisCli(java.util.List<String> args, Path workspacePath) throws Exception {
+        String synthesisBin = System.getProperty("user.home") + "/.synthesis/bin/synthesis";
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add(synthesisBin);
+        cmd.addAll(args);
+        cmd.add("-d");
+        cmd.add(workspacePath.toString());
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(false);
+        Process p = pb.start();
+        String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        int exitCode = p.waitFor();
+        if (exitCode != 0) {
+            String err = new String(p.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "synthesis " + args.get(0) + " failed: " + err.trim());
+        }
+        return output;
+    }
     /**
      * Returns a snippet of {@code text} of at most {@code maxLen} characters,
      * centred around the first occurrence of any term from {@code query}.
