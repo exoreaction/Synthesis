@@ -50,6 +50,7 @@ public class SynthesisToolHandler {
     private final List<Path> allWorkspaces;
     private final boolean multiWorkspaceMode;
     private final MetricsCollector metrics;
+    private final McpQueryLogger queryLogger;
 
     /**
      * Single workspace constructor (backward compatible).
@@ -59,19 +60,33 @@ public class SynthesisToolHandler {
     }
 
     /**
-     * Multi-workspace constructor.
+     * Multi-workspace constructor (backward compatible — no query logging).
      *
      * @param mapper           Jackson ObjectMapper
      * @param defaultWorkspace primary workspace (fallback)
      * @param allWorkspaces    all workspaces to search across
      */
     public SynthesisToolHandler(ObjectMapper mapper, Path defaultWorkspace, List<Path> allWorkspaces) {
+        this(mapper, defaultWorkspace, allWorkspaces, McpQueryLogger.create());
+    }
+
+    /**
+     * Full constructor with optional query logger injection.
+     *
+     * @param mapper           Jackson ObjectMapper
+     * @param defaultWorkspace primary workspace (fallback)
+     * @param allWorkspaces    all workspaces to search across
+     * @param queryLogger      query logger ({@code null} disables logging)
+     */
+    public SynthesisToolHandler(ObjectMapper mapper, Path defaultWorkspace,
+                                List<Path> allWorkspaces, McpQueryLogger queryLogger) {
         this.mapper = mapper;
         this.defaultWorkspace = defaultWorkspace;
         this.allWorkspaces = allWorkspaces != null && !allWorkspaces.isEmpty()
                 ? allWorkspaces : List.of(defaultWorkspace);
         this.multiWorkspaceMode = this.allWorkspaces.size() > 1;
         this.metrics = MetricsCollector.create();
+        this.queryLogger = queryLogger != null ? queryLogger : McpQueryLogger.noOp();
     }
 
     /**
@@ -138,9 +153,13 @@ public class SynthesisToolHandler {
         if (limit < 1) limit = 1;
         if (limit > 200) limit = 200;
 
+        int previewLength = params.has("previewLength") ? params.get("previewLength").asInt(300) : 300;
+        if (previewLength < 100) previewLength = 100;
+        if (previewLength > 3000) previewLength = 3000;
+
         // Multi-workspace search
         if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
-            return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, startTime);
+            return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, previewLength, startTime);
         }
 
         // Single workspace search (original behavior)
@@ -157,11 +176,12 @@ public class SynthesisToolHandler {
             }
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
-            // Record metrics
+            // Record metrics and query log
             metrics.recordMcpInvocation("search", workspacePath.toString(), elapsedMs,
                                       results.size(), true, null);
+            queryLogger.log(query, workspacePath.toString(), results.size(), elapsedMs);
 
-            return buildSearchResponse(results, elapsedMs, workspacePath.toString());
+            return buildSearchResponse(results, elapsedMs, workspacePath.toString(), query, previewLength);
         } catch (Exception e) {
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
@@ -181,7 +201,8 @@ public class SynthesisToolHandler {
      */
     private ObjectNode handleMultiWorkspaceSearch(String query, String fileType,
                                                     String subWorkspace,
-                                                    int limit, long startTime) throws McpToolException {
+                                                    int limit, int previewLength,
+                                                    long startTime) throws McpToolException {
         try {
             MultiWorkspaceSearch multiSearch = new MultiWorkspaceSearch(allWorkspaces);
             MultiWorkspaceSearch.MultiSearchResult multiResult;
@@ -200,7 +221,7 @@ public class SynthesisToolHandler {
                 if (group.hasError() || !group.hasResults()) continue;
 
                 for (SearchResult result : group.results()) {
-                    ObjectNode item = buildSearchResultNode(result);
+                    ObjectNode item = buildSearchResultNode(result, query, previewLength);
                     // Add workspace info to each result
                     item.put("workspace", group.workspace().path().toString());
                     item.put("workspaceName", group.workspace().name());
@@ -229,9 +250,10 @@ public class SynthesisToolHandler {
             }
             response.set("workspaces", groupsArray);
 
-            // Record metrics
+            // Record metrics and query log
             metrics.recordMcpInvocation("search", "multi:" + allWorkspaces.size(),
                     elapsedMs, multiResult.totalResults(), true, null);
+            queryLogger.log(query, "multi:" + allWorkspaces.size(), multiResult.totalResults(), elapsedMs);
 
             return response;
         } catch (Exception e) {
@@ -247,7 +269,7 @@ public class SynthesisToolHandler {
     /**
      * Builds a search result node from a SearchResult.
      */
-    private ObjectNode buildSearchResultNode(SearchResult result) {
+    private ObjectNode buildSearchResultNode(SearchResult result, String query, int previewLength) {
         ObjectNode item = mapper.createObjectNode();
         item.put("path", result.path().toString());
         item.put("relativePath", result.relativePath());
@@ -256,11 +278,7 @@ public class SynthesisToolHandler {
         item.put("fileName", result.fileName());
 
         if (!result.summary().isEmpty()) {
-            String snippet = result.summary();
-            if (snippet.length() > 300) {
-                snippet = snippet.substring(0, 300) + "...";
-            }
-            item.put("snippet", snippet);
+            item.put("snippet", smartExcerpt(result.summary(), query, previewLength));
         }
 
         ObjectNode metadata = mapper.createObjectNode();
@@ -289,12 +307,13 @@ public class SynthesisToolHandler {
      * Builds the standard search response from a list of results.
      * Includes workspace-level freshness metadata (scan age, confidence).
      */
-    private ObjectNode buildSearchResponse(List<SearchResult> results, long elapsedMs, String workspace) {
+    private ObjectNode buildSearchResponse(List<SearchResult> results, long elapsedMs,
+                                           String workspace, String query, int previewLength) {
         ObjectNode response = mapper.createObjectNode();
         ArrayNode resultsArray = mapper.createArrayNode();
 
         for (SearchResult result : results) {
-            resultsArray.add(buildSearchResultNode(result));
+            resultsArray.add(buildSearchResultNode(result, query, previewLength));
         }
 
         response.set("results", resultsArray);
@@ -1258,6 +1277,50 @@ public class SynthesisToolHandler {
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                 "Summary generation failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Returns a snippet of {@code text} of at most {@code maxLen} characters,
+     * centred around the first occurrence of any term from {@code query}.
+     *
+     * <p>If no term is found the excerpt starts at position 0.
+     * Leading/trailing ellipses (…) are added when text is cut.
+     *
+     * @param text    full text to excerpt from
+     * @param query   search query (Lucene syntax — operators and field prefixes are stripped)
+     * @param maxLen  maximum length of the returned excerpt
+     */
+    String smartExcerpt(String text, String query, int maxLen) {
+        if (text == null || text.isBlank()) return "";
+        if (text.length() <= maxLen) return text;
+
+        // Extract individual terms: split on whitespace and Lucene boolean operators,
+        // then strip punctuation that Lucene uses for syntax.
+        String[] parts = query.split("[\\s]+|\\bAND\\b|\\bOR\\b|\\bNOT\\b");
+
+        int matchPos = -1;
+        for (String part : parts) {
+            // Strip Lucene operator characters and field:value prefix
+            String term = part.replaceAll("[+\\-*?~^\"()\\[\\]{}:\\\\]", "").trim().toLowerCase();
+            if (term.length() < 2) continue;
+            int pos = text.toLowerCase().indexOf(term);
+            if (pos >= 0 && (matchPos < 0 || pos < matchPos)) {
+                matchPos = pos;
+            }
+        }
+
+        // Centre window around match (fall back to start of text)
+        int center = matchPos >= 0 ? matchPos : 0;
+        int half = maxLen / 2;
+        int start = Math.max(0, center - half);
+        int end = Math.min(text.length(), start + maxLen);
+        // Adjust start if end was clamped
+        start = Math.max(0, end - maxLen);
+
+        String excerpt = text.substring(start, end);
+        if (start > 0) excerpt = "\u2026" + excerpt;
+        if (end < text.length()) excerpt = excerpt + "\u2026";
+        return excerpt;
     }
 
     private String formatSize(long bytes) {
