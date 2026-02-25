@@ -94,6 +94,7 @@ import java.util.concurrent.Callable;
                 ExplainCommand.class,
                 ArchitectureCommand.class,
                 MetricsCommand.class,
+                McpStatsCommand.class,
                 ListWorkspacesCommand.class,
                 WhichCommand.class,
                 TrackCommand.class,
@@ -349,7 +350,7 @@ public class SynthesisApp implements Callable<Integer> {
             "status", "export", "graph", "cross-repo-deps", "which",
             "list", "discover", "validate", "report", "upcoming",
             "extract-slides", "migrate-repos", "export-skills", "trace",
-            "metrics", "dashboard", "enrich"
+            "metrics", "mcp-stats", "dashboard", "enrich"
         ));
     }
 
