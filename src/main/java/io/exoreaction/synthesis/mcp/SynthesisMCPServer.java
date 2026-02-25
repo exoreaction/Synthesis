@@ -334,18 +334,23 @@ public class SynthesisMCPServer {
         // Tool: search
         toolsArray.add(createToolDefinition(
                 "search",
-                "Search Synthesis index across all file types (code, docs, videos, PDFs). " +
-                        "Returns ranked results with snippets, metadata, and relevance scores. " +
-                        "Supports Lucene query syntax: simple terms, exact phrases, boolean operators, wildcards.",
+                "Search the pre-indexed codebase across all file types (code, docs, videos, PDFs). " +
+                        "Faster than Grep for discovery: sub-second results regardless of codebase size. " +
+                        "Unlike Grep, matches on semantic fields (summaries, headings, keywords) not just " +
+                        "raw text — finds conceptually related files even without exact string matches. " +
+                        "Use this FIRST for discovery tasks; fall back to Grep only for exact " +
+                        "string/regex matching on known file locations.",
                 createSearchSchema()
         ));
 
         // Tool: relate
         toolsArray.add(createToolDefinition(
                 "relate",
-                "Show bidirectional relationships for a file (imports, usages, references). " +
-                        "Answers: 'What does this file depend on?' and 'What depends on this file?' " +
-                        "Essential for understanding impact before making changes.",
+                "Show ALL bidirectional relationships for a file — every import, every caller, " +
+                        "every reference across the entire codebase. Pre-computed and instant. " +
+                        "Use this INSTEAD OF Grep when finding callers or dependents of a class or file: " +
+                        "more complete because it understands import relationships, not just string matches. " +
+                        "Returns both what this file depends on and what depends on it.",
                 createRelateSchema()
         ));
 
@@ -441,8 +446,10 @@ public class SynthesisMCPServer {
         // Tool: impact
         toolsArray.add(createToolDefinition(
                 "impact",
-                "Transitive change impact analysis. Given a file, shows the full blast radius: " +
-                        "all files that would be affected if it changes. Essential before refactoring.",
+                "Find every file that would be affected if a given file changes — the full " +
+                        "transitive blast radius. Use this INSTEAD OF manually running Grep for usages " +
+                        "then following each reference chain. Returns the complete set of transitively " +
+                        "dependent files in a single call, ranked by proximity to the change point.",
                 createImpactSchema()
         ));
 
@@ -502,9 +509,11 @@ public class SynthesisMCPServer {
         // Tool: code-graph
         toolsArray.add(createToolDefinition(
                 "code-graph",
-                "Code-level dependency graph analysis. Subcommands: describe (overview), " +
-                        "health (quality metrics), gaps (missing coverage), security (vulnerability paths). " +
-                        "Optional flags: --cycles, --hotspots.",
+                "Code-level architecture and dependency graph analysis. Returns the full module " +
+                        "dependency graph, architectural layers, circular dependency detection, instability " +
+                        "metrics, and quality violations. Use this FIRST when asked about architecture, " +
+                        "module structure, package dependencies, or design violations — replaces dozens " +
+                        "of manual Grep/Read/Bash calls with a single pre-computed analysis.",
                 createCodeGraphSchema()
         ));
 
@@ -651,8 +660,10 @@ public class SynthesisMCPServer {
         // Tool: trace
         toolsArray.add(createToolDefinition(
                 "trace",
-                "Trace the dependency path between two files or symbols. Shows the shortest " +
-                        "connection chain. Use to understand how components relate.",
+                "Trace the call chain or dependency path between two classes, files, or symbols, " +
+                        "showing all intermediate hops. Use this INSTEAD OF manually reading files " +
+                        "sequentially to follow execution flow. If you only know the start point, " +
+                        "use 'relate' first to discover reachable targets.",
                 createTraceSchema()
         ));
 
