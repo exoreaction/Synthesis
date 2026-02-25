@@ -6,7 +6,7 @@
 > - **[MCP Protocol Reference](../api/MCP-PROTOCOL-REFERENCE.md)** -- JSON-RPC protocol details
 > - **[MCP Performance Benchmarks](./MCP-PERFORMANCE-BENCHMARKS.md)** -- Response times and scaling data
 
-Synthesis provides a native MCP (Model Context Protocol) server that gives Claude Code and other AI agents direct access to your workspace index -- enabling sub-second search, relationship analysis, and architecture visualization without manual tool invocation.
+Synthesis provides a native MCP (Model Context Protocol) server that gives Claude Code and other AI agents direct access to your workspace index -- enabling sub-second search, relationship analysis, architecture visualization, security scanning, change tracking, and much more.
 
 ## Quick Start
 
@@ -25,6 +25,31 @@ synthesis scan
 ```
 
 ### 3. Configure Claude Code
+
+**Option A: HTTP Transport (Recommended)**
+
+Start the server:
+
+```bash
+synthesis-mcp-server --workspace /absolute/path/to/your-project --http-port 8765
+```
+
+Add to `~/.claude/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "synthesis": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+HTTP is recommended because it survives session idle timeouts that can drop stdio connections.
+
+**Option B: stdio Transport**
 
 Add to `~/.claude/config.json`:
 
@@ -45,131 +70,94 @@ Start a new Claude Code session. You should see `synthesis` listed in the MCP to
 
 > "Use synthesis to search for authentication-related files"
 
+For HTTP: verify with `curl http://localhost:8765/health` which returns `{"status":"ok"}`.
+
 ---
 
-## Available Tools
+## Available Tools (41 total)
 
-### `search` -- Full-Text Search
+The MCP server exposes **41 tools** grouped by category. See the [MCP Comprehensive Guide](./MCP-COMPREHENSIVE-GUIDE.md) for full parameter documentation on all tools.
 
-Search across all file types (code, docs, videos, PDFs) with Lucene query syntax.
+### Search & Discovery (6 tools)
 
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | -- | Search query (Lucene syntax) |
-| `fileType` | string | No | `ALL` | Filter: CODE, MARKDOWN, PDF, VIDEO, YAML, JSON, CONFIG, IMAGE, AUDIO, ALL |
-| `limit` | number | No | 20 | Max results (1-200) |
-| `workspace` | string | No | server default | Override workspace path |
+| Tool | Description |
+|------|-------------|
+| `search` | Full-text search across all file types with Lucene query syntax |
+| `relate` | Bidirectional relationships: what a file depends on and what depends on it |
+| `which` | Locate files by class name, function name, or path pattern |
+| `discover` | Surface hidden patterns and non-obvious relationships |
+| `diff` | Synthesis-aware diff against a git ref |
+| `changed` | Files changed since a date or duration |
 
-**Example Queries:**
-- Simple: `"authentication"`
-- Phrase: `"\"error handling\""`
-- Boolean: `"testing AND strategy"`
-- Wildcard: `"auth*"`
-- Field: `"language:Java"`
-- Combined: `"security AND fileType:CODE"`
+### Architecture & Code (7 tools)
 
-**Response:**
-```json
-{
-  "results": [
-    {
-      "path": "/home/user/project/src/auth/AuthService.java",
-      "relativePath": "src/auth/AuthService.java",
-      "type": "CODE",
-      "score": 2.45,
-      "fileName": "AuthService.java",
-      "snippet": "Authentication service handling OAuth2 flows...",
-      "metadata": {
-        "size": 12345,
-        "language": "Java",
-        "headings": "AuthService, authenticate, refreshToken"
-      }
-    }
-  ],
-  "totalHits": 23,
-  "searchTime": "0.3s"
-}
-```
+| Tool | Description |
+|------|-------------|
+| `graph` | Module, dependency, or cross-repo architecture graphs (Mermaid/DOT/JSON) |
+| `code-graph` | Code-level dependency analysis with describe/health/gaps/security subcommands |
+| `architecture` | Architecture overview: layers, modules, key abstractions |
+| `knowledge-graph` | Knowledge graph of concepts, entities, and relationships |
+| `trace` | Shortest dependency path between two files or symbols |
+| `impact` | Transitive blast radius: all files affected by changing a given file |
+| `cross-repo-deps` | Cross-repository dependency analysis |
 
-### `relate` -- Relationship Analysis
+### Insights & AI (7 tools)
 
-Show bidirectional relationships for any file. Essential for understanding impact before refactoring.
+| Tool | Description |
+|------|-------------|
+| `ask` | AI-powered Q&A grounded in indexed files (requires `ANTHROPIC_API_KEY`) |
+| `insights` | AI codebase insights: patterns, anomalies, improvement suggestions |
+| `perspectives` | Answer a question from multiple role perspectives (architect, security, devops, product) |
+| `research` | Deep multi-pass research into a codebase topic |
+| `analyze` | File type distribution, complexity metrics, structural overview |
+| `summary` | Executive summary with role perspective and detail level options |
+| `report` | AI business reports: weekly, pipeline, activities, executive, decisions |
 
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `filePath` | string | Yes | -- | File name or path |
-| `format` | string | No | `json` | Output: `json` or `mermaid` |
-| `workspace` | string | No | server default | Override workspace path |
+### Content & Documentation (3 tools)
 
-**Response (JSON):**
-```json
-{
-  "file": "/home/user/project/src/auth/AuthService.java",
-  "outgoing": [
-    {"path": "src/auth/TokenManager.java", "type": "imports/references"},
-    {"path": "src/db/UserRepository.java", "type": "imports/references"}
-  ],
-  "incoming": [
-    {"path": "src/api/LoginController.java", "type": "references"},
-    {"path": "src/api/RefreshController.java", "type": "references"}
-  ],
-  "stats": {
-    "outgoingCount": 2,
-    "incomingCount": 2,
-    "totalConnections": 4
-  }
-}
-```
+| Tool | Description |
+|------|-------------|
+| `export` | Export as Markdown, JSON, KCP, architecture-doc, or onboarding-guide |
+| `enrich` | Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs) |
+| `explain` | AI-powered explanation of files, directories, or architectural patterns |
 
-**Response (Mermaid):**
-```json
-{
-  "format": "mermaid",
-  "diagram": "```mermaid\ngraph LR\n  AuthService --> TokenManager\n  LoginController --> AuthService\n```"
-}
-```
+### Security & Quality (5 tools)
 
-### `graph` -- Architecture Visualization
+| Tool | Description |
+|------|-------------|
+| `security` | Security findings by severity (HIGH/MEDIUM/LOW/INFO) with optional refresh |
+| `health` | Workspace structural health audit: health score 0-100 and grade |
+| `validate` | Integrity validation: broken links, missing references, orphaned files |
+| `metrics` | Codebase metrics: LOC, complexity, test coverage estimates, doc ratio |
+| `scatter` | Detect scattered concerns: logic that should be consolidated |
 
-Generate module-level or cross-repo dependency graphs.
+### Change Tracking (3 tools)
 
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `mode` | string | No | `modules` | Graph type: `modules`, `dependencies`, `cross-repo` |
-| `format` | string | No | `mermaid` | Output: `mermaid`, `json`, `dot` |
-| `filter` | string | No | -- | Filter to specific subsystem pattern |
-| `workspace` | string | No | server default | Override workspace path |
+| Tool | Description |
+|------|-------------|
+| `changelog` | Change history: added/modified/deleted files with significance classification |
+| `track` | File movement tracking with hash-based detection and audit trail |
+| `status` | Index freshness, pending changes, scan state, configuration summary |
 
-### `stats` -- Workspace Health
+### Operations (5 tools)
 
-Get workspace statistics including file counts, index size, and health status.
+| Tool | Description |
+|------|-------------|
+| `stats` | File counts by type, index size, health status, last scan time |
+| `scan` | Index all files in the workspace (creates or updates the Synthesis index) |
+| `maintain` | Full maintenance: re-index, update relations, refresh snapshots, track movements |
+| `mcp-stats` | MCP server usage statistics: invocation counts, response times, error rates |
+| `upcoming` | Upcoming tasks, TODOs, FIXMEs, and deadlines from comments and docs |
 
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `workspace` | string | No | server default | Override workspace path |
+### Workspace Intelligence (5 tools)
 
-**Response:**
-```json
-{
-  "workspace": "/home/user/project",
-  "totalFiles": 8934,
-  "fileTypes": {
-    "CODE": 3241,
-    "MARKDOWN": 1567,
-    "YAML": 423,
-    "JSON": 312,
-    "PDF": 89
-  },
-  "indexSizeBytes": 12189456,
-  "indexSize": "11.6 MB",
-  "lastScan": "2026-02-15T08:30:00Z",
-  "health": "healthy"
-}
-```
+| Tool | Description |
+|------|-------------|
+| `describe` | Describe a file or directory: purpose, contents, key observations |
+| `structure` | Smart tree view with directory annotations and file counts |
+| `evolution` | Evolution analysis: growth trends, churn hotspots, maturity by module |
+| `naming` | Naming convention analysis: inconsistencies and improvement suggestions |
+| `learn` | Learning guide: key concepts, entry points, recommended reading order |
 
 ---
 
@@ -180,8 +168,8 @@ Get workspace statistics including file counts, index size, and health status.
 > "I want to rename TokenManager to SessionManager. What would break?"
 
 Claude Code will:
-1. Use `search` to find TokenManager
-2. Use `relate` to find all files that import/reference it
+1. Use `impact` to find the full transitive blast radius
+2. Use `relate` to find all direct imports/references
 3. List every file that needs updating
 4. Make changes with confidence
 
@@ -190,25 +178,37 @@ Claude Code will:
 > "What's the architecture of this project?"
 
 Claude Code will:
-1. Use `graph` to get a module dependency diagram
-2. Use `stats` to understand the workspace scope
-3. Use `search` to find key configuration files
-4. Provide an informed architectural overview
+1. Use `architecture` for a layered architecture overview
+2. Use `graph` to get a module dependency diagram
+3. Use `stats` to understand the workspace scope
+4. Use `learn` for a recommended reading order
+5. Provide an informed architectural overview
 
-### Workflow 3: Impact Analysis
+### Workflow 3: Security Review
 
-> "What does changing the database schema affect?"
+> "What security issues does this workspace have?"
 
 Claude Code will:
-1. Use `search` for schema-related files
-2. Use `relate` on each to find downstream dependencies
-3. Build a change impact report
+1. Use `security` with `refresh: true` to scan and return findings
+2. Use `code-graph` with `subcommand: "security"` for vulnerability paths
+3. Present findings by severity
+
+### Workflow 4: Understanding Recent Changes
+
+> "What changed in the last week?"
+
+Claude Code will:
+1. Use `changelog` with `since: "7d"` for a classified change summary
+2. Use `changed` with `since: "7d"` for file-level listing
+3. Use `summary` with `since: "7d"` for an AI narrative of the changes
 
 ---
 
 ## Configuration
 
 ### Multiple Workspaces
+
+**Separate instances (stdio):**
 
 ```json
 {
@@ -223,6 +223,15 @@ Claude Code will:
     }
   }
 }
+```
+
+**Unified server (HTTP):**
+
+```bash
+synthesis-mcp-server \
+  --workspaces /home/user/Documents,/home/user/src/myproject \
+  --name myorg \
+  --http-port 8765
 ```
 
 ### Logging
@@ -246,6 +255,7 @@ Logs are written to `~/.synthesis/logs/mcp-server.log`.
 |----------|-------------|---------|
 | `SYNTHESIS_HOME` | Installation directory | `~/.synthesis` |
 | `SYNTHESIS_JAVA_OPTS` | JVM options (e.g., `-Xmx2g`) | (none) |
+| `ANTHROPIC_API_KEY` | Required for AI-powered tools | (none) |
 
 ---
 
@@ -286,8 +296,10 @@ synthesis scan       # Full rebuild
 
 ## Technical Details
 
-- **Protocol:** MCP v2024-11-05 over JSON-RPC 2.0 (stdio)
-- **Transport:** stdin/stdout (JSON lines, one message per line)
+- **Version:** 1.18.0
+- **Protocol:** MCP v2024-11-05 over JSON-RPC 2.0
+- **Transports:** stdio (JSON lines) and HTTP (`--http-port`)
+- **Health endpoint (HTTP):** `GET /health` returns `{"status":"ok"}`
 - **Index:** Apache Lucene (same index as CLI)
-- **Java:** 17+ required
+- **Java:** 21+ required
 - **Logging:** File-based (`~/.synthesis/logs/mcp-server.log`), not stdout

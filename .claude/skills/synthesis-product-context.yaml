@@ -1,6 +1,6 @@
 name: synthesis-product-context
-version: 1.8.1
-description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, and team staging
+version: 1.18.0
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, team staging, and 41-tool MCP server with HTTP transport
 auto_load: true
 
 instructions: |
@@ -10,8 +10,8 @@ instructions: |
   **License:** MIT (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 21+
-  **Status:** Production-ready (v1.8.4-SNAPSHOT as of Feb 18, 2026)
-  **Latest:** Configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
+  **Status:** Production-ready (v1.18.0)
+  **Latest:** MCP server expanded to 41 tools, HTTP transport added (`--http-port`), configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
 
   ---
 
@@ -548,6 +548,41 @@ instructions: |
   - **Screenshots** (`~/Pictures/Screenshots`): 90-day retention, 1,726+ images
 
   All three: `staging.enabled: true`, `ai.enabled: true`, image-focused scan patterns.
+
+  ## MCP Server (v1.18.0)
+
+  **41 tools** exposed over MCP to Claude Code, Cursor, and other AI agents.
+
+  **Transports:**
+  - **HTTP (recommended):** `synthesis-mcp-server --workspace /path --http-port 8765`
+    - Health endpoint: `GET http://localhost:8765/health` → `{"status":"ok"}`
+    - Claude Code config: `{ "type": "http", "url": "http://localhost:8765/mcp" }`
+    - Survives session idle timeouts; run as systemd user service for persistence
+  - **stdio:** `synthesis-mcp-server --workspace /path` (classic, subprocess spawned per session)
+
+  **Tool Categories (41 total):**
+  - **Search & Discovery (6):** search, relate, which, discover, diff, changed
+  - **Architecture & Code (7):** graph, code-graph, architecture, knowledge-graph, trace, impact, cross-repo-deps
+  - **Insights & AI (7):** ask, insights, perspectives, research, analyze, summary, report
+  - **Content & Documentation (3):** export, enrich, explain
+  - **Security & Quality (5):** security, health, validate, metrics, scatter
+  - **Change Tracking (3):** changelog, track, status
+  - **Operations (5):** stats, scan, maintain, mcp-stats, upcoming
+  - **Workspace Intelligence (5):** describe, structure, evolution, naming, learn
+
+  **Key new tools vs. original 8:**
+  - `impact` - transitive blast radius before refactoring
+  - `security` - vulnerability findings by severity
+  - `trace` - shortest path between two files/symbols
+  - `summary` - multi-perspective executive summary with caching
+  - `report` - AI business reports (weekly/pipeline/activities/decisions)
+  - `changelog`, `track` - file movement tracking with audit trail
+  - `cross-repo-deps` - cross-repo dependency analysis
+  - `learn` - auto-generated learning guide with recommended reading order
+
+  **Full documentation:** `docs/guides/MCP-COMPREHENSIVE-GUIDE.md`
+
+  ---
 
   ## Multi-Perspective Documentation (v1.8.0, Feb 2026)
 
