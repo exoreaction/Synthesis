@@ -21,6 +21,17 @@ public class CrossFormatLinker {
 
     private static final Logger log = Logger.getLogger(CrossFormatLinker.class.getName());
 
+    /** Maximum file size (in bytes) we will attempt to read as text. Files larger than this are skipped. */
+    static final long MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+
+    /** File extensions recognized as text formats safe to read with Files.readString(). */
+    private static final Set<String> TEXT_EXTENSIONS = Set.of(
+        ".java", ".kt", ".sql", ".xml", ".yaml", ".yml", ".json",
+        ".properties", ".gradle", ".kts", ".groovy", ".scala",
+        ".ts", ".js", ".md", ".txt", ".csv", ".html", ".css",
+        ".cfg", ".conf", ".toml", ".ini", ".sh", ".bat", ".py", ".rb"
+    );
+
     public record CrossFormatLink(
         String targetPath,
         String targetFile,
@@ -52,6 +63,7 @@ public class CrossFormatLinker {
         for (SearchResult javaFile : javaSourceFiles(allFiles)) {
             Path p = workspaceRoot.resolve(javaFile.relativePath());
             if (!Files.exists(p)) continue;
+            if (!isReadableTextFile(p)) continue;
             String content;
             try { content = Files.readString(p).toLowerCase(java.util.Locale.ROOT); }
             catch (IOException e) { continue; }
@@ -74,6 +86,10 @@ public class CrossFormatLinker {
     public List<String> extractTableNames(SearchResult sqlFile, Path workspaceRoot) throws IOException {
         Path p = workspaceRoot.resolve(sqlFile.relativePath());
         if (!Files.exists(p)) return List.of();
+        if (!isReadableTextFile(p)) {
+            log.fine("Skipping non-text/oversized file in cross-format linking: " + p);
+            return List.of();
+        }
         String sql;
         try {
             sql = Files.readString(p);
@@ -99,6 +115,10 @@ public class CrossFormatLinker {
                                                       Path workspaceRoot) throws IOException {
         Path p = workspaceRoot.resolve(yamlFile.relativePath());
         if (!Files.exists(p)) return List.of();
+        if (!isReadableTextFile(p)) {
+            log.fine("Skipping non-text/oversized file in cross-format linking: " + p);
+            return List.of();
+        }
         String yaml;
         try {
             yaml = Files.readString(p);
@@ -123,6 +143,7 @@ public class CrossFormatLinker {
         for (SearchResult javaFile : javaFiles(allFiles)) {
             Path jp = workspaceRoot.resolve(javaFile.relativePath());
             if (!Files.exists(jp)) continue;
+            if (!isReadableTextFile(jp)) continue;
             String content;
             try { content = Files.readString(jp); }
             catch (IOException e) { continue; }
@@ -143,6 +164,34 @@ public class CrossFormatLinker {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Returns {@code true} if the file has a recognized text extension AND is
+     * smaller than {@link #MAX_TEXT_FILE_SIZE}. This prevents
+     * {@link java.nio.file.Files#readString(Path)} from blowing up on large
+     * binary files (e.g. PNGs) that would cause {@link OutOfMemoryError}.
+     *
+     * @param path the file to check
+     * @return true if safe to read as text
+     */
+    static boolean isReadableTextFile(Path path) {
+        // Extension check
+        String fileName = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0) return false; // no extension — skip to be safe
+        String ext = fileName.substring(dot);
+        if (!TEXT_EXTENSIONS.contains(ext)) {
+            return false;
+        }
+
+        // Size check
+        try {
+            long size = Files.size(path);
+            return size <= MAX_TEXT_FILE_SIZE;
+        } catch (IOException e) {
+            return false;
+        }
+    }
 
     public boolean isSqlFile(SearchResult file) {
         return file.fileName().endsWith(".sql");

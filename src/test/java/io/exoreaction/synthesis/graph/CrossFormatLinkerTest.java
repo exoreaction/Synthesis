@@ -238,4 +238,130 @@ class CrossFormatLinkerTest {
                 linker.findYamlToJavaLinks(yaml, List.of(yaml, java), tmp);
         assertTrue(links.isEmpty(), "Binary YAML file should produce no links without throwing");
     }
+
+    // -----------------------------------------------------------------------
+    // Extension-based and size-based filtering (OOM prevention)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void isReadableTextFile_acceptsTextExtensions(@TempDir Path tmp) throws IOException {
+        for (String ext : List.of(".java", ".sql", ".yaml", ".yml", ".json", ".xml",
+                                   ".properties", ".gradle", ".kts", ".groovy", ".scala",
+                                   ".ts", ".js", ".kt", ".md", ".txt")) {
+            Path f = tmp.resolve("test" + ext);
+            Files.writeString(f, "content");
+            assertTrue(CrossFormatLinker.isReadableTextFile(f),
+                    "Should accept text extension: " + ext);
+        }
+    }
+
+    @Test
+    void isReadableTextFile_rejectsBinaryExtensions(@TempDir Path tmp) throws IOException {
+        for (String ext : List.of(".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
+                                   ".pdf", ".zip", ".tar", ".gz", ".jar", ".class",
+                                   ".exe", ".dll", ".so", ".dylib", ".woff", ".woff2")) {
+            Path f = tmp.resolve("test" + ext);
+            Files.write(f, new byte[]{0x00, 0x01, 0x02, 0x03});
+            assertFalse(CrossFormatLinker.isReadableTextFile(f),
+                    "Should reject binary extension: " + ext);
+        }
+    }
+
+    @Test
+    void isReadableTextFile_rejectsOversizedTextFile(@TempDir Path tmp) throws IOException {
+        Path bigFile = tmp.resolve("huge.sql");
+        // Write a file just over the 2MB limit
+        byte[] data = new byte[(int)(CrossFormatLinker.MAX_TEXT_FILE_SIZE + 1)];
+        java.util.Arrays.fill(data, (byte) 'x');
+        Files.write(bigFile, data);
+
+        assertFalse(CrossFormatLinker.isReadableTextFile(bigFile),
+                "Should reject text file larger than MAX_TEXT_FILE_SIZE");
+    }
+
+    @Test
+    void isReadableTextFile_acceptsTextFileUnderLimit(@TempDir Path tmp) throws IOException {
+        Path smallSql = tmp.resolve("small.sql");
+        Files.writeString(smallSql, "CREATE TABLE test (id INT);");
+        assertTrue(CrossFormatLinker.isReadableTextFile(smallSql),
+                "Should accept small text file");
+    }
+
+    @Test
+    void isReadableTextFile_rejectsFileWithNoExtension(@TempDir Path tmp) throws IOException {
+        Path noExt = tmp.resolve("Makefile");
+        Files.writeString(noExt, "all: build");
+        assertFalse(CrossFormatLinker.isReadableTextFile(noExt),
+                "Should reject file with no extension");
+    }
+
+    @Test
+    void extractTableNames_skipsLargePngNamedAsSql(@TempDir Path tmp) throws IOException {
+        // Simulate the actual OOM scenario: a large PNG file that would cause
+        // OutOfMemoryError if read as a UTF-16 string
+        Path pngFile = tmp.resolve("screenshot.png");
+        byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        Files.write(pngFile, pngHeader);
+
+        SearchResult r = new SearchResult(pngFile, "screenshot.png", 1.0f,
+                "screenshot.png", "IMAGE", "PNG", null, null, null, pngHeader.length);
+
+        List<String> tables = linker.extractTableNames(r, tmp);
+        assertTrue(tables.isEmpty(), "PNG file should be skipped by extension check");
+    }
+
+    @Test
+    void findSqlToJavaLinks_skipsLargeBinaryFilesInJavaList(@TempDir Path tmp) throws IOException {
+        // Create a valid SQL file with a table reference
+        Path sqlPath = tmp.resolve("V1__create.sql");
+        Files.writeString(sqlPath, "CREATE TABLE users (id INTEGER PRIMARY KEY);");
+        SearchResult sql = new SearchResult(sqlPath, "V1__create.sql", 1.0f,
+                "V1__create.sql", "sql", "SQL", null, null, null, 100L);
+
+        // Create a normal Java file that references the table
+        Path javaDir = tmp.resolve("src/main");
+        Files.createDirectories(javaDir);
+        Path javaPath = javaDir.resolve("UserRepo.java");
+        Files.writeString(javaPath, "class UserRepo { String t = \"users\"; }");
+        SearchResult javaResult = new SearchResult(javaPath, "src/main/UserRepo.java", 1.0f,
+                "UserRepo.java", "java", "Java", null, null, null, 100L);
+
+        // Create an oversized .java file (> 2MB) that should be skipped
+        Path bigJavaDir = tmp.resolve("src/main/gen");
+        Files.createDirectories(bigJavaDir);
+        Path bigJavaPath = bigJavaDir.resolve("Generated.java");
+        byte[] bigContent = new byte[(int)(CrossFormatLinker.MAX_TEXT_FILE_SIZE + 1)];
+        java.util.Arrays.fill(bigContent, (byte) 'x');
+        Files.write(bigJavaPath, bigContent);
+        SearchResult bigJava = new SearchResult(bigJavaPath, "src/main/gen/Generated.java", 1.0f,
+                "Generated.java", "java", "Java", null, null, null, bigContent.length);
+
+        List<SearchResult> all = Arrays.asList(sql, javaResult, bigJava);
+        // Should not OOM; should find the normal match but skip the oversized file
+        List<CrossFormatLinker.CrossFormatLink> links = linker.findSqlToJavaLinks(sql, all, tmp);
+        assertEquals(1, links.size(), "Should find link from normal Java file");
+        assertEquals("UserRepo.java", links.get(0).targetFile());
+    }
+
+    @Test
+    void findYamlToJavaLinks_skipsPngFile(@TempDir Path tmp) throws IOException {
+        // A PNG file with .yaml extension should be caught by the IOException handler
+        // But a PNG file with .png extension should be caught by extension check first
+        Path pngFile = tmp.resolve("diagram.png");
+        Files.write(pngFile, new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A});
+        SearchResult png = new SearchResult(pngFile, "diagram.png", 1.0f,
+                "diagram.png", "IMAGE", "PNG", null, null, null, 8L);
+
+        Path javaDir = tmp.resolve("src/main");
+        Files.createDirectories(javaDir);
+        Path javaPath = javaDir.resolve("Baz.java");
+        Files.writeString(javaPath, "class Baz {}");
+        SearchResult java = new SearchResult(javaPath, "src/main/Baz.java", 1.0f,
+                "Baz.java", "java", "Java", null, null, null, 100L);
+
+        // Should not throw OOM or any other error
+        List<CrossFormatLinker.CrossFormatLink> links =
+                linker.findYamlToJavaLinks(png, List.of(png, java), tmp);
+        assertTrue(links.isEmpty(), "PNG file should produce no YAML links");
+    }
 }
