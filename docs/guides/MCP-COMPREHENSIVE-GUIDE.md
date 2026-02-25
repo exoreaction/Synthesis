@@ -1,22 +1,27 @@
 # MCP Server Comprehensive Guide
 
-Synthesis provides a native MCP (Model Context Protocol) server that gives Claude Code, Cursor, and other MCP-compatible AI agents direct access to your workspace index. This guide covers everything from initial setup to advanced configuration and troubleshooting.
+Synthesis provides a native MCP (Model Context Protocol) server that gives Claude Code, Cursor, and other MCP-compatible AI agents direct access to your workspace index. This guide covers everything from initial setup to advanced configuration, all 41 tools, and troubleshooting.
 
-**Version:** 1.0.4-SNAPSHOT | **Protocol:** MCP v2024-11-05 | **Transport:** JSON-RPC 2.0 over stdio
+**Version:** 1.18.0 | **Java:** 21+ | **Protocol:** MCP v2024-11-05 | **Transports:** stdio, HTTP
 
 ---
 
 ## Table of Contents
 
 - [Setup and Installation](#setup-and-installation)
-- [Tools Reference](#tools-reference)
-  - [search](#search---full-text-search)
-  - [relate](#relate---relationship-analysis)
-  - [graph](#graph---architecture-visualization)
-  - [stats](#stats---workspace-health)
-  - [ask](#ask---ai-powered-qa) (AI)
-  - [enrich](#enrich---companion-file-generation)
-  - [explain](#explain---ai-code-explanation) (AI)
+- [Transport Modes](#transport-modes)
+  - [HTTP Transport (Recommended)](#http-transport-recommended)
+  - [stdio Transport](#stdio-transport)
+  - [Running as a systemd Service](#running-as-a-systemd-service)
+- [Tools Reference (41 tools)](#tools-reference)
+  - [Search & Discovery](#search--discovery-6-tools)
+  - [Architecture & Code](#architecture--code-7-tools)
+  - [Insights & AI](#insights--ai-7-tools)
+  - [Content & Documentation](#content--documentation-3-tools)
+  - [Security & Quality](#security--quality-5-tools)
+  - [Change Tracking](#change-tracking-3-tools)
+  - [Operations](#operations-5-tools)
+  - [Workspace Intelligence](#workspace-intelligence-5-tools)
 - [Advanced Configuration](#advanced-configuration)
 - [Integration](#integration)
 - [Troubleshooting](#troubleshooting)
@@ -31,8 +36,8 @@ Synthesis provides a native MCP (Model Context Protocol) server that gives Claud
 
 | Requirement | Minimum | Check Command |
 |-------------|---------|---------------|
-| Java | 17+ | `java -version` |
-| Synthesis | 1.0.0+ | `synthesis --version` |
+| Java | 21+ | `java -version` |
+| Synthesis | 1.18.0+ | `synthesis --version` |
 | Workspace indexed | Yes | `synthesis status` |
 
 ### Installation
@@ -60,7 +65,7 @@ mvn clean package -DskipTests
 ```bash
 docker run -v /path/to/project:/workspace \
   exoreaction/synthesis:latest \
-  synthesis-mcp-server --workspace /workspace
+  synthesis-mcp-server --workspace /workspace --http-port 8765
 ```
 
 ### Initial Workspace Setup
@@ -84,9 +89,47 @@ synthesis status
 #   Index size: 5.2 MB
 ```
 
-### Configuration
+---
 
-Add to `~/.claude/config.json`:
+## Transport Modes
+
+Synthesis supports two transports. **HTTP is recommended** for most setups because stdio connections can be dropped when a Claude Code session goes idle.
+
+### HTTP Transport (Recommended)
+
+Start the server with `--http-port`:
+
+```bash
+synthesis-mcp-server --workspace /path/to/project --http-port 8765
+```
+
+Configure Claude Code (`~/.claude/config.json`):
+
+```json
+{
+  "mcpServers": {
+    "synthesis": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+**Health endpoint:** `GET http://localhost:8765/health` returns `{"status":"ok"}`. Use this to verify the server is running.
+
+**Multi-workspace HTTP example:**
+
+```bash
+synthesis-mcp-server \
+  --workspaces /src/backend,/src/frontend,/home/user/Documents \
+  --name myorg \
+  --http-port 8765
+```
+
+### stdio Transport
+
+The classic mode. The client process spawns the server as a subprocess:
 
 ```json
 {
@@ -99,21 +142,48 @@ Add to `~/.claude/config.json`:
 }
 ```
 
-### Verification
+### Running as a systemd Service
 
-Start a new Claude Code session. The MCP server should appear in the tool list. Test with:
+For persistent HTTP transport on Linux, create a user-level systemd service:
 
-> "Use synthesis to show workspace stats"
+```ini
+# ~/.config/systemd/user/synthesis-mcp-http.service
+[Unit]
+Description=Synthesis MCP HTTP Server
+After=network.target
 
-If the agent successfully calls the `stats` tool and returns file counts, the server is working.
+[Service]
+ExecStart=%h/.synthesis/bin/synthesis-mcp-server \
+    --workspace %h/your-project \
+    --http-port 8765
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Enable and start:
+
+```bash
+systemctl --user enable synthesis-mcp-http
+systemctl --user start synthesis-mcp-http
+systemctl --user status synthesis-mcp-http
+```
+
+The service starts automatically on login and survives session idle.
 
 ---
 
 ## Tools Reference
 
-The MCP server exposes seven tools. Each tool accepts JSON parameters and returns structured JSON results wrapped in MCP content blocks. The first four tools (search, relate, graph, stats) work offline. The AI-powered tools (ask, explain) require an `ANTHROPIC_API_KEY` environment variable. The enrich tool works at basic level without AI, or at AI level with an API key.
+The MCP server exposes **41 tools** grouped into seven categories. Tools marked **(AI)** require the `ANTHROPIC_API_KEY` environment variable. All other tools work offline.
 
-### `search` -- Full-Text Search
+### Search & Discovery (6 tools)
+
+---
+
+#### `search` -- Full-Text Search
 
 Search across all file types (code, docs, videos, PDFs, configs) with Apache Lucene query syntax. Returns ranked results with snippets, metadata, and relevance scores.
 
@@ -121,9 +191,11 @@ Search across all file types (code, docs, videos, PDFs, configs) with Apache Luc
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | **Yes** | -- | Search query (Lucene syntax) |
+| `query` | string | **Yes** | -- | Search query (Lucene syntax: terms, phrases, booleans, wildcards, field:value) |
 | `fileType` | string | No | `ALL` | Filter: `CODE`, `MARKDOWN`, `PDF`, `VIDEO`, `YAML`, `JSON`, `CONFIG`, `IMAGE`, `AUDIO`, `ALL` |
 | `limit` | number | No | `20` | Max results (1-200) |
+| `previewLength` | number | No | `300` | Snippet length in characters (100-3000). Increase to 1000-2000 to reduce follow-up reads. Excerpt is centred on the matching section. |
+| `subWorkspace` | string | No | -- | Scope to a named sub-workspace (e.g., `eXOReaction`, `Cantara`) |
 | `workspace` | string | No | server default | Override workspace path |
 
 **Lucene Query Syntax:**
@@ -137,92 +209,14 @@ Search across all file types (code, docs, videos, PDFs, configs) with Apache Luc
 | Boolean NOT | `testing NOT unit` | First term present, second absent |
 | Wildcard | `auth*` | Matches auth, authentication, authorize, etc. |
 | Field query | `language:Java` | Search specific metadata fields |
-| Combined | `security AND fileType:CODE` | Combine multiple criteria |
 
 **Available search fields:** `language`, `fileType`, `repository`, `fileName`, `headings`, `keywords`, `content`
 
-**Example Queries:**
-
-```
-# Find all Java authentication code
-"authentication" with fileType="CODE"
-
-# Find deployment configurations
-"deployment" with fileType="YAML"
-
-# Find all files referencing a specific class
-"AuthService"
-
-# Find PDF documentation about security
-"security policy" with fileType="PDF"
-
-# Find files in a specific repository (multi-repo workspace)
-"pipeline" -- results include repository metadata
-
-# Boolean search for testing strategy docs
-"testing AND strategy" with fileType="MARKDOWN"
-
-# Wildcard search for all config patterns
-"config*"
-
-# Search for exact error message
-"\"NullPointerException in line\""
-
-# Find all files by a specific language
-"language:Python"
-
-# Search with result limit
-"TODO" with limit=50
-```
-
-**Response Format:**
-
-```json
-{
-  "results": [
-    {
-      "path": "/home/user/project/src/auth/AuthService.java",
-      "relativePath": "src/auth/AuthService.java",
-      "type": "CODE",
-      "score": 2.45,
-      "fileName": "AuthService.java",
-      "snippet": "Authentication service handling OAuth2 flows...",
-      "metadata": {
-        "size": 12345,
-        "language": "Java",
-        "headings": "AuthService, authenticate, refreshToken",
-        "structure": "class AuthService { authenticate(), refreshToken() }",
-        "repository": "main-app"
-      }
-    }
-  ],
-  "totalHits": 23,
-  "searchTime": "0.1s",
-  "workspace": "/home/user/project"
-}
-```
-
-**Response fields explained:**
-
-| Field | Description |
-|-------|-------------|
-| `path` | Absolute file path |
-| `relativePath` | Path relative to workspace root |
-| `type` | File classification (CODE, MARKDOWN, PDF, etc.) |
-| `score` | Lucene relevance score (higher = more relevant) |
-| `fileName` | Just the file name |
-| `snippet` | Content preview (up to 300 characters) |
-| `metadata.size` | File size in bytes |
-| `metadata.language` | Detected programming language (code files only) |
-| `metadata.headings` | Extracted headings/declarations |
-| `metadata.structure` | Code structure summary (classes, methods) |
-| `metadata.repository` | Repository name (multi-repo workspaces) |
-
 ---
 
-### `relate` -- Relationship Analysis
+#### `relate` -- Relationship Analysis
 
-Show bidirectional relationships for any file. Answers two questions: "What does this file depend on?" (outgoing) and "What depends on this file?" (incoming). Essential for understanding impact before making changes.
+Show bidirectional relationships for any file. Answers "What does this file depend on?" (outgoing) and "What depends on this file?" (incoming). Essential for understanding impact before making changes.
 
 **Parameters:**
 
@@ -232,63 +226,62 @@ Show bidirectional relationships for any file. Answers two questions: "What does
 | `format` | string | No | `json` | Output format: `json` or `mermaid` |
 | `workspace` | string | No | server default | Override workspace path |
 
-**File path resolution:** The `filePath` parameter is flexible. You can provide:
-- A full file name: `AuthService.java`
-- A relative path: `src/auth/AuthService.java`
-- A partial path: `auth/AuthService.java`
+---
 
-The tool searches the index and finds the best match.
+#### `which` -- Symbol/File Locator
 
-**Example -- JSON format:**
+Find which file(s) match a pattern or contain a symbol. Like the shell `which` command but for your codebase: resolves class names, function names, or path patterns to actual files.
 
-```json
-// Input: {"filePath": "AuthService.java", "format": "json"}
-// Output:
-{
-  "file": "/home/user/project/src/auth/AuthService.java",
-  "relativePath": "src/auth/AuthService.java",
-  "outgoing": [
-    {"path": "src/auth/TokenManager.java", "type": "imports/references"},
-    {"path": "src/db/UserRepository.java", "type": "imports/references"},
-    {"path": "src/config/SecurityConfig.java", "type": "imports/references"}
-  ],
-  "incoming": [
-    {"path": "src/api/LoginController.java", "type": "references"},
-    {"path": "src/api/RefreshController.java", "type": "references"},
-    {"path": "test/auth/AuthServiceTest.java", "type": "references"}
-  ],
-  "stats": {
-    "outgoingCount": 3,
-    "incomingCount": 3,
-    "totalConnections": 6
-  }
-}
-```
+**Parameters:**
 
-**Example -- Mermaid format:**
-
-```json
-// Input: {"filePath": "AuthService.java", "format": "mermaid"}
-// Output:
-{
-  "format": "mermaid",
-  "file": "src/auth/AuthService.java",
-  "diagram": "graph LR\n  AuthService --> TokenManager\n  AuthService --> UserRepository\n  LoginController --> AuthService\n  RefreshController --> AuthService"
-}
-```
-
-**Relationship types detected:**
-- Java `import` statements
-- Markdown links (`[text](path)`)
-- String literal file references (`"config/settings.yaml"`)
-- Require/import in JavaScript/TypeScript
-- General filename mentions in file content
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `pattern` | string | **Yes** | -- | Class name, function name, or file path pattern to locate |
+| `workspace` | string | No | server default | Override workspace path |
 
 ---
 
-### `graph` -- Architecture Visualization
+#### `discover` -- Hidden Pattern Discovery
 
-Generate module-level, dependency, or cross-repository architecture graphs. Returns Mermaid, DOT (Graphviz), or structured JSON for visualization.
+Discover interesting patterns, hidden dependencies, and non-obvious relationships in the workspace. Surfaces things you did not know to look for.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `diff` -- Synthesis-Aware Git Diff
+
+Show a synthesis-aware diff against a git ref (e.g., `HEAD~1`, `main`, a commit SHA). Categorizes changes by type and significance.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `ref` | string | **Yes** | -- | Git ref to diff against (e.g., `HEAD~1`, `main`, commit SHA) |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `changed` -- Files Changed Since Date
+
+List files changed since a date or duration (e.g., `2026-02-20` or `7d`). Groups by change type: added, modified, deleted.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `since` | string | **Yes** | -- | Date (e.g., `2026-02-20`) or duration (e.g., `7d`, `24h`, `2w`) |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+### Architecture & Code (7 tools)
+
+---
+
+#### `graph` -- Architecture Visualization
+
+Generate module-level, dependency, or cross-repository architecture graphs. Returns Mermaid, DOT (Graphviz), or structured JSON.
 
 **Parameters:**
 
@@ -299,98 +292,327 @@ Generate module-level, dependency, or cross-repository architecture graphs. Retu
 | `filter` | string | No | -- | Filter to directory or repository pattern |
 | `workspace` | string | No | server default | Override workspace path |
 
-**Graph modes:**
-
-| Mode | Description | Best for |
-|------|-------------|----------|
-| `modules` | Directory-level dependency graph | Understanding project structure |
-| `dependencies` | Module dependency graph | Dependency analysis |
-| `cross-repo` | Relationships across repositories | Multi-repo architectures |
-
-**Example -- Mermaid output:**
-
-```json
-// Input: {"mode": "modules", "format": "mermaid"}
-// Output:
-{
-  "format": "mermaid",
-  "nodes": 12,
-  "edges": 18,
-  "title": "Module Dependencies",
-  "generationTime": "0.2s",
-  "graph": "graph TD\n  cli --> core\n  cli --> index\n  core --> config\n  analyzer --> core\n  mcp --> core\n  mcp --> index\n  lsp --> core\n  lsp --> index"
-}
-```
-
-**Example -- JSON output (structured):**
-
-```json
-// Input: {"mode": "modules", "format": "json"}
-// Output:
-{
-  "format": "json",
-  "nodes": 12,
-  "edges": 18,
-  "title": "Module Dependencies",
-  "generationTime": "0.2s",
-  "nodesData": [
-    {
-      "id": "src/auth",
-      "label": "auth",
-      "type": "CODE",
-      "language": "Java",
-      "repository": "main-app",
-      "directory": "src/auth",
-      "size": 45678
-    }
-  ],
-  "edgesData": [
-    {
-      "source": "src/auth",
-      "target": "src/db",
-      "type": "imports",
-      "weight": 3
-    }
-  ]
-}
-```
-
-**Example -- DOT output (Graphviz):**
-
-```json
-// Input: {"mode": "modules", "format": "dot"}
-// Output:
-{
-  "format": "dot",
-  "nodes": 12,
-  "edges": 18,
-  "title": "Module Dependencies",
-  "generationTime": "0.2s",
-  "graph": "digraph G {\n  rankdir=LR;\n  \"cli\" -> \"core\";\n  \"cli\" -> \"index\";\n  \"core\" -> \"config\";\n}"
-}
-```
-
-**Using the filter parameter:**
-
-```json
-// Only show the "auth" subsystem
-{"mode": "modules", "filter": "auth"}
-
-// Only show a specific repository in a multi-repo workspace
-{"mode": "cross-repo", "filter": "payment-service"}
-```
-
 ---
 
-### `stats` -- Workspace Health
+#### `code-graph` -- Code-Level Dependency Graph
 
-Get workspace statistics including file counts by type, index size, health status, and last scan timestamp. Use this to verify the workspace is indexed and healthy before running other tools.
+Code-level dependency graph analysis with subcommands: `describe` (overview), `health` (quality metrics), `gaps` (missing coverage), `security` (vulnerability paths). Optional flags: `--cycles`, `--hotspots`.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
+| `subcommand` | string | No | `""` | Subcommand: `describe`, `health`, `gaps`, `security` |
+| `flags` | string | No | -- | Optional extra flags (e.g., `--cycles --hotspots`) |
 | `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `architecture` -- Architecture Overview
+
+Generate an architecture overview of the workspace: layers, modules, key abstractions, and cross-cutting concerns.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `knowledge-graph` -- Knowledge Graph
+
+Build and display a knowledge graph of concepts, entities, and relationships extracted from the workspace. Use to understand the domain model and connections.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `trace` -- Dependency Path Tracer
+
+Trace the dependency path between two files or symbols. Shows the shortest connection chain. Use to understand how components relate.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `from` | string | **Yes** | -- | Source file or symbol to trace from |
+| `to` | string | **Yes** | -- | Target file or symbol to trace to |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `impact` -- Change Impact Analysis
+
+Transitive change impact analysis. Given a file, shows the full blast radius: all files that would be affected if it changes. Essential before refactoring.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePath` | string | **Yes** | -- | File path or class name to analyze change impact for |
+| `depth` | number | No | `3` | Maximum transitive dependency depth (1-10) |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `cross-repo-deps` -- Cross-Repository Dependencies
+
+Analyze cross-repository dependencies across all repos in the workspace. Shows which repos depend on which, with version and artifact details.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+### Insights & AI (7 tools)
+
+---
+
+#### `ask` -- AI-Powered Q&A **(AI)**
+
+Ask natural language questions about the codebase. Searches the Synthesis index for relevant files, builds context, and generates an answer with file citations. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | **Yes** | -- | The question to ask about the codebase |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `insights` -- AI Codebase Insights **(AI)**
+
+Generate AI-powered codebase insights: patterns, anomalies, improvement suggestions. Higher-level than `analyze` -- focuses on actionable observations.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `perspectives` -- Multi-Role Perspectives **(AI)**
+
+Answer a question about the codebase from multiple role perspectives (architect, security, devops, product). Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `question` | string | **Yes** | -- | Question to answer from multiple role perspectives |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `research` -- Deep Research **(AI)**
+
+Deep research into a codebase topic. Searches the index, follows references, and synthesizes a comprehensive answer. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | **Yes** | -- | Research query to investigate in the codebase |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `analyze` -- Workspace Analysis
+
+Run comprehensive workspace analysis. Returns file type distribution, complexity metrics, and structural overview. Use to understand a codebase quickly.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `summary` -- Executive Summary **(AI optional)**
+
+Generate executive summary of the codebase with AI-enhanced analysis. Choose detail level and role perspective. Results are cached for instant retrieval.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `level` | string | No | `executive` | Detail level: `executive`, `manager`, `developer` |
+| `perspective` | string | No | `general` | Role: `general`, `executive`, `engineering_manager`, `architect`, `security`, `devops`, `product_manager`, `developer` |
+| `format` | string | No | `markdown` | Output format: `markdown`, `json`, `terminal` |
+| `since` | string | No | -- | Include recent changes: duration (`7d`, `24h`, `2w`, `3m`) or ISO date (`2026-01-15`). Bypasses cache. |
+| `noAi` | boolean | No | `false` | Skip AI-enhanced summary (faster, metrics-only) |
+| `noCache` | boolean | No | `false` | Skip cache and force fresh generation |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `report` -- AI Business Reports **(AI)**
+
+Generate AI-powered business reports. Topics: weekly executive, pipeline status, activities, decisions. Target audiences: CEO, board, investor. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `topic` | string | No | `weekly` | Report topic: `weekly`, `pipeline`, `activities`, `executive`, `decisions` |
+| `target` | string | No | `ceo` | Audience: `ceo`, `board`, `investor` |
+| `period` | string | No | `1w` | Coverage period: `1w`, `2w`, `1m` |
+| `noCache` | boolean | No | `false` | Skip cache and force fresh generation |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+### Content & Documentation (3 tools)
+
+---
+
+#### `export` -- Export Workspace Index
+
+Export the workspace index as Markdown, JSON, KCP, architecture doc, or onboarding guide. Useful for sharing workspace overviews, generating AI context, or creating documentation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `format` | string | No | `markdown` | Export format: `markdown`, `json`, `kcp`, `architecture-doc`, `onboarding-guide` |
+| `fileType` | string | No | -- | Filter by file type (e.g., `CODE`, `MARKDOWN`, `YAML`, `PDF`) |
+| `limit` | number | No | `1000` | Maximum number of entries to export (1-50000) |
+| `workspace` | string | No | server default | Override workspace path |
+
+Note: `kcp` format produces Knowledge Context Protocol output compatible with external AI tools.
+
+---
+
+#### `enrich` -- Companion File Generation
+
+Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs, audio). Makes binary content searchable by extracting metadata, text, and AI descriptions. Run with `filePath` for a single file or without for batch mode.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `filePath` | string | No | -- | Path to a specific file to enrich (omit for batch mode) |
+| `level` | string | No | `basic` | Enrichment level: `basic` (metadata only), `local` (with local tools), `ai` (with Claude) |
+| `force` | boolean | No | `false` | Force regeneration even if companion file exists |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `explain` -- AI Code Explanation **(AI)**
+
+AI-powered explanation of files, directories, or architectural patterns. Generates comprehensive explanations with code references and context. Requires `ANTHROPIC_API_KEY`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `target` | string | **Yes** | -- | File path, directory path, or pattern name to explain |
+| `includeContext` | boolean | No | `true` | Include related files in explanation context |
+| `depth` | string | No | `standard` | Depth: `brief` (3-5 sentences), `standard` (sections), `deep` (comprehensive) |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+### Security & Quality (5 tools)
+
+---
+
+#### `security` -- Security Analysis
+
+Security analysis findings for the workspace. Shows vulnerability counts by severity (HIGH/MEDIUM/LOW/INFO), including both traditional and agentic security signals.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `severity` | string | No | -- | Filter findings by severity level: `HIGH`, `MEDIUM`, `LOW`, `INFO` |
+| `refresh` | boolean | No | `false` | Re-run security analysis before returning results |
+| `format` | string | No | `summary` | Output format: `summary` (counts) or `json` (full findings) |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `health` -- Workspace Health Audit
+
+Run workspace structural health audit. Checks for phantom paths, build artifacts, empty directories, and loose root files. Returns a health score (0-100) and grade.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `validate` -- Workspace Integrity Validation
+
+Validate workspace integrity: broken links, missing references, orphaned files, and configuration issues. Returns pass/fail with actionable fixes.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `metrics` -- Codebase Metrics
+
+Compute codebase metrics: lines of code, complexity, test coverage estimates, documentation ratio, and dependency counts.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `scatter` -- Scattered Concerns Detection
+
+Detect scattered concerns: logic spread across many files that should be consolidated. Identifies code duplication patterns and cohesion issues.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+### Change Tracking (3 tools)
+
+---
+
+#### `changelog` -- Change History
+
+Show workspace change history. Returns added, modified, and deleted files with significance classification. Use to understand what changed recently.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `since` | string | No | `24h` | Time period: `24h`, `7d`, `2w`, `30d` |
+| `workspace` | string | No | server default | Override workspace path |
+
+---
+
+#### `track` -- File Movement Tracking
+
+Track file movements using hash-based detection. Shows files that were moved or renamed, with confidence scores and audit trail.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `status` -- Workspace Status
+
+Show current workspace status: index freshness, pending changes, scan state, and configuration summary.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+### Operations (5 tools)
+
+---
+
+#### `scan` -- Index Workspace
+
+Scan and index all files in the workspace. Creates or updates the Synthesis index. Run after adding new files or on first setup.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `maintain` -- Full Workspace Maintenance
+
+Run full workspace maintenance: re-index changed files, update relations, refresh snapshots, and track movements. Long-running (may take minutes).
+
+**Parameters:** `workspace` (optional)
+
+---
+
+#### `stats` -- Workspace Statistics
+
+Get workspace statistics: file counts by type, index size, health status, and last scan time. Use to verify the workspace is indexed and healthy.
+
+**Parameters:** `workspace` (optional)
 
 **Response Format:**
 
@@ -418,218 +640,70 @@ Get workspace statistics including file counts by type, index size, health statu
 }
 ```
 
-**Health status values:**
+---
 
-| Status | Meaning | Action |
-|--------|---------|--------|
-| `healthy` | Workspace is initialized and has valid config | None needed |
-| `missing-config` | `.synthesis/config.yaml` not found | Run `synthesis init` |
+#### `mcp-stats` -- MCP Usage Statistics
 
-**Interpreting the stats:**
-- `totalFiles`: Total documents in the Lucene index
-- `fileTypes`: Breakdown by Synthesis file classification
-- `indexSize`: Physical size of the Lucene index on disk
-- `lastScan`: ISO 8601 timestamp of the most recent scan state file modification
-- `timestamp`: Current server time (for staleness detection)
+Show MCP server usage statistics: tool invocation counts, response times, error rates, and popular queries. Reads the global MCP query log.
+
+**Parameters:** none
 
 ---
 
-### `ask` -- AI-Powered Q&A
+#### `upcoming` -- Upcoming Tasks & Deadlines
 
-Ask natural language questions about the codebase. The tool searches the Synthesis index for relevant files, builds context with file content and line numbers, and generates an answer with citations using Claude. Requires `ANTHROPIC_API_KEY`.
+Show upcoming tasks, TODOs, FIXMEs, and deadlines found in the codebase. Extracts actionable items from comments and documentation.
+
+**Parameters:** `workspace` (optional)
+
+---
+
+### Workspace Intelligence (5 tools)
+
+---
+
+#### `describe` -- Describe File or Directory
+
+Describe a file or directory within the workspace. Without a path, describes the workspace root. Returns purpose, contents, and key observations.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | **Yes** | -- | The question to ask about the codebase |
+| `path` | string | No | workspace root | File or directory path to describe |
 | `workspace` | string | No | server default | Override workspace path |
 
-**Example Queries:**
+---
 
-```
-# Understand authentication flow
-{"query": "How does authentication work in this project?"}
+#### `structure` -- Smart Tree View
 
-# Find usage patterns
-{"query": "Where and how is the database connection pool configured?"}
+Show workspace directory structure with annotations: purpose of each directory, file counts, and notable patterns.
 
-# Architecture questions
-{"query": "What design patterns are used in the service layer?"}
-```
-
-**Response Format:**
-
-```json
-{
-  "answer": "Authentication is handled by AuthService.java which uses OAuth2...",
-  "citations": [
-    "src/auth/AuthService.java",
-    "src/config/SecurityConfig.java",
-    "src/auth/TokenManager.java"
-  ],
-  "contextFiles": 10,
-  "workspace": "/home/user/project"
-}
-```
-
-**Response fields explained:**
-
-| Field | Description |
-|-------|-------------|
-| `answer` | AI-generated answer with code references |
-| `citations` | Files used as context for generating the answer |
-| `contextFiles` | Number of files retrieved from the index |
-| `workspace` | Workspace path used |
-
-**Error cases:**
-- Missing or empty `query` parameter: returns `INVALID_PARAMS` error
-- No `ANTHROPIC_API_KEY` set: returns error with setup instructions
+**Parameters:** `workspace` (optional)
 
 ---
 
-### `enrich` -- Companion File Generation
+#### `evolution` -- Evolution Analysis
 
-Generate `.synthesis.md` companion files for binary assets (images, videos, PDFs, audio). These companion files contain structured metadata, extracted text, and AI descriptions that make binary content fully text-searchable. Run with `filePath` for a single file, or without for batch processing of all binary files in the index.
+Analyze how the workspace has evolved over time: growth trends, churn hotspots, and maturity assessment by module.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `filePath` | string | No | -- | Path to a specific file (omit for batch mode) |
-| `level` | string | No | `basic` | Enrichment level: `basic`, `local`, `ai` |
-| `force` | boolean | No | `false` | Regenerate even if companion exists |
-| `workspace` | string | No | server default | Override workspace path |
-
-**Enrichment Levels:**
-
-| Level | Description | Requirements |
-|-------|-------------|--------------|
-| `basic` | Metadata extraction only (size, type, format) | None |
-| `local` | Metadata + local tool analysis (ffprobe, image dimensions) | None |
-| `ai` | Metadata + local tools + AI description (vision for images, content summary for PDFs) | `ANTHROPIC_API_KEY` |
-
-**Example -- Single file:**
-
-```json
-// Input: {"filePath": "docs/architecture-diagram.png", "level": "basic"}
-// Output:
-{
-  "generated": true,
-  "sourcePath": "/home/user/project/docs/architecture-diagram.png",
-  "companionPath": "/home/user/project/docs/architecture-diagram.png.synthesis.md",
-  "level": "BASIC"
-}
-```
-
-**Example -- Batch mode:**
-
-```json
-// Input: {"level": "basic"}
-// Output:
-{
-  "generated": 12,
-  "skipped": 3,
-  "errors": 0,
-  "level": "BASIC",
-  "workspace": "/home/user/project"
-}
-```
-
-**Companion file format:**
-
-The generated `.synthesis.md` file contains YAML front matter and markdown body:
-
-```markdown
----
-companion_for: diagram.png
-type: IMAGE
-enrichment_level: BASIC
-generated: 2026-02-15T10:30:00Z
----
-
-# diagram.png
-
-**Type:** IMAGE | **Size:** 45.2 KB
-
-## Metadata
-- Dimensions: 1920x1080
-- Format: PNG
-
-## Description
-A diagram image.
-```
-
-**Batch behavior:**
-- Processes all VIDEO, IMAGE, PDF, and AUDIO files in the index
-- Skips files that already have companion files (unless `force: true`)
-- Reports counts of generated, skipped, and errored files
+**Parameters:** `workspace` (optional)
 
 ---
 
-### `explain` -- AI Code Explanation
+#### `naming` -- Naming Convention Analysis
 
-Generate comprehensive AI-powered explanations of files, directories, or architectural patterns. Uses the Synthesis index as context to ground explanations in the actual workspace structure. Requires `ANTHROPIC_API_KEY`.
+Analyze naming conventions across the codebase. Detects inconsistencies, suggests improvements, and checks adherence to project naming patterns.
 
-**Parameters:**
+**Parameters:** `workspace` (optional)
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `target` | string | **Yes** | -- | File path, directory path, or pattern name |
-| `includeContext` | boolean | No | `true` | Include related files in explanation context |
-| `depth` | string | No | `standard` | Depth: `brief`, `standard`, `deep` |
-| `workspace` | string | No | server default | Override workspace path |
+---
 
-**Explanation Modes:**
+#### `learn` -- Learning Guide Generation
 
-The tool auto-detects the mode based on the `target`:
+Generate a learning guide for the codebase: key concepts, entry points, recommended reading order, and architectural patterns to understand first.
 
-| Mode | Detection | Description |
-|------|-----------|-------------|
-| `file` | Target resolves to a regular file | Explains the file's purpose, structure, and relationships |
-| `module` | Target resolves to a directory | Explains the module's role, internal structure, and external dependencies |
-| `pattern` | Target does not resolve to a file or directory | Searches the index for the concept and explains how it is implemented |
-
-**Explanation Depths:**
-
-| Depth | Output | Best for |
-|-------|--------|----------|
-| `brief` | 3-5 sentences | Quick overview, code review comments |
-| `standard` | Multiple sections with code references | Day-to-day understanding |
-| `deep` | Comprehensive analysis with architecture context | Onboarding, documentation |
-
-**Example -- File explanation:**
-
-```json
-// Input: {"target": "src/auth/AuthService.java", "depth": "standard"}
-// Output:
-{
-  "target": "src/auth/AuthService.java",
-  "mode": "file",
-  "explanation": "## AuthService.java\n\nThis is the core authentication service...",
-  "contextDocuments": 8,
-  "durationMs": 2340
-}
-```
-
-**Example -- Pattern explanation:**
-
-```json
-// Input: {"target": "authentication", "depth": "brief"}
-// Output:
-{
-  "target": "authentication",
-  "mode": "pattern",
-  "explanation": "Authentication in this project follows OAuth2 with JWT tokens...",
-  "contextDocuments": 15,
-  "durationMs": 3120
-}
-```
-
-**Error cases:**
-- Missing or empty `target` parameter: returns `INVALID_PARAMS` error
-- No `ANTHROPIC_API_KEY` set: returns error with setup instructions
-- File/directory not found and no matching pattern: attempts pattern explanation
+**Parameters:** `workspace` (optional)
 
 ---
 
@@ -637,7 +711,7 @@ The tool auto-detects the mode based on the `target`:
 
 ### Multiple Workspaces
 
-Configure separate MCP server instances for different workspaces:
+**Option A: Separate server instances (stdio)**
 
 ```json
 {
@@ -658,11 +732,25 @@ Configure separate MCP server instances for different workspaces:
 }
 ```
 
-Each instance runs as a separate process with its own Lucene index. The agent can choose which workspace to query.
+**Option B: Single unified server (HTTP, multi-workspace)**
 
-### Custom Index Paths
+```bash
+synthesis-mcp-server \
+  --workspaces /home/user/Documents,/home/user/src/backend,/home/user/src/frontend \
+  --name myorg \
+  --http-port 8765
+```
 
-The index is stored in `.synthesis/index/` within the workspace. To change this, modify `.synthesis/config.yaml` in the workspace before scanning.
+```json
+{
+  "mcpServers": {
+    "synthesis": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
 
 ### Log Level Configuration
 
@@ -713,6 +801,7 @@ Or in Claude Code config:
 |----------|-------------|---------|
 | `SYNTHESIS_HOME` | Installation directory | `~/.synthesis` |
 | `SYNTHESIS_JAVA_OPTS` | JVM options (memory, GC, etc.) | (none) |
+| `ANTHROPIC_API_KEY` | Required for AI-powered tools (ask, explain, insights, etc.) | (none) |
 
 ### Command-Line Options
 
@@ -720,10 +809,13 @@ Or in Claude Code config:
 synthesis-mcp-server [OPTIONS]
 
 Options:
-  --workspace, -w <path>  Workspace root directory (default: current dir)
-  --log-level <level>     Logging level: FINE, INFO, WARNING, SEVERE
-  --version, -v           Print version and exit
-  --help, -h              Print this help and exit
+  --workspace, -w <path>     Single workspace root directory (default: current dir)
+  --workspaces <p1,p2,...>   Multiple workspace paths (comma-separated)
+  --name <name>              Display name for this MCP server
+  --http-port <port>         Enable HTTP transport on the given port
+  --log-level <level>        Logging level: FINE, INFO, WARNING, SEVERE
+  --version, -v              Print version and exit
+  --help, -h                 Print this help and exit
 ```
 
 ---
@@ -732,7 +824,20 @@ Options:
 
 ### Claude Code
 
-**Configuration file:** `~/.claude/config.json`
+**HTTP transport (recommended):**
+
+```json
+{
+  "mcpServers": {
+    "synthesis": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+**stdio transport:**
 
 ```json
 {
@@ -745,7 +850,7 @@ Options:
 }
 ```
 
-The agent automatically discovers all seven tools (`search`, `relate`, `graph`, `stats`, `ask`, `enrich`, `explain`) via the `tools/list` MCP method. No additional setup is required. The AI-powered tools (`ask`, `explain`) require `ANTHROPIC_API_KEY` to be set.
+The agent automatically discovers all 41 tools via the `tools/list` MCP method. AI-powered tools (`ask`, `explain`, `insights`, `perspectives`, `research`, `report`, `summary`) require `ANTHROPIC_API_KEY` to be set.
 
 ### Cursor
 
@@ -764,7 +869,7 @@ The agent automatically discovers all seven tools (`search`, `relate`, `graph`, 
 
 ### Aider
 
-Aider supports MCP servers. Configure in `.aider.conf.yml`:
+Configure in `.aider.conf.yml`:
 
 ```yaml
 mcp-servers:
@@ -775,9 +880,9 @@ mcp-servers:
 
 ### Custom MCP Clients
 
-Any MCP-compatible client can connect to the Synthesis MCP server. The server communicates over stdio using JSON-RPC 2.0. See the [MCP Protocol Reference](../api/MCP-PROTOCOL-REFERENCE.md) for full protocol details.
+Any MCP-compatible client can connect to the Synthesis MCP server. The server communicates over stdio (JSON-RPC 2.0) or HTTP.
 
-**Minimal client connection:**
+**Minimal stdio client connection:**
 
 1. Spawn the server process: `synthesis-mcp-server --workspace /path`
 2. Send `initialize` request via stdin
@@ -785,6 +890,10 @@ Any MCP-compatible client can connect to the Synthesis MCP server. The server co
 4. Send `initialized` notification
 5. Call tools via `tools/call` requests
 6. Send `shutdown` request when done
+
+**HTTP client:** POST `application/json` JSON-RPC 2.0 messages to `http://localhost:8765/mcp`.
+
+See the [MCP Protocol Reference](../api/MCP-PROTOCOL-REFERENCE.md) for full protocol details.
 
 ---
 
@@ -822,8 +931,6 @@ mvn package -DskipTests
 
 ### "Not a Synthesis workspace" / "Workspace not initialized"
 
-**Symptom:** Tool calls return errors about the workspace not being valid.
-
 **Fix:** Initialize and scan the workspace:
 
 ```bash
@@ -837,6 +944,17 @@ Then verify:
 ```bash
 synthesis status
 ```
+
+### HTTP Server Not Responding
+
+**Symptom:** `curl http://localhost:8765/health` returns connection refused.
+
+**Checks:**
+
+1. Verify the server started: `ps aux | grep synthesis-mcp-server`
+2. Check the log: `tail ~/.synthesis/logs/mcp-server.log`
+3. Confirm the port is not in use by another process: `ss -tlnp | grep 8765`
+4. If using systemd: `systemctl --user status synthesis-mcp-http`
 
 ### Empty Search Results
 
@@ -862,8 +980,6 @@ synthesis status
 4. **Disk I/O bottleneck.** Ensure the workspace is on SSD, not HDD.
 
 ### JSON-RPC Errors
-
-**Symptom:** The AI agent reports errors communicating with the MCP server.
 
 **Common error codes:**
 
@@ -917,12 +1033,12 @@ Measured on a standard development laptop (16 GB RAM, SSD) with an 8,934-file wo
 | Graph (dependencies, full) | 0.5-2.0s | Depends on workspace size |
 | Graph (cross-repo) | 0.5-3.0s | Depends on repository count |
 | Stats | 0.05-0.1s | Metadata only, no search |
+| Impact (depth=3) | 0.3-1.0s | Transitive lookup via index |
 | Ask | 2-8s | Depends on context size + Claude API latency |
 | Enrich (single) | 0.1-3s | Depends on enrichment level (basic < local < ai) |
 | Enrich (batch, 50 files) | 5-30s | Parallel processing, varies with level |
 | Explain (file) | 2-5s | Depends on file size + Claude API latency |
 | Explain (module) | 3-10s | Depends on module size + Claude API latency |
-| Explain (pattern) | 3-8s | Depends on search results + Claude API latency |
 
 ### Scaling Characteristics
 
@@ -951,13 +1067,13 @@ Based on real-world usage with 8,934 indexed files:
 
 ### 1. Refactoring Without Breaking Changes
 
-Before renaming a class or moving a file, use `relate` to see the full impact:
+Before renaming a class or moving a file, use `impact` and `relate` to see the full effect:
 
-> "I want to rename TokenManager to SessionManager. Use synthesis relate to show me all files that reference TokenManager."
+> "I want to rename TokenManager to SessionManager. Use synthesis impact and relate to show me all affected files."
 
 The agent will:
-1. Call `relate` with `filePath: "TokenManager.java"`
-2. Identify all incoming references (files that import or reference TokenManager)
+1. Call `impact` with `filePath: "TokenManager.java"` to see the full blast radius
+2. Call `relate` with `filePath: "TokenManager.java"` for direct references
 3. List every file that needs updating
 4. Make changes with confidence that nothing is missed
 
@@ -969,11 +1085,36 @@ When onboarding to a new project or preparing for an architecture discussion:
 
 The agent will:
 1. Call `stats` to understand workspace scope
-2. Call `graph` with `mode: "modules"` to visualize the module structure
-3. Call `search` to find key configuration files
-4. Provide an informed architectural overview with a dependency diagram
+2. Call `architecture` for a layered architecture overview
+3. Call `graph` with `mode: "modules"` to visualize the module structure
+4. Call `search` to find key configuration files
+5. Provide an informed architectural overview with a dependency diagram
 
-### 3. Cross-Repository Discovery
+### 3. Security Audit
+
+When preparing a security review:
+
+> "Run a security audit on this workspace."
+
+The agent will:
+1. Call `security` with `refresh: true` to get fresh findings
+2. Call `code-graph` with `subcommand: "security"` for vulnerability paths
+3. Present findings by severity (HIGH first)
+4. Suggest remediation for each finding
+
+### 4. Understanding Recent Changes
+
+When returning to a project after time away:
+
+> "What changed in this codebase in the last week?"
+
+The agent will:
+1. Call `changelog` with `since: "7d"` for workspace changes
+2. Call `changed` with `since: "7d"` for file-level listing
+3. Call `summary` with `since: "7d"` for an AI-generated change summary
+4. Present a clear picture of what evolved
+
+### 5. Cross-Repository Discovery
 
 When working with microservices or multi-repo setups:
 
@@ -982,68 +1123,30 @@ When working with microservices or multi-repo setups:
 The agent will:
 1. Call `search` for "payment" to locate the payment API files
 2. Call `relate` on the payment API entry point
-3. Call `graph` with `mode: "cross-repo"` to show inter-service dependencies
-4. Present a clear map of which services would be affected
+3. Call `cross-repo-deps` to show inter-service dependencies
+4. Call `graph` with `mode: "cross-repo"` to visualize the graph
 
-### 4. Onboarding New Developers
+### 6. Onboarding New Developers
 
 When a new team member needs to understand the codebase:
 
 > "I'm new to this project. Help me understand how authentication works."
 
 The agent will:
-1. Call `search` for "authentication" to find relevant files
-2. Call `relate` on the main auth service to see the component graph
-3. Call `graph` to show where auth fits in the overall architecture
-4. Provide a guided walkthrough with file references
+1. Call `learn` to get a recommended reading order and entry points
+2. Call `ask` with the authentication question for a grounded AI answer
+3. Call `explain` on the auth module for a comprehensive explanation
+4. Call `graph` to show where auth fits in the overall architecture
 
-### 5. Documentation Audit
+### 7. KCP Export for External Tools
 
-When checking for outdated or broken references:
+When you need to share workspace context with tools outside Claude Code:
 
-> "Find all markdown files that reference files that no longer exist."
-
-The agent will:
-1. Call `search` with `fileType: "MARKDOWN"` to find all docs
-2. Call `relate` on each document to check outgoing references
-3. Identify references where the target file is missing
-4. Report the broken links with specific file paths and line references
-
-### 6. AI-Powered Codebase Q&A
-
-When the agent needs deep understanding of a concept:
-
-> "How does the payment processing pipeline work in this codebase?"
+> "Export the workspace index in KCP format."
 
 The agent will:
-1. Call `ask` with the question
-2. The server searches the index for relevant files (payment, pipeline, processing)
-3. Claude generates an answer grounded in the actual code with file citations
-4. The agent presents the answer with references to specific files
-
-### 7. Enriching Binary Assets
-
-When binary files need to be searchable:
-
-> "Make all the images and videos in this project searchable"
-
-The agent will:
-1. Call `enrich` in batch mode (no `filePath`)
-2. The server generates `.synthesis.md` companion files for each binary asset
-3. Report the results (generated, skipped, errors)
-4. Suggest running `synthesis scan` to index the new companion files
-
-### 8. Understanding Unfamiliar Code
-
-When a developer needs to understand a complex module:
-
-> "Explain how the authentication module works"
-
-The agent will:
-1. Call `explain` with `target: "src/auth"` (module mode)
-2. The server analyzes all files in the directory, their relationships, and structure
-3. Claude generates a comprehensive explanation with code references
-4. The agent presents the explanation with navigation suggestions
+1. Call `export` with `format: "kcp"` to generate Knowledge Context Protocol output
+2. The export can then be loaded into compatible AI tools
 
 ---
 
