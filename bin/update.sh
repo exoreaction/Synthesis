@@ -609,6 +609,7 @@ if [ "$ACTION" = "install-component" ]; then
             if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/synthesis-mcp-server" ]; then
                 cp "$SOURCE_DIR/bin/synthesis-mcp-server" "$SYNTHESIS_HOME/bin/synthesis-mcp-server"
                 chmod +x "$SYNTHESIS_HOME/bin/synthesis-mcp-server"
+                ln -sf "$SYNTHESIS_HOME/bin/synthesis-mcp-server" "$HOME/bin/synthesis-mcp-server" 2>/dev/null || true
                 info "Installed bin/synthesis-mcp-server launcher"
             fi
             echo ""
@@ -640,6 +641,7 @@ if [ "$ACTION" = "install-component" ]; then
                     if [ -f "$SOURCE_DIR/bin/$script" ]; then
                         cp "$SOURCE_DIR/bin/$script" "$SYNTHESIS_HOME/bin/$script"
                         chmod +x "$SYNTHESIS_HOME/bin/$script"
+                        ln -sf "$SYNTHESIS_HOME/bin/$script" "$HOME/bin/$script" 2>/dev/null || true
                         info "Installed bin/$script"
                     fi
                 done
