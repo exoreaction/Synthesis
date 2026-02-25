@@ -633,4 +633,30 @@ public class ExportCommand implements Callable<Integer> {
 
         return sb.toString();
     }
+
+    /**
+     * Static facade for MCP tool integration.
+     * Delegates to the instance export methods for the given format.
+     *
+     * @param format        output format (markdown, json, kcp, architecture-doc, onboarding-guide)
+     * @param config        workspace configuration
+     * @param results       search results to export
+     * @param workspaceRoot workspace root path
+     * @param typeFilter    optional file type filter (may be null)
+     * @return exported content as a string, or null if format is unknown
+     */
+    public static String exportContent(String format, SynthesisConfig config,
+                                        List<SearchResult> results, Path workspaceRoot,
+                                        String typeFilter) {
+        ExportCommand cmd = new ExportCommand();
+        cmd.typeFilter = typeFilter;
+        return switch (format.toLowerCase()) {
+            case "json" -> cmd.exportAsJson(config, results);
+            case "markdown", "md" -> cmd.exportAsMarkdown(config, results, workspaceRoot);
+            case "architecture-doc", "architecture" -> cmd.exportAsArchitectureDoc(config, results, workspaceRoot);
+            case "onboarding-guide", "onboarding" -> cmd.exportAsOnboardingGuide(config, results, workspaceRoot);
+            case "kcp", "knowledge-context-protocol" -> cmd.exportAsKcp(config, results, workspaceRoot);
+            default -> null;
+        };
+    }
 }

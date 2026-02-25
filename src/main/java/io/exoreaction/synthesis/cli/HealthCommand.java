@@ -389,7 +389,7 @@ public class HealthCommand implements Callable<Integer> {
     // -------------------------------------------------------------------------
 
     /** Returns sub-workspace config entries whose path does not exist as a directory. */
-    static List<SubWorkspaceConfig> findPhantomSubWorkspaces(Path workspaceRoot,
+    public static List<SubWorkspaceConfig> findPhantomSubWorkspaces(Path workspaceRoot,
                                                               SynthesisConfig config) {
         List<SubWorkspaceConfig> phantoms = new ArrayList<>();
         for (SubWorkspaceConfig sw : config.getSubWorkspaces()) {
@@ -402,7 +402,7 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     /** Finds build artifact directories (node_modules, bower_components) and stray .class dirs. */
-    static List<Path> findBuildArtifacts(Path workspaceRoot) throws IOException {
+    public static List<Path> findBuildArtifacts(Path workspaceRoot) throws IOException {
         List<Path> artifacts = new ArrayList<>();
         Set<String> artifactDirNames = Set.of("node_modules", "bower_components");
 
@@ -429,7 +429,7 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     /** Finds directories that contain no files (recursively) up to depth 6. */
-    static List<Path> findEmptyDirectories(Path workspaceRoot) throws IOException {
+    public static List<Path> findEmptyDirectories(Path workspaceRoot) throws IOException {
         List<Path> empty = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(workspaceRoot, 6)) {
             stream.filter(Files::isDirectory)
@@ -449,7 +449,7 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     /** Counts non-hidden, non-config files directly at the workspace root. */
-    static int countLooseRootFiles(Path workspaceRoot) throws IOException {
+    public static int countLooseRootFiles(Path workspaceRoot) throws IOException {
         Set<String> knownConfigs = Set.of(
                 "synthesis-config.yaml", ".synthesis", "README.md", "README",
                 "ACTIVITY-LOG.md", "CLAUDE.md");
@@ -463,7 +463,7 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     /** Finds the workspace archive directory if it exists. */
-    static Path findArchiveDir(Path workspaceRoot) throws IOException {
+    public static Path findArchiveDir(Path workspaceRoot) throws IOException {
         try (Stream<Path> stream = Files.list(workspaceRoot)) {
             return stream.filter(Files::isDirectory)
                          .filter(p -> {
@@ -476,7 +476,7 @@ public class HealthCommand implements Callable<Integer> {
     }
 
     /** Calculates health score: 100 minus 15 per ERROR category, 5 per WARNING category. */
-    static int calculateScore(List<HealthIssue> issues) {
+    public static int calculateScore(List<HealthIssue> issues) {
         long errors = issues.stream()
                 .filter(i -> i.severity() == HealthIssue.Severity.ERROR).count();
         long warnings = issues.stream()
@@ -484,7 +484,7 @@ public class HealthCommand implements Callable<Integer> {
         return Math.max(0, 100 - (int) (errors * 15) - (int) (warnings * 5));
     }
 
-    static String scoreGrade(int score) {
+    public static String scoreGrade(int score) {
         if (score >= 90) return "Excellent";
         if (score >= 75) return "Good";
         if (score >= 60) return "Fair";
