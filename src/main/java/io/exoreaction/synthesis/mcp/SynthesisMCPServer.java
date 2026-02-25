@@ -454,6 +454,243 @@ public class SynthesisMCPServer {
                 createExportSchema()
         ));
 
+
+        // ---------------------------------------------------------------
+        // Group 1: Analysis tools
+        // ---------------------------------------------------------------
+
+        // Tool: analyze
+        toolsArray.add(createToolDefinition(
+                "analyze",
+                "Run comprehensive workspace analysis. Returns file type distribution, " +
+                        "complexity metrics, and structural overview. Use to understand a codebase quickly.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: insights
+        toolsArray.add(createToolDefinition(
+                "insights",
+                "Generate AI-powered codebase insights: patterns, anomalies, improvement suggestions. " +
+                        "Higher-level than analyze — focuses on actionable observations.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: perspectives
+        toolsArray.add(createToolDefinition(
+                "perspectives",
+                "Answer a question about the codebase from multiple role perspectives " +
+                        "(architect, security, devops, product). Requires ANTHROPIC_API_KEY.",
+                createPerspectivesSchema()
+        ));
+
+        // Tool: research
+        toolsArray.add(createToolDefinition(
+                "research",
+                "Deep research into a codebase topic. Searches index, follows references, " +
+                        "and synthesizes a comprehensive answer. Requires ANTHROPIC_API_KEY.",
+                createResearchSchema()
+        ));
+
+        // Tool: architecture
+        toolsArray.add(createToolDefinition(
+                "architecture",
+                "Generate an architecture overview of the workspace: layers, modules, " +
+                        "key abstractions, and cross-cutting concerns.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: code-graph
+        toolsArray.add(createToolDefinition(
+                "code-graph",
+                "Code-level dependency graph analysis. Subcommands: describe (overview), " +
+                        "health (quality metrics), gaps (missing coverage), security (vulnerability paths). " +
+                        "Optional flags: --cycles, --hotspots.",
+                createCodeGraphSchema()
+        ));
+
+        // ---------------------------------------------------------------
+        // Group 2: Workspace intelligence tools
+        // ---------------------------------------------------------------
+
+        // Tool: describe
+        toolsArray.add(createToolDefinition(
+                "describe",
+                "Describe a file or directory within the workspace. Without a path, describes " +
+                        "the workspace root. Returns purpose, contents, and key observations.",
+                createDescribeSchema()
+        ));
+
+        // Tool: knowledge-graph
+        toolsArray.add(createToolDefinition(
+                "knowledge-graph",
+                "Build and display a knowledge graph of concepts, entities, and relationships " +
+                        "extracted from the workspace. Use to understand domain model and connections.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: structure
+        toolsArray.add(createToolDefinition(
+                "structure",
+                "Show workspace directory structure with annotations: purpose of each directory, " +
+                        "file counts, and notable patterns. A smart tree view.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: evolution
+        toolsArray.add(createToolDefinition(
+                "evolution",
+                "Analyze how the workspace has evolved over time: growth trends, churn hotspots, " +
+                        "and maturity assessment by module.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: scatter
+        toolsArray.add(createToolDefinition(
+                "scatter",
+                "Detect scattered concerns: logic spread across many files that should be consolidated. " +
+                        "Identifies code duplication patterns and cohesion issues.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: naming
+        toolsArray.add(createToolDefinition(
+                "naming",
+                "Analyze naming conventions across the codebase. Detects inconsistencies, " +
+                        "suggests improvements, and checks adherence to project naming patterns.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: upcoming
+        toolsArray.add(createToolDefinition(
+                "upcoming",
+                "Show upcoming tasks, TODOs, FIXMEs, and deadlines found in the codebase. " +
+                        "Extracts actionable items from comments and documentation.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: status
+        toolsArray.add(createToolDefinition(
+                "status",
+                "Show current workspace status: index freshness, pending changes, scan state, " +
+                        "and configuration summary.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: mcp-stats
+        toolsArray.add(createToolDefinition(
+                "mcp-stats",
+                "Show MCP server usage statistics: tool invocation counts, response times, " +
+                        "error rates, and popular queries. Reads the global MCP query log.",
+                createMcpStatsSchema()
+        ));
+
+        // ---------------------------------------------------------------
+        // Group 3: Change tracking tools
+        // ---------------------------------------------------------------
+
+        // Tool: diff
+        toolsArray.add(createToolDefinition(
+                "diff",
+                "Show synthesis-aware diff against a git ref (e.g. HEAD~1, main, a commit SHA). " +
+                        "Categorizes changes by type and significance.",
+                createDiffSchema()
+        ));
+
+        // Tool: changed
+        toolsArray.add(createToolDefinition(
+                "changed",
+                "List files changed since a date or duration (e.g. '2026-02-20' or '7d'). " +
+                        "Groups by change type: added, modified, deleted.",
+                createChangedSchema()
+        ));
+
+        // Tool: track
+        toolsArray.add(createToolDefinition(
+                "track",
+                "Track file movements using hash-based detection. Shows files that were moved " +
+                        "or renamed, with confidence scores and audit trail.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // ---------------------------------------------------------------
+        // Group 4: Discovery & validation tools
+        // ---------------------------------------------------------------
+
+        // Tool: which
+        toolsArray.add(createToolDefinition(
+                "which",
+                "Find which file(s) match a pattern or contain a symbol. Like 'which' for your codebase: " +
+                        "resolves class names, function names, or path patterns to actual files.",
+                createWhichSchema()
+        ));
+
+        // Tool: discover
+        toolsArray.add(createToolDefinition(
+                "discover",
+                "Discover interesting patterns, hidden dependencies, and non-obvious relationships " +
+                        "in the workspace. Surfaces things you did not know to look for.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: validate
+        toolsArray.add(createToolDefinition(
+                "validate",
+                "Validate workspace integrity: broken links, missing references, orphaned files, " +
+                        "and configuration issues. Returns pass/fail with actionable fixes.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: metrics
+        toolsArray.add(createToolDefinition(
+                "metrics",
+                "Compute codebase metrics: lines of code, complexity, test coverage estimates, " +
+                        "documentation ratio, and dependency counts.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: trace
+        toolsArray.add(createToolDefinition(
+                "trace",
+                "Trace the dependency path between two files or symbols. Shows the shortest " +
+                        "connection chain. Use to understand how components relate.",
+                createTraceSchema()
+        ));
+
+        // Tool: cross-repo-deps
+        toolsArray.add(createToolDefinition(
+                "cross-repo-deps",
+                "Analyze cross-repository dependencies across all repos in the workspace. " +
+                        "Shows which repos depend on which, with version and artifact details.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: learn
+        toolsArray.add(createToolDefinition(
+                "learn",
+                "Generate a learning guide for the codebase: key concepts, entry points, " +
+                        "recommended reading order, and architectural patterns to understand first.",
+                createWorkspaceOnlySchema()
+        ));
+
+        // ---------------------------------------------------------------
+        // Group 5: Maintenance tools
+        // ---------------------------------------------------------------
+
+        // Tool: maintain
+        toolsArray.add(createToolDefinition(
+                "maintain",
+                "Run full workspace maintenance: re-index changed files, update relations, " +
+                        "refresh snapshots, and track movements. Long-running (may take minutes).",
+                createWorkspaceOnlySchema()
+        ));
+
+        // Tool: scan
+        toolsArray.add(createToolDefinition(
+                "scan",
+                "Scan and index all files in the workspace. Creates or updates the Synthesis index. " +
+                        "Run after adding new files or on first setup.",
+                createWorkspaceOnlySchema()
+        ));
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -487,6 +724,38 @@ public class SynthesisMCPServer {
                 case "security" -> toolHandler.handleSecurity(toolArgs);
                 case "impact" -> toolHandler.handleImpact(toolArgs);
                 case "export" -> toolHandler.handleExport(toolArgs);
+                // Group 1: Analysis
+                case "analyze" -> toolHandler.handleAnalyze(toolArgs);
+                case "insights" -> toolHandler.handleInsights(toolArgs);
+                case "perspectives" -> toolHandler.handlePerspectives(toolArgs);
+                case "research" -> toolHandler.handleResearch(toolArgs);
+                case "architecture" -> toolHandler.handleArchitecture(toolArgs);
+                case "code-graph" -> toolHandler.handleCodeGraph(toolArgs);
+                // Group 2: Workspace intelligence
+                case "describe" -> toolHandler.handleDescribe(toolArgs);
+                case "knowledge-graph" -> toolHandler.handleKnowledgeGraph(toolArgs);
+                case "structure" -> toolHandler.handleStructure(toolArgs);
+                case "evolution" -> toolHandler.handleEvolution(toolArgs);
+                case "scatter" -> toolHandler.handleScatter(toolArgs);
+                case "naming" -> toolHandler.handleNaming(toolArgs);
+                case "upcoming" -> toolHandler.handleUpcoming(toolArgs);
+                case "status" -> toolHandler.handleStatus(toolArgs);
+                case "mcp-stats" -> toolHandler.handleMcpStats(toolArgs);
+                // Group 3: Change tracking
+                case "diff" -> toolHandler.handleDiff(toolArgs);
+                case "changed" -> toolHandler.handleChanged(toolArgs);
+                case "track" -> toolHandler.handleTrack(toolArgs);
+                // Group 4: Discovery & validation
+                case "which" -> toolHandler.handleWhich(toolArgs);
+                case "discover" -> toolHandler.handleDiscover(toolArgs);
+                case "validate" -> toolHandler.handleValidate(toolArgs);
+                case "metrics" -> toolHandler.handleMetrics(toolArgs);
+                case "trace" -> toolHandler.handleTrace(toolArgs);
+                case "cross-repo-deps" -> toolHandler.handleCrossRepoDeps(toolArgs);
+                case "learn" -> toolHandler.handleLearn(toolArgs);
+                // Group 5: Maintenance
+                case "maintain" -> toolHandler.handleMaintain(toolArgs);
+                case "scan" -> toolHandler.handleScan(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1079,6 +1348,255 @@ public class SynthesisMCPServer {
     }
 
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // New Tool Schema Definitions (Groups 1-5)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Schema for tools that only need an optional workspace parameter.
+     * Used by: analyze, insights, architecture, knowledge-graph, structure,
+     * evolution, scatter, naming, upcoming, status, track, discover, validate,
+     * metrics, cross-repo-deps, learn, maintain, scan.
+     */
+    private ObjectNode createWorkspaceOnlySchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createPerspectivesSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode question = mapper.createObjectNode();
+        question.put("type", "string");
+        question.put("description", "Question to answer from multiple role perspectives");
+        properties.set("question", question);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("question");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createResearchSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode query = mapper.createObjectNode();
+        query.put("type", "string");
+        query.put("description", "Research query to investigate in the codebase");
+        properties.set("query", query);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("query");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createCodeGraphSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode subcommand = mapper.createObjectNode();
+        subcommand.put("type", "string");
+        ArrayNode subEnum = mapper.createArrayNode();
+        subEnum.add("");
+        subEnum.add("describe");
+        subEnum.add("health");
+        subEnum.add("gaps");
+        subEnum.add("security");
+        subcommand.set("enum", subEnum);
+        subcommand.put("default", "");
+        subcommand.put("description", "Subcommand: describe (overview), health (quality), gaps (coverage), security (vuln paths)");
+        properties.set("subcommand", subcommand);
+
+        ObjectNode flags = mapper.createObjectNode();
+        flags.put("type", "string");
+        flags.put("description", "Optional extra flags (e.g., '--cycles --hotspots')");
+        properties.set("flags", flags);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createDescribeSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode path = mapper.createObjectNode();
+        path.put("type", "string");
+        path.put("description", "File or directory path to describe (defaults to workspace root)");
+        properties.set("path", path);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createMcpStatsSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+        // No parameters needed — reads global log
+
+        schema.set("properties", properties);
+
+        return schema;
+    }
+
+    private ObjectNode createDiffSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode ref = mapper.createObjectNode();
+        ref.put("type", "string");
+        ref.put("description", "Git ref to diff against (e.g., 'HEAD~1', 'main', a commit SHA)");
+        properties.set("ref", ref);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("ref");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createChangedSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        since.put("description", "Date (e.g., '2026-02-20') or duration (e.g., '7d', '24h', '2w')");
+        properties.set("since", since);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("since");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createWhichSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode pattern = mapper.createObjectNode();
+        pattern.put("type", "string");
+        pattern.put("description", "Class name, function name, or file path pattern to locate");
+        properties.set("pattern", pattern);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("pattern");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createTraceSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode from = mapper.createObjectNode();
+        from.put("type", "string");
+        from.put("description", "Source file or symbol to trace from");
+        properties.set("from", from);
+
+        ObjectNode to = mapper.createObjectNode();
+        to.put("type", "string");
+        to.put("description", "Target file or symbol to trace to");
+        properties.set("to", to);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("from");
+        required.add("to");
+        schema.set("required", required);
+
+        return schema;
+    }
     // Utility Methods
     // -----------------------------------------------------------------------
 
