@@ -62,7 +62,7 @@ public class SynthesisMCPServer {
     private final SynthesisToolHandler toolHandler;
     private final BufferedReader stdin;
     private final OutputStream stdout;
-    private final Logger log;
+    final Logger log;
     private final String serverDisplayName;
 
     private volatile boolean running = true;
@@ -107,6 +107,7 @@ public class SynthesisMCPServer {
         List<Path> workspacesList = null;
         String logLevel = "WARNING";
         String displayName = null;
+        int httpPort = 0;
 
         // Parse simple command-line flags
         for (int i = 0; i < args.length; i++) {
@@ -134,6 +135,16 @@ public class SynthesisMCPServer {
                 case "--log-level" -> {
                     if (i + 1 < args.length) {
                         logLevel = args[++i].toUpperCase();
+                    }
+                }
+                case "--http-port" -> {
+                    if (i + 1 < args.length) {
+                        try {
+                            httpPort = Integer.parseInt(args[++i]);
+                        } catch (NumberFormatException e) {
+                            System.err.println("Invalid --http-port value: " + args[i]);
+                            System.exit(1);
+                        }
                     }
                 }
                 case "--version", "-v" -> {
@@ -176,7 +187,24 @@ public class SynthesisMCPServer {
             server.log.info("Shutting down MCP server");
         }));
 
-        server.run();
+        if (httpPort > 0) {
+            // HTTP mode: start embedded server and block the main thread
+            try {
+                new McpHttpServer(httpPort, server, server.log).start();
+            } catch (java.io.IOException e) {
+                server.log.severe("Failed to start HTTP server on port " + httpPort + ": " + e.getMessage());
+                System.exit(1);
+            }
+            // Block until the process is killed; the HTTP server runs on virtual threads
+            try {
+                Thread.currentThread().join();
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        } else {
+            // Default stdio mode (unchanged)
+            server.run();
+        }
     }
 
     /**
@@ -223,10 +251,13 @@ public class SynthesisMCPServer {
     /**
      * Dispatches a JSON-RPC message to the appropriate handler.
      *
+     * <p>Package-accessible so that {@link McpHttpServer} can reuse this
+     * dispatch logic without duplicating protocol handling.
+     *
      * @param node the parsed JSON message
      * @return the response object, or null for notifications
      */
-    private Object handleMessage(JsonNode node) {
+    Object handleMessage(JsonNode node) {
         if (!node.has("jsonrpc") || !"2.0".equals(node.get("jsonrpc").asText())) {
             return JsonRpcMessage.ErrorResponse.error(
                     getMessageId(node), JsonRpcMessage.INVALID_REQUEST,
@@ -473,6 +504,15 @@ public class SynthesisMCPServer {
         limit.put("default", 20);
         limit.put("description", "Maximum number of results (1-200)");
         properties.set("limit", limit);
+
+        ObjectNode previewLength = mapper.createObjectNode();
+        previewLength.put("type", "number");
+        previewLength.put("default", 300);
+        previewLength.put("description",
+                "Snippet length in characters (100-3000). Default 300. " +
+                "Increase to 1000-2000 to reduce follow-up file reads. " +
+                "Excerpt is centred on the matching section, not the file start.");
+        properties.set("previewLength", previewLength);
 
         ObjectNode subWorkspace = mapper.createObjectNode();
         subWorkspace.put("type", "string");
@@ -847,6 +887,7 @@ public class SynthesisMCPServer {
         System.err.println("  --workspace, -w <path>     Single workspace root directory (default: current dir)");
         System.err.println("  --workspaces <p1,p2,...>    Multiple workspace paths (comma-separated)");
         System.err.println("  --name <name>              Display name for this MCP server");
+        System.err.println("  --http-port <port>         Enable HTTP transport on the given port (in addition to stdio)");
         System.err.println("  --log-level <level>        Logging level: FINE, INFO, WARNING, SEVERE");
         System.err.println("  --version, -v              Print version and exit");
         System.err.println("  --help, -h                 Print this help and exit");
