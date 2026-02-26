@@ -59,6 +59,10 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             description = "Show entity-centric view (all directories mentioning this entity)")
     private String entity;
 
+    @Option(names = {"--scope", "-s"},
+            description = "Filter nodes to a subtree (e.g. eXOReaction/ or eXOReaction)")
+    private String scope;
+
     @Option(names = {"--output", "-o"},
             description = "Write output to file instead of stdout")
     private Path outputFile;
@@ -147,7 +151,7 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
     List<KnowledgeNode> collectNodes(Path workspaceRoot,
                                        DirectoryIdentityParser parser) throws IOException {
-        List<KnowledgeNode> nodes = new ArrayList<>();
+        List<KnowledgeNode> rawNodes = new ArrayList<>();
 
         try (Stream<Path> walk = Files.walk(workspaceRoot)) {
             walk.filter(Files::isDirectory)
@@ -177,7 +181,7 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
                         String status = health.isEmpty() ? "unknown" : health.status();
 
-                        nodes.add(new KnowledgeNode(
+                        rawNodes.add(new KnowledgeNode(
                                 relPath, topics, entities,
                                 centroid.isEmpty() ? 0.0 : centroid.confidence(),
                                 centroid.contributingFiles(),
@@ -186,8 +190,20 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                     });
         }
 
-        nodes.sort(Comparator.comparing(KnowledgeNode::path));
-        return nodes;
+        rawNodes.sort(Comparator.comparing(KnowledgeNode::path));
+
+        // Apply scope filter if set
+        if (scope != null && !scope.isBlank()) {
+            String normalizedScope = scope.endsWith("/")
+                    ? scope.substring(0, scope.length() - 1)
+                    : scope;
+            return rawNodes.stream()
+                    .filter(n -> n.path().equals(normalizedScope)
+                            || n.path().startsWith(normalizedScope + "/"))
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        }
+
+        return rawNodes;
     }
 
     List<KnowledgeEdge> collectEdges(Path workspaceRoot) {
@@ -468,11 +484,56 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
     String renderAscii(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges,
                         Path workspaceRoot) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Knowledge Graph: ").append(workspaceRoot).append("\n");
+
+        boolean scoped = (scope != null && !scope.isBlank());
+        String normalizedScope = scoped
+                ? (scope.endsWith("/") ? scope.substring(0, scope.length() - 1) : scope)
+                : null;
+
+        if (scoped) {
+            sb.append("Knowledge Graph: ").append(workspaceRoot).append(" [scope: ")
+              .append(normalizedScope).append("]\n");
+        } else {
+            sb.append("Knowledge Graph: ").append(workspaceRoot).append("\n");
+        }
         sb.append("=".repeat(60)).append("\n\n");
 
-        sb.append(String.format("Directories: %d  |  Virtual links: %d%n%n",
-                nodes.size(), edges.size()));
+        if (scoped) {
+            // Build the set of in-scope node paths
+            Set<String> scopedPaths = new HashSet<>();
+            for (KnowledgeNode node : nodes) {
+                scopedPaths.add(node.path());
+            }
+
+            // Partition edges into internal (both endpoints in scope) and external
+            long internalEdges = 0;
+            long externalEdges = 0;
+            for (KnowledgeEdge edge : edges) {
+                // Determine source dir of edge (parent of filePath, or filePath itself for entity edges)
+                String srcDir = edge.filePath().contains("/")
+                        ? edge.filePath().substring(0, edge.filePath().lastIndexOf('/'))
+                        : edge.filePath();
+                boolean srcInScope = scopedPaths.contains(srcDir)
+                        || scopedPaths.contains(edge.filePath());
+                boolean tgtInScope = scopedPaths.contains(edge.directoryPath());
+                if (srcInScope && tgtInScope) {
+                    internalEdges++;
+                } else {
+                    externalEdges++;
+                }
+            }
+
+            int n = nodes.size();
+            double maxPossibleEdges = (n < 2) ? 1.0 : (double) n * (n - 1) / 2.0;
+            double tightness = (n < 2) ? 0.0 : (double) internalEdges / maxPossibleEdges;
+
+            sb.append(String.format("Directories: %d  |  Internal links: %d  |  External links: %d%n%n",
+                    n, internalEdges, externalEdges));
+            sb.append(String.format("Tightness: %.2f%n%n", tightness));
+        } else {
+            sb.append(String.format("Directories: %d  |  Virtual links: %d%n%n",
+                    nodes.size(), edges.size()));
+        }
 
         for (KnowledgeNode node : nodes) {
             sb.append(formatAsciiNode(node));
@@ -500,6 +561,66 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                   .append(" directories show [??] (unknown health).\n");
                 sb.append("  Run 'synthesis sync --enrich-centroids' to compute health status.\n");
             }
+        }
+
+        // Global breakdown: per-top-level-dir tightness table (only when no scope)
+        if (!scoped && !nodes.isEmpty()) {
+            sb.append(renderSubworkspaceBreakdown(nodes, edges));
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Renders a per-top-level-directory tightness breakdown table.
+     * Groups nodes by their first path segment (immediate child of workspace root),
+     * then computes internal edge count and tightness for each group.
+     */
+    private String renderSubworkspaceBreakdown(List<KnowledgeNode> nodes,
+                                                List<KnowledgeEdge> edges) {
+        // Group nodes by first path segment
+        Map<String, List<KnowledgeNode>> byTopLevel = new java.util.TreeMap<>();
+        for (KnowledgeNode node : nodes) {
+            String topLevel = node.path().contains("/")
+                    ? node.path().substring(0, node.path().indexOf('/'))
+                    : node.path();
+            byTopLevel.computeIfAbsent(topLevel, k -> new ArrayList<>()).add(node);
+        }
+
+        if (byTopLevel.size() < 2) {
+            // Only one top-level dir — not interesting to show breakdown
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("\nSub-workspace tightness:\n");
+        sb.append("-".repeat(60)).append("\n");
+
+        for (Map.Entry<String, List<KnowledgeNode>> entry : byTopLevel.entrySet()) {
+            String dir = entry.getKey();
+            List<KnowledgeNode> dirNodes = entry.getValue();
+            Set<String> dirPaths = new HashSet<>();
+            for (KnowledgeNode n : dirNodes) {
+                dirPaths.add(n.path());
+            }
+
+            // Count internal edges for this dir
+            long internalEdges = 0;
+            for (KnowledgeEdge edge : edges) {
+                String srcDir = edge.filePath().contains("/")
+                        ? edge.filePath().substring(0, edge.filePath().lastIndexOf('/'))
+                        : edge.filePath();
+                boolean srcIn = dirPaths.contains(srcDir) || dirPaths.contains(edge.filePath());
+                boolean tgtIn = dirPaths.contains(edge.directoryPath());
+                if (srcIn && tgtIn) internalEdges++;
+            }
+
+            int n = dirNodes.size();
+            double tightness = (n < 2) ? 0.0
+                    : (double) internalEdges / ((double) n * (n - 1) / 2.0);
+
+            sb.append(String.format("  %-20s %4d dirs   %5d internal   %.2f%n",
+                    dir + "/", n, internalEdges, tightness));
         }
 
         return sb.toString();
@@ -694,6 +815,10 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
     void setOut(PrintStream out) {
         this.out = out;
+    }
+
+    void setScope(String scope) {
+        this.scope = scope;
     }
 
     // ---- Records ----

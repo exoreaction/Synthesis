@@ -500,6 +500,155 @@ class KnowledgeGraphCommandTest {
                 "Should produce no edges when no related: field exists: " + declaredEdges);
     }
 
+    // ---- #282: --scope flag, tightness, global breakdown ----
+
+    @Test
+    void testScopeFilterShowsOnlyNodesInSubtree() throws IOException {
+        // Create nodes under two top-level dirs
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("alpha"),
+                List.of("PCB"), List.of(), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("beta"),
+                List.of("testing"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("Quadim").resolve("gamma"),
+                List.of("SaaS"), List.of(), 0.6, 2);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        cmd.setScope("eXOReaction");
+
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> edges = List.of();
+
+        String ascii = cmd.renderAscii(nodes, edges, workspace);
+
+        // Only eXOReaction nodes should appear
+        assertTrue(ascii.contains("eXOReaction"), "Should show eXOReaction path");
+        assertFalse(ascii.contains("Quadim"), "Should NOT show Quadim nodes when scoped to eXOReaction");
+    }
+
+    @Test
+    void testScopeFilterCountsOnlyInternalEdges() throws IOException {
+        Path exo = workspace.resolve("eXOReaction");
+        Path quad = workspace.resolve("Quadim");
+        createDirectoryWithCentroid(exo.resolve("alpha"),
+                List.of("PCB"), List.of("SharedEnt"), 0.8, 5);
+        createDirectoryWithCentroid(exo.resolve("beta"),
+                List.of("testing"), List.of("SharedEnt"), 0.7, 3);
+        createDirectoryWithCentroid(quad.resolve("gamma"),
+                List.of("SaaS"), List.of("SharedEnt"), 0.6, 2);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        cmd.setScope("eXOReaction");
+
+        List<KnowledgeGraphCommand.KnowledgeNode> allNodes =
+                cmd.collectNodes(workspace, parser);
+
+        // Collect entity edges from all nodes, then filter with scope
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges = cmd.collectEntityEdges(allNodes);
+
+        String ascii = cmd.renderAscii(allNodes, entityEdges, workspace);
+
+        // Should distinguish internal vs external links
+        assertTrue(ascii.contains("Internal links:") || ascii.contains("internal"),
+                "Scoped output should show internal link count: " + ascii);
+        assertTrue(ascii.contains("External links:") || ascii.contains("external"),
+                "Scoped output should show external link count: " + ascii);
+    }
+
+    @Test
+    void testTightnessScoreInSummary() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("alpha"),
+                List.of("PCB"), List.of("SharedEnt"), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("beta"),
+                List.of("testing"), List.of("SharedEnt"), 0.7, 3);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        cmd.setScope("eXOReaction");
+
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges = cmd.collectEntityEdges(nodes);
+
+        String ascii = cmd.renderAscii(nodes, entityEdges, workspace);
+
+        assertTrue(ascii.contains("Tightness:"),
+                "Scoped output should contain 'Tightness:' metric: " + ascii);
+    }
+
+    @Test
+    void testTightnessIsZeroWithNoEdges() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("alpha"),
+                List.of("PCB"), List.of(), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("beta"),
+                List.of("testing"), List.of(), 0.7, 3);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        cmd.setScope("eXOReaction");
+
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+
+        String ascii = cmd.renderAscii(nodes, List.of(), workspace);
+
+        assertTrue(ascii.contains("Tightness: 0.00"),
+                "Tightness should be 0.00 when no edges: " + ascii);
+    }
+
+    @Test
+    void testGlobalSubworkspaceBreakdown() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("alpha"),
+                List.of("PCB"), List.of(), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("beta"),
+                List.of("testing"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("Quadim").resolve("gamma"),
+                List.of("SaaS"), List.of(), 0.6, 2);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        // No scope set (global view)
+
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+
+        String ascii = cmd.renderAscii(nodes, List.of(), workspace);
+
+        assertTrue(ascii.contains("Sub-workspace tightness:"),
+                "Global output should contain sub-workspace breakdown: " + ascii);
+        assertTrue(ascii.contains("eXOReaction"),
+                "Breakdown should show eXOReaction: " + ascii);
+        assertTrue(ascii.contains("Quadim"),
+                "Breakdown should show Quadim: " + ascii);
+    }
+
+    @Test
+    void testScopeWithTrailingSlash() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("eXOReaction").resolve("alpha"),
+                List.of("PCB"), List.of(), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("Quadim").resolve("gamma"),
+                List.of("SaaS"), List.of(), 0.6, 2);
+
+        // Run with trailing slash
+        KnowledgeGraphCommand cmdWithSlash = new KnowledgeGraphCommand();
+        cmdWithSlash.setScope("eXOReaction/");
+        List<KnowledgeGraphCommand.KnowledgeNode> nodesWithSlash =
+                cmdWithSlash.collectNodes(workspace, parser);
+        String asciiWithSlash = cmdWithSlash.renderAscii(nodesWithSlash, List.of(), workspace);
+
+        // Run without trailing slash
+        KnowledgeGraphCommand cmdNoSlash = new KnowledgeGraphCommand();
+        cmdNoSlash.setScope("eXOReaction");
+        List<KnowledgeGraphCommand.KnowledgeNode> nodesNoSlash =
+                cmdNoSlash.collectNodes(workspace, parser);
+        String asciiNoSlash = cmdNoSlash.renderAscii(nodesNoSlash, List.of(), workspace);
+
+        // Both should show eXOReaction nodes, not Quadim
+        assertFalse(asciiWithSlash.contains("Quadim"),
+                "Scope with trailing slash should exclude Quadim: " + asciiWithSlash);
+        assertFalse(asciiNoSlash.contains("Quadim"),
+                "Scope without trailing slash should exclude Quadim: " + asciiNoSlash);
+        assertEquals(nodesWithSlash.size(), nodesNoSlash.size(),
+                "Trailing slash should not change node count");
+    }
+
     // ---- helpers ----
 
     /**
