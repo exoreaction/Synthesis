@@ -206,6 +206,85 @@ class KnowledgeGraphCommandTest {
         assertEquals("", KnowledgeGraphCommand.escapeJson(null));
     }
 
+    // ---- #276: cross-reference edges and unknown status hint ----
+
+    @Test
+    void collectCrossReferenceEdges_findsMarkdownLinks() throws IOException {
+        // Create two directories with cross-references in markdown files
+        Path alpha = workspace.resolve("alpha");
+        Path beta = workspace.resolve("beta");
+        createDirectoryWithCentroid(alpha, List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(beta, List.of("topicB"), List.of(), 0.6, 2);
+
+        // Create a markdown file in alpha that links to beta
+        Files.writeString(alpha.resolve("README.md"),
+                "See the [beta docs](../beta/overview.md) for details.\n");
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> crossRefEdges =
+                cmd.collectCrossReferenceEdges(workspace, nodes);
+
+        assertFalse(crossRefEdges.isEmpty(),
+                "Should find cross-reference edges from markdown links");
+        assertTrue(crossRefEdges.stream().anyMatch(
+                e -> e.filePath().contains("alpha") && e.directoryPath().contains("beta")),
+                "Should have edge from alpha to beta: " + crossRefEdges);
+    }
+
+    @Test
+    void collectCrossReferenceEdges_emptyWhenNoLinks() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of(), 0.6, 2);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> crossRefEdges =
+                cmd.collectCrossReferenceEdges(workspace, nodes);
+
+        assertTrue(crossRefEdges.isEmpty(),
+                "Should be empty when no cross-references exist");
+    }
+
+    @Test
+    void renderAscii_showsHintWhenMostNodesUnknown() {
+        // All nodes have "unknown" status (no health block)
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes = List.of(
+                new KnowledgeGraphCommand.KnowledgeNode(
+                        "dir1", List.of("t"), List.of(), 0.5, 3, 0, "unknown"),
+                new KnowledgeGraphCommand.KnowledgeNode(
+                        "dir2", List.of("t"), List.of(), 0.5, 2, 0, "unknown"),
+                new KnowledgeGraphCommand.KnowledgeNode(
+                        "dir3", List.of("t"), List.of(), 0.5, 1, 0, "unknown")
+        );
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        String ascii = cmd.renderAscii(nodes, List.of(), workspace);
+
+        assertTrue(ascii.contains("maintain"),
+                "Should suggest 'maintain' when most nodes show [??]: " + ascii);
+    }
+
+    @Test
+    void renderAscii_noHintWhenNodesHealthy() {
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes = List.of(
+                new KnowledgeGraphCommand.KnowledgeNode(
+                        "dir1", List.of("t"), List.of(), 0.8, 5, 0, "healthy"),
+                new KnowledgeGraphCommand.KnowledgeNode(
+                        "dir2", List.of("t"), List.of(), 0.7, 3, 0, "healthy")
+        );
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        String ascii = cmd.renderAscii(nodes, List.of(), workspace);
+
+        assertFalse(ascii.contains("maintain"),
+                "Should NOT show hint when nodes are healthy");
+    }
+
     // ---- helpers ----
 
     private void createDirectoryWithCentroid(Path dir, List<String> topics,

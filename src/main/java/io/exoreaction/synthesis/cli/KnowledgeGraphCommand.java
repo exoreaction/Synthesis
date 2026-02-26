@@ -15,6 +15,8 @@ import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -40,6 +42,10 @@ import java.util.stream.Stream;
         mixinStandardHelpOptions = true
 )
 public class KnowledgeGraphCommand implements Callable<Integer> {
+
+    /** Markdown link pattern: [text](target) -- shared with GraphBuilder. */
+    private static final Pattern MARKDOWN_LINK =
+            Pattern.compile("\\[([^\\]]*)]\\(([^)]+)\\)", Pattern.MULTILINE);
 
     @ParentCommand
     private SynthesisApp parent;
@@ -77,6 +83,13 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
             // Collect virtual memberships if database exists
             List<KnowledgeEdge> edges = collectEdges(workspaceRoot);
+
+            // Fallback: extract cross-reference edges from markdown links (#276)
+            List<KnowledgeEdge> crossRefEdges = collectCrossReferenceEdges(workspaceRoot, nodes);
+            if (!crossRefEdges.isEmpty()) {
+                edges = new ArrayList<>(edges);
+                edges.addAll(crossRefEdges);
+            }
 
             // Filter by entity if specified
             if (entity != null && !entity.isBlank()) {
@@ -188,6 +201,87 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         return edges;
     }
 
+    /**
+     * Scans markdown files in each node directory for cross-references to other
+     * node directories. This provides edges for documentation workspaces where
+     * the virtual_memberships table is empty (#276).
+     *
+     * <p>Uses the same {@code [text](link)} pattern as {@code GraphBuilder}.
+     * Resolves relative links (e.g., {@code ../beta/overview.md}) to directory
+     * paths and creates edges between directories that reference each other.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param nodes         the collected knowledge nodes (directories)
+     * @return list of cross-reference edges
+     */
+    List<KnowledgeEdge> collectCrossReferenceEdges(Path workspaceRoot,
+                                                     List<KnowledgeNode> nodes) {
+        List<KnowledgeEdge> edges = new ArrayList<>();
+        Set<String> nodePaths = new HashSet<>();
+        for (KnowledgeNode node : nodes) {
+            nodePaths.add(node.path());
+        }
+
+        for (KnowledgeNode node : nodes) {
+            Path nodeDir = workspaceRoot.resolve(node.path());
+            if (!Files.isDirectory(nodeDir)) continue;
+
+            // Scan markdown files in this directory (non-recursive, 1 level)
+            try (Stream<Path> files = Files.list(nodeDir)) {
+                files.filter(Files::isRegularFile)
+                     .filter(p -> p.getFileName().toString().endsWith(".md"))
+                     .filter(p -> !p.getFileName().toString().equals(".synthesis.md"))
+                     .forEach(mdFile -> {
+                         try {
+                             String content = Files.readString(mdFile);
+                             Matcher m = MARKDOWN_LINK.matcher(content);
+                             while (m.find()) {
+                                 String link = m.group(2);
+                                 // Skip external links and anchors
+                                 if (link.startsWith("http") || link.startsWith("#")) continue;
+
+                                 // Resolve the link relative to the markdown file's directory
+                                 try {
+                                     Path resolved = nodeDir.resolve(link).normalize();
+                                     // If the link points to a file, use its parent directory
+                                     Path targetDir = Files.isDirectory(resolved) ? resolved : resolved.getParent();
+                                     if (targetDir == null) continue;
+
+                                     // Find the closest ancestor that is a known node
+                                     Path current = targetDir;
+                                     while (current != null && current.startsWith(workspaceRoot)
+                                            && !current.equals(workspaceRoot)) {
+                                         String relPath = workspaceRoot.relativize(current).toString();
+                                         if (nodePaths.contains(relPath) && !relPath.equals(node.path())) {
+                                             String relFile = workspaceRoot.relativize(mdFile).toString();
+                                             edges.add(new KnowledgeEdge(
+                                                     relFile, relPath,
+                                                     "cross-reference", 0.5));
+                                             break;
+                                         }
+                                         current = current.getParent();
+                                     }
+                                 } catch (Exception ignored) {
+                                     // Invalid path, skip
+                                 }
+                             }
+                         } catch (IOException ignored) {
+                             // Unreadable file, skip
+                         }
+                     });
+            } catch (IOException ignored) {
+                // Can't list directory, skip
+            }
+        }
+
+        // Deduplicate edges (same source file -> same target dir)
+        Map<String, KnowledgeEdge> deduped = new LinkedHashMap<>();
+        for (KnowledgeEdge edge : edges) {
+            deduped.putIfAbsent(edge.filePath() + "|" + edge.directoryPath(), edge);
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
     // ---- Filtering ----
 
     static List<KnowledgeNode> filterByEntity(List<KnowledgeNode> nodes, String entity) {
@@ -222,6 +316,18 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                         edge.directoryPath,
                         edge.bidStrength,
                         edge.relationship));
+            }
+        }
+
+        // Hint when most nodes show [??] (unknown health status) (#276)
+        if (!nodes.isEmpty()) {
+            long unknownCount = nodes.stream()
+                    .filter(n -> "unknown".equals(n.status()))
+                    .count();
+            if (unknownCount > nodes.size() / 2) {
+                sb.append("\nHint: ").append(unknownCount).append("/").append(nodes.size())
+                  .append(" directories show [??] (unknown health).\n");
+                sb.append("  Run 'synthesis maintain --full' to compute health status.\n");
             }
         }
 
