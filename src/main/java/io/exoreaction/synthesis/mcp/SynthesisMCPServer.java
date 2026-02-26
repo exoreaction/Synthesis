@@ -338,8 +338,10 @@ public class SynthesisMCPServer {
                         "Faster than Grep for discovery: sub-second results regardless of codebase size. " +
                         "Unlike Grep, matches on semantic fields (summaries, headings, keywords) not just " +
                         "raw text — finds conceptually related files even without exact string matches. " +
-                        "Use this FIRST for discovery tasks; fall back to Grep only for exact " +
-                        "string/regex matching on known file locations.",
+                        "Use this INSTEAD OF Grep when discovering an unfamiliar area of the codebase " +
+                        "or when you do not know which files contain what you need. " +
+                        "Fall back to Grep for exact string/regex matching on known file locations, " +
+                        "or when the answer is already in your context.",
                 createSearchSchema()
         ));
 
