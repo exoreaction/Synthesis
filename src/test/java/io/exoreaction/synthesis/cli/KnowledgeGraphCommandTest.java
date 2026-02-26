@@ -265,8 +265,8 @@ class KnowledgeGraphCommandTest {
         KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
         String ascii = cmd.renderAscii(nodes, List.of(), workspace);
 
-        assertTrue(ascii.contains("maintain"),
-                "Should suggest 'maintain' when most nodes show [??]: " + ascii);
+        assertTrue(ascii.contains("enrich-centroids"),
+                "Should suggest 'synthesis sync --enrich-centroids' when most nodes show [??]: " + ascii);
     }
 
     @Test
@@ -281,8 +281,61 @@ class KnowledgeGraphCommandTest {
         KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
         String ascii = cmd.renderAscii(nodes, List.of(), workspace);
 
-        assertFalse(ascii.contains("maintain"),
+        assertFalse(ascii.contains("enrich-centroids"),
                 "Should NOT show hint when nodes are healthy");
+    }
+
+    // ---- Feature A: recursive markdown scanning in collectCrossReferenceEdges ----
+
+    @Test
+    void collectCrossReferenceEdges_findsLinksInSubdirectories() throws IOException {
+        // Create two node directories
+        Path alpha = workspace.resolve("alpha");
+        Path beta = workspace.resolve("beta");
+        createDirectoryWithCentroid(alpha, List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(beta, List.of("topicB"), List.of(), 0.6, 2);
+
+        // Create a markdown file 2 levels deep inside alpha that links to beta
+        Path deepDir = alpha.resolve("sub1").resolve("sub2");
+        Files.createDirectories(deepDir);
+        Files.writeString(deepDir.resolve("deep-doc.md"),
+                "Check [beta info](../../../beta/README.md) for context.\n");
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> crossRefEdges =
+                cmd.collectCrossReferenceEdges(workspace, nodes);
+
+        assertFalse(crossRefEdges.isEmpty(),
+                "Should find cross-reference edge from deep markdown file");
+        assertTrue(crossRefEdges.stream().anyMatch(
+                e -> e.filePath().contains("deep-doc.md") && e.directoryPath().equals("beta")),
+                "Should have edge from alpha's deep file to beta: " + crossRefEdges);
+    }
+
+    @Test
+    void collectCrossReferenceEdges_doesNotIncludeSynthesisMdFiles() throws IOException {
+        // Create two node directories
+        Path alpha = workspace.resolve("alpha");
+        Path beta = workspace.resolve("beta");
+        createDirectoryWithCentroid(alpha, List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(beta, List.of("topicB"), List.of(), 0.6, 2);
+
+        // Place a .synthesis.md file in a subdirectory that links to beta
+        Path subDir = alpha.resolve("nested");
+        Files.createDirectories(subDir);
+        Files.writeString(subDir.resolve(".synthesis.md"),
+                "See [beta](../../beta/overview.md) for details.\n");
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> crossRefEdges =
+                cmd.collectCrossReferenceEdges(workspace, nodes);
+
+        assertTrue(crossRefEdges.isEmpty(),
+                "Should exclude .synthesis.md files even in subdirectories: " + crossRefEdges);
     }
 
     // ---- helpers ----

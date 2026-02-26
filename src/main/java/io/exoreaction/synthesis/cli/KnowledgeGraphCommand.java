@@ -226,8 +226,8 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             Path nodeDir = workspaceRoot.resolve(node.path());
             if (!Files.isDirectory(nodeDir)) continue;
 
-            // Scan markdown files in this directory (non-recursive, 1 level)
-            try (Stream<Path> files = Files.list(nodeDir)) {
+            // Scan markdown files recursively in this directory (#276 follow-up)
+            try (Stream<Path> files = Files.walk(nodeDir)) {
                 files.filter(Files::isRegularFile)
                      .filter(p -> p.getFileName().toString().endsWith(".md"))
                      .filter(p -> !p.getFileName().toString().equals(".synthesis.md"))
@@ -242,7 +242,7 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
                                  // Resolve the link relative to the markdown file's directory
                                  try {
-                                     Path resolved = nodeDir.resolve(link).normalize();
+                                     Path resolved = mdFile.getParent().resolve(link).normalize();
                                      // If the link points to a file, use its parent directory
                                      Path targetDir = Files.isDirectory(resolved) ? resolved : resolved.getParent();
                                      if (targetDir == null) continue;
