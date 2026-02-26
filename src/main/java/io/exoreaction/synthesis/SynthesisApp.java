@@ -460,16 +460,14 @@ public class SynthesisApp implements Callable<Integer> {
                 return;
             }
 
-            // If we have a cached status and it's not time to refresh, use cached
+            // If we have a cached status and it's not time to refresh, use cached.
+            // Only show banners when a refresh actually happens (at most once per day),
+            // so that stderr does not pollute every CLI invocation (#278).
             if (!approval.shouldRefresh() && approval.getCachedApproval() != null) {
-                boolean isApproved = approval.getCachedApproval();
-                if (isApproved && approval.shouldShowWelcome()) {
-                    System.err.println("  \u2713 Pilot approved -- Thank you for participating!");
-                }
                 return;
             }
 
-            // Perform approval check
+            // Perform approval check (this updates the cache and resets the refresh timer)
             boolean isApproved = approval.isApproved(clientUuid);
 
             if (isApproved) {
@@ -478,7 +476,7 @@ public class SynthesisApp implements Callable<Integer> {
                     System.err.println("  \u2713 Pilot approved -- Thank you for participating!");
                 }
             } else {
-                // Nag message for unapproved installations (1 line, non-intrusive)
+                // Nag message for unapproved installations (once per day, non-intrusive)
                 System.err.println("  \u26A0\uFE0F  Synthesis pilot approval pending. UUID: "
                         + clientUuid + ". Contact maintainer for access.");
             }
