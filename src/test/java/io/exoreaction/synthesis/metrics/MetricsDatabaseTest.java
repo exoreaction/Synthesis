@@ -215,6 +215,69 @@ class MetricsDatabaseTest {
                 "Default path should end in .db");
     }
 
+    // --- #277: fromResultSet null-safety ---
+
+    @Test
+    void fromResultSet_withNullIntegerColumns_doesNotThrow() throws SQLException {
+        // Insert directly via SQL to bypass recordEvent and test fromResultSet in isolation
+        Connection conn = db.getConnection();
+        String sql = "INSERT INTO metrics (timestamp, event_type, mcp_tool, mcp_workspace, "
+                + "execution_time_ms, result_count, success, error_message, search_pattern, "
+                + "ai_feature, ai_tokens_used, ai_retry) "
+                + "VALUES (?, ?, ?, ?, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, Instant.now().getEpochSecond());
+            ps.setString(2, "mcp_tool_invocation");
+            ps.setString(3, "maintain");
+            ps.setString(4, "/ws");
+            ps.executeUpdate();
+        }
+
+        // This call invokes MetricsEvent.fromResultSet() which previously crashed
+        // with "Bad value for type Integer" on SQLite NULL columns
+        assertDoesNotThrow(() -> db.queryEvents(0),
+                "fromResultSet should handle NULL columns without throwing");
+
+        List<MetricsEvent> events = db.queryEvents(0);
+        assertEquals(1, events.size());
+        assertNull(events.get(0).executionTimeMs(), "executionTimeMs should be null");
+        assertNull(events.get(0).resultCount(), "resultCount should be null");
+        assertNull(events.get(0).aiTokensUsed(), "aiTokensUsed should be null");
+    }
+
+    @Test
+    void fromResultSet_withMixedNullAndNonNull_roundTrips() throws SQLException {
+        // Insert with some nullable fields set, others null
+        Connection conn = db.getConnection();
+        String sql = "INSERT INTO metrics (timestamp, event_type, mcp_tool, mcp_workspace, "
+                + "execution_time_ms, result_count, success, error_message, search_pattern, "
+                + "ai_feature, ai_tokens_used, ai_retry) "
+                + "VALUES (?, ?, ?, ?, 150, NULL, 1, NULL, 'terms:1', NULL, NULL, NULL)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, Instant.now().getEpochSecond());
+            ps.setString(2, "mcp_tool_invocation");
+            ps.setString(3, "search");
+            ps.setString(4, "/ws");
+            ps.executeUpdate();
+        }
+
+        List<MetricsEvent> events = db.queryEvents(0);
+        assertEquals(1, events.size());
+        assertEquals(150L, events.get(0).executionTimeMs());
+        assertNull(events.get(0).resultCount(), "resultCount should be null when not set");
+    }
+
+    @Test
+    void recordEvent_withNullAiRetry_doesNotThrow() throws SQLException {
+        // recordEvent should handle null aiRetry without NPE
+        MetricsEvent event = new MetricsEvent(
+                Instant.now(), "mcp_tool_invocation", "maintain", "/ws",
+                null, null, true, null, null, null, null, null);
+
+        assertDoesNotThrow(() -> db.recordEvent(event),
+                "recordEvent should handle null aiRetry without throwing");
+    }
+
     // --- helpers ---
 
     private MetricsEvent searchEvent(String workspace, String tool, long execMs,

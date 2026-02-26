@@ -140,7 +140,7 @@ public class MetricsDatabase implements AutoCloseable {
             ps.setString(9, event.searchPattern());
             ps.setString(10, event.aiFeature());
             ps.setObject(11, event.aiTokensUsed());
-            ps.setObject(12, event.aiRetry() ? 1 : null);
+            ps.setObject(12, event.aiRetry() != null && event.aiRetry() ? 1 : null);
 
             ps.executeUpdate();
         }

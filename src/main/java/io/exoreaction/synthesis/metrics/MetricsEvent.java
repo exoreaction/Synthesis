@@ -40,21 +40,37 @@ public record MetricsEvent(
 
     /**
      * Creates a metrics event from a database ResultSet.
+     *
+     * <p>Uses untyped {@code getObject()} then casts with null-safety
+     * because SQLite JDBC throws "Bad value for type Integer/Long"
+     * when reading NULL columns via typed {@code getObject(col, Class)}.
      */
     public static MetricsEvent fromResultSet(ResultSet rs) throws SQLException {
+        Object execTimeRaw = rs.getObject("execution_time_ms");
+        Long executionTimeMs = execTimeRaw instanceof Number n ? n.longValue() : null;
+
+        Object resultCountRaw = rs.getObject("result_count");
+        Integer resultCount = resultCountRaw instanceof Number n ? n.intValue() : null;
+
+        Object aiTokensRaw = rs.getObject("ai_tokens_used");
+        Integer aiTokensUsed = aiTokensRaw instanceof Number n ? n.intValue() : null;
+
+        Object aiRetryRaw = rs.getObject("ai_retry");
+        Boolean aiRetry = aiRetryRaw instanceof Number n ? (n.intValue() != 0) : null;
+
         return new MetricsEvent(
                 Instant.ofEpochSecond(rs.getLong("timestamp")),
                 rs.getString("event_type"),
                 rs.getString("mcp_tool"),
                 rs.getString("mcp_workspace"),
-                rs.getObject("execution_time_ms", Long.class),
-                rs.getObject("result_count", Integer.class),
+                executionTimeMs,
+                resultCount,
                 rs.getInt("success") == 1,
                 rs.getString("error_message"),
                 rs.getString("search_pattern"),
                 rs.getString("ai_feature"),
-                rs.getObject("ai_tokens_used", Integer.class),
-                rs.getObject("ai_retry", Integer.class) != null
+                aiTokensUsed,
+                aiRetry
         );
     }
 
