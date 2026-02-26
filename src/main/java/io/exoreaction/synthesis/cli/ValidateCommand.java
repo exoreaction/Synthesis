@@ -38,6 +38,20 @@ public class ValidateCommand implements Callable<Integer> {
         WorkspaceManager workspace = new WorkspaceManager(workspaceRoot);
         var validation = workspace.validate();
         if (validation.isPresent()) { AnsiOutput.printError(validation.get()); return 1; }
+
+        // Always print a header so stdout is never empty (#278)
+        System.out.println();
+        System.out.println("Validate: " + workspaceRoot.getFileName());
+        System.out.println("  Workspace: " + workspaceRoot);
+
+        List<String> checks = new ArrayList<>();
+        if (skills) checks.add("skills");
+        if (docs) checks.add("docs");
+        if (gaps) checks.add("gaps");
+        if (integrity) checks.add("integrity");
+        if (untested) checks.add("untested");
+        System.out.println("  Checks:    " + String.join(", ", checks));
+
         try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
             int exitCode = 0;
             if (skills || docs) {
@@ -45,7 +59,10 @@ public class ValidateCommand implements Callable<Integer> {
                 if (skills) filesToCheck.addAll(collectSkillFiles(workspaceRoot));
                 if (docs) filesToCheck.addAll(collectDocFiles(workspaceRoot));
                 if (filesToCheck.isEmpty()) {
+                    System.out.println();
                     System.out.println("  No documentation files found to check.");
+                    System.out.println("  Looked for: .claude/skills/*.md, .claude/skills/*.yaml, CLAUDE.md"
+                            + (docs ? ", docs/**/*.md" : ""));
                 } else {
                     DriftDetector detector = new DriftDetector();
                     Map<Path, List<DriftIssue>> allIssues = new LinkedHashMap<>();
@@ -68,6 +85,11 @@ public class ValidateCommand implements Callable<Integer> {
                 TestCoverageAnalyzer tca = new TestCoverageAnalyzer();
                 exitCode = Math.max(exitCode, printUntestedReport(tca.findUntested(af)));
             }
+
+            // Summary line
+            System.out.println("  Result: " + (exitCode == 0 ? "OK" : "issues found"));
+            System.out.println();
+
             return exitCode;
         } catch (Exception e) { AnsiOutput.printError("Validate failed: " + e.getMessage()); return 1; }
     }

@@ -468,4 +468,79 @@ class CodeGraphExtractorTest {
         assertEquals(1, found.size());
         assertTrue(found.get(0).toString().contains("JavaProject"));
     }
+
+    // -----------------------------------------------------------------------
+    // #279: archive/ directory exclusion
+    // -----------------------------------------------------------------------
+
+    @Test
+    void isArchiveDirectory_detects_archive_dir() {
+        Path root = Path.of("/workspace");
+        assertTrue(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/archive/old/Foo.java")));
+        assertTrue(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/project/archive/Foo.java")));
+    }
+
+    @Test
+    void isArchiveDirectory_detects_vendor_dir() {
+        Path root = Path.of("/workspace");
+        assertTrue(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/vendor/lib/Foo.java")));
+    }
+
+    @Test
+    void isArchiveDirectory_detects_node_modules_dir() {
+        Path root = Path.of("/workspace");
+        assertTrue(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/node_modules/pkg/Foo.java")));
+    }
+
+    @Test
+    void isArchiveDirectory_does_not_match_normal_dirs() {
+        Path root = Path.of("/workspace");
+        assertFalse(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/src/main/java/Foo.java")));
+        assertFalse(CodeGraphExtractor.isArchiveDirectory(root,
+                Path.of("/workspace/archiver/Foo.java")));
+    }
+
+    @Test
+    void findJavaFiles_excludes_archive_directories() throws IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
+        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+
+        // Create files inside archive directories
+        Path archiveDir = Files.createDirectories(
+                tempDir.resolve("project/archive/old-version/src/com"));
+        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+
+        Path vendorDir = Files.createDirectories(
+                tempDir.resolve("project/vendor/lib/src"));
+        Files.writeString(vendorDir.resolve("Bar.java"), "class Bar {}");
+
+        Path nodeModules = Files.createDirectories(
+                tempDir.resolve("project/node_modules/some-pkg"));
+        Files.writeString(nodeModules.resolve("Gen.java"), "class Gen {}");
+
+        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
+        assertEquals(1, found.size(),
+                "Should find only the source file, excluding archive/vendor/node_modules: " + found);
+        assertTrue(found.get(0).toString().contains("src/main/java"));
+    }
+
+    @Test
+    void findJavaFiles_includesArchives_when_flag_set() throws IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
+        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+
+        Path archiveDir = Files.createDirectories(
+                tempDir.resolve("project/archive/old-version/src/com"));
+        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+
+        extractor.setIncludeArchives(true);
+        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
+        assertEquals(2, found.size(),
+                "With --include-archives, should find both source and archive files: " + found);
+    }
 }
