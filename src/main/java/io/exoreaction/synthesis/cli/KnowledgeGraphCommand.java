@@ -327,7 +327,7 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             if (unknownCount > nodes.size() / 2) {
                 sb.append("\nHint: ").append(unknownCount).append("/").append(nodes.size())
                   .append(" directories show [??] (unknown health).\n");
-                sb.append("  Run 'synthesis maintain --full' to compute health status.\n");
+                sb.append("  Run 'synthesis sync --enrich-centroids' to compute health status.\n");
             }
         }
 
