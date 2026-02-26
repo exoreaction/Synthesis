@@ -338,6 +338,100 @@ class KnowledgeGraphCommandTest {
                 "Should exclude .synthesis.md files even in subdirectories: " + crossRefEdges);
     }
 
+    // ---- Feature B: entity-based implicit edges ----
+
+    @Test
+    void collectEntityEdges_connectsNodesWithSharedEntities() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of("Acme Corp"), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of("Acme Corp"), 0.7, 3);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges =
+                cmd.collectEntityEdges(nodes);
+
+        assertFalse(entityEdges.isEmpty(),
+                "Should create edge between nodes sharing entity 'Acme Corp'");
+        assertTrue(entityEdges.stream().anyMatch(
+                e -> "entity-match".equals(e.relationship())),
+                "Edge type should be 'entity-match': " + entityEdges);
+    }
+
+    @Test
+    void collectEntityEdges_noEdgeWhenNoSharedEntities() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of("Entity One"), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of("Entity Two"), 0.7, 3);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges =
+                cmd.collectEntityEdges(nodes);
+
+        assertTrue(entityEdges.isEmpty(),
+                "Should not create edges when no entities are shared: " + entityEdges);
+    }
+
+    @Test
+    void collectEntityEdges_confidenceScalesWithSharedCount() throws IOException {
+        // A shares 3 entities with B, but only 1 with C
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of("Ent1", "Ent2", "Ent3"), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of("Ent1", "Ent2", "Ent3"), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("gamma"),
+                List.of("topicC"), List.of("Ent1", "Other"), 0.6, 2);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges =
+                cmd.collectEntityEdges(nodes);
+
+        // Find edge between alpha and beta (3 shared)
+        KnowledgeGraphCommand.KnowledgeEdge abEdge = entityEdges.stream()
+                .filter(e -> (e.filePath().equals("alpha") && e.directoryPath().equals("beta"))
+                          || (e.filePath().equals("beta") && e.directoryPath().equals("alpha")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected edge between alpha and beta"));
+
+        // Find edge between alpha and gamma (1 shared)
+        KnowledgeGraphCommand.KnowledgeEdge agEdge = entityEdges.stream()
+                .filter(e -> (e.filePath().equals("alpha") && e.directoryPath().equals("gamma"))
+                          || (e.filePath().equals("gamma") && e.directoryPath().equals("alpha")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected edge between alpha and gamma"));
+
+        assertTrue(abEdge.bidStrength() > agEdge.bidStrength(),
+                "Edge A-B (3 shared) should have higher confidence than A-C (1 shared): "
+                        + abEdge.bidStrength() + " vs " + agEdge.bidStrength());
+        assertTrue(abEdge.bidStrength() <= 0.8,
+                "Confidence should be capped at 0.8: " + abEdge.bidStrength());
+    }
+
+    @Test
+    void collectEntityEdges_excludesGenericEntities() throws IOException {
+        // Both nodes share only generic entities that should be excluded
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of("Media Type", "AI Summary", "AI Description"), 0.8, 5);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of("Media Type", "AI Summary", "AI Title"), 0.7, 3);
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> entityEdges =
+                cmd.collectEntityEdges(nodes);
+
+        assertTrue(entityEdges.isEmpty(),
+                "Should not create edges from generic/noise entities: " + entityEdges);
+    }
+
     // ---- helpers ----
 
     private void createDirectoryWithCentroid(Path dir, List<String> topics,

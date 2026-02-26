@@ -91,6 +91,17 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                 edges.addAll(crossRefEdges);
             }
 
+            // Entity-based implicit edges (Feature B)
+            List<KnowledgeEdge> entityEdges = collectEntityEdges(nodes);
+            if (!entityEdges.isEmpty()) {
+                if (edges instanceof ArrayList) {
+                    edges.addAll(entityEdges);
+                } else {
+                    edges = new ArrayList<>(edges);
+                    edges.addAll(entityEdges);
+                }
+            }
+
             // Filter by entity if specified
             if (entity != null && !entity.isBlank()) {
                 nodes = filterByEntity(nodes, entity);
@@ -280,6 +291,66 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             deduped.putIfAbsent(edge.filePath() + "|" + edge.directoryPath(), edge);
         }
         return new ArrayList<>(deduped.values());
+    }
+
+    /** Generic entity names to exclude from entity-match edges (too noisy). */
+    private static final Set<String> GENERIC_ENTITIES = Set.of(
+            "media type", "ai summary", "ai description", "ai title",
+            "microsoft office word", "intel mac os"
+    );
+
+    /**
+     * Creates implicit edges between nodes that share entity names from their
+     * centroid {@code entities:} lists. Generic/noise entities are excluded.
+     * Confidence scales with the number of shared entities, capped at 0.8.
+     *
+     * @param nodes the collected knowledge nodes
+     * @return list of entity-match edges
+     */
+    List<KnowledgeEdge> collectEntityEdges(List<KnowledgeNode> nodes) {
+        List<KnowledgeEdge> edges = new ArrayList<>();
+
+        // Build map: entity (lowercase) -> list of node paths that mention it
+        Map<String, List<String>> entityToNodes = new HashMap<>();
+        for (KnowledgeNode node : nodes) {
+            for (String ent : node.entities()) {
+                String key = ent.toLowerCase();
+                if (GENERIC_ENTITIES.contains(key)) continue;
+                entityToNodes.computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(node.path());
+            }
+        }
+
+        // For each pair of nodes, count shared entities
+        Map<String, Integer> pairSharedCount = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : entityToNodes.entrySet()) {
+            List<String> paths = entry.getValue();
+            if (paths.size() < 2) continue;
+            for (int i = 0; i < paths.size(); i++) {
+                for (int j = i + 1; j < paths.size(); j++) {
+                    String pairKey = paths.get(i) + "|" + paths.get(j);
+                    pairSharedCount.merge(pairKey, 1, Integer::sum);
+                }
+            }
+        }
+
+        // Find the maximum shared count for scaling
+        int maxShared = pairSharedCount.values().stream()
+                .mapToInt(Integer::intValue)
+                .max()
+                .orElse(1);
+
+        // Create edges with confidence proportional to shared count, capped at 0.8
+        for (Map.Entry<String, Integer> entry : pairSharedCount.entrySet()) {
+            String[] parts = entry.getKey().split("\\|", 2);
+            int shared = entry.getValue();
+            double confidence = Math.min(0.8, (double) shared / Math.max(maxShared, 1) * 0.8);
+            // Ensure minimum confidence for any match
+            if (confidence < 0.1) confidence = 0.1;
+            edges.add(new KnowledgeEdge(parts[0], parts[1], "entity-match", confidence));
+        }
+
+        return edges;
     }
 
     // ---- Filtering ----
