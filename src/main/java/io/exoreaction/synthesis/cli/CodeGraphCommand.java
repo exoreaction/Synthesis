@@ -250,6 +250,11 @@ public class CodeGraphCommand implements Callable<Integer> {
                 defaultValue = "false")
         private boolean dryRun;
 
+        @Option(names = {"--include-archives"},
+                description = "Include archive/, vendor/, node_modules/ directories (excluded by default)",
+                defaultValue = "false")
+        private boolean includeArchives;
+
         @Override
         public Integer call() {
             try {
@@ -273,6 +278,7 @@ public class CodeGraphCommand implements Callable<Integer> {
                 }
 
                 CodeGraphExtractor extractor = new CodeGraphExtractor();
+                extractor.setIncludeArchives(includeArchives);
 
                 if (incremental) {
                     return runIncremental(extractor, conn, workspaceRoot);

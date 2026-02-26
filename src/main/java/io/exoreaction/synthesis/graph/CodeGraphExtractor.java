@@ -42,8 +42,14 @@ public class CodeGraphExtractor {
     private static final Pattern JAVA_IMPLEMENTS = Pattern.compile(
             "\\bimplements\\s+([A-Z][\\w.,\\s]+)", Pattern.MULTILINE);
 
+    /** Directory names excluded by default (duplicates, vendored code). */
+    private static final Set<String> ARCHIVE_DIR_NAMES = Set.of(
+            "archive", "vendor", "node_modules"
+    );
+
     private final CodeGraphRepository repository;
     private final CrossFormatLinker crossFormatLinker;
+    private boolean includeArchives = false;
 
     public CodeGraphExtractor() {
         this.repository = new CodeGraphRepository();
@@ -53,6 +59,16 @@ public class CodeGraphExtractor {
     public CodeGraphExtractor(CodeGraphRepository repository, CrossFormatLinker crossFormatLinker) {
         this.repository = repository;
         this.crossFormatLinker = crossFormatLinker;
+    }
+
+    /**
+     * When set to {@code true}, archive/vendor/node_modules directories are
+     * included in the code graph analysis. Default is {@code false}.
+     *
+     * @param includeArchives whether to include archive directories
+     */
+    public void setIncludeArchives(boolean includeArchives) {
+        this.includeArchives = includeArchives;
     }
 
     /**
@@ -231,12 +247,19 @@ public class CodeGraphExtractor {
 
         List<Path> files = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(root)) {
-            walk.filter(Files::isRegularFile)
+            Stream<Path> filtered = walk
+                .filter(Files::isRegularFile)
                 .filter(p -> p.toString().endsWith(".java"))
                 .filter(p -> !p.toString().contains("/."))  // skip hidden dirs
                 .filter(p -> !isBuildArtifact(root, p))
-                .filter(p -> !isInSkippedRepo(root, p, skippedRepos))
-                .forEach(files::add);
+                .filter(p -> !isInSkippedRepo(root, p, skippedRepos));
+
+            // Exclude archive/vendor/node_modules unless explicitly included (#279)
+            if (!includeArchives) {
+                filtered = filtered.filter(p -> !isArchiveDirectory(root, p));
+            }
+
+            filtered.forEach(files::add);
         }
 
         if (!skippedRepos.isEmpty()) {
@@ -450,6 +473,26 @@ public class CodeGraphExtractor {
         for (Path component : rel) {
             String name = component.toString();
             if ("target".equals(name) || "build".equals(name) || "out".equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the given path is inside an archive, vendor, or
+     * node_modules directory. These directories typically contain old
+     * or vendored copies of code that inflate the code graph with
+     * duplicate packages and false circular dependencies (#279).
+     *
+     * @param workspaceRoot workspace root directory
+     * @param file          the file to check (absolute path)
+     * @return true if the file is inside an archive directory
+     */
+    public static boolean isArchiveDirectory(Path workspaceRoot, Path file) {
+        Path rel = workspaceRoot.relativize(file);
+        for (Path component : rel) {
+            if (ARCHIVE_DIR_NAMES.contains(component.toString())) {
                 return true;
             }
         }
