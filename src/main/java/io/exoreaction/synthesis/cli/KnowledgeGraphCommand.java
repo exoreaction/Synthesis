@@ -102,6 +102,17 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                 }
             }
 
+            // Declared edges from related: field in .synthesis.md (Feature C)
+            List<KnowledgeEdge> declaredEdges = collectDeclaredEdges(workspaceRoot, nodes);
+            if (!declaredEdges.isEmpty()) {
+                if (edges instanceof ArrayList) {
+                    edges.addAll(declaredEdges);
+                } else {
+                    edges = new ArrayList<>(edges);
+                    edges.addAll(declaredEdges);
+                }
+            }
+
             // Filter by entity if specified
             if (entity != null && !entity.isBlank()) {
                 nodes = filterByEntity(nodes, entity);
@@ -351,6 +362,95 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         }
 
         return edges;
+    }
+
+    /** Pattern for parsing list items in YAML: {@code - "value"} or {@code - value}. */
+    private static final Pattern YAML_LIST_ITEM =
+            Pattern.compile("^\\s+-\\s+\"?([^\"]+?)\"?\\s*$");
+
+    /**
+     * Creates declared edges from the {@code synthesis.related} field in
+     * {@code .synthesis.md} files. Each declared path that exists as a known
+     * node produces an edge with type {@code "declared"} and confidence 1.0.
+     * Missing target nodes are silently skipped (logged as warning in production).
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param nodes         the collected knowledge nodes
+     * @return list of declared edges
+     */
+    List<KnowledgeEdge> collectDeclaredEdges(Path workspaceRoot,
+                                              List<KnowledgeNode> nodes) {
+        List<KnowledgeEdge> edges = new ArrayList<>();
+        Set<String> nodePaths = new HashSet<>();
+        for (KnowledgeNode node : nodes) {
+            nodePaths.add(node.path());
+        }
+
+        for (KnowledgeNode node : nodes) {
+            Path synthesisFile = workspaceRoot.resolve(node.path()).resolve(".synthesis.md");
+            if (!Files.exists(synthesisFile)) continue;
+
+            List<String> related = parseRelatedField(synthesisFile);
+            for (String target : related) {
+                if (nodePaths.contains(target) && !target.equals(node.path())) {
+                    edges.add(new KnowledgeEdge(
+                            node.path(), target, "declared", 1.0));
+                }
+                // If target doesn't exist as a node, silently skip
+            }
+        }
+
+        return edges;
+    }
+
+    /**
+     * Parses the {@code related:} list from a {@code .synthesis.md} file's
+     * YAML front matter. Returns an empty list if the field is absent.
+     */
+    private List<String> parseRelatedField(Path synthesisFile) {
+        List<String> related = new ArrayList<>();
+        try {
+            String content = Files.readString(synthesisFile);
+            // Extract YAML front matter
+            String trimmed = content.stripLeading();
+            if (!trimmed.startsWith("---")) return related;
+            int firstDelim = trimmed.indexOf("---");
+            int secondDelim = trimmed.indexOf("---", firstDelim + 3);
+            if (secondDelim < 0) return related;
+            String yaml = trimmed.substring(firstDelim + 3, secondDelim);
+
+            boolean inRelated = false;
+            for (String line : yaml.split("\n")) {
+                String stripped = line.stripTrailing();
+                String trimmedLine = stripped.stripLeading();
+                int indent = stripped.length() - trimmedLine.length();
+
+                // Detect entering related block (at indent <= 2, under synthesis:)
+                if (trimmedLine.startsWith("related:") && indent <= 2) {
+                    inRelated = true;
+                    continue;
+                }
+
+                // Exit related on a same-level or higher-level key
+                if (inRelated && indent <= 2 && !trimmedLine.isEmpty()
+                        && !trimmedLine.startsWith("-") && !trimmedLine.startsWith("#")) {
+                    inRelated = false;
+                }
+
+                if (!inRelated) continue;
+
+                // Parse list items
+                if (trimmedLine.startsWith("- ")) {
+                    Matcher m = YAML_LIST_ITEM.matcher(stripped);
+                    if (m.matches()) {
+                        related.add(m.group(1));
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // Unreadable file, return empty
+        }
+        return related;
     }
 
     // ---- Filtering ----

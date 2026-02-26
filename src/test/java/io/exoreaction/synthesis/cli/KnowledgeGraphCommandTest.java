@@ -432,7 +432,94 @@ class KnowledgeGraphCommandTest {
                 "Should not create edges from generic/noise entities: " + entityEdges);
     }
 
+    // ---- Feature C: declared edges from related: field ----
+
+    @Test
+    void collectDeclaredEdges_createsEdgesFromRelatedField() throws IOException {
+        // Create two node directories
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of(), 0.6, 2);
+
+        // Append related: field to alpha's .synthesis.md
+        appendRelatedField(workspace.resolve("alpha").resolve(".synthesis.md"),
+                List.of("beta"));
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> declaredEdges =
+                cmd.collectDeclaredEdges(workspace, nodes);
+
+        assertFalse(declaredEdges.isEmpty(),
+                "Should create declared edge from related: field");
+        KnowledgeGraphCommand.KnowledgeEdge edge = declaredEdges.get(0);
+        assertEquals("declared", edge.relationship());
+        assertEquals(1.0, edge.bidStrength(), 0.001,
+                "Declared edges should have confidence 1.0");
+    }
+
+    @Test
+    void collectDeclaredEdges_toleratesMissingTargetNodes() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of(), 0.7, 3);
+
+        // Declare a relationship to a non-existent node
+        appendRelatedField(workspace.resolve("alpha").resolve(".synthesis.md"),
+                List.of("nonexistent/dir"));
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+
+        // Should not throw, and should produce no edge (target doesn't exist as node)
+        List<KnowledgeGraphCommand.KnowledgeEdge> declaredEdges =
+                cmd.collectDeclaredEdges(workspace, nodes);
+
+        assertTrue(declaredEdges.isEmpty(),
+                "Should not create edge when target node doesn't exist: " + declaredEdges);
+    }
+
+    @Test
+    void collectDeclaredEdges_emptyWhenNoRelatedField() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("alpha"),
+                List.of("topicA"), List.of(), 0.7, 3);
+        createDirectoryWithCentroid(workspace.resolve("beta"),
+                List.of("topicB"), List.of(), 0.6, 2);
+
+        // No related: field added
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes =
+                cmd.collectNodes(workspace, parser);
+        List<KnowledgeGraphCommand.KnowledgeEdge> declaredEdges =
+                cmd.collectDeclaredEdges(workspace, nodes);
+
+        assertTrue(declaredEdges.isEmpty(),
+                "Should produce no edges when no related: field exists: " + declaredEdges);
+    }
+
     // ---- helpers ----
+
+    /**
+     * Appends a {@code related:} field to an existing .synthesis.md file
+     * by rewriting the YAML front matter.
+     */
+    private void appendRelatedField(Path synthesisFile, List<String> related) throws IOException {
+        String content = Files.readString(synthesisFile);
+        // Insert related: block before the closing ---
+        StringBuilder relatedBlock = new StringBuilder();
+        relatedBlock.append("  related:\n");
+        for (String r : related) {
+            relatedBlock.append("    - \"").append(r).append("\"\n");
+        }
+        // Replace the last --- with the related block + ---
+        int lastDash = content.lastIndexOf("---");
+        String newContent = content.substring(0, lastDash) + relatedBlock + "---"
+                + content.substring(lastDash + 3);
+        Files.writeString(synthesisFile, newContent);
+    }
 
     private void createDirectoryWithCentroid(Path dir, List<String> topics,
                                               List<String> entities,
