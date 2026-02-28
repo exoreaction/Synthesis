@@ -1051,15 +1051,54 @@ Run 'synthesis init' to initialize a new workspace.
 
 ---
 
+## v1.18.2 — Session Lifecycle Integration (February 28, 2026)
+
+**Commits:** 7682737, 417d2f3, 706d9fc, 5e8c4d7
+**Tests:** 4,107 (all passing, 22 new)
+
+Three new commands bridging the session lifecycle gap identified in the Ars Contexta PKM ecosystem. Together, `synthesis hooks generate` + `synthesis session-context` give every Claude Code session automatic codebase context injection on startup — without any manual steps.
+
+### New Commands
+
+**`synthesis session-context`** — compact codebase freshness snapshot:
+- Multi-line summary or `--compact` single-line output (no newlines, designed for hook injection)
+- Reports: file count, index size, recent changes, security posture, active packages
+- `--since <duration>` controls lookback (default: 24h); `--no-security` for air-gapped use
+- No AI dependency — fast, deterministic, <2 seconds
+
+**`synthesis hooks generate`** — generate/merge Claude Code hook config:
+- Writes `UserPromptSubmit` hook to `~/.claude/settings.json`
+- Injects `synthesis session-context --compact` as the hook command
+- Idempotent, merge-safe (never overwrites unrelated keys), aborts on malformed JSON
+- `--dry-run` · `--type PreToolUse` · `-o <output>` options
+
+**`synthesis claude-md refresh`** — maintain managed section in CLAUDE.md:
+- Uses `<!-- synthesis-stats:start/end -->` markers — only managed section is touched
+- Appends if no markers; replaces if markers exist; creates file if missing
+- `--dry-run` · `-f <file>` · `--section-title` options
+
+### MCP Tools Added (41 → 43)
+
+- `session_context` — compact freshness snapshot via MCP (default: compact=true, since=24h)
+- `hooks_generate` — hook config JSON via MCP (always dry-run — returns JSON, no disk writes)
+
+### Documentation
+
+- `CLAUDE-CODE-INTEGRATION.md` — new **Workflow 5: Session Lifecycle Integration**
+- `CLAUDE.md` — session lifecycle commands in CLI reference
+- Skills: `synthesis-development`, `synthesis-product-context` updated (version, test count, commands)
+- 33 skills re-exported to `~/.claude/skills/`
+
+---
+
 ## Current State
 
-**Version:** v1.13.1-SNAPSHOT
-**Date:** February 22, 2026
-**Days since first commit:** 9
-**Total commits:** 348
-**Tests:** 3,865 (all passing)
+**Version:** v1.18.2-SNAPSHOT
+**Date:** February 28, 2026
+**Days since first commit:** 15
+**Tests:** 4,107 (all passing)
 
-### Commands (51 subcommands)
+### Commands (54 subcommands)
 
 **Workspace lifecycle:**
 `init`, `scan`, `maintain`, `status`, `health`, `dashboard`, `watch`, `discover`
