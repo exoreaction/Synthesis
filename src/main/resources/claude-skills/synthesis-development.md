@@ -15,8 +15,8 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 21+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.10.1-SNAPSHOT (as of Feb 19, 2026)
-- **Tests:** 2,540+ (JUnit 5)
+- **Version:** 1.18.2-SNAPSHOT (as of Feb 28, 2026)
+- **Tests:** 4,107 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)

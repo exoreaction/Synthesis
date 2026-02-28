@@ -2078,6 +2078,57 @@ public class SynthesisToolHandler {
     }
 
     // -----------------------------------------------------------------------
+    // Group 6: Session lifecycle tools
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleSessionContext(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        String since = params != null && params.has("since") && !params.get("since").isNull()
+                ? params.get("since").asText() : "24h";
+        boolean compact = params == null || !params.has("compact") || params.get("compact").asBoolean(true);
+        try {
+            List<String> args = new java.util.ArrayList<>();
+            args.add("session-context");
+            if (compact) args.add("--compact");
+            args.add("--since=" + since);
+            String output = runSynthesisCli(args, workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("context", output);
+            response.put("workspace", workspacePath.toString());
+            response.put("since", since);
+            response.put("compact", compact);
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("session-context failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "session-context failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleHooksGenerate(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+        String hookType = params != null && params.has("type") && !params.get("type").isNull()
+                ? params.get("type").asText() : "UserPromptSubmit";
+        try {
+            List<String> args = List.of("hooks", "generate", "--dry-run", "--type", hookType);
+            String output = runSynthesisCli(args, workspacePath);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("hookConfig", output);
+            response.put("type", hookType);
+            response.put("workspace", workspacePath.toString());
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("hooks generate failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "hooks generate failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Group 4: Discovery & validation tools (subprocess-based)
     // -----------------------------------------------------------------------
 

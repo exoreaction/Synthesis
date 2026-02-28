@@ -74,9 +74,9 @@ For HTTP: verify with `curl http://localhost:8765/health` which returns `{"statu
 
 ---
 
-## Available Tools (41 total)
+## Available Tools (43 total)
 
-The MCP server exposes **41 tools** grouped by category. See the [MCP Comprehensive Guide](./MCP-COMPREHENSIVE-GUIDE.md) for full parameter documentation on all tools.
+The MCP server exposes **43 tools** grouped by category. See the [MCP Comprehensive Guide](./MCP-COMPREHENSIVE-GUIDE.md) for full parameter documentation on all tools.
 
 ### Search & Discovery (6 tools)
 
@@ -201,6 +201,47 @@ Claude Code will:
 1. Use `changelog` with `since: "7d"` for a classified change summary
 2. Use `changed` with `since: "7d"` for file-level listing
 3. Use `summary` with `since: "7d"` for an AI narrative of the changes
+
+### Workflow 5: Session Lifecycle Integration
+
+> "Set up automatic codebase context injection for every Claude Code session"
+
+This bridges the session lifecycle gap: every Claude Code session automatically receives a fresh codebase context snapshot on startup, without any manual steps.
+
+**Step 1: Generate the hook configuration**
+
+```bash
+synthesis hooks generate
+```
+
+Writes a `UserPromptSubmit` hook to `~/.claude/settings.json` that runs `synthesis session-context --compact` on every session start. Idempotent — running it again is safe.
+
+**Step 2: Verify what will be injected**
+
+```bash
+synthesis hooks generate --dry-run
+synthesis session-context --compact
+# workspace:13041files·20.3MB | changed:0files(24h) | security:91HIGH·13MEDIUM
+```
+
+**Step 3: Every session gets automatic context**
+
+On each session start, the hook injects a compact line with workspace size, recent changes, security posture, and active packages — before the first tool call.
+
+Use `session_context` MCP tool to retrieve this snapshot programmatically:
+```json
+{"name": "session_context", "arguments": {"since": "24h", "compact": true}}
+```
+
+**Step 4: Keep CLAUDE.md fresh (optional)**
+
+```bash
+synthesis claude-md refresh
+```
+
+Maintains a `<!-- synthesis-stats:start -->` / `<!-- synthesis-stats:end -->` managed section in your CLAUDE.md with current stats. Only the managed section is touched — your existing content is preserved completely.
+
+**Complementary to personal knowledge tools (e.g., Ars Contexta):** Synthesis provides codebase knowledge (what exists, what changed, what's at risk). Combine with personal knowledge management for complete session context — both local-first, both MCP.
 
 ---
 

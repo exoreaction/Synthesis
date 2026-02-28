@@ -704,6 +704,19 @@ public class SynthesisMCPServer {
                         "Run after adding new files or on first setup.",
                 createWorkspaceOnlySchema()
         ));
+        // Group 6: Session lifecycle tools
+        toolsArray.add(createToolDefinition(
+                "session_context",
+                "Generate compact codebase freshness snapshot for Claude Code session injection. " +
+                        "Returns workspace stats, recent changes, and security posture.",
+                createSessionContextSchema()
+        ));
+        toolsArray.add(createToolDefinition(
+                "hooks_generate",
+                "Generate Claude Code hook configuration JSON that injects Synthesis context at session start. " +
+                        "Returns the settings.json hook entry. Always runs in dry-run mode (returns JSON, does not write to disk).",
+                createHooksGenerateSchema()
+        ));
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -769,6 +782,9 @@ public class SynthesisMCPServer {
                 // Group 5: Maintenance
                 case "maintain" -> toolHandler.handleMaintain(toolArgs);
                 case "scan" -> toolHandler.handleScan(toolArgs);
+                // Group 6: Session lifecycle
+                case "session_context" -> toolHandler.handleSessionContext(toolArgs);
+                case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1372,6 +1388,56 @@ public class SynthesisMCPServer {
      * evolution, scatter, naming, upcoming, status, track, discover, validate,
      * metrics, cross-repo-deps, learn, maintain, scan.
      */
+    private ObjectNode createSessionContextSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        since.put("default", "24h");
+        since.put("description", "How far back to look for changes (e.g., 1h, 24h, 7d, 2w)");
+        properties.set("since", since);
+
+        ObjectNode compact = mapper.createObjectNode();
+        compact.put("type", "boolean");
+        compact.put("default", true);
+        compact.put("description", "Single-line output for hook injection (default true)");
+        properties.set("compact", compact);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+        return schema;
+    }
+
+    private ObjectNode createHooksGenerateSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode type = mapper.createObjectNode();
+        type.put("type", "string");
+        ArrayNode typeEnum = mapper.createArrayNode();
+        typeEnum.add("UserPromptSubmit");
+        typeEnum.add("PreToolUse");
+        type.set("enum", typeEnum);
+        type.put("default", "UserPromptSubmit");
+        type.put("description", "Hook type: UserPromptSubmit (default) or PreToolUse");
+        properties.set("type", type);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+        return schema;
+    }
+
     private ObjectNode createWorkspaceOnlySchema() {
         ObjectNode schema = mapper.createObjectNode();
         schema.put("type", "object");

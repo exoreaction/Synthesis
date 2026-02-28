@@ -10,8 +10,8 @@ instructions: |
   **License:** MIT (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 21+
-  **Status:** Production-ready (v1.18.0)
-  **Latest:** MCP server expanded to 41 tools, HTTP transport added (`--http-port`), configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
+  **Status:** Production-ready (v1.18.2)
+  **Latest:** Session lifecycle commands added (session-context, hooks generate, claude-md refresh); MCP expanded to 43 tools, HTTP transport added (`--http-port`), configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
 
   ---
 
@@ -43,7 +43,7 @@ instructions: |
   - Search speed: Sub-second (0.4s typical)
   - Storage overhead: 2.7% (58.7 MB index)
   - Cross-repo mapping: 58 repos, 429 dependencies in <31 seconds
-  - Tests: **2,291 tests passing** (84 test classes, PR #60)
+  - Tests: **4,107 tests passing**
 
   **Business Impact:**
   - 92-95% reduction in retrieval time (5-15 min → 10-30 sec)
@@ -104,6 +104,13 @@ instructions: |
   # File tracking & change reporting (v1.3.0, PR #18)
   synthesis track                                     # Show tracked file movements
   synthesis changelog                                 # Cross-workspace change report (daily snapshot)
+
+  # Session lifecycle (Claude Code integration, v1.18.2)
+  synthesis session-context --compact                 # Single-line codebase freshness snapshot for hook injection
+  synthesis hooks generate                            # Generate Claude Code hook config (~/.claude/settings.json)
+  synthesis hooks generate --dry-run                  # Preview hook JSON without writing
+  synthesis claude-md refresh                         # Auto-update Synthesis Stats section in CLAUDE.md
+  synthesis claude-md refresh --dry-run               # Preview result without modifying
 
   # AI research & reporting (v1.5+)
   synthesis research --topic <topic>                  # Multi-pass AI analysis (architecture/security/synthesis)
@@ -549,9 +556,9 @@ instructions: |
 
   All three: `staging.enabled: true`, `ai.enabled: true`, image-focused scan patterns.
 
-  ## MCP Server (v1.18.0)
+  ## MCP Server (v1.18.2)
 
-  **41 tools** exposed over MCP to Claude Code, Cursor, and other AI agents.
+  **43 tools** exposed over MCP to Claude Code, Cursor, and other AI agents.
 
   **Transports:**
   - **HTTP (recommended):** `synthesis-mcp-server --workspace /path --http-port 8765`

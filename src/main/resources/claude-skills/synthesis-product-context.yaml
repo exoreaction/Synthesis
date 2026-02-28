@@ -43,7 +43,7 @@ instructions: |
   - Search speed: Sub-second (0.4s typical)
   - Storage overhead: 2.7% (58.7 MB index)
   - Cross-repo mapping: 58 repos, 429 dependencies in <31 seconds
-  - Tests: **2,291 tests passing** (84 test classes, PR #60)
+  - Tests: **4,107 tests passing**
 
   **Business Impact:**
   - 92-95% reduction in retrieval time (5-15 min → 10-30 sec)
@@ -104,6 +104,11 @@ instructions: |
   # File tracking & change reporting (v1.3.0, PR #18)
   synthesis track                                     # Show tracked file movements
   synthesis changelog                                 # Cross-workspace change report (daily snapshot)
+
+  # Session lifecycle (Claude Code integration, v1.18.2)
+  synthesis session-context --compact                 # Single-line codebase freshness snapshot for hook injection
+  synthesis hooks generate                            # Generate Claude Code hook config (~/.claude/settings.json)
+  synthesis claude-md refresh                         # Auto-update Synthesis Stats section in CLAUDE.md
 
   # AI research & reporting (v1.5+)
   synthesis research --topic <topic>                  # Multi-pass AI analysis (architecture/security/synthesis)

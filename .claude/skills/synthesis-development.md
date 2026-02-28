@@ -15,8 +15,8 @@ the codebase architecture, and following established patterns.
 - **Local Path:** `/src/exoreaction/Synthesis`
 - **Language:** Java 21+
 - **Build:** Maven (`mvn clean package -DskipTests`)
-- **Version:** 1.14.0-SNAPSHOT (as of Feb 2026)
-- **Tests:** 3,972 (JUnit 5)
+- **Version:** 1.18.2-SNAPSHOT (as of Feb 2026)
+- **Tests:** 4,107 (JUnit 5)
 - **License:** MIT
 
 ## Environment Setup (Critical for Agents and Subprocesses)
@@ -96,6 +96,9 @@ io.exoreaction.synthesis
   |   |-- MetricsCommand              # synthesis metrics (view MCP metrics)
   |   |-- ListWorkspacesCommand       # synthesis list (workspace discovery + filtering)
   |   |-- WhichCommand                # synthesis which (cross-workspace file finder)
+  |   |-- SessionContextCommand       # synthesis session-context (codebase freshness snapshot)
+  |   |-- HooksCommand                # synthesis hooks generate (Claude Code hook config)
+  |   |-- ClaudeMdCommand             # synthesis claude-md refresh (CLAUDE.md stats maintenance)
   |   +-- InteractiveConfirmation     # Y/N prompts
   |
   |-- config/                          # Configuration

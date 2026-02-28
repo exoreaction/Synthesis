@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,933 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
+**Validated:** 36,342 files indexed, 4,107 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
 
 ---
 
@@ -133,6 +133,18 @@ synthesis changelog --since 7d          # Cross-workspace change report
 synthesis changed --since 7d            # Files changed since date
 synthesis diff HEAD~1                   # Git diff integration
 synthesis watch                         # File watcher daemon (real-time monitoring)
+
+# Session lifecycle (Claude Code integration)
+synthesis session-context                  # Codebase freshness snapshot for session injection
+synthesis session-context --compact        # Single-line output for hook injection
+synthesis session-context --since 7d       # Look back 7 days for changes
+synthesis session-context --no-security    # Skip security posture line
+synthesis hooks generate                   # Generate Claude Code hook config (~/.claude/settings.json)
+synthesis hooks generate --dry-run         # Print merged JSON without writing
+synthesis hooks generate --type PreToolUse # Use PreToolUse hook type
+synthesis claude-md refresh                # Update Synthesis Stats section in CLAUDE.md
+synthesis claude-md refresh --dry-run      # Print result without modifying
+synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
@@ -368,7 +380,7 @@ directory named `node_modules` at any depth.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (3,933)
++-- src/test/                          # JUnit 5 tests (4,107)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 +-- .claude/skills/                    # 32 Claude Code skills (see below)
