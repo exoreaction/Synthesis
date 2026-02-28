@@ -48,3 +48,4 @@ release.properties
 
 # Large generated visuals/PDFs (use Synthesis or shared storage instead)
 docs/visuals/
+.claude/worktrees/
