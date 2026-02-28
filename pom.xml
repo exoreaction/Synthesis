@@ -4,7 +4,7 @@
 
     <groupId>io.exoreaction</groupId>
     <artifactId>synthesis</artifactId>
-    <version>1.19.0</version>
+    <version>1.19.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Synthesis</name>
@@ -15,7 +15,7 @@
         <connection>scm:git:git://github.com/exoreaction/Synthesis.git</connection>
         <developerConnection>scm:git:git@github.com:exoreaction/Synthesis.git</developerConnection>
         <url>https://github.com/exoreaction/Synthesis/tree/main</url>
-        <tag>synthesis-1.19.0</tag>
+        <tag>synthesis-1.10.3</tag>
     </scm>
          
          
