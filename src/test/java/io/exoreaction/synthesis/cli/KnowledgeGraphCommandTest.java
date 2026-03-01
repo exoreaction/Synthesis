@@ -10,6 +10,10 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 
@@ -668,6 +672,252 @@ class KnowledgeGraphCommandTest {
         String newContent = content.substring(0, lastDash) + relatedBlock + "---"
                 + content.substring(lastDash + 3);
         Files.writeString(synthesisFile, newContent);
+    }
+
+    // ---- Phase 5: KCP units as first-class graph nodes ----
+
+    @Test
+    void collectKcpUnitsEmptyWhenNoDatabase() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        assertTrue(cmd.collectKcpUnits(workspace).isEmpty(),
+                "Should return empty list when no database exists");
+    }
+
+    @Test
+    void collectKcpRelEdgesEmptyWhenNoDatabase() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        assertTrue(cmd.collectKcpRelEdges(workspace).isEmpty(),
+                "Should return empty list when no database exists");
+    }
+
+    @Test
+    void parseTriggersHandlesVariousInputs() {
+        assertEquals(List.of(), KnowledgeGraphCommand.parseTriggers(null));
+        assertEquals(List.of(), KnowledgeGraphCommand.parseTriggers(""));
+        assertEquals(List.of(), KnowledgeGraphCommand.parseTriggers("[]"));
+        assertEquals(List.of("api"), KnowledgeGraphCommand.parseTriggers("[\"api\"]"));
+        assertEquals(List.of("api", "rest"),
+                KnowledgeGraphCommand.parseTriggers("[\"api\",\"rest\"]"));
+        assertEquals(List.of("api", "rest", "endpoints"),
+                KnowledgeGraphCommand.parseTriggers("[\"api\", \"rest\", \"endpoints\"]"));
+    }
+
+    @Test
+    void renderAsciiShowsKcpUnitsSection() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KcpUnitNode> units = List.of(
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "overview", "/ws/knowledge.yaml", "my-project",
+                        "README.md", "What is this project?", "global", List.of("intro"))
+        );
+
+        String ascii = cmd.renderAscii(List.of(), List.of(), units, List.of(), workspace);
+
+        assertTrue(ascii.contains("KCP Knowledge Units"), "Should show KCP units section");
+        assertTrue(ascii.contains("my-project"), "Should show project name");
+        assertTrue(ascii.contains("overview"), "Should show unit ID");
+        assertTrue(ascii.contains("What is this project?"), "Should show intent");
+        assertTrue(ascii.contains("triggers: intro"), "Should show triggers");
+    }
+
+    @Test
+    void renderAsciiShowsKcpRelationships() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KcpUnitNode> units = List.of(
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "tldr", "/ws/kcp.yaml", "proj", "a.md",
+                        "Quick reference", "focused", List.of()),
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "full", "/ws/kcp.yaml", "proj", "b.md",
+                        "Full reference", "comprehensive", List.of())
+        );
+        List<KnowledgeGraphCommand.KcpUnitEdge> edges = List.of(
+                new KnowledgeGraphCommand.KcpUnitEdge("tldr", "full", "context", "/ws/kcp.yaml")
+        );
+
+        String ascii = cmd.renderAscii(List.of(), List.of(), units, edges, workspace);
+
+        assertTrue(ascii.contains("Relationships:"), "Should show Relationships section");
+        assertTrue(ascii.contains("tldr"), "Should show from unit");
+        assertTrue(ascii.contains("full"), "Should show to unit");
+        assertTrue(ascii.contains("[context]"), "Should show relationship type");
+    }
+
+    @Test
+    void renderAsciiDoesNotShowKcpSectionWhenEmpty() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        String ascii = cmd.renderAscii(List.of(), List.of(), List.of(), List.of(), workspace);
+        assertFalse(ascii.contains("KCP Knowledge Units"),
+                "Should not show KCP section when no units");
+    }
+
+    @Test
+    void renderMermaidIncludesKcpUnitNodes() throws IOException {
+        createDirectoryWithCentroid(workspace.resolve("docs"),
+                List.of("guide"), List.of(), 0.7, 2);
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KnowledgeNode> nodes = cmd.collectNodes(workspace, parser);
+
+        List<KnowledgeGraphCommand.KcpUnitNode> units = List.of(
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "overview", workspace.resolve("knowledge.yaml").toString(), "myproj",
+                        "docs/README.md", "Overview of the project", "global", List.of())
+        );
+
+        String mermaid = cmd.renderMermaid(nodes, List.of(), units, List.of(), workspace);
+
+        assertTrue(mermaid.contains("kcp0"), "Should have a KCP unit node ID");
+        assertTrue(mermaid.contains("myproj/overview"), "Should show project/unitId label");
+        assertTrue(mermaid.contains("kcp-unit"), "Should have kcp-unit edge label");
+    }
+
+    @Test
+    void renderMermaidIncludesKcpRelationshipEdges() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        String manifestFile = "/ws/knowledge.yaml";
+        List<KnowledgeGraphCommand.KcpUnitNode> units = List.of(
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "tldr", manifestFile, "proj", null, "Quick ref", "focused", List.of()),
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "full", manifestFile, "proj", null, "Full ref", "comprehensive", List.of())
+        );
+        List<KnowledgeGraphCommand.KcpUnitEdge> edges = List.of(
+                new KnowledgeGraphCommand.KcpUnitEdge("tldr", "full", "context", manifestFile)
+        );
+
+        String mermaid = cmd.renderMermaid(List.of(), List.of(), units, edges, workspace);
+
+        assertTrue(mermaid.contains("-->|context|"), "Should have typed relationship edge: " + mermaid);
+    }
+
+    @Test
+    void renderJsonIncludesKcpUnitsAndRelationships() {
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KcpUnitNode> units = List.of(
+                new KnowledgeGraphCommand.KcpUnitNode(
+                        "api-ref", "/ws/knowledge.yaml", "crewai",
+                        "docs/api.md", "API reference", "module", List.of("api", "rest"))
+        );
+        List<KnowledgeGraphCommand.KcpUnitEdge> edges = List.of(
+                new KnowledgeGraphCommand.KcpUnitEdge(
+                        "overview", "api-ref", "context", "/ws/knowledge.yaml")
+        );
+
+        String json = cmd.renderJson(List.of(), List.of(), units, edges, workspace);
+
+        assertTrue(json.contains("\"kcpUnits\""), "JSON should have kcpUnits section");
+        assertTrue(json.contains("\"kcpRelationships\""), "JSON should have kcpRelationships section");
+        assertTrue(json.contains("\"api-ref\""), "JSON should include unit ID");
+        assertTrue(json.contains("\"crewai\""), "JSON should include project name");
+        assertTrue(json.contains("\"context\""), "JSON should include relationship type");
+        assertTrue(json.contains("\"api\""), "JSON should include triggers");
+    }
+
+    @Test
+    void collectKcpUnitsFromDatabase() throws Exception {
+        Files.createDirectories(workspace.resolve(".synthesis"));
+        String dbUrl = "jdbc:sqlite:" + workspace.resolve(".synthesis/synthesis.db");
+        String manifestFile = workspace.resolve("knowledge.yaml").toString();
+        String ws = workspace.toString();
+
+        try (Connection conn = DriverManager.getConnection(dbUrl)) {
+            createKcpTables(conn);
+            insertManifest(conn, ws, manifestFile, "test-proj", "0.5", 1, 0);
+            insertUnit(conn, ws, manifestFile, "overview", "README.md",
+                    "What is this?", "global", null, "[\"intro\"]", null);
+        }
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KcpUnitNode> units = cmd.collectKcpUnits(workspace);
+
+        assertEquals(1, units.size(), "Should load 1 unit from DB");
+        assertEquals("overview", units.get(0).unitId());
+        assertEquals("test-proj", units.get(0).project());
+        assertEquals("README.md", units.get(0).path());
+        assertEquals("What is this?", units.get(0).intent());
+        assertEquals("global", units.get(0).scope());
+        assertTrue(units.get(0).triggers().contains("intro"), "Should parse triggers from JSON");
+    }
+
+    @Test
+    void collectKcpRelEdgesFromDatabase() throws Exception {
+        Files.createDirectories(workspace.resolve(".synthesis"));
+        String dbUrl = "jdbc:sqlite:" + workspace.resolve(".synthesis/synthesis.db");
+        String manifestFile = workspace.resolve("knowledge.yaml").toString();
+        String ws = workspace.toString();
+
+        try (Connection conn = DriverManager.getConnection(dbUrl)) {
+            createKcpTables(conn);
+            insertManifest(conn, ws, manifestFile, "proj", "0.5", 2, 1);
+            insertUnit(conn, ws, manifestFile, "overview", "README.md", "Intro", "global", null, null, null);
+            insertUnit(conn, ws, manifestFile, "api-ref", "docs/api.md", "API", "module", null, null, null);
+            insertRelationship(conn, ws, manifestFile, "overview", "api-ref", "context");
+        }
+
+        KnowledgeGraphCommand cmd = new KnowledgeGraphCommand();
+        List<KnowledgeGraphCommand.KcpUnitEdge> rels = cmd.collectKcpRelEdges(workspace);
+
+        assertEquals(1, rels.size(), "Should load 1 relationship from DB");
+        assertEquals("overview", rels.get(0).fromUnit());
+        assertEquals("api-ref", rels.get(0).toUnit());
+        assertEquals("context", rels.get(0).type());
+    }
+
+    // ---- DB helpers for Phase 5 tests ----
+
+    private static void createKcpTables(Connection conn) throws Exception {
+        try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE kcp_manifests (id INTEGER PRIMARY KEY, " +
+                    "workspace_path TEXT, file_path TEXT, project TEXT, kcp_version TEXT, " +
+                    "unit_count INTEGER DEFAULT 0, relationship_count INTEGER DEFAULT 0, " +
+                    "last_computed INTEGER, UNIQUE(workspace_path, file_path))");
+            st.execute("CREATE TABLE kcp_units (id INTEGER PRIMARY KEY, " +
+                    "workspace_path TEXT, manifest_file TEXT, unit_id TEXT, path TEXT, " +
+                    "intent TEXT, scope TEXT, audience_json TEXT, triggers_json TEXT, " +
+                    "hints_json TEXT, last_computed INTEGER, " +
+                    "UNIQUE(workspace_path, manifest_file, unit_id))");
+            st.execute("CREATE TABLE kcp_relationships (id INTEGER PRIMARY KEY, " +
+                    "workspace_path TEXT, manifest_file TEXT, from_unit TEXT, to_unit TEXT, " +
+                    "type TEXT, last_computed INTEGER, " +
+                    "UNIQUE(workspace_path, manifest_file, from_unit, to_unit, type))");
+        }
+    }
+
+    private static void insertManifest(Connection conn, String ws, String filePath,
+            String project, String kcpVersion, int unitCount, int relCount) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO kcp_manifests VALUES (null,?,?,?,?,?,?,?)")) {
+            ps.setString(1, ws); ps.setString(2, filePath);
+            ps.setString(3, project); ps.setString(4, kcpVersion);
+            ps.setInt(5, unitCount); ps.setInt(6, relCount);
+            ps.setLong(7, System.currentTimeMillis());
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertUnit(Connection conn, String ws, String manifestFile,
+            String unitId, String path, String intent, String scope,
+            String audienceJson, String triggersJson, String hintsJson) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO kcp_units VALUES (null,?,?,?,?,?,?,?,?,?,?)")) {
+            ps.setString(1, ws); ps.setString(2, manifestFile);
+            ps.setString(3, unitId); ps.setString(4, path);
+            ps.setString(5, intent); ps.setString(6, scope);
+            ps.setString(7, audienceJson); ps.setString(8, triggersJson);
+            ps.setString(9, hintsJson); ps.setLong(10, System.currentTimeMillis());
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertRelationship(Connection conn, String ws, String manifestFile,
+            String fromUnit, String toUnit, String type) throws Exception {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO kcp_relationships VALUES (null,?,?,?,?,?,?)")) {
+            ps.setString(1, ws); ps.setString(2, manifestFile);
+            ps.setString(3, fromUnit); ps.setString(4, toUnit);
+            ps.setString(5, type); ps.setLong(6, System.currentTimeMillis());
+            ps.executeUpdate();
+        }
     }
 
     private void createDirectoryWithCentroid(Path dir, List<String> topics,
