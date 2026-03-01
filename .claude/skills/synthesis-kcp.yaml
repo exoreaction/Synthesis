@@ -1,0 +1,232 @@
+name: synthesis-kcp
+version: 1.0.0
+description: |
+  KCP (Knowledge Context Protocol) v0.5 support in Synthesis.
+  Generate, parse, store, and visualise knowledge.yaml manifests.
+
+trigger_phrases:
+  - "knowledge context protocol"
+  - "kcp manifest"
+  - "knowledge.yaml"
+  - "synthesis kcp"
+  - "export kcp"
+  - "kcp units"
+  - "kcp v0.5"
+
+instructions: |
+  # KCP (Knowledge Context Protocol) v0.5 — Synthesis Integration
+
+  KCP is a structured YAML manifest format (`knowledge.yaml`) that tells AI agents
+  which files matter, in what order to read them, and what each file is for.
+  Synthesis provides full-stack KCP v0.5 support: detection, parsing, SQLite persistence,
+  manifest generation, and knowledge-graph visualisation.
+
+  **Spec repository:** https://github.com/cantara/knowledge-context-protocol
+  **Synthesis PR series:** #284 (Phase 2) · #285 (Phase 3) · #286 (Phase 4) · #287 (Phase 5)
+
+  ---
+
+  ## knowledge.yaml Format (v0.5)
+
+  ```yaml
+  # Knowledge Context Protocol (KCP) v0.5
+  kcp_version: "0.5"
+  project: my-project
+  language: en
+  indexing: open
+
+  hints:
+    unit_count: 3
+
+  units:
+    - id: overview
+      path: README.md
+      intent: "What is this project and why does it exist?"
+      scope: global
+      audience: [developer, agent]
+      format: markdown
+      triggers: [overview, introduction, getting-started]
+      validated: "2026-03-01"
+      updated: "2026-03-01"
+
+    - id: api-ref
+      path: docs/api.md
+      intent: "What endpoints does the API expose?"
+      scope: module
+      audience: [developer]
+      format: markdown
+      triggers: [api, rest, endpoints, http]
+      kind: knowledge          # omit for default; use 'policy' for SECURITY/LICENSE/CONTRIBUTING
+                               # use 'schema' for openapi.yaml / swagger / *-schema.json
+
+  relationships:
+    - from: api-ref
+      to: overview
+      type: context            # 'context', 'extends', 'summary_of'
+  ```
+
+  ### Field Reference
+
+  | Field | Required | Values / Notes |
+  |-------|----------|----------------|
+  | `kcp_version` | Yes | Always `"0.5"` (quoted) |
+  | `project` / `id` | Yes (one of) | Manifest identifier |
+  | `language` | Recommended | ISO 639-1 code (`en`) |
+  | `indexing` | Recommended | `open` = agent may index freely |
+  | `hints.unit_count` | Recommended | Integer count of non-skipped units |
+  | `units[].id` | Yes | Slug, unique within manifest |
+  | `units[].path` | Yes | File path relative to manifest |
+  | `units[].intent` | Yes | One-sentence answer to "what will I learn from this?" |
+  | `units[].scope` | Recommended | `global` \| `module` \| `focused` \| `comprehensive` |
+  | `units[].audience` | Recommended | `[developer]`, `[agent]`, `[developer, agent]` |
+  | `units[].format` | Optional | `markdown`, `pdf`, `openapi`, `yaml`, `json-schema` |
+  | `units[].kind` | Optional | Omit for knowledge (default); `policy` for legal/governance; `schema` for APIs |
+  | `units[].triggers` | Optional | Up to 8 keywords that should activate this unit |
+  | `units[].validated` | Optional | Quoted ISO date string (YYYY-MM-DD) |
+  | `units[].updated` | Optional | Quoted ISO date string |
+
+  ---
+
+  ## Generate a manifest (synthesis export --format kcp)
+
+  Generates a conformant `knowledge.yaml` from the Lucene index. No AI, no DB — pure index.
+
+  ```bash
+  # Generate from all MARKDOWN files (default filter)
+  synthesis -d /path/to/repo export --format kcp -o knowledge.yaml
+
+  # Include code files too
+  synthesis -d /path/to/repo export --format kcp --type CODE -o knowledge.yaml
+
+  # Alias
+  synthesis -d /path/to/repo export --format knowledge-context-protocol -o knowledge.yaml
+  ```
+
+  ### What the exporter infers automatically
+
+  | Field | Inference rule |
+  |-------|---------------|
+  | `format` | `.md`/`.mdx`/`.markdown` → `markdown`; `.pdf` → `pdf`; `openapi.yaml` / `swagger.*` / `asyncapi.*` → `openapi`; `*-schema.json` → `json-schema`; `.yaml`/`.yml` → `yaml`; code files → omitted |
+  | `kind` | `SECURITY.md`, `LICENSE.md`, `CONTRIBUTING.md`, `PRIVACY.md`, `TERMS.md`, `NOTICE.md`, `*POLICY*` → `policy`; `openapi.yaml`, `swagger.*`, `*-schema.json` → `schema`; everything else → omitted (default `knowledge`) |
+  | `intent` | First non-empty sentence of the indexed summary |
+  | `scope` | Depth-based: root → `global`, depth 1-2 → `module`, depth 3+ → `focused` |
+  | `audience` | MARKDOWN/PDF → `[developer]`; CODE/YAML/CONFIG → `[developer]` |
+  | `triggers` | Top-8 heading words slugified (stop-words removed) |
+  | `validated` | Last-modified timestamp of the file (quoted ISO date) |
+  | `updated` | Same as validated |
+
+  ---
+
+  ## Detection & parsing (synthesis scan / maintain)
+
+  When Synthesis scans a workspace, `YamlAnalyzer` detects files matching ALL THREE:
+  1. filename is `knowledge.yaml`
+  2. top-level key `units` is a list
+  3. top-level key `project` or `id` exists
+
+  Detected manifests get `yamlType = "kcp-manifest"` in `AnalysisResult.metrics()`.
+  Full unit data (id, path, intent, scope, audience, triggers, hints) is extracted into
+  `KcpUnit` records. Relationship data goes into `KcpRelationship` records.
+
+  ---
+
+  ## Database persistence (V17 tables)
+
+  Three SQLite tables (Flyway V17):
+
+  | Table | Purpose |
+  |-------|---------|
+  | `kcp_manifests` | One row per `knowledge.yaml` file (project, kcp_version, unit_count, relationship_count) |
+  | `kcp_units` | One row per unit (intent, scope, audience_json, triggers_json, hints_json) |
+  | `kcp_relationships` | One row per relationship (from_unit, to_unit, type) |
+
+  Managed by `KcpRepository` (in `io.exoreaction.synthesis.kcp`):
+  - `upsertFromAnalysis(conn, workspacePath, metadata, analysis)` — idempotent upsert
+  - `deleteForManifest(conn, workspacePath, filePath)` — removes manifest + units + rels
+  - `getManifests()`, `getUnitsForManifest()`, `getRelationshipsForManifest()` — query methods
+
+  Hooks fire automatically: `ScanCommand` after each YAML file analysis; `MaintainCommand`
+  after changed/added file analysis and on deleted `knowledge.yaml` files.
+
+  ---
+
+  ## Knowledge graph (synthesis kg)
+
+  KCP units surface as first-class nodes in all three `synthesis kg` output formats:
+
+  ### ASCII (default)
+  ```
+  KCP Knowledge Units:
+  ----------------------------------------
+    [my-project]
+      • overview: What is this project and why does it exist?
+        → README.md  [scope: global]
+        triggers: overview, introduction, getting-started
+      • api-ref: What endpoints does the API expose?
+        → docs/api.md  [scope: module]
+
+    Relationships:
+      api-ref --[context]--> overview
+  ```
+
+  ### Mermaid
+  Units appear as pill-shaped nodes `("project/unitId\nintent")` linked to their
+  source directory via `kcp-unit` edges, and to each other via typed relationship edges.
+
+  ```
+  synthesis kg --format mermaid
+  ```
+
+  ### JSON
+  ```json
+  {
+    "kcpUnits": [
+      {"unitId": "overview", "project": "my-project", "path": "README.md", ...}
+    ],
+    "kcpRelationships": [
+      {"from": "api-ref", "to": "overview", "type": "context", ...}
+    ]
+  }
+  ```
+
+  ---
+
+  ## Scope filtering
+
+  `synthesis kg --scope eXOReaction` applies the same scope filter to KCP units:
+  only units whose `manifest_file` path starts with the scope prefix are included.
+
+  ---
+
+  ## Validate a manifest
+
+  After generation, validate with the KCP Python reference parser:
+  ```bash
+  pip install kcp
+  python3 -m kcp knowledge.yaml
+  ```
+
+  ---
+
+  ## Use cases
+
+  1. **Bootstrap agent navigation** — generate `knowledge.yaml` in a new repo so agents know
+     load order without needing to scan the whole codebase:
+     ```bash
+     synthesis -d /path/to/repo export --format kcp -o knowledge.yaml
+     ```
+
+  2. **Audit KCP coverage** — see which documented repos have manifests:
+     ```bash
+     synthesis kg --format json | jq '.kcpUnits | group_by(.project) | map({project: .[0].project, units: length})'
+     ```
+
+  3. **Cross-repo relationships** — after scanning a multi-repo workspace, `synthesis kg` shows
+     how KCP units in different repos relate to each other.
+
+  4. **MCP discovery** — the `synthesis knowledge-graph` MCP tool returns kcpUnits and
+     kcpRelationships in its JSON response, letting agents reason about manifest structure.
+
+  ---
+
+  **Last updated:** March 1, 2026

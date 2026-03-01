@@ -24,6 +24,10 @@ trigger_phrases:
   - "W021"
   - "I020"
   - "I021"
+  - "kcp units"
+  - "kcp knowledge graph"
+  - "kcpUnits"
+  - "kcpRelationships"
 
 instructions: |
   # Synthesis Knowledge Graph
@@ -241,8 +245,48 @@ instructions: |
 
   ---
 
+  ## KCP Integration (v1.19.0)
+
+  KCP (Knowledge Context Protocol) units surface as first-class nodes in all three
+  `synthesis kg` output formats. KCP data is loaded from SQLite (V17 tables) via two new
+  methods on `KnowledgeGraphCommand`:
+
+  ### New methods
+
+  | Method | Signature | Description |
+  |--------|-----------|-------------|
+  | `collectKcpUnits` | `(conn, workspacePath, scopeFilter) → List<KcpUnitNode>` | Queries `kcp_units` table; applies optional `scopeFilter` as a `manifest_file` path prefix |
+  | `collectKcpRelEdges` | `(conn, workspacePath, scopeFilter) → List<KcpUnitEdge>` | Queries `kcp_relationships` table; same scope filter logic |
+
+  ### Scope filter behaviour
+
+  `--scope <prefix>` is applied to KCP units by checking `manifest_file.startsWith(prefix)`.
+  A unit in `eXOReaction/knowledge.yaml` matches `--scope eXOReaction/` but not `--scope Cantara/`.
+  Scope filter is the same one applied to directory nodes — no separate KCP-specific flag.
+
+  ### Per-format output
+
+  **ASCII** (default): A `KCP Knowledge Units:` block is prepended, grouped by project. Each
+  unit shows id, intent, path, scope, and triggers. Relationships follow as `from --[type]--> to`.
+
+  **Mermaid**: KCP units appear as pill-shaped nodes `("project/unitId\nintent")`. Each unit
+  gets a `kcp-unit` labelled edge from its parent directory node. Inter-unit relationships
+  are directed edges labelled with their type (`context`, `extends`, `summary_of`).
+
+  **JSON**: Two new top-level arrays are added to the response object:
+  - `"kcpUnits"` — list of `KcpUnitNode` objects with full field data
+  - `"kcpRelationships"` — list of `KcpUnitEdge` objects
+
+  ### Backward compatibility
+
+  The three-argument overloads for `collectNodes()`, `collectEdges()`, and `buildMermaid()`
+  introduced before KCP are unchanged. KCP rendering is purely additive.
+
+  ---
+
   ## Related Skills
   - `synthesis-workspace-cleanup.yaml` — sweep, prune, rebalance, health
   - `synthesis-relate-dependencies.yaml` — relate/impact (uses code graph when available)
   - `synthesis-code-graph.yaml` — code dependency persistence (parallel system for source repos)
+  - `synthesis-kcp.yaml` — dedicated KCP v0.5 skill (detection, export, kg, persistence)
   - `synthesis-development.md` — architecture details for developing new features
