@@ -1,6 +1,8 @@
 package io.exoreaction.synthesis.analyzer;
 
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.kcp.KcpRelationship;
+import io.exoreaction.synthesis.kcp.KcpUnit;
 import io.exoreaction.synthesis.util.FileUtils;
 import org.yaml.snakeyaml.Yaml;
 
@@ -167,7 +169,8 @@ public class YamlAnalyzer implements FileAnalyzer {
 
     private record KcpExtraction(
             String summary, String kcpVersion,
-            List<String> unitIds, List<String> keywords, Map<String, Object> metrics) {}
+            List<String> unitIds, List<String> keywords, Map<String, Object> metrics,
+            List<KcpUnit> units, List<KcpRelationship> relationships) {}
 
     @SuppressWarnings("unchecked")
     private KcpExtraction extractKcpManifestInfo(Map<String, Object> data) {
@@ -181,7 +184,8 @@ public class YamlAnalyzer implements FileAnalyzer {
         keywords.add("kcp");
         keywords.add("knowledge-context-protocol");
         keywords.add("knowledge-yaml");
-        int relationshipCount = 0;
+        List<KcpUnit> units = new ArrayList<>();
+        List<KcpRelationship> relationships = new ArrayList<>();
 
         Object unitsObj = data.get("units");
         if (unitsObj instanceof List<?> unitsList) {
@@ -191,40 +195,80 @@ public class YamlAnalyzer implements FileAnalyzer {
 
                 // Unit ID as heading
                 Object id = unit.get("id");
-                if (id != null) unitIds.add(id.toString());
+                if (id == null) continue;
+                String unitId = id.toString();
+                unitIds.add(unitId);
 
                 // Triggers as searchable keywords
+                List<String> triggerList = new ArrayList<>();
                 Object triggers = unit.get("triggers");
-                if (triggers instanceof List<?> triggerList) {
-                    for (Object t : triggerList) {
+                if (triggers instanceof List<?> tl) {
+                    for (Object t : tl) {
                         String trigger = t.toString().toLowerCase().trim();
                         if (!trigger.isEmpty() && trigger.length() < 60) {
+                            triggerList.add(trigger);
                             keywords.add(trigger);
                         }
                     }
                 }
 
                 // Audience values as keywords
+                List<String> audienceList = new ArrayList<>();
                 Object audience = unit.get("audience");
-                if (audience instanceof List<?> audienceList) {
-                    for (Object a : audienceList) {
-                        keywords.add(a.toString().toLowerCase().trim());
+                if (audience instanceof List<?> al) {
+                    for (Object a : al) {
+                        String aud = a.toString().toLowerCase().trim();
+                        audienceList.add(aud);
+                        keywords.add(aud);
                     }
                 }
 
                 // Intent as a keyword-rich string (first 80 chars)
+                String intentStr = null;
                 Object intent = unit.get("intent");
                 if (intent != null) {
-                    String intentStr = intent.toString();
-                    if (intentStr.length() > 80) intentStr = intentStr.substring(0, 80);
-                    keywords.add(intentStr);
+                    intentStr = intent.toString();
+                    String kwIntent = intentStr.length() > 80 ? intentStr.substring(0, 80) : intentStr;
+                    keywords.add(kwIntent);
                 }
+
+                // Path
+                Object pathObj = unit.get("path");
+                String unitPath = pathObj != null ? pathObj.toString() : null;
+
+                // Scope
+                Object scopeObj = unit.get("scope");
+                String scope = scopeObj != null ? scopeObj.toString() : null;
+
+                // Hints (free-form map)
+                Map<String, Object> hints = null;
+                Object hintsObj = unit.get("hints");
+                if (hintsObj instanceof Map<?, ?> hm) {
+                    hints = new LinkedHashMap<>();
+                    for (var e : hm.entrySet()) {
+                        hints.put(e.getKey().toString(), e.getValue());
+                    }
+                }
+
+                units.add(new KcpUnit(unitId, unitPath, intentStr, scope,
+                        List.copyOf(audienceList), List.copyOf(triggerList),
+                        hints != null ? Map.copyOf(hints) : Map.of()));
             }
         }
 
-        Object rels = data.get("relationships");
-        if (rels instanceof List<?> relList) {
-            relationshipCount = relList.size();
+        Object relsObj = data.get("relationships");
+        if (relsObj instanceof List<?> relList) {
+            for (Object r : relList) {
+                if (!(r instanceof Map<?, ?> rawRel)) continue;
+                Map<String, Object> rel = (Map<String, Object>) rawRel;
+                Object from = rel.get("from");
+                Object to   = rel.get("to");
+                if (from == null || to == null) continue;
+                Object type = rel.get("type");
+                relationships.add(new KcpRelationship(
+                        from.toString(), to.toString(),
+                        type != null ? type.toString() : null));
+            }
         }
 
         // Deduplicate keywords, preserve insertion order
@@ -237,7 +281,7 @@ public class YamlAnalyzer implements FileAnalyzer {
         String summary = String.format(
                 "KCP manifest: %s (kcp v%s, %d units%s) — %s",
                 project, kcpVersion, unitIds.size(),
-                relationshipCount > 0 ? ", " + relationshipCount + " relationships" : "",
+                !relationships.isEmpty() ? ", " + relationships.size() + " relationships" : "",
                 unitIdPreview);
 
         Map<String, Object> metrics = new LinkedHashMap<>();
@@ -245,9 +289,13 @@ public class YamlAnalyzer implements FileAnalyzer {
         metrics.put("kcpVersion", kcpVersion);
         metrics.put("project", project);
         metrics.put("unitCount", unitIds.size());
-        metrics.put("relationshipCount", relationshipCount);
+        metrics.put("relationshipCount", relationships.size());
+        // Full structured data for DB persistence (read by KcpRepository)
+        metrics.put("kcpUnits", List.copyOf(units));
+        metrics.put("kcpRelationships", List.copyOf(relationships));
 
-        return new KcpExtraction(summary, kcpVersion, unitIds, dedupedKeywords, metrics);
+        return new KcpExtraction(summary, kcpVersion, unitIds, dedupedKeywords, metrics,
+                List.copyOf(units), List.copyOf(relationships));
     }
 
     private String extractClaudeSkillInfo(Map<String, Object> data) {
