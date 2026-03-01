@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.org.*;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
@@ -126,11 +127,15 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                 }
             }
 
+            // Collect KCP units and unit-to-unit relationships from DB (Phase 5)
+            List<KcpUnitNode> kcpUnits = collectKcpUnits(workspaceRoot);
+            List<KcpUnitEdge> kcpEdges = collectKcpRelEdges(workspaceRoot);
+
             // Render
             String output = switch (format.toLowerCase()) {
-                case "mermaid" -> renderMermaid(nodes, edges, workspaceRoot);
-                case "json" -> renderJson(nodes, edges, workspaceRoot);
-                default -> renderAscii(nodes, edges, workspaceRoot);
+                case "mermaid" -> renderMermaid(nodes, edges, kcpUnits, kcpEdges, workspaceRoot);
+                case "json" -> renderJson(nodes, edges, kcpUnits, kcpEdges, workspaceRoot);
+                default -> renderAscii(nodes, edges, kcpUnits, kcpEdges, workspaceRoot);
             };
 
             if (outputFile != null) {
@@ -481,7 +486,13 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
     // ---- Rendering ----
 
+    /** Backward-compat overload (no KCP data). Used by tests. */
+    String renderAscii(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges, Path workspaceRoot) {
+        return renderAscii(nodes, edges, List.of(), List.of(), workspaceRoot);
+    }
+
     String renderAscii(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges,
+                        List<KcpUnitNode> kcpUnits, List<KcpUnitEdge> kcpEdges,
                         Path workspaceRoot) {
         StringBuilder sb = new StringBuilder();
 
@@ -566,6 +577,11 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         // Global breakdown: per-top-level-dir tightness table (only when no scope)
         if (!scoped && !nodes.isEmpty()) {
             sb.append(renderSubworkspaceBreakdown(nodes, edges));
+        }
+
+        // KCP knowledge units section
+        if (!kcpUnits.isEmpty()) {
+            sb.append(renderKcpAsciiSection(kcpUnits, kcpEdges));
         }
 
         return sb.toString();
@@ -659,7 +675,13 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         return sb.toString();
     }
 
+    /** Backward-compat overload (no KCP data). Used by tests. */
+    String renderMermaid(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges, Path workspaceRoot) {
+        return renderMermaid(nodes, edges, List.of(), List.of(), workspaceRoot);
+    }
+
     String renderMermaid(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges,
+                          List<KcpUnitNode> kcpUnits, List<KcpUnitEdge> kcpEdges,
                           Path workspaceRoot) {
         StringBuilder sb = new StringBuilder();
         sb.append("```mermaid\ngraph TD\n");
@@ -730,11 +752,54 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             }
         }
 
+        // KCP unit nodes — rounded pill shape, prefixed with project name
+        int kcpCounter = 0;
+        Map<String, String> kcpNodeIds = new HashMap<>();
+        for (KcpUnitNode unit : kcpUnits) {
+            String id = "kcp" + (kcpCounter++);
+            String key = unit.manifestFile() + "::" + unit.unitId();
+            kcpNodeIds.put(key, id);
+
+            String intent = unit.intent() != null ? unit.intent() : unit.unitId();
+            if (intent.length() > 40) intent = intent.substring(0, 40) + "…";
+            String label = unit.project() + "/" + unit.unitId() + "\\n" + intent;
+            sb.append("    ").append(id).append("(\"").append(label).append("\")\n");
+        }
+
+        // KCP unit → directory edges (unit points to its file's parent dir)
+        for (KcpUnitNode unit : kcpUnits) {
+            if (unit.path() == null) continue;
+            String fileDir = unit.path().contains("/")
+                    ? unit.path().substring(0, unit.path().lastIndexOf('/'))
+                    : "";
+            String dirId = nodeIds.get(fileDir);
+            String unitId = kcpNodeIds.get(unit.manifestFile() + "::" + unit.unitId());
+            if (dirId != null && unitId != null) {
+                sb.append(String.format("    %s -.->|kcp-unit| %s%n", unitId, dirId));
+            }
+        }
+
+        // KCP unit → unit relationship edges
+        for (KcpUnitEdge rel : kcpEdges) {
+            String fromId = kcpNodeIds.get(rel.manifestFile() + "::" + rel.fromUnit());
+            String toId   = kcpNodeIds.get(rel.manifestFile() + "::" + rel.toUnit());
+            if (fromId != null && toId != null) {
+                String label = rel.type() != null ? rel.type() : "related";
+                sb.append(String.format("    %s -->|%s| %s%n", fromId, label, toId));
+            }
+        }
+
         sb.append("```\n");
         return sb.toString();
     }
 
+    /** Backward-compat overload (no KCP data). Used by tests. */
+    String renderJson(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges, Path workspaceRoot) {
+        return renderJson(nodes, edges, List.of(), List.of(), workspaceRoot);
+    }
+
     String renderJson(List<KnowledgeNode> nodes, List<KnowledgeEdge> edges,
+                       List<KcpUnitNode> kcpUnits, List<KcpUnitEdge> kcpEdges,
                        Path workspaceRoot) {
         StringBuilder sb = new StringBuilder();
         sb.append("{\n");
@@ -771,6 +836,39 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             if (i < edges.size() - 1) sb.append(",");
             sb.append("\n");
         }
+        sb.append("  ],\n");
+
+        // KCP units
+        sb.append("  \"kcpUnits\": [\n");
+        for (int i = 0; i < kcpUnits.size(); i++) {
+            KcpUnitNode unit = kcpUnits.get(i);
+            sb.append("    {\n");
+            sb.append("      \"unitId\": \"").append(escapeJson(unit.unitId())).append("\",\n");
+            sb.append("      \"project\": \"").append(escapeJson(unit.project())).append("\",\n");
+            sb.append("      \"manifestFile\": \"").append(escapeJson(unit.manifestFile())).append("\",\n");
+            sb.append("      \"path\": \"").append(escapeJson(unit.path() != null ? unit.path() : "")).append("\",\n");
+            sb.append("      \"intent\": \"").append(escapeJson(unit.intent() != null ? unit.intent() : "")).append("\",\n");
+            sb.append("      \"scope\": \"").append(escapeJson(unit.scope() != null ? unit.scope() : "")).append("\",\n");
+            sb.append("      \"triggers\": ").append(jsonArray(unit.triggers())).append("\n");
+            sb.append("    }");
+            if (i < kcpUnits.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("  ],\n");
+
+        // KCP unit relationships
+        sb.append("  \"kcpRelationships\": [\n");
+        for (int i = 0; i < kcpEdges.size(); i++) {
+            KcpUnitEdge rel = kcpEdges.get(i);
+            sb.append("    {\n");
+            sb.append("      \"from\": \"").append(escapeJson(rel.fromUnit())).append("\",\n");
+            sb.append("      \"to\": \"").append(escapeJson(rel.toUnit())).append("\",\n");
+            sb.append("      \"type\": \"").append(escapeJson(rel.type() != null ? rel.type() : "")).append("\",\n");
+            sb.append("      \"manifestFile\": \"").append(escapeJson(rel.manifestFile())).append("\"\n");
+            sb.append("    }");
+            if (i < kcpEdges.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
         sb.append("  ]\n");
         sb.append("}\n");
 
@@ -797,6 +895,156 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                 .map(s -> "\"" + escapeJson(s) + "\"")
                 .reduce((a, b) -> a + ", " + b)
                 .orElse("") + "]";
+    }
+
+    /**
+     * Collects KCP knowledge unit nodes from the database for this workspace.
+     * Returns an empty list if the database does not exist or tables are absent.
+     */
+    List<KcpUnitNode> collectKcpUnits(Path workspaceRoot) {
+        List<KcpUnitNode> units = new ArrayList<>();
+        Path dbPath = workspaceRoot.resolve(".synthesis/synthesis.db");
+        if (!Files.exists(dbPath)) return units;
+
+        String normalizedScope = (scope != null && !scope.isBlank())
+                ? (scope.endsWith("/") ? scope.substring(0, scope.length() - 1) : scope)
+                : null;
+
+        try (SynthesisDatabase db = new SynthesisDatabase(dbPath)) {
+            java.sql.Connection conn = db.getConnection();
+            String sql = "SELECT u.unit_id, u.manifest_file, m.project, u.path, "
+                    + "u.intent, u.scope, u.triggers_json "
+                    + "FROM kcp_units u "
+                    + "JOIN kcp_manifests m ON m.workspace_path = u.workspace_path "
+                    + "  AND m.file_path = u.manifest_file "
+                    + "WHERE u.workspace_path = ? "
+                    + "ORDER BY m.project, u.unit_id";
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, workspaceRoot.toString());
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (normalizedScope != null) {
+                            String manifestFile = rs.getString("manifest_file");
+                            String scopePrefix = workspaceRoot + "/" + normalizedScope + "/";
+                            if (!manifestFile.startsWith(scopePrefix)) continue;
+                        }
+                        units.add(new KcpUnitNode(
+                                rs.getString("unit_id"),
+                                rs.getString("manifest_file"),
+                                rs.getString("project") != null ? rs.getString("project") : "?",
+                                rs.getString("path"),
+                                rs.getString("intent"),
+                                rs.getString("scope"),
+                                parseTriggers(rs.getString("triggers_json"))));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            // Return empty list silently (table may not exist yet)
+        }
+
+        return units;
+    }
+
+    /**
+     * Collects KCP unit-to-unit relationship edges from the database.
+     * Returns an empty list if the database does not exist or tables are absent.
+     */
+    List<KcpUnitEdge> collectKcpRelEdges(Path workspaceRoot) {
+        List<KcpUnitEdge> rels = new ArrayList<>();
+        Path dbPath = workspaceRoot.resolve(".synthesis/synthesis.db");
+        if (!Files.exists(dbPath)) return rels;
+
+        String normalizedScope = (scope != null && !scope.isBlank())
+                ? (scope.endsWith("/") ? scope.substring(0, scope.length() - 1) : scope)
+                : null;
+
+        try (SynthesisDatabase db = new SynthesisDatabase(dbPath)) {
+            java.sql.Connection conn = db.getConnection();
+            String sql = "SELECT r.from_unit, r.to_unit, r.type, r.manifest_file "
+                    + "FROM kcp_relationships r "
+                    + "WHERE r.workspace_path = ? "
+                    + "ORDER BY r.manifest_file, r.from_unit";
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, workspaceRoot.toString());
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (normalizedScope != null) {
+                            String manifestFile = rs.getString("manifest_file");
+                            String scopePrefix = workspaceRoot + "/" + normalizedScope + "/";
+                            if (!manifestFile.startsWith(scopePrefix)) continue;
+                        }
+                        rels.add(new KcpUnitEdge(
+                                rs.getString("from_unit"),
+                                rs.getString("to_unit"),
+                                rs.getString("type"),
+                                rs.getString("manifest_file")));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            // Return empty list silently
+        }
+
+        return rels;
+    }
+
+    /**
+     * Renders a text section listing KCP knowledge units and their relationships.
+     * Units are grouped by project name.
+     */
+    private String renderKcpAsciiSection(List<KcpUnitNode> units, List<KcpUnitEdge> edges) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\nKCP Knowledge Units:\n");
+        sb.append("-".repeat(40)).append("\n");
+
+        // Group by project
+        Map<String, List<KcpUnitNode>> byProject = new java.util.LinkedHashMap<>();
+        for (KcpUnitNode unit : units) {
+            byProject.computeIfAbsent(unit.project(), k -> new ArrayList<>()).add(unit);
+        }
+
+        for (Map.Entry<String, List<KcpUnitNode>> entry : byProject.entrySet()) {
+            sb.append("  [").append(entry.getKey()).append("]\n");
+            for (KcpUnitNode unit : entry.getValue()) {
+                String intent = unit.intent() != null ? unit.intent() : "(no intent)";
+                if (intent.length() > 60) intent = intent.substring(0, 60) + "\u2026";
+                sb.append(String.format("    \u2022 %s: %s%n", unit.unitId(), intent));
+                if (unit.path() != null) {
+                    sb.append(String.format("      \u2192 %s  [scope: %s]%n",
+                            unit.path(), unit.scope() != null ? unit.scope() : "?"));
+                }
+                if (!unit.triggers().isEmpty()) {
+                    sb.append(String.format("      triggers: %s%n",
+                            String.join(", ", unit.triggers())));
+                }
+            }
+        }
+
+        if (!edges.isEmpty()) {
+            sb.append("\n  Relationships:\n");
+            for (KcpUnitEdge edge : edges) {
+                String typeLabel = edge.type() != null ? "[" + edge.type() + "]" : "";
+                sb.append(String.format("    %s --%s--> %s%n",
+                        edge.fromUnit(), typeLabel, edge.toUnit()));
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /** Parses a simple JSON string array like {@code ["a","b","c"]} to a List. */
+    static List<String> parseTriggers(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        String stripped = json.strip();
+        if ("[]".equals(stripped)) return List.of();
+        stripped = stripped.replaceFirst("^\\[", "").replaceFirst("]$", "");
+        List<String> result = new ArrayList<>();
+        for (String item : stripped.split(",")) {
+            String s = item.strip().replaceAll("^\"|\"$", "").strip();
+            if (!s.isEmpty()) result.add(s);
+        }
+        return result;
     }
 
     // ---- Test support ----
@@ -838,5 +1086,22 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             String directoryPath,
             String relationship,
             double bidStrength
+    ) {}
+
+    record KcpUnitNode(
+            String unitId,
+            String manifestFile,
+            String project,
+            String path,
+            String intent,
+            String scope,
+            List<String> triggers
+    ) {}
+
+    record KcpUnitEdge(
+            String fromUnit,
+            String toUnit,
+            String type,
+            String manifestFile
     ) {}
 }
