@@ -536,7 +536,7 @@ public class SynthesisMCPServer {
                 "knowledge-graph",
                 "Build and display a knowledge graph of concepts, entities, and relationships " +
                         "extracted from the workspace. Use to understand domain model and connections.",
-                createWorkspaceOnlySchema()
+                createKnowledgeGraphSchema()
         ));
 
         // Tool: structure
@@ -1451,6 +1451,38 @@ public class SynthesisMCPServer {
 
         schema.set("properties", properties);
 
+        return schema;
+    }
+
+    private ObjectNode createKnowledgeGraphSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        ObjectNode filter = mapper.createObjectNode();
+        filter.put("type", "string");
+        filter.put("description", "Scope the graph to a specific subsystem, directory, or repository pattern. " +
+                "Recommended for large workspaces to avoid token-limit errors. " +
+                "Example: \"src/components\", \"eXOReaction\", \"Cantara\"");
+        properties.set("filter", filter);
+
+        ObjectNode format = mapper.createObjectNode();
+        format.put("type", "string");
+        ArrayNode formatEnum = mapper.createArrayNode();
+        formatEnum.add("mermaid");
+        formatEnum.add("json");
+        formatEnum.add("dot");
+        format.set("enum", formatEnum);
+        format.put("description", "Output format: mermaid (diagram), json (structured), dot (Graphviz). Defaults to mermaid.");
+        properties.set("format", format);
+
+        schema.set("properties", properties);
         return schema;
     }
 

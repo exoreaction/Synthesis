@@ -1876,10 +1876,39 @@ public class SynthesisToolHandler {
         Path workspacePath = resolveWorkspace(params);
         validateWorkspace(workspacePath);
         try {
-            String output = runSynthesisCli(List.of("kg"), workspacePath);
+            List<String> args = new ArrayList<>(List.of("kg"));
+
+            // Pass --scope if provided
+            JsonNode filterNode = params.get("filter");
+            if (filterNode != null && !filterNode.asText().isBlank()) {
+                args.add("--scope");
+                args.add(filterNode.asText());
+            }
+
+            // Pass --format if provided, default to mermaid
+            JsonNode formatNode = params.get("format");
+            String fmt = (formatNode != null && !formatNode.asText().isBlank())
+                    ? formatNode.asText() : "mermaid";
+            args.add("--format");
+            args.add(fmt);
+
+            String output = runSynthesisCli(args, workspacePath);
+
+            // Safety net: truncate if output exceeds ~200K characters
+            final int MAX_CHARS = 200_000;
+            if (output.length() > MAX_CHARS) {
+                output = output.substring(0, MAX_CHARS) +
+                        "\n\n[Output truncated at " + MAX_CHARS + " characters. " +
+                        "Use the 'filter' parameter to scope the graph to a specific directory or subsystem.]";
+            }
+
             ObjectNode response = mapper.createObjectNode();
             response.put("knowledgeGraph", output);
             response.put("workspace", workspacePath.toString());
+            if (filterNode != null && !filterNode.asText().isBlank()) {
+                response.put("filter", filterNode.asText());
+            }
+            response.put("format", fmt);
             return response;
         } catch (McpToolException e) {
             throw e;
