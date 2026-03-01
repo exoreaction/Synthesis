@@ -13,6 +13,7 @@ import java.util.*;
  *
  * <p>Detects special YAML formats:
  * <ul>
+ *   <li>KCP manifests (knowledge.yaml — project/id + units)</li>
  *   <li>Claude Code skill files (name, description, steps)</li>
  *   <li>Docker Compose files (services)</li>
  *   <li>GitHub Actions workflows (jobs)</li>
@@ -65,6 +66,20 @@ public class YamlAnalyzer implements FileAnalyzer {
         String summary;
 
         switch (yamlType) {
+            case "kcp-manifest" -> {
+                KcpExtraction kcp = extractKcpManifestInfo(data);
+                summary = kcp.summary();
+                keywords.addAll(kcp.keywords());
+                // Replace top-level YAML keys with unit IDs as headings
+                return AnalysisResult.builder()
+                        .summary(summary)
+                        .headings(kcp.unitIds())
+                        .keywords(keywords)
+                        .structure(String.format("KCP manifest (v%s), %d units", kcp.kcpVersion(), kcp.unitIds().size()))
+                        .metrics(kcp.metrics())
+                        .contentPreview(truncate(content))
+                        .build();
+            }
             case "claude-skill" -> {
                 summary = extractClaudeSkillInfo(data);
                 keywords.add("claude-code");
@@ -112,6 +127,13 @@ public class YamlAnalyzer implements FileAnalyzer {
     }
 
     private String detectYamlType(Map<String, Object> data, String fileName) {
+        // KCP manifest: named knowledge.yaml with (project or id) + units list
+        if ("knowledge.yaml".equals(fileName)
+                && data.get("units") instanceof List<?>
+                && (data.containsKey("project") || data.containsKey("id"))) {
+            return "kcp-manifest";
+        }
+
         // Claude Code skill detection
         if (data.containsKey("name") && (data.containsKey("steps") || data.containsKey("instructions"))) {
             return "claude-skill";
@@ -141,6 +163,91 @@ public class YamlAnalyzer implements FileAnalyzer {
         }
 
         return "generic";
+    }
+
+    private record KcpExtraction(
+            String summary, String kcpVersion,
+            List<String> unitIds, List<String> keywords, Map<String, Object> metrics) {}
+
+    @SuppressWarnings("unchecked")
+    private KcpExtraction extractKcpManifestInfo(Map<String, Object> data) {
+        String project = data.containsKey("project")
+                ? getString(data, "project") : getString(data, "id");
+        String kcpVersion = getString(data, "kcp_version");
+        if (kcpVersion.isEmpty()) kcpVersion = "unknown";
+
+        List<String> unitIds = new ArrayList<>();
+        List<String> keywords = new ArrayList<>();
+        keywords.add("kcp");
+        keywords.add("knowledge-context-protocol");
+        keywords.add("knowledge-yaml");
+        int relationshipCount = 0;
+
+        Object unitsObj = data.get("units");
+        if (unitsObj instanceof List<?> unitsList) {
+            for (Object u : unitsList) {
+                if (!(u instanceof Map<?, ?> rawUnit)) continue;
+                Map<String, Object> unit = (Map<String, Object>) rawUnit;
+
+                // Unit ID as heading
+                Object id = unit.get("id");
+                if (id != null) unitIds.add(id.toString());
+
+                // Triggers as searchable keywords
+                Object triggers = unit.get("triggers");
+                if (triggers instanceof List<?> triggerList) {
+                    for (Object t : triggerList) {
+                        String trigger = t.toString().toLowerCase().trim();
+                        if (!trigger.isEmpty() && trigger.length() < 60) {
+                            keywords.add(trigger);
+                        }
+                    }
+                }
+
+                // Audience values as keywords
+                Object audience = unit.get("audience");
+                if (audience instanceof List<?> audienceList) {
+                    for (Object a : audienceList) {
+                        keywords.add(a.toString().toLowerCase().trim());
+                    }
+                }
+
+                // Intent as a keyword-rich string (first 80 chars)
+                Object intent = unit.get("intent");
+                if (intent != null) {
+                    String intentStr = intent.toString();
+                    if (intentStr.length() > 80) intentStr = intentStr.substring(0, 80);
+                    keywords.add(intentStr);
+                }
+            }
+        }
+
+        Object rels = data.get("relationships");
+        if (rels instanceof List<?> relList) {
+            relationshipCount = relList.size();
+        }
+
+        // Deduplicate keywords, preserve insertion order
+        List<String> dedupedKeywords = new ArrayList<>(new LinkedHashSet<>(keywords));
+
+        String unitIdPreview = unitIds.size() <= 6
+                ? String.join(", ", unitIds)
+                : String.join(", ", unitIds.subList(0, 6)) + " … +" + (unitIds.size() - 6) + " more";
+
+        String summary = String.format(
+                "KCP manifest: %s (kcp v%s, %d units%s) — %s",
+                project, kcpVersion, unitIds.size(),
+                relationshipCount > 0 ? ", " + relationshipCount + " relationships" : "",
+                unitIdPreview);
+
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("yamlType", "kcp-manifest");
+        metrics.put("kcpVersion", kcpVersion);
+        metrics.put("project", project);
+        metrics.put("unitCount", unitIds.size());
+        metrics.put("relationshipCount", relationshipCount);
+
+        return new KcpExtraction(summary, kcpVersion, unitIds, dedupedKeywords, metrics);
     }
 
     private String extractClaudeSkillInfo(Map<String, Object> data) {
