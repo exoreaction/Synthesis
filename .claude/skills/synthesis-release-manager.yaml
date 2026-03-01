@@ -8,6 +8,10 @@ trigger_phrases:
   - "update synthesis version"
   - "synthesis release notes"
   - "tag synthesis release"
+  - "upgrade synthesis"
+  - "update synthesis to"
+  - "install synthesis"
+  - "synthesis-upgrade"
 
 instructions: |
   # Synthesis Release Manager
@@ -272,6 +276,64 @@ instructions: |
   - Major (X.0.0): Breaking changes, major milestones
   - Minor (1.X.0): New features, backward compatible
   - Patch (1.2.X): Bug fixes only
+
+  ## Local Upgrade Workflow
+
+  When user says "upgrade synthesis", "update synthesis to X", or "install synthesis X":
+
+  ### One command (preferred)
+
+  ```bash
+  synthesis-upgrade.sh                        # build HEAD + install + restart services + export skills
+  synthesis-upgrade.sh synthesis-1.21.0       # checkout tag first, then same flow
+  synthesis-upgrade.sh --skip-build           # install from existing target/ JARs (post-release)
+  ```
+
+  Script lives at `~/bin/synthesis-upgrade.sh`. Steps it runs:
+  1. `git fetch` + optional `git checkout <tag>`
+  2. `synthesis update --skip-docs --skip-visuals` — build + install CLI/MCP/LSP JARs
+  3. `systemctl --user restart synthesis-mcp-http.service`
+  4. `systemctl --user restart synthesis-watch-*.service` (all 7 watchers)
+  5. `synthesis export-skills --overwrite -d /src/exoreaction`
+
+  ### Service management (systemd user units)
+
+  All Synthesis services are managed by systemd — do NOT use `nohup` or bare `java -jar`.
+  Using nohup alongside systemd grabs the workspace lock and causes systemd units to crash-loop.
+
+  | Unit | Purpose |
+  |------|---------|
+  | `synthesis-mcp-http.service` | HTTP MCP server on port 8765 |
+  | `synthesis-watch-documents.service` | ~/Documents watcher |
+  | `synthesis-watch-exoreaction.service` | /src/exoreaction watcher |
+  | `synthesis-watch-cantara.service` | /src/cantara watcher |
+  | `synthesis-watch-quadim.service` | /src/quadim watcher |
+  | `synthesis-watch-downloads.service` | ~/Downloads watcher |
+  | `synthesis-watch-elprint.service` | /src/elprint watcher |
+  | `synthesis-watch-pictures.service` | ~/Pictures watcher |
+
+  ```bash
+  systemctl --user status synthesis-mcp-http.service     # check MCP
+  systemctl --user list-units 'synthesis-*' --no-pager   # check all
+  ```
+
+  ### Post-upgrade verification
+
+  ```bash
+  synthesis --version
+  systemctl --user is-active synthesis-mcp-http.service
+  systemctl --user list-units 'synthesis-watch-*' --no-pager
+  ```
+
+  ### JAR housekeeping
+
+  `~/.synthesis/lib/` accumulates old JARs. After an upgrade, trim to the 3 most recent:
+
+  ```bash
+  ls -1t ~/.synthesis/lib/synthesis-1.*.jar | tail -n +4 | xargs rm -f
+  ```
+
+  ---
 
   ## CRITICAL: Distribution Model
 
