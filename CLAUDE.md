@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.18.2-SNAPSHOT, Feb 2026)
+**Status:** Production-ready (v1.19.1-SNAPSHOT, March 2026)
 
 ---
 
@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,107 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, and Code Knowledge Graph (CKG-1 through CKG-5, all complete).
+**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP v0.5 support (Phases 2-5, PRs #284-#287).
 
 ---
 
@@ -29,10 +29,10 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V15; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis.
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V17; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables (kcp_manifests, kcp_units, kcp_relationships).
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
-- **Package root:** `io.exoreaction.synthesis.*` (30 packages)
+- **Package root:** `io.exoreaction.synthesis.*` (31 packages, new `kcp` package)
 - **Fat JARs:** 3 -- synthesis.jar (CLI), synthesis-mcp-server.jar, synthesis-lsp-server.jar
 
 ---
@@ -145,6 +145,11 @@ synthesis hooks generate --type PreToolUse # Use PreToolUse hook type
 synthesis claude-md refresh                # Update Synthesis Stats section in CLAUDE.md
 synthesis claude-md refresh --dry-run      # Print result without modifying
 synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
+
+# KCP (Knowledge Context Protocol) v0.5
+synthesis export --format kcp                        # Generate KCP v0.5 manifest from index
+synthesis export --format knowledge-context-protocol # Alias
+synthesis export --format kcp -o knowledge.yaml      # Write to file
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
@@ -320,6 +325,35 @@ Parallel system for source code repos. All metadata in SQLite only — no `.synt
 
 ---
 
+## KCP (Knowledge Context Protocol) v0.5
+
+KCP is a structured YAML manifest format (`knowledge.yaml`) that tells AI agents which files
+matter, what each is for, and the recommended read order. Spec: github.com/cantara/knowledge-context-protocol.
+Synthesis provides full-stack v0.5 support across four capabilities.
+
+**Detection:** `YamlAnalyzer` identifies `knowledge.yaml` as KCP when ALL THREE hold:
+filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists.
+Extracts `KcpUnit` + `KcpRelationship` records with full field data.
+
+**Persistence (V17):** Three SQLite tables — `kcp_manifests`, `kcp_units`, `kcp_relationships`.
+`KcpRepository` provides idempotent upsert/delete. `ScanCommand` and `MaintainCommand` auto-persist
+on detection and clean up on deletion.
+
+**Export:** `synthesis export --format kcp` generates a v0.5 conformant YAML from the Lucene index.
+Header: `kcp_version`, `language`, `indexing`, `hints.unit_count`. Per-unit fields inferred:
+`format` (from extension), `kind` (policy/schema/omit), `triggers` (up to 8 headings),
+`validated`/`updated` (quoted ISO dates).
+
+**Knowledge graph:** `synthesis kg` surfaces KCP units as first-class nodes. ASCII groups by project.
+Mermaid adds pill nodes + `kcp-unit` edges. JSON adds `kcpUnits` + `kcpRelationships` arrays.
+`--scope` filters KCP units by manifest path prefix.
+
+**Key classes:** `KcpUnit`, `KcpRelationship`, `KcpRepository` (`kcp` package);
+`YamlAnalyzer.extractKcpManifestInfo()`; `ExportCommand.exportAsKcp()`;
+`KnowledgeGraphCommand.collectKcpUnits()` / `collectKcpRelEdges()`.
+
+---
+
 ## .synthesisignore — Indexing Exclusions
 
 A `.synthesisignore` file at the workspace root tells `DirectoryScanner` to skip directories during
@@ -380,7 +414,7 @@ directory named `node_modules` at any depth.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (4,107)
++-- src/test/                          # JUnit 5 tests (4,153)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
 +-- .claude/skills/                    # 32 Claude Code skills (see below)
@@ -390,7 +424,7 @@ directory named `node_modules` at any depth.
 
 ## Skills Navigation
 
-**Skills directory:** `.claude/skills/` (32 skills)
+**Skills directory:** `.claude/skills/` (33 skills)
 
 ### Using Synthesis as a Tool (also available globally)
 
@@ -447,6 +481,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
 | `synthesis-knowledge-graph` | `synthesis knowledge-graph`, `describe`, `feedback`, `structure`, `evolution` | Document knowledge graph: centroid, wants, health, bidding, archetypes |
 | `synthesis-code-graph` | `synthesis code-graph extract`, `cg` | Code dependency persistence, fast relate/impact |
+| `synthesis-kcp` | `synthesis export --format kcp`, `synthesis kg` | KCP v0.5 support |
 
 **Start here for new work:** `synthesis-development` -- covers architecture decisions, patterns, and how to navigate the codebase.
 
@@ -470,7 +505,8 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V15.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V17.
+- **KCP detection heuristic**: `knowledge.yaml` files are detected as KCP manifests when ALL THREE hold: filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists. Files failing any condition are indexed as generic YAML.
 - **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:
   - `PromptTemplates.java`: `sanitizeUserInput()` + XML boundary tags (`<system>`, `<user>`, `<document>`) on all prompts
   - `SynthesisDatabase.java`: `CLEANUP_TABLE_ALLOWLIST` guard prevents arbitrary table names in DELETE operations

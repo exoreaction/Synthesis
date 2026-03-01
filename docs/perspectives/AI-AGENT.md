@@ -653,6 +653,58 @@ synthesis maintain
 
 ---
 
+## KCP Knowledge Manifests
+
+KCP (Knowledge Context Protocol) manifests (`knowledge.yaml`) give agents a curated reading
+list for a repository: which files matter, what each one is for, and the recommended read order.
+Synthesis detects, parses, and stores KCP data automatically during `scan` and `maintain`.
+
+### Check KCP coverage
+
+```bash
+# See all KCP units in the workspace
+synthesis kg -d /path/to/workspace --format json | jq '.kcpUnits'
+
+# Count units per project
+synthesis kg -d /path/to/workspace --format json \
+  | jq '[.kcpUnits | group_by(.project)[] | {project: .[0].project, units: length}]'
+```
+
+### Generate a manifest
+
+For repos without a `knowledge.yaml`:
+
+```bash
+synthesis -d /path/to/repo export --format kcp -o knowledge.yaml
+```
+
+After committing and rescanning, units appear in `synthesis kg` and via MCP automatically.
+
+### Field-to-decision table
+
+When consuming a KCP manifest, agents should use fields as follows:
+
+| Field | Agent action |
+|-------|-------------|
+| `intent` | Use as the answer to "what will I learn here?" before deciding whether to read the file |
+| `scope: global` | Read first — file provides cross-cutting context for the whole project |
+| `scope: module` | Read when the query matches the file's subject area |
+| `scope: focused` | Read only for deep dives into a specific sub-topic |
+| `triggers` | Match against the agent's current query keywords to decide relevance |
+| `audience: [agent]` | File is specifically optimised for machine consumption |
+| `kind: policy` | Governance/legal file — read for compliance, not implementation details |
+| `kind: schema` | API contract — read when understanding interfaces or data shapes |
+| `relationships` | Follow `context` edges to find broader background for a specific unit |
+
+### MCP integration
+
+The `synthesis knowledge-graph` MCP tool (`mcp__synthesis__knowledge-graph`) returns `kcpUnits`
+and `kcpRelationships` arrays in its JSON response. Pass `--format json` to get the full
+structured data. No extra tool calls needed — KCP data is included in every knowledge graph
+response once manifests are indexed.
+
+---
+
 ## Cross-Workspace Operations
 
 Agents working across multiple projects can use cross-workspace commands:

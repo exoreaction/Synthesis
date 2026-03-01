@@ -552,6 +552,48 @@ synthesis health --fix-config     # Auto-fix config issues
 
 ---
 
+## KCP v0.5 Support
+
+Synthesis provides full-stack KCP (Knowledge Context Protocol) v0.5 support — detection,
+persistence, generation, and visualisation. No configuration needed; it is active automatically.
+
+### Generate a manifest
+
+```bash
+# Generate knowledge.yaml from indexed files
+synthesis -d /path/to/repo export --format kcp -o knowledge.yaml
+
+# Alias
+synthesis -d /path/to/repo export --format knowledge-context-protocol -o knowledge.yaml
+```
+
+### Visualise in the knowledge graph
+
+```bash
+synthesis kg -d /path/to/workspace                          # ASCII, grouped by project
+synthesis kg -d /path/to/workspace --format json            # JSON with kcpUnits array
+synthesis kg -d /path/to/workspace --format mermaid         # Mermaid with pill nodes
+```
+
+### Automatic behaviour
+
+- During `synthesis scan`: detected `knowledge.yaml` files are parsed and persisted to SQLite (V17).
+- During `synthesis maintain`: changed manifests are re-persisted; deleted manifests are cleaned up.
+- The MCP `knowledge-graph` tool includes `kcpUnits` + `kcpRelationships` in its JSON response.
+
+### Key classes
+
+| Class | Package | Role |
+|-------|---------|------|
+| `KcpUnit` | `kcp` | Per-unit data record |
+| `KcpRelationship` | `kcp` | Unit relationship edge record |
+| `KcpRepository` | `kcp` | SQLite persistence (upsert, delete, query) |
+| `YamlAnalyzer` | `indexer` | 3-condition detection + `extractKcpManifestInfo()` |
+| `ExportCommand` | `cli` | `exportAsKcp()`, `toKcpFormat()`, `toKcpKind()`, `toKcpTriggers()` |
+| `KnowledgeGraphCommand` | `cli` | `collectKcpUnits()`, `collectKcpRelEdges()` |
+
+---
+
 ## Command Quick Reference
 
 ```
@@ -603,7 +645,7 @@ synthesis credentials status            # Check API key
 
 ---
 
-**Synthesis v1.15.0 -- 3,933 tests passing -- February 2026**
+**Synthesis v1.19.0 -- 4,153 tests passing -- March 2026**
 
 **Related guides:**
 - [Architecture Guide](./ARCHITECT.md) -- deep dependency analysis
