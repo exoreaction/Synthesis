@@ -13,6 +13,8 @@ import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -159,6 +161,20 @@ public class ScanCommand implements Callable<Integer> {
                 for (FileMetadata metadata : scanResult.files()) {
                     try {
                         AnalysisResult analysis = analyzers.analyze(metadata);
+
+                        // Persist KCP manifest data to structured DB tables
+                        if ("kcp-manifest".equals(analysis.metrics().get("yamlType"))) {
+                            try {
+                                new KcpRepository().upsertFromAnalysis(
+                                        SynthesisDatabase.getDefault().getConnection(),
+                                        workspaceRoot.toString(), metadata, analysis);
+                            } catch (Exception e) {
+                                if (verbose) {
+                                    System.err.println("  Warning: KCP DB write failed for "
+                                            + metadata.relativePath() + ": " + e.getMessage());
+                                }
+                            }
+                        }
 
                         // Track video extraction methods for summary
                         if (metadata.fileType() == FileUtils.FileType.VIDEO

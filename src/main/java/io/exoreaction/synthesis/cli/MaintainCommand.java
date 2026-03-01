@@ -18,6 +18,7 @@ import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.org.*;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
+import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.tracking.FileMovementTracker;
 import io.exoreaction.synthesis.tracking.FileTrackingDatabase;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -895,6 +896,7 @@ public class MaintainCommand implements Callable<Integer> {
             for (FileMetadata fm : changes.added()) {
                 try {
                     AnalysisResult analysis = analyzers.analyze(fm);
+                    persistKcpIfManifest(fm, analysis, workspace.getWorkspaceRoot().toString());
                     String subWorkspace = subWsResolver.resolve(fm.relativePath());
                     index.addDocument(fileIndexer.createDocument(fm, analysis,
                             null, null, null, subWorkspace));
@@ -910,6 +912,7 @@ public class MaintainCommand implements Callable<Integer> {
             for (FileMetadata fm : changes.modified()) {
                 try {
                     AnalysisResult analysis = analyzers.analyze(fm);
+                    persistKcpIfManifest(fm, analysis, workspace.getWorkspaceRoot().toString());
                     String subWorkspace = subWsResolver.resolve(fm.relativePath());
                     index.addDocument(fileIndexer.createDocument(fm, analysis,
                             null, null, null, subWorkspace));
@@ -924,6 +927,19 @@ public class MaintainCommand implements Callable<Integer> {
             // Remove deleted files
             for (String path : changes.deleted()) {
                 index.deleteByRelativePath(path);
+                if (path.endsWith("knowledge.yaml")) {
+                    try {
+                        String absPath = workspace.getWorkspaceRoot().resolve(path).toString();
+                        new KcpRepository().deleteForManifest(
+                                SynthesisDatabase.getDefault().getConnection(),
+                                workspace.getWorkspaceRoot().toString(), absPath);
+                    } catch (Exception e) {
+                        if (verbose) {
+                            System.err.println("  Warning: KCP DB delete failed for " + path
+                                    + ": " + e.getMessage());
+                        }
+                    }
+                }
                 updated++;
             }
 
@@ -931,6 +947,22 @@ public class MaintainCommand implements Callable<Integer> {
         }
 
         return updated;
+    }
+
+    /** Writes KCP manifest rows to the DB if the analysis detected a KCP manifest. */
+    private void persistKcpIfManifest(FileMetadata fm, AnalysisResult analysis,
+                                       String workspacePath) {
+        if (!"kcp-manifest".equals(analysis.metrics().get("yamlType"))) return;
+        try {
+            new KcpRepository().upsertFromAnalysis(
+                    SynthesisDatabase.getDefault().getConnection(),
+                    workspacePath, fm, analysis);
+        } catch (Exception e) {
+            if (verbose) {
+                System.err.println("  Warning: KCP DB write failed for "
+                        + fm.relativePath() + ": " + e.getMessage());
+            }
+        }
     }
 
     private Path generateReport(WorkspaceManager workspace, SynthesisConfig config,
