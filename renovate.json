@@ -1,6 +1,8 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "local>exoreaction/eXOReaction-Renovate-Config"
+  ],
+  "ignoreDeps": [
+    "maven-source-plugin"
   ]
 }
