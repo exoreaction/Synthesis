@@ -363,6 +363,13 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
+                <configuration>
+                    <!-- Required for Jenkins Maven3 integration plugin compatibility.
+                         Surefire 3.5.x changed forked JVM boot protocol; without this flag
+                         the forked VM exits with code 0 before running any tests when launched
+                         through the Jenkins maven-plugin (Maven35Main). -->
+                    <useSystemClassLoader>false</useSystemClassLoader>
+                </configuration>
             </plugin>
         </plugins>
     </build>
