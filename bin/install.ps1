@@ -719,6 +719,116 @@ Set-Content -Path $updateBatPath -Value $updateBatContent -Encoding ASCII
 Write-Info "Installed synthesis-update.bat"
 
 # ---------------------------------------------------------------------------
+# Step 6c: Install MCP Server Launcher (synthesis-mcp-server.bat)
+# ---------------------------------------------------------------------------
+Write-Step "Installing MCP server launcher..."
+
+$mcpBatPath = Join-Path $SynthesisHome "bin\synthesis-mcp-server.bat"
+$mcpBatContent = @'
+@echo off
+REM Synthesis MCP Server Launcher for Windows
+REM Starts the Synthesis MCP server for Claude Desktop / Claude Code integration.
+REM
+REM Usage:
+REM   synthesis-mcp-server --workspace C:\path\to\project
+REM   synthesis-mcp-server --workspace C:\path\to\project --http-port 8765
+REM
+REM Claude Desktop config (%APPDATA%\Claude\claude_desktop_config.json):
+REM   {
+REM     "mcpServers": {
+REM       "synthesis": {
+REM         "command": "synthesis-mcp-server",
+REM         "args": ["--workspace", "C:\\Users\\YourName\\Documents"]
+REM       }
+REM     }
+REM   }
+REM
+REM Copyright (c) 2026 eXOReaction AS. All rights reserved.
+
+setlocal enabledelayedexpansion
+
+if "%SYNTHESIS_HOME%"=="" set "SYNTHESIS_HOME=%USERPROFILE%\.synthesis"
+set "JAR_PATH=%SYNTHESIS_HOME%\lib\synthesis-mcp-server.jar"
+
+if not exist "%JAR_PATH%" (
+    echo [ERROR] Synthesis MCP Server JAR not found at %JAR_PATH% 1>&2
+    echo   Download it: synthesis-update --mcp 1>&2
+    echo   Or reinstall: powershell -File "%SYNTHESIS_HOME%\bin\install.ps1" -Force 1>&2
+    exit /b 1
+)
+
+where java >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Java not found. Java 21+ is required. 1>&2
+    echo   Install: winget install Azul.Zulu.21.JDK 1>&2
+    exit /b 1
+)
+
+set "JAVA_OPTS=--enable-native-access=ALL-UNNAMED -Djava.util.logging.config.file=NUL"
+if defined SYNTHESIS_JAVA_OPTS set "JAVA_OPTS=%SYNTHESIS_JAVA_OPTS%"
+
+java %JAVA_OPTS% -jar "%JAR_PATH%" %*
+exit /b %errorlevel%
+'@
+Set-Content -Path $mcpBatPath -Value $mcpBatContent -Encoding ASCII
+Write-Info "Installed synthesis-mcp-server.bat"
+
+# Acquire MCP server JAR
+$mcpJarPath = Join-Path $libDir "synthesis-mcp-server.jar"
+$mcpJarObtained = $false
+
+# Try: copy from same directory as this install script
+$localMcpJar = Join-Path $scriptDir "synthesis-mcp-server.jar"
+if (Test-Path $localMcpJar) {
+    Copy-Item $localMcpJar $mcpJarPath -Force
+    $mcpJarObtained = $true
+    Write-Info "Copied synthesis-mcp-server.jar from local source"
+}
+
+# Try: copy from -Source directory (build output)
+if (-not $mcpJarObtained -and $Source) {
+    $sourceMcpJar = Join-Path $Source "target\synthesis-mcp-server.jar"
+    if (Test-Path $sourceMcpJar) {
+        Copy-Item $sourceMcpJar $mcpJarPath -Force
+        $mcpJarObtained = $true
+        Write-Info "Copied synthesis-mcp-server.jar from source build"
+    }
+}
+
+# Try: auto-detect common source locations
+if (-not $mcpJarObtained) {
+    $candidates = @(
+        (Join-Path $env:USERPROFILE "src\synthesis\target\synthesis-mcp-server.jar"),
+        (Join-Path $env:USERPROFILE "src\exoreaction\synthesis\target\synthesis-mcp-server.jar"),
+        (Join-Path $env:USERPROFILE "projects\synthesis\target\synthesis-mcp-server.jar")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            Copy-Item $candidate $mcpJarPath -Force
+            $mcpJarObtained = $true
+            Write-Info "Copied synthesis-mcp-server.jar from $candidate"
+            break
+        }
+    }
+}
+
+# Try: download from Cantara releases
+if (-not $mcpJarObtained -and $installedVersion) {
+    $mcpJarUrl = "$CantaraReleases/$GroupPath/synthesis-mcp-server/$installedVersion/synthesis-mcp-server-$installedVersion.jar"
+    Write-Detail "Trying Cantara for MCP server JAR..."
+    if (Invoke-Download -Url $mcpJarUrl -OutFile $mcpJarPath) {
+        $mcpJarObtained = $true
+        Write-Info "Downloaded synthesis-mcp-server.jar from Cantara"
+    }
+}
+
+if (-not $mcpJarObtained) {
+    Write-Warn "MCP server JAR not found — Claude Desktop integration not yet active."
+    Write-Detail "The MCP server JAR will be downloaded automatically on first use."
+    Write-Detail "Or reinstall with: .\install.ps1 -Force -Source <path-to-synthesis-source>"
+}
+
+# ---------------------------------------------------------------------------
 # Step 7: Install Update Script
 # ---------------------------------------------------------------------------
 Write-Step "Installing update script..."
