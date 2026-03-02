@@ -364,11 +364,13 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
                 <configuration>
-                    <!-- Required for Jenkins Maven3 integration plugin compatibility.
-                         Surefire 3.5.x changed forked JVM boot protocol; without this flag
-                         the forked VM exits with code 0 before running any tests when launched
-                         through the Jenkins maven-plugin (Maven35Main). -->
-                    <useSystemClassLoader>false</useSystemClassLoader>
+                    <!-- Run tests in-process (no forked JVM).
+                         The Jenkins Maven Integration Plugin (Maven35Main) is incompatible
+                         with the Surefire 3.5.x forked VM protocol: the forked JVM exits
+                         with code 0 before running any tests regardless of useSystemClassLoader
+                         setting. forkCount=0 bypasses forking entirely — tests run in the
+                         Maven JVM where Jenkins instrumentation works correctly. -->
+                    <forkCount>0</forkCount>
                 </configuration>
             </plugin>
         </plugins>
