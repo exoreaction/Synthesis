@@ -814,8 +814,9 @@ if (-not $mcpJarObtained) {
 
 # Try: download from Cantara releases
 if (-not $mcpJarObtained -and $installedVersion) {
-    $mcpJarUrl = "$CantaraReleases/$GroupPath/synthesis-mcp-server/$installedVersion/synthesis-mcp-server-$installedVersion.jar"
-    Write-Detail "Trying Cantara for MCP server JAR..."
+    # Classifier artifact: synthesis-{version}-mcp-server.jar (attached by build-helper-maven-plugin)
+    $mcpJarUrl = "$CantaraReleases/$GroupPath/$ArtifactId/$installedVersion/synthesis-$installedVersion-mcp-server.jar"
+    Write-Detail "Trying Cantara for MCP server JAR (classifier)..."
     if (Invoke-Download -Url $mcpJarUrl -OutFile $mcpJarPath) {
         $mcpJarObtained = $true
         Write-Info "Downloaded synthesis-mcp-server.jar from Cantara"

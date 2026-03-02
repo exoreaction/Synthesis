@@ -592,17 +592,28 @@ if [ "$ACTION" = "install-component" ]; then
 
     case "$INSTALL_COMPONENT" in
         synthesis-mcp-server)
-            if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/target/synthesis-mcp-server.jar" ]; then
+            MCP_JAR_FOUND=false
+            # Strategy 1: local build output
+            if [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/target/synthesis-mcp-server.jar" ]; then
                 cp "$SOURCE_DIR/target/synthesis-mcp-server.jar" "$LIB_DIR/synthesis-mcp-server.jar"
                 info "Installed synthesis-mcp-server.jar from source"
-            elif [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/bin/synthesis-mcp-server" ]; then
-                # JAR not built yet
-                error "MCP server JAR not found. Build first:"
-                detail "cd $SOURCE_DIR && mvn package -DskipTests"
-                exit 1
-            else
-                error "Source directory not found. Cannot install component."
-                detail "Build from source first or use --full update."
+                MCP_JAR_FOUND=true
+            fi
+            # Strategy 2: Cantara Maven (classifier artifact)
+            if [ "$MCP_JAR_FOUND" = false ]; then
+                CURRENT_VER=$(cat "$SYNTHESIS_HOME/.metadata/version" 2>/dev/null | head -1 || true)
+                if [ -n "$CURRENT_VER" ]; then
+                    MCP_CLASSIFIER_URL="${CANTARA_RELEASES}/${GROUP_PATH}/${ARTIFACT_ID}/${CURRENT_VER}/synthesis-${CURRENT_VER}-mcp-server.jar"
+                    detail "Downloading synthesis-mcp-server.jar from Cantara..."
+                    if download_file "$MCP_CLASSIFIER_URL" "$LIB_DIR/synthesis-mcp-server.jar" 2>/dev/null; then
+                        info "Downloaded synthesis-mcp-server.jar from Cantara"
+                        MCP_JAR_FOUND=true
+                    fi
+                fi
+            fi
+            if [ "$MCP_JAR_FOUND" = false ]; then
+                error "MCP server JAR not found in source or Cantara Maven."
+                detail "Build from source: cd $SOURCE_DIR && mvn package -DskipTests"
                 exit 1
             fi
             # Install launcher script

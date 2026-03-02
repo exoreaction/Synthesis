@@ -605,18 +605,21 @@ info "Installed launcher at $SYNTHESIS_HOME/bin/synthesis"
 # ---------------------------------------------------------------------------
 step "Installing MCP and LSP server scripts..."
 
-# Copy MCP server JAR if present
+# Install MCP and LSP server JARs
+# Classifiers published to Cantara Maven: synthesis-{version}-mcp-server.jar, synthesis-{version}-lsp-server.jar
 MCP_JAR_NAME="synthesis-mcp-server.jar"
 LSP_JAR_NAME="synthesis-lsp-server.jar"
 
-# Try to find server JARs in source directory or build output
 for SERVER_JAR in "$MCP_JAR_NAME" "$LSP_JAR_NAME"; do
     SERVER_JAR_FOUND=false
+    CLASSIFIER="${SERVER_JAR%.jar}"       # e.g. synthesis-mcp-server
+    CLASSIFIER="${CLASSIFIER#synthesis-}" # e.g. mcp-server
+
+    # Strategy 1: local build output (dev machine or -Source install)
     if [ -n "${SOURCE_DIR:-}" ] && [ -f "$SOURCE_DIR/target/$SERVER_JAR" ]; then
         cp "$SOURCE_DIR/target/$SERVER_JAR" "$SYNTHESIS_HOME/lib/$SERVER_JAR"
         SERVER_JAR_FOUND=true
     fi
-    # Try same-directory detection
     if [ "$SERVER_JAR_FOUND" = false ]; then
         for candidate in "$HOME/src/synthesis" "$HOME/src/exoreaction/synthesis" "$HOME/projects/synthesis" "$(pwd)"; do
             if [ -f "$candidate/target/$SERVER_JAR" ]; then
@@ -626,8 +629,23 @@ for SERVER_JAR in "$MCP_JAR_NAME" "$LSP_JAR_NAME"; do
             fi
         done
     fi
+
+    # Strategy 2: Cantara Maven (classifier artifact published by build-helper-maven-plugin)
+    if [ "$SERVER_JAR_FOUND" = false ] && [ -n "${INSTALLED_VERSION:-}" ]; then
+        CLASSIFIER_JAR="synthesis-${INSTALLED_VERSION}-${CLASSIFIER}.jar"
+        MAVEN_URL="${CANTARA_RELEASES}/${GROUP_PATH}/${ARTIFACT_ID}/${INSTALLED_VERSION}/${CLASSIFIER_JAR}"
+        if url_exists "$MAVEN_URL" 2>/dev/null; then
+            if download_file "$MAVEN_URL" "$SYNTHESIS_HOME/lib/$SERVER_JAR" 2>/dev/null; then
+                SERVER_JAR_FOUND=true
+                info "Downloaded $SERVER_JAR from Cantara Maven"
+            fi
+        fi
+    fi
+
     if [ "$SERVER_JAR_FOUND" = true ]; then
         info "Installed $SERVER_JAR"
+    else
+        warn "$SERVER_JAR not found — MCP/LSP features unavailable until manually installed"
     fi
 done
 

@@ -328,6 +328,36 @@
                 </executions>
             </plugin>
 
+            <!-- Attach secondary JARs (MCP, LSP) so they deploy to Cantara Maven -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-mcp-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach-artifact</goal>
+                        </goals>
+                        <configuration>
+                            <artifacts>
+                                <artifact>
+                                    <file>${project.build.directory}/synthesis-mcp-server.jar</file>
+                                    <type>jar</type>
+                                    <classifier>mcp-server</classifier>
+                                </artifact>
+                                <artifact>
+                                    <file>${project.build.directory}/synthesis-lsp-server.jar</file>
+                                    <type>jar</type>
+                                    <classifier>lsp-server</classifier>
+                                </artifact>
+                            </artifacts>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Unit tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
