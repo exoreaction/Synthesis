@@ -39,7 +39,7 @@
 
 .NOTES
     Copyright (c) 2026 eXOReaction AS. All rights reserved.
-    Requires: Windows 10+, PowerShell 5.1+, Java 17+
+    Requires: Windows 10+, PowerShell 5.1+, Java 21+
 #>
 
 [CmdletBinding()]
@@ -63,7 +63,7 @@ $CantaraSnapshots = "https://mvnrepo.cantara.no/content/repositories/snapshots"
 $CantaraReleases = "https://mvnrepo.cantara.no/content/repositories/releases"
 $GroupPath = "io/exoreaction"
 $ArtifactId = "synthesis"
-$MinJavaVersion = 17
+$MinJavaVersion = 21
 
 # Track whether we created the home directory (for cleanup on failure)
 $CreatedSynthesisHome = $false
@@ -241,7 +241,7 @@ if ($execPolicy -eq 'Restricted') {
     Write-Detail "  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser"
 }
 
-# Check: Java 17+
+# Check: Java 21+
 $javaOnPath = Test-CommandExists "java"
 $javaVersion = 0
 
@@ -262,16 +262,16 @@ if ($javaVersion -ge $MinJavaVersion) {
     Write-Info "Java $javaVersion found (>= $MinJavaVersion required)"
 } elseif ($javaVersion -gt 0) {
     Write-Err "Java $javaVersion found, but Java $MinJavaVersion+ is required."
-    Write-Detail "Install Java 17+:"
-    Write-Detail "  winget install Microsoft.OpenJDK.17"
-    Write-Detail "  Or: https://adoptium.net/temurin/releases/"
+    Write-Detail "Install Java 21+ (Azul Zulu):"
+    Write-Detail "  winget install Azul.Zulu.21.JDK"
+    Write-Detail "  Or: https://www.azul.com/downloads/?version=java-21&package=jdk"
     Invoke-CleanupOnFailure
     exit 1
 } else {
     Write-Err "Java not found. Java $MinJavaVersion+ is required."
-    Write-Detail "Install Java 17+:"
-    Write-Detail "  winget install Microsoft.OpenJDK.17"
-    Write-Detail "  Or: https://adoptium.net/temurin/releases/"
+    Write-Detail "Install Java 21+ (Azul Zulu):"
+    Write-Detail "  winget install Azul.Zulu.21.JDK"
+    Write-Detail "  Or: https://www.azul.com/downloads/?version=java-21&package=jdk"
     Invoke-CleanupOnFailure
     exit 1
 }
@@ -620,7 +620,7 @@ setlocal enabledelayedexpansion
 REM Configuration
 if "%SYNTHESIS_HOME%"=="" set "SYNTHESIS_HOME=%USERPROFILE%\.synthesis"
 set "JAR_PATH=%SYNTHESIS_HOME%\lib\current.jar"
-set "MIN_JAVA_VERSION=17"
+set "MIN_JAVA_VERSION=21"
 
 REM Check JAR exists
 if not exist "%JAR_PATH%" (
@@ -634,7 +634,7 @@ REM Check Java exists
 where java >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Java not found. Java %MIN_JAVA_VERSION%+ is required. 1>&2
-    echo   Install: winget install Microsoft.OpenJDK.17 1>&2
+    echo   Install: winget install Azul.Zulu.21.JDK 1>&2
     exit /b 1
 )
 

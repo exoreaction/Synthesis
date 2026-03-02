@@ -23,7 +23,7 @@ readonly CANTARA_SNAPSHOTS="https://mvnrepo.cantara.no/content/repositories/snap
 readonly CANTARA_RELEASES="https://mvnrepo.cantara.no/content/repositories/releases"
 readonly GROUP_PATH="io/exoreaction"
 readonly ARTIFACT_ID="synthesis"
-readonly MIN_JAVA_VERSION=17
+readonly MIN_JAVA_VERSION=21
 
 # ---------------------------------------------------------------------------
 # Color Output
@@ -216,18 +216,18 @@ if command_exists java; then
         info "Java $JAVA_VER found (>= $MIN_JAVA_VERSION required)"
     else
         error "Java $JAVA_VER found, but Java $MIN_JAVA_VERSION+ is required."
-        detail "Install Java 17+:"
-        detail "  Ubuntu/Debian: sudo apt install openjdk-17-jdk"
-        detail "  macOS:         brew install openjdk@17"
-        detail "  Fedora:        sudo dnf install java-17-openjdk"
+        detail "Install Java 21+ (Azul Zulu recommended):"
+        detail "  Ubuntu/Debian: sudo apt install zulu21-jdk  (after adding Azul repo)"
+        detail "  macOS:         brew install --cask zulu21"
+        detail "  All platforms: https://www.azul.com/downloads/?version=java-21&package=jdk"
         exit 1
     fi
 else
     error "Java not found. Java $MIN_JAVA_VERSION+ is required."
-    detail "Install Java 17+:"
-    detail "  Ubuntu/Debian: sudo apt install openjdk-17-jdk"
-    detail "  macOS:         brew install openjdk@17"
-    detail "  Fedora:        sudo dnf install java-17-openjdk"
+    detail "Install Java 21+ (Azul Zulu recommended):"
+    detail "  Ubuntu/Debian: sudo apt install zulu21-jdk  (after adding Azul repo)"
+    detail "  macOS:         brew install --cask zulu21"
+    detail "  All platforms: https://www.azul.com/downloads/?version=java-21&package=jdk"
     exit 1
 fi
 
@@ -514,7 +514,7 @@ set -euo pipefail
 
 readonly SYNTHESIS_HOME="${SYNTHESIS_HOME:-$HOME/.synthesis}"
 readonly JAR_PATH="$SYNTHESIS_HOME/lib/current.jar"
-readonly MIN_JAVA_VERSION=17
+readonly MIN_JAVA_VERSION=21
 
 # ---------------------------------------------------------------------------
 # Color Output

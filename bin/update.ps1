@@ -33,7 +33,7 @@
 
 .NOTES
     Copyright (c) 2026 eXOReaction AS. All rights reserved.
-    Requires: Windows 10+, PowerShell 5.1+, Java 17+
+    Requires: Windows 10+, PowerShell 5.1+, Java 21+
 #>
 
 [CmdletBinding()]
