@@ -4,7 +4,7 @@
 #
 # Usage:
 #   synthesis-upgrade.sh                        # build from current HEAD (local only)
-#   synthesis-upgrade.sh synthesis-1.20.0       # checkout specific tag first (local only)
+#   synthesis-upgrade.sh synthesis-1.20.1       # checkout specific tag first (local only)
 #   synthesis-upgrade.sh --skip-build           # install from existing target/ JARs
 set -euo pipefail
 
