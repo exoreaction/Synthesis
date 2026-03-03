@@ -7,8 +7,11 @@ import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.sessions.ClaudeSession;
+import io.exoreaction.synthesis.sessions.SessionStore;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
 import picocli.CommandLine.Command;
@@ -151,8 +154,16 @@ public class AskCommand implements Callable<Integer> {
             // Build context from file contents
             String context = buildContext(results, workspaceRoot);
 
+            // Enrich with session history (episodic memory)
+            String sessionContext = buildSessionContext(question);
+            if (verbose && !sessionContext.isEmpty()) {
+                AnsiOutput.printInfo("Including session history context.");
+            }
+
             // Generate prompt and ask Claude
-            String prompt = PromptTemplates.buildAskPrompt(question, context);
+            String prompt = sessionContext.isEmpty()
+                    ? PromptTemplates.buildAskPrompt(question, context)
+                    : PromptTemplates.buildAskPrompt(question, context, sessionContext);
 
             if (verbose) {
                 AnsiOutput.printInfo("Asking Claude (" + client.getModel() + ")...");
@@ -197,6 +208,40 @@ public class AskCommand implements Callable<Integer> {
     private static String truncateQuestion(String question) {
         if (question.length() <= 60) return question;
         return question.substring(0, 57) + "...";
+    }
+
+    /**
+     * Searches the episodic memory (session history) for sessions relevant to the question.
+     * Returns an empty string if no sessions are found or the database is unavailable.
+     */
+    private String buildSessionContext(String question) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            SessionStore store = new SessionStore(db);
+            List<ClaudeSession> sessions = store.search(SessionStore.sanitizeFtsQuery(question), 3);
+            if (sessions.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (ClaudeSession s : sessions) {
+                sb.append("\n--- Session: ")
+                  .append(s.sessionId().length() > 8 ? s.sessionId().substring(0, 8) + "..." : s.sessionId());
+                if (s.startedAt() != null) {
+                    sb.append(" (").append(s.startedAt().toString(), 0, 10).append(")");
+                }
+                if (s.projectDir() != null) {
+                    sb.append(" [").append(s.projectDir()).append("]");
+                }
+                sb.append(" ---\n");
+                if (s.allUserText() != null && !s.allUserText().isBlank()) {
+                    sb.append(s.allUserText()).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // Sessions DB not available — proceed without session context
+            return "";
+        }
     }
 
     /**
