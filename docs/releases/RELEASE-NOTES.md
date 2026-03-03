@@ -1,8 +1,8 @@
 # Synthesis Release Notes
 
-**From first commit to v1.13.1 -- the full story.**
+**From first commit to v1.21.0 -- the full story.**
 
-This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 51 CLI commands, 3,842 tests, 13 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server) -- all in 9 days and 341 commits.
+This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 55 CLI commands, 4,170 tests, 18 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server).
 
 ---
 
@@ -26,6 +26,8 @@ This document covers the complete development history of Synthesis, from its fir
 - [v1.12.x -- Knowledge Graph (February 21-22, 2026)](#v112x----knowledge-graph-february-21-22-2026)
 - [v1.13.0 -- Bugfixes: Rebalance + Health (February 22, 2026)](#v1130----bugfixes-rebalance--health-february-22-2026)
 - [v1.13.1 -- CKG Dogfooding Fixes (February 22, 2026)](#v1131----ckg-dogfooding-fixes-february-22-2026)
+- [v1.18.2 -- Session Lifecycle Integration (February 28, 2026)](#v1182--session-lifecycle-integration-february-28-2026)
+- [v1.21.0 -- Episodic Memory: Claude Sessions (March 3, 2026)](#v1210--episodic-memory-claude-sessions-march-3-2026)
 - [Current State](#current-state)
 
 ---
@@ -1091,14 +1093,59 @@ Three new commands bridging the session lifecycle gap identified in the Ars Cont
 
 ---
 
+## v1.21.0 -- Episodic Memory: Claude Sessions (March 3, 2026)
+
+**Date:** 2026-03-03
+**Migration:** V18 (`claude_sessions` + FTS5 virtual table + 3 sync triggers)
+**Tests:** 4,170 (all passing, 20 new: 8 scanner + 12 store)
+
+Synthesis has always been about making AI-generated output navigable. Versions 1.0 through 1.18 focused on workspace artifacts -- files, dependencies, knowledge graphs. But there is a second category of knowledge that accumulates during AI-augmented development: the conversations themselves. Every Claude Code session produces a JSONL transcript in `~/.claude/projects/`, and those transcripts contain decisions, rejected approaches, design rationale, and context that never makes it into committed code. Until now, that knowledge was effectively write-only.
+
+v1.21.0 introduces the **sessions module** -- a new `io.exoreaction.synthesis.sessions` package that indexes Claude Code session history as episodic memory. This completes Layer 2 of a three-layer AI memory model:
+
+- **Layer 1: Context window** -- working memory, present in every conversation, ephemeral
+- **Layer 2: Session transcripts** -- episodic memory, indexed by `synthesis sessions` (new)
+- **Layer 3: Workspace knowledge graph** -- semantic memory, indexed by `synthesis search`, `relate`, `impact`
+
+### What was built
+
+**`ClaudeSession`** -- an immutable Java record capturing the essential shape of a session: session ID, project directory, start/end timestamps, turn count, tool call count, tool names used, first user message (intent signal), and aggregated user text (searchable content).
+
+**`ClaudeSessionScanner`** -- a streaming JSONL parser that walks `~/.claude/projects/**/*.jsonl` and extracts session records. Scanning is incremental: files whose `lastModified` timestamp has not changed since the last scan are skipped entirely. On first scan, 2,971 sessions were indexed in 109 seconds. Subsequent scans process only new or modified files and complete near-instantly.
+
+**`SessionStore`** -- a synchronized SQLite DAO providing upsert, FTS5 search, filtered listing, and single-session retrieval. All public methods are `synchronized` to prevent concurrent write conflicts from MCP and CLI access. The FTS5 virtual table indexes `first_message` and `all_user_text` columns, enabling full-text search across the entire session corpus with SQLite's built-in ranking.
+
+**V18 Flyway migration** -- creates `claude_sessions` (10 columns), `claude_sessions_fts` (FTS5 virtual table), and three triggers (`INSERT`, `UPDATE`, `DELETE`) that keep the FTS index synchronized automatically.
+
+### CLI commands
+
+```bash
+synthesis sessions scan                        # Index ~/.claude/projects/ (incremental)
+synthesis sessions search "authentication"     # FTS5 search across all sessions
+synthesis sessions list                        # List recent sessions (default: 10)
+synthesis sessions list --project myproject    # Filter by project directory
+synthesis sessions list --since 7d             # Sessions from the last 7 days
+synthesis sessions get <session-id>            # Full detail for a single session
+```
+
+### MCP tool
+
+The `sessions` tool was registered in `SynthesisMCPServer` with two actions: `search` (requires `query` parameter) and `list` (accepts optional `project`, `since`, `limit` filters). This extends Synthesis MCP from 7 to 8 tools, and critically, it means Claude Code can search its own conversation history without requiring a second MCP server -- the same Synthesis process that serves workspace knowledge also serves episodic memory.
+
+### Design decisions
+
+The sessions module was deliberately built as a standalone package (`io.exoreaction.synthesis.sessions`) rather than routing through the existing Lucene indexing pipeline. Session transcripts are not workspace artifacts -- they live in a global location (`~/.claude/`), they are not associated with any single workspace, and their search semantics differ (temporal filtering, project scoping). SQLite + FTS5 was chosen over Lucene for this reason: simpler schema, no analyzer configuration, and the data naturally fits a relational model with a full-text overlay.
+
+---
+
 ## Current State
 
-**Version:** v1.18.2-SNAPSHOT
-**Date:** February 28, 2026
-**Days since first commit:** 15
-**Tests:** 4,107 (all passing)
+**Version:** v1.21.0
+**Date:** March 3, 2026
+**Days since first commit:** 18
+**Tests:** 4,170 (all passing)
 
-### Commands (54 subcommands)
+### Commands (55 subcommands)
 
 **Workspace lifecycle:**
 `init`, `scan`, `maintain`, `status`, `health`, `dashboard`, `watch`, `discover`
@@ -1113,7 +1160,7 @@ Three new commands bridging the session lifecycle gap identified in the Ars Cont
 `graph`, `cross-repo-deps`, `architecture`, `code-graph` (with `extract`, `describe`, `health`, `gaps` subcommands)
 
 **Change tracking:**
-`track`, `changelog`, `changed`, `diff`
+`track`, `changelog`, `changed`, `diff`, `sessions`
 
 **Knowledge graph:**
 `route-explain`, `describe`, `feedback`, `knowledge-graph`, `structure`, `evolution`
@@ -1150,6 +1197,7 @@ Three new commands bridging the session lifecycle gap identified in the Ars Cont
 | V11 | Virtual membership and routing feedback |
 | V12 | Directory classification |
 | V13 | Code knowledge graph (4 tables) |
+| V18 | Claude sessions + FTS5 virtual table + sync triggers |
 
 ### Technology Stack
 
@@ -1195,7 +1243,7 @@ Three new commands bridging the session lifecycle gap identified in the Ars Cont
 
 ```
 io.exoreaction.synthesis/
-  SynthesisApp.java              # Entry point (51 subcommands)
+  SynthesisApp.java              # Entry point (55 subcommands)
   ai/                            # Claude API integration
   analyzer/                      # File analysis pipeline (6 analyzers)
   architecture/                  # Architecture alerts
@@ -1216,6 +1264,7 @@ io.exoreaction.synthesis/
   report/                        # Report generation
   research/                      # Research engine
   search/                        # Search configuration
+  sessions/                      # Session history (episodic memory)
   skills/                        # Skill generation
   staging/                       # Staging pipeline
   summary/                       # Executive summaries
@@ -1291,6 +1340,8 @@ io.exoreaction.synthesis/
 | v1.12.2 | Feb 22 | Knowledge graph (P1-P4), Code Knowledge Graph (CKG-1 through CKG-4), 3,842 tests |
 | v1.13.0 | Feb 22 | Rebalance false-positive fix (#209), .synthesisignore health integration (#212), 3,893 tests |
 | v1.13.1 | Feb 22 | CKG dogfooding: 4 bugs + 3 improvements (PR #222), 3,865 tests |
+| v1.18.2 | Feb 28 | Session lifecycle integration, hooks generate, session-context, claude-md refresh, 4,107 tests |
+| v1.21.0 | Mar 3 | Episodic memory: Claude sessions module, V18 migration, FTS5 search, 4,170 tests |
 
 ---
 
