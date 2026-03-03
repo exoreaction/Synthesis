@@ -2107,6 +2107,55 @@ public class SynthesisToolHandler {
     }
 
     // -----------------------------------------------------------------------
+    // Tool: sessions (episodic memory)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Searches or lists indexed Claude Code session history.
+     *
+     * @param params JSON object with: action ("search"|"list"), query, project, since, limit
+     * @return JSON object with: action, sessions (array), count
+     */
+    public ObjectNode handleSessions(JsonNode params) throws McpToolException {
+        String action = params != null && params.has("action") && !params.get("action").isNull()
+                ? params.get("action").asText() : "list";
+        int limit = params != null && params.has("limit") ? params.get("limit").asInt(10) : 10;
+
+        try {
+            List<String> args = new java.util.ArrayList<>();
+            args.add("sessions");
+
+            if ("search".equals(action)) {
+                String query = params != null && params.has("query") && !params.get("query").isNull()
+                        ? params.get("query").asText() : "";
+                args.add("search");
+                args.add(query);
+                args.add("--limit=" + limit);
+            } else {
+                args.add("list");
+                args.add("--limit=" + limit);
+                if (params != null && params.has("project") && !params.get("project").isNull()) {
+                    args.add("--project=" + params.get("project").asText());
+                }
+                if (params != null && params.has("since") && !params.get("since").isNull()) {
+                    args.add("--since=" + params.get("since").asText());
+                }
+            }
+
+            String output = runSynthesisCli(args, defaultWorkspace);
+            ObjectNode response = mapper.createObjectNode();
+            response.put("action", action);
+            response.put("sessions", output);
+            return response;
+        } catch (McpToolException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("sessions failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "sessions failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Group 6: Session lifecycle tools
     // -----------------------------------------------------------------------
 

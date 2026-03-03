@@ -128,7 +128,8 @@ import java.util.concurrent.Callable;
                 CodeGraphCommand.class,
                 SessionContextCommand.class,
                 HooksCommand.class,
-                ClaudeMdCommand.class
+                ClaudeMdCommand.class,
+                SessionsCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -342,7 +343,7 @@ public class SynthesisApp implements Callable<Integer> {
             "summary", "research", "explain", "architecture", "impact", "code-graph"
         ));
         HELP_GROUPS.put("Change Tracking:", java.util.List.of(
-            "watch", "diff", "changed", "track", "changelog"
+            "watch", "diff", "changed", "track", "changelog", "sessions"
         ));
         HELP_GROUPS.put("Workspace:", java.util.List.of(
             "staging", "sweep", "prune", "ttl", "archive", "sync",
