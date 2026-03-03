@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
  * Data access object for Claude Code session history tables.
@@ -227,6 +228,45 @@ public class SessionStore {
              ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM claude_sessions")) {
             return rs.next() ? rs.getInt(1) : 0;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Query helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Converts a natural-language question into an FTS5 query by stripping
+     * punctuation and common English stop words, then taking up to 6 tokens.
+     *
+     * <p>FTS5 ANDs all tokens by default, so passing a full sentence like
+     * "what was the fix for the Jenkins CI failure?" fails to match anything
+     * because it requires every word to appear. Keeping only the content words
+     * ("fix Jenkins CI failure") gives meaningful results.
+     *
+     * @param question the raw user question
+     * @return a simplified FTS5 query string, or the original if nothing survives filtering
+     */
+    public static String sanitizeFtsQuery(String question) {
+        if (question == null || question.isBlank()) return "";
+        Set<String> stopWords = Set.of(
+                "a", "an", "the", "and", "or", "not", "is", "are", "was", "were",
+                "be", "been", "have", "has", "had", "do", "does", "did", "will",
+                "would", "could", "should", "may", "might", "shall",
+                "i", "we", "you", "he", "she", "it", "they", "me", "us",
+                "what", "how", "why", "where", "when", "who", "which",
+                "in", "on", "at", "to", "for", "of", "with", "from", "by", "about",
+                "this", "that", "these", "those", "as", "if", "so", "but", "my",
+                "your", "our", "its", "their", "any", "all", "get", "got", "can"
+        );
+        String[] tokens = question.toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .trim()
+                .split("\\s+");
+        String filtered = Arrays.stream(tokens)
+                .filter(t -> t.length() > 1 && !stopWords.contains(t))
+                .limit(6)
+                .collect(Collectors.joining(" "));
+        return filtered.isBlank() ? question : filtered;
     }
 
     // -----------------------------------------------------------------------

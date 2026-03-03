@@ -19,10 +19,14 @@ import io.exoreaction.synthesis.enrichment.EnrichmentLevel;
 import io.exoreaction.synthesis.graph.GraphBuilder;
 import io.exoreaction.synthesis.graph.GraphBuilder.FileGraph;
 import io.exoreaction.synthesis.graph.GraphRenderer;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsCollector;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
+import io.exoreaction.synthesis.sessions.ClaudeSession;
+import io.exoreaction.synthesis.sessions.SessionStore;
+import static io.exoreaction.synthesis.sessions.SessionStore.sanitizeFtsQuery;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -867,9 +871,13 @@ public class SynthesisToolHandler {
                     }
                 }
 
+                // Enrich with session history (episodic memory)
+                String sessionContext = buildSessionContext(query);
+
                 // Generate answer using the ask prompt
-                String prompt = io.exoreaction.synthesis.ai.PromptTemplates.buildAskPrompt(
-                        query, context.toString());
+                String prompt = sessionContext.isEmpty()
+                        ? io.exoreaction.synthesis.ai.PromptTemplates.buildAskPrompt(query, context.toString())
+                        : io.exoreaction.synthesis.ai.PromptTemplates.buildAskPrompt(query, context.toString(), sessionContext);
                 String answer = clientOpt.get().generate(prompt, config.getAi().getMaxTokens());
 
                 // Build response
@@ -891,6 +899,44 @@ public class SynthesisToolHandler {
         } catch (Exception e) {
             LOG.warning("Ask failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Ask failed: " + e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Session history helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Searches episodic memory for sessions relevant to the query.
+     * Returns an empty string if no sessions are found or the database is unavailable.
+     */
+    private String buildSessionContext(String query) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            SessionStore store = new SessionStore(db);
+            List<ClaudeSession> sessions = store.search(sanitizeFtsQuery(query), 3);
+            if (sessions.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (ClaudeSession s : sessions) {
+                sb.append("\n--- Session: ")
+                  .append(s.sessionId().length() > 8 ? s.sessionId().substring(0, 8) + "..." : s.sessionId());
+                if (s.startedAt() != null) {
+                    sb.append(" (").append(s.startedAt().toString(), 0, 10).append(")");
+                }
+                if (s.projectDir() != null) {
+                    sb.append(" [").append(s.projectDir()).append("]");
+                }
+                sb.append(" ---\n");
+                if (s.allUserText() != null && !s.allUserText().isBlank()) {
+                    sb.append(s.allUserText()).append("\n");
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // Sessions DB not available — proceed without session context
+            return "";
         }
     }
 
