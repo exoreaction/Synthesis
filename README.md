@@ -20,7 +20,7 @@ Synthesis is a CLI tool that scans, indexes, and searches workspace file systems
 - AI-enriched companion files with vision descriptions
 
 **Integrations:**
-- MCP server for Claude Code, Cursor, Aider (7 tools)
+- MCP server for Claude Code, Cursor, Aider (8 tools)
 - LSP server for IDE integration (symbols, hover, diagnostics, architecture alerts)
 - Daemon mode with real-time architecture monitoring (`synthesis watch`)
 
@@ -71,7 +71,7 @@ Synthesis exposes its capabilities through two server protocols for seamless int
 
 ### MCP Server (AI Agent Integration)
 
-Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides seven tools over JSON-RPC 2.0: `search`, `relate`, `graph`, `stats` (offline), plus `ask`, `enrich`, and `explain` (AI-powered).
+Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides eight tools over JSON-RPC 2.0: `search`, `relate`, `graph`, `stats`, `sessions` (offline), plus `ask`, `enrich`, and `explain` (AI-powered).
 
 | Document | Description | Time |
 |----------|-------------|------|
@@ -350,6 +350,7 @@ See [FEATURE-LOCAL-MEDIA-ENRICHMENT.md](docs/features/FEATURE-LOCAL-MEDIA-ENRICH
 | `watch` | Watch mode -- monitors file changes and auto-updates index in real-time |
 | `diff <ref>` | Git diff integration -- shows changed files between refs, optionally search only changed files |
 | `changed --since <d>` | Git history -- files changed since date (supports `7d`, `24h`, `2w`, `YYYY-MM-DD`) |
+| `sessions` | Index and search Claude Code session history (episodic memory) |
 
 ### Global Options
 
@@ -567,8 +568,12 @@ io.exoreaction.synthesis/
     DownloadsClassifier.java # File classification for Downloads routing
   mcp/                       # MCP server (AI agent integration)
     SynthesisMCPServer.java  # MCP protocol handler (JSON-RPC 2.0 over stdio)
-    SynthesisToolHandler.java# Tool implementations (search, relate, graph, stats)
+    SynthesisToolHandler.java# Tool implementations (search, relate, graph, stats, sessions)
     JsonRpcMessage.java      # JSON-RPC 2.0 message types
+  sessions/                  # Claude Code session history (episodic memory)
+    ClaudeSession.java       # Immutable session record
+    ClaudeSessionScanner.java# JSONL parser with incremental scanning
+    SessionStore.java        # SQLite DAO with FTS5 search
   lsp/                       # LSP server (IDE integration)
     SynthesisLanguageServer.java   # LSP 3.17 server (workspace symbols, hover, etc.)
     SynthesisTextDocumentService.java # Document links, hover, diagnostics, definition
@@ -586,7 +591,7 @@ io.exoreaction.synthesis/
 # Compile
 mvn compile
 
-# Run tests (3,933 tests)
+# Run tests (4,170 tests)
 mvn test
 
 # Build executable JAR

@@ -717,6 +717,17 @@ public class SynthesisMCPServer {
                         "Returns the settings.json hook entry. Always runs in dry-run mode (returns JSON, does not write to disk).",
                 createHooksGenerateSchema()
         ));
+
+        // Tool: sessions (episodic memory — Layer 2)
+        toolsArray.add(createToolDefinition(
+                "sessions",
+                "Search and list indexed Claude Code session history (episodic memory). " +
+                        "Use action=search with a query to find sessions by content, " +
+                        "or action=list to browse recent sessions. " +
+                        "Run 'synthesis sessions scan' first to index ~/.claude/projects/.",
+                createSessionsSchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -785,6 +796,7 @@ public class SynthesisMCPServer {
                 // Group 6: Session lifecycle
                 case "session_context" -> toolHandler.handleSessionContext(toolArgs);
                 case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
+                case "sessions" -> toolHandler.handleSessions(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1435,6 +1447,50 @@ public class SynthesisMCPServer {
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
+        return schema;
+    }
+
+    private ObjectNode createSessionsSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode action = mapper.createObjectNode();
+        action.put("type", "string");
+        ArrayNode actionEnum = mapper.createArrayNode();
+        actionEnum.add("search");
+        actionEnum.add("list");
+        action.set("enum", actionEnum);
+        action.put("description", "Action: search (FTS query) or list (recent sessions)");
+        properties.set("action", action);
+
+        ObjectNode query = mapper.createObjectNode();
+        query.put("type", "string");
+        query.put("description", "FTS search query (for action=search)");
+        properties.set("query", query);
+
+        ObjectNode project = mapper.createObjectNode();
+        project.put("type", "string");
+        project.put("description", "Filter by project directory substring (optional, for action=list)");
+        properties.set("project", project);
+
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        since.put("description", "Duration filter e.g. 7d, 30d (optional, for action=list)");
+        properties.set("since", since);
+
+        ObjectNode limit = mapper.createObjectNode();
+        limit.put("type", "integer");
+        limit.put("default", 10);
+        limit.put("description", "Maximum number of results (default 10)");
+        properties.set("limit", limit);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("action");
+        schema.set("required", required);
+
         return schema;
     }
 
