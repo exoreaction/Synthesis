@@ -1,0 +1,208 @@
+name: synthesis-sessions
+version: 1.0.0
+description: |
+  Index and search Claude Code session history as episodic memory (Layer 2).
+  Provides FTS5 search across all past sessions, temporal filtering, and project scoping.
+  New in Synthesis v1.21.0.
+
+trigger_phrases:
+  - "session history"
+  - "past sessions"
+  - "what did we discuss"
+  - "what did we decide"
+  - "synthesis sessions"
+  - "episodic memory"
+  - "session search"
+  - "find session"
+
+instructions: |
+  # Synthesis Sessions - Episodic Memory (v1.21.0+)
+
+  **Purpose:** Index and search Claude Code session transcripts (~/.claude/projects/**/*.jsonl)
+  as episodic memory. Find past decisions, rejected approaches, and context from previous sessions.
+  **New in:** Synthesis v1.21.0 (March 3, 2026)
+  **Database:** V18 migration (claude_sessions + FTS5 + sync triggers)
+  **Storage:** Global database (`~/.synthesis/synthesis.db`), not workspace-specific
+
+  **Integration with `ask` (v1.21.1+):** `synthesis ask` and `mcp ask` automatically enrich
+  answers with up to 3 relevant sessions. No extra flags needed — just keep sessions indexed.
+
+  ---
+
+  ## When to Scan
+
+  Run `synthesis sessions scan` in these situations:
+  - First time using sessions (indexes all existing JSONL files)
+  - After a long gap (picks up sessions created since last scan)
+  - Scanning is incremental: unchanged files are skipped automatically
+  - First scan: ~109s for 2,971 sessions. Subsequent scans: near-instant.
+
+  ---
+
+  ## Command Syntax
+
+  ```bash
+  export PATH="$HOME/.synthesis/bin:$PATH"
+
+  # Index session history (incremental)
+  synthesis sessions scan 2>/dev/null
+
+  # FTS5 search across all sessions
+  synthesis sessions search "authentication" 2>/dev/null
+
+  # List recent sessions (default limit: 10)
+  synthesis sessions list 2>/dev/null
+
+  # Filter by project directory
+  synthesis sessions list --project my-project 2>/dev/null
+
+  # Filter by time window
+  synthesis sessions list --since 7d 2>/dev/null
+
+  # Full detail for one session
+  synthesis sessions get <session-id> 2>/dev/null
+  ```
+
+  ---
+
+  ## FTS5 Query Syntax
+
+  The search uses SQLite FTS5. Supported query patterns:
+
+  | Query | Meaning |
+  |-------|---------|
+  | `authentication` | Simple term match |
+  | `authentication migration` | Both terms (implicit AND) |
+  | `authentication OR authorization` | Either term |
+  | `"database migration"` | Exact phrase |
+  | `auth*` | Prefix match |
+
+  FTS5 searches across two fields: `first_message` (session opening intent) and
+  `all_user_text` (aggregated user turns, capped at 1000 chars per turn).
+
+  ---
+
+  ## Common Patterns
+
+  ### Find sessions where a topic was discussed
+  ```bash
+  synthesis sessions search "authentication" 2>/dev/null
+  ```
+
+  ### Find what was decided about a specific issue
+  ```bash
+  synthesis sessions search "database schema migration" 2>/dev/null
+  ```
+
+  ### Show recent sessions in this project
+  ```bash
+  synthesis sessions list --project $(basename $(pwd)) --since 7d 2>/dev/null
+  ```
+
+  ### Cross-reference with workspace search (Layer 2 + Layer 3)
+  ```bash
+  # Layer 2: What did we discuss about X?
+  synthesis sessions search "caching strategy" 2>/dev/null
+
+  # Layer 3: What exists in the codebase about X?
+  synthesis search "caching" 2>/dev/null
+  synthesis relate "CacheManager.java" 2>/dev/null
+  ```
+
+  This combination answers both "what did we decide?" (sessions) and
+  "what did we build?" (workspace).
+
+  ---
+
+  ## MCP Tool
+
+  Tool name: `sessions`
+
+  ### Search sessions
+  ```json
+  {
+    "action": "search",
+    "query": "authentication refactoring",
+    "limit": 10
+  }
+  ```
+
+  ### List sessions
+  ```json
+  {
+    "action": "list",
+    "project": "my-project",
+    "since": "7d",
+    "limit": 5
+  }
+  ```
+
+  Parameters:
+  - `action` (required): "search" or "list"
+  - `query` (required for search): FTS5 query string
+  - `project` (optional, for list): filter by project directory substring
+  - `since` (optional, for list): time window (e.g., "7d", "24h")
+  - `limit` (optional): max results, default 10
+
+  ---
+
+  ## Output Format
+
+  Each session listing shows:
+  - **Session ID:** unique identifier
+  - **Project:** directory name the session was associated with
+  - **Started:** timestamp
+  - **Turns:** number of conversation turns
+  - **Tools:** count and names of tools used
+  - **Opening intent:** first user message (what the session was about)
+
+  Search results additionally show matching text excerpts ranked by FTS5 relevance.
+
+  ---
+
+  ## Three-Layer AI Memory Model
+
+  | Layer | Type | Synthesis Feature |
+  |-------|------|-------------------|
+  | 1 | Working memory | Context window (current conversation) |
+  | 2 | Episodic memory | `synthesis sessions search/list` + **automatic enrichment in `ask`** |
+  | 3 | Semantic memory | `synthesis search`, `relate`, `impact` |
+
+  Sessions fills Layer 2: knowledge from past conversations that is not captured
+  in workspace files.
+
+  **Layer 2 is now automatically integrated into Layer 3 queries:** `synthesis ask` and the
+  MCP `ask` tool search both workspace files (Layer 3) and session history (Layer 2) and
+  combine both into a single answer. No manual cross-referencing needed.
+
+  ---
+
+  ## When NOT to Rely on Sessions
+
+  - Very old sessions may have been pruned by Claude Code itself
+  - `all_user_text` is capped at 1000 characters per turn (long code pastes truncated)
+  - Sessions are conversation records, not source of truth -- always verify against actual code
+  - Session content is not indexed in Lucene (use `synthesis search` for workspace files)
+
+  ---
+
+  ## Performance
+
+  - First scan: 2,971 sessions indexed in 109 seconds
+  - Incremental scan: near-instant (skips unchanged files by lastModified comparison)
+  - FTS5 search: sub-second for typical queries
+  - All SessionStore methods are synchronized (safe for concurrent CLI + MCP access)
+
+  ---
+
+  ## Integration with Other Skills
+
+  After finding sessions:
+  - "Search the codebase for what was built" -> Use `synthesis-search-workspace` skill
+  - "Show relationships of the file discussed" -> Use `synthesis-relate-dependencies` skill
+  - "See recent changes to the workspace" -> Use `synthesis-changelog-reports` skill
+  - "Get AI explanation of code referenced" -> Use `synthesis-explain-code` skill
+
+  ---
+
+  **Last updated:** March 3, 2026
