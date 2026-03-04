@@ -69,6 +69,9 @@ public class TelemetryConfig {
         return slackWebhookUrl != null && !slackWebhookUrl.isBlank();
     }
 
+    /** Filename for the per-command throttle state file. */
+    public static final String THROTTLE_FILENAME = "telemetry-throttle.properties";
+
     /**
      * Returns the path to the global telemetry config file.
      */
@@ -83,6 +86,22 @@ public class TelemetryConfig {
      */
     public static Path getConfigPath(Path homeDir) {
         return homeDir.resolve(ClientUUID.GLOBAL_DIR).resolve(CONFIG_FILENAME);
+    }
+
+    /**
+     * Returns the path to the global per-command throttle state file.
+     */
+    public static Path getThrottlePath() {
+        return Path.of(System.getProperty("user.home"))
+                .resolve(ClientUUID.GLOBAL_DIR)
+                .resolve(THROTTLE_FILENAME);
+    }
+
+    /**
+     * Returns the throttle state path under a custom home directory (for testing).
+     */
+    public static Path getThrottlePath(Path homeDir) {
+        return homeDir.resolve(ClientUUID.GLOBAL_DIR).resolve(THROTTLE_FILENAME);
     }
 
     /**

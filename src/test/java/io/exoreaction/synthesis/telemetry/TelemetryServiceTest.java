@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -177,5 +178,103 @@ class TelemetryServiceTest {
     void serviceVersionIsSet() {
         assertNotNull(TelemetryService.SYNTHESIS_VERSION);
         assertFalse(TelemetryService.SYNTHESIS_VERSION.isBlank());
+    }
+
+    // ---- Throttle tests ----
+
+    @Test
+    void throttle_first_call_writes_state_file() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setSlackWebhookUrl("https://hooks.slack.com/test");
+        Path throttlePath = tempDir.resolve(".synthesis/telemetry-throttle.properties");
+
+        TelemetryService service = new TelemetryService(config, "test-uuid", throttlePath);
+        service.reportCommand("changelog", true, 100);
+        service.shutdown();
+
+        assertTrue(Files.exists(throttlePath), "Throttle file should be created on first call");
+        Properties props = new Properties();
+        try (var in = Files.newInputStream(throttlePath)) { props.load(in); }
+        assertTrue(props.containsKey("changelog"), "changelog key should be stored in throttle file");
+    }
+
+    @Test
+    void throttle_blocks_same_command_within_window() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setSlackWebhookUrl("https://hooks.slack.com/test");
+        Path throttlePath = tempDir.resolve(".synthesis/telemetry-throttle.properties");
+
+        // Pre-populate with a "just sent" timestamp
+        Files.createDirectories(throttlePath.getParent());
+        long tsBefore = System.currentTimeMillis();
+        Properties setup = new Properties();
+        setup.setProperty("changelog", String.valueOf(tsBefore));
+        try (var out = Files.newOutputStream(throttlePath)) { setup.store(out, null); }
+
+        TelemetryService service = new TelemetryService(config, "test-uuid", throttlePath);
+        service.reportCommand("changelog", true, 100); // should be throttled
+        service.shutdown();
+
+        // Throttle file timestamp should NOT have advanced
+        Properties after = new Properties();
+        try (var in = Files.newInputStream(throttlePath)) { after.load(in); }
+        assertEquals(tsBefore, Long.parseLong(after.getProperty("changelog")),
+                "Timestamp must not change when command is throttled");
+    }
+
+    @Test
+    void throttle_allows_same_command_after_window_expires() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setSlackWebhookUrl("https://hooks.slack.com/test");
+        Path throttlePath = tempDir.resolve(".synthesis/telemetry-throttle.properties");
+
+        // Pre-populate with a timestamp older than the throttle window
+        Files.createDirectories(throttlePath.getParent());
+        long oldTs = System.currentTimeMillis() - TelemetryService.THROTTLE_WINDOW_MS - 5_000;
+        Properties setup = new Properties();
+        setup.setProperty("changelog", String.valueOf(oldTs));
+        try (var out = Files.newOutputStream(throttlePath)) { setup.store(out, null); }
+
+        TelemetryService service = new TelemetryService(config, "test-uuid", throttlePath);
+        service.reportCommand("changelog", true, 100); // should NOT be throttled
+        service.shutdown();
+
+        Properties after = new Properties();
+        try (var in = Files.newInputStream(throttlePath)) { after.load(in); }
+        long tsAfter = Long.parseLong(after.getProperty("changelog"));
+        assertTrue(tsAfter > oldTs, "Timestamp should be refreshed after window expires");
+    }
+
+    @Test
+    void throttle_different_commands_are_independent() throws IOException {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setSlackWebhookUrl("https://hooks.slack.com/test");
+        Path throttlePath = tempDir.resolve(".synthesis/telemetry-throttle.properties");
+
+        // Pre-populate changelog as throttled
+        Files.createDirectories(throttlePath.getParent());
+        Properties setup = new Properties();
+        setup.setProperty("changelog", String.valueOf(System.currentTimeMillis()));
+        try (var out = Files.newOutputStream(throttlePath)) { setup.store(out, null); }
+
+        TelemetryService service = new TelemetryService(config, "test-uuid", throttlePath);
+        service.reportCommand("scan", true, 200); // different command, should NOT be throttled
+        service.shutdown();
+
+        Properties after = new Properties();
+        try (var in = Files.newInputStream(throttlePath)) { after.load(in); }
+        assertTrue(after.containsKey("scan"), "scan should be stored regardless of changelog throttle");
+    }
+
+    @Test
+    void throttle_null_path_never_throttles() {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setSlackWebhookUrl("https://hooks.slack.com/test");
+
+        // throttlePath=null → throttling disabled, no file I/O, no exceptions
+        TelemetryService service = new TelemetryService(config, "test-uuid", null);
+        assertDoesNotThrow(() -> service.reportCommand("scan", true, 100));
+        assertDoesNotThrow(() -> service.reportCommand("scan", true, 100));
+        service.shutdown();
     }
 }

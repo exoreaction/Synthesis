@@ -6,7 +6,9 @@ import com.slack.api.webhook.WebhookResponse;
 import io.exoreaction.synthesis.util.Version;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -44,20 +46,30 @@ public class TelemetryService {
     /** Synthesis version string, used in telemetry events. */
     public static final String SYNTHESIS_VERSION = Version.getVersion();
 
+    /**
+     * Minimum milliseconds between reports of the same command.
+     * Prevents Slack flooding when cron scripts invoke the same command
+     * multiple times in quick succession (e.g. changelog across 4 workspaces).
+     */
+    static final long THROTTLE_WINDOW_MS = 60_000; // 60 seconds
+
     private final TelemetryConfig config;
     private final String clientUuid;
     private final ExecutorService executor;
     private final Slack slack;
+    private final Path throttlePath;
 
     /**
-     * Creates a TelemetryService with the given config and UUID.
+     * Creates a TelemetryService with the given config, UUID, and throttle state path.
      *
-     * @param config the telemetry configuration
-     * @param clientUuid the client UUID for this installation
+     * @param config       the telemetry configuration
+     * @param clientUuid   the client UUID for this installation
+     * @param throttlePath path to the per-command throttle state file (may be null to disable throttling)
      */
-    public TelemetryService(TelemetryConfig config, String clientUuid) {
+    TelemetryService(TelemetryConfig config, String clientUuid, Path throttlePath) {
         this.config = config;
         this.clientUuid = clientUuid;
+        this.throttlePath = throttlePath;
 
         if (config.isWebhookConfigured()) {
             // Single daemon thread -- telemetry should be lightweight
@@ -74,6 +86,17 @@ public class TelemetryService {
     }
 
     /**
+     * Creates a TelemetryService with the given config and UUID.
+     * Uses the default throttle state path ({@code ~/.synthesis/telemetry-throttle.properties}).
+     *
+     * @param config     the telemetry configuration
+     * @param clientUuid the client UUID for this installation
+     */
+    public TelemetryService(TelemetryConfig config, String clientUuid) {
+        this(config, clientUuid, TelemetryConfig.getThrottlePath());
+    }
+
+    /**
      * Creates a no-op TelemetryService that silently discards all events.
      *
      * <p>Used in air-gapped mode ({@code SYNTHESIS_EDITION=core} or
@@ -83,7 +106,7 @@ public class TelemetryService {
      * @return a TelemetryService that does nothing
      */
     public static TelemetryService createNoOp() {
-        return new TelemetryService(new TelemetryConfig(), "air-gapped");
+        return new TelemetryService(new TelemetryConfig(), "air-gapped", null);
     }
 
     /**
@@ -101,9 +124,9 @@ public class TelemetryService {
         try {
             uuid = ClientUUID.getOrCreate();
         } catch (IOException e) {
-            return new TelemetryService(new TelemetryConfig(), "unknown");
+            return new TelemetryService(new TelemetryConfig(), "unknown", null);
         }
-        return new TelemetryService(config, uuid);
+        return new TelemetryService(config, uuid, TelemetryConfig.getThrottlePath());
     }
 
     /**
@@ -115,9 +138,9 @@ public class TelemetryService {
         try {
             uuid = ClientUUID.getOrCreate(ClientUUID.getUuidPath(homeDir));
         } catch (IOException e) {
-            return new TelemetryService(new TelemetryConfig(), "unknown");
+            return new TelemetryService(new TelemetryConfig(), "unknown", null);
         }
-        return new TelemetryService(config, uuid);
+        return new TelemetryService(config, uuid, TelemetryConfig.getThrottlePath(homeDir));
     }
 
     /**
@@ -132,13 +155,56 @@ public class TelemetryService {
     /**
      * Reports a command execution event.
      *
+     * <p>Throttled: if the same command was reported within
+     * {@link #THROTTLE_WINDOW_MS} milliseconds, the event is silently dropped.
+     * This prevents Slack flooding when cron scripts run the same command
+     * across multiple workspaces in rapid succession.
+     *
      * @param commandName the command name (e.g., "scan", "search", "init")
      * @param success whether the command completed successfully
      * @param durationMs execution duration in milliseconds
      */
     public void reportCommand(String commandName, boolean success, long durationMs) {
         if (!isActive()) return;
+        if (isThrottled(commandName)) return;
         send(TelemetryEvent.command(clientUuid, commandName, success, durationMs));
+    }
+
+    /**
+     * Returns {@code true} if the given command was reported too recently.
+     *
+     * <p>Reads and updates a per-command timestamp file at {@link #throttlePath}.
+     * If the file cannot be read or written, throttling is silently skipped.
+     */
+    private boolean isThrottled(String commandName) {
+        if (throttlePath == null) return false;
+        try {
+            Properties props = new Properties();
+            if (Files.exists(throttlePath)) {
+                try (var in = Files.newInputStream(throttlePath)) {
+                    props.load(in);
+                }
+            }
+            // Sanitize key: properties files don't allow all characters
+            String key = commandName.replaceAll("[^a-zA-Z0-9_.-]", "_");
+            long now = System.currentTimeMillis();
+            String lastStr = props.getProperty(key);
+            if (lastStr != null) {
+                try {
+                    long last = Long.parseLong(lastStr);
+                    if (now - last < THROTTLE_WINDOW_MS) return true;
+                } catch (NumberFormatException ignored) {}
+            }
+            // Update timestamp and persist
+            props.setProperty(key, String.valueOf(now));
+            Files.createDirectories(throttlePath.getParent());
+            try (var out = Files.newOutputStream(throttlePath)) {
+                props.store(out, null);
+            }
+            return false;
+        } catch (Exception e) {
+            return false; // Never block telemetry on throttle errors
+        }
     }
 
     /**

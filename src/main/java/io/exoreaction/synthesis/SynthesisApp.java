@@ -260,6 +260,27 @@ public class SynthesisApp implements Callable<Integer> {
         return 0;
     }
 
+    /**
+     * Extracts the subcommand name from the raw args array.
+     *
+     * <p>Skips top-level flags and their values so that
+     * {@code synthesis -d /workspace changelog} returns {@code "changelog"}
+     * rather than {@code "-d"}.
+     *
+     * @param args the raw CLI arguments
+     * @return the first non-flag argument, or {@code "help"} if none found
+     */
+    static String extractCommandName(String[] args) {
+        boolean skipNext = false;
+        for (String arg : args) {
+            if (skipNext) { skipNext = false; continue; }
+            if (arg.equals("-d") || arg.equals("--directory")) { skipNext = true; continue; }
+            if (arg.startsWith("-")) continue;
+            return arg;
+        }
+        return "help";
+    }
+
     public static void main(String[] args) {
         boolean airGapped = isAirGapped();
 
@@ -286,7 +307,7 @@ public class SynthesisApp implements Callable<Integer> {
         }
 
         // Determine the command name for telemetry tracking
-        String commandName = args.length > 0 ? args[0] : "help";
+        String commandName = extractCommandName(args);
         long startTime = System.currentTimeMillis();
 
         int exitCode;
