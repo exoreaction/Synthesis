@@ -1,7 +1,10 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.graph.CrossWorkspaceResolver;
 import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.org.*;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -115,6 +118,17 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                 } else {
                     edges = new ArrayList<>(edges);
                     edges.addAll(declaredEdges);
+                }
+            }
+
+            // Cross-workspace edges from srcPath / clientRepos config (Issue #281)
+            List<KnowledgeEdge> crossWsEdges = collectCrossWorkspaceEdges(workspaceRoot, nodes);
+            if (!crossWsEdges.isEmpty()) {
+                if (edges instanceof ArrayList) {
+                    edges.addAll(crossWsEdges);
+                } else {
+                    edges = new ArrayList<>(edges);
+                    edges.addAll(crossWsEdges);
                 }
             }
 
@@ -425,6 +439,61 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
     }
 
     /**
+     * Creates cross-workspace edges from {@code srcPath} and {@code clientRepos}
+     * declarations in the workspace configuration (Issue #281).
+     *
+     * <p>For each knowledge node, asks {@link CrossWorkspaceResolver} whether any
+     * declared src path matches the node's relative path. Matching nodes produce a
+     * {@link KnowledgeEdge} with:
+     * <ul>
+     *   <li>{@code filePath} = the docs dir path (source node key)</li>
+     *   <li>{@code directoryPath} = the absolute src workspace path (target)</li>
+     *   <li>{@code relationship} = {@code "src"}</li>
+     *   <li>{@code bidStrength} = 0.9 (clientRepo) or 0.8 (subWorkspace)</li>
+     * </ul>
+     *
+     * <p>Returns an empty list if no sub-workspace has {@code srcPath} declared,
+     * or if the config file cannot be loaded.
+     *
+     * @param workspaceRoot the workspace root directory
+     * @param nodes         the collected knowledge nodes
+     * @return deduplicated list of cross-workspace edges
+     */
+    List<KnowledgeEdge> collectCrossWorkspaceEdges(Path workspaceRoot,
+                                                    List<KnowledgeNode> nodes) {
+        SynthesisConfig config;
+        try {
+            config = ConfigLoader.load(workspaceRoot);
+        } catch (IOException e) {
+            return List.of(); // config unavailable — skip silently
+        }
+
+        // Early exit: no sub-workspace has srcPath or clientRepos declared
+        boolean anyDeclared = config.getSubWorkspaces().stream()
+                .anyMatch(sub -> !sub.getSrcPath().isBlank()
+                        || !sub.getClientRepos().isEmpty());
+        if (!anyDeclared) return List.of();
+
+        CrossWorkspaceResolver resolver = new CrossWorkspaceResolver();
+        Map<String, KnowledgeEdge> deduped = new LinkedHashMap<>();
+
+        for (KnowledgeNode node : nodes) {
+            List<CrossWorkspaceResolver.CrossWorkspaceLink> links =
+                    resolver.resolve(config, node.path());
+            for (CrossWorkspaceResolver.CrossWorkspaceLink link : links) {
+                String key = link.docsRelPath() + "|" + link.srcAbsPath();
+                deduped.putIfAbsent(key, new KnowledgeEdge(
+                        link.docsRelPath(),
+                        link.srcAbsPath(),
+                        "src",
+                        link.confidence()));
+            }
+        }
+
+        return new ArrayList<>(deduped.values());
+    }
+
+    /**
      * Parses the {@code related:} list from a {@code .synthesis.md} file's
      * YAML front matter. Returns an empty list if the field is absent.
      */
@@ -584,6 +653,19 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             sb.append(renderKcpAsciiSection(kcpUnits, kcpEdges));
         }
 
+        // Cross-workspace links section
+        List<KnowledgeEdge> srcEdges = edges.stream()
+                .filter(e -> "src".equals(e.relationship()))
+                .toList();
+        if (!srcEdges.isEmpty()) {
+            sb.append("\nCross-workspace links:\n");
+            sb.append("-".repeat(40)).append("\n");
+            for (KnowledgeEdge edge : srcEdges) {
+                sb.append(String.format("  %-30s ──[src]──> %s%n",
+                        edge.filePath() + "/", edge.directoryPath()));
+            }
+        }
+
         return sb.toString();
     }
 
@@ -714,8 +796,30 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             sb.append("    ").append(id).append(shape).append("\n");
         }
 
-        // Edges: virtual memberships
+        // External src nodes (stadium shape) for cross-workspace edges (Issue #281)
         for (KnowledgeEdge edge : edges) {
+            if (!"src".equals(edge.relationship())) continue;
+            String srcPath = edge.directoryPath();
+            if (nodeIds.containsKey(srcPath)) continue; // already present
+            String extId = "ext" + (idCounter++);
+            nodeIds.put(srcPath, extId);
+            String label = srcPath.contains("/")
+                    ? srcPath.substring(srcPath.lastIndexOf('/') + 1)
+                    : srcPath;
+            sb.append("    ").append(extId).append("([").append(label).append("])\n");
+        }
+
+        // Edges: virtual memberships + cross-workspace src edges
+        for (KnowledgeEdge edge : edges) {
+            if ("src".equals(edge.relationship())) {
+                // Cross-workspace edge: docs dir → external src node, double arrow
+                String sourceId = nodeIds.get(edge.filePath());
+                String targetId = nodeIds.get(edge.directoryPath());
+                if (sourceId != null && targetId != null) {
+                    sb.append(String.format("    %s ==>|src| %s%n", sourceId, targetId));
+                }
+                continue;
+            }
             // Find the source directory (parent directory of the file)
             String fileDir = edge.filePath.contains("/")
                     ? edge.filePath.substring(0, edge.filePath.lastIndexOf('/'))

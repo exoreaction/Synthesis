@@ -74,6 +74,11 @@ public class SynthesisConfig {
         private String type = "general";
         private String description = "";
         private WorkspaceMetadata metadata = new WorkspaceMetadata();
+        /**
+         * Cross-company link policy for knowledge-graph edges.
+         * Values: {@code never} | {@code explicit_only} (default) | {@code allow_all}
+         */
+        private String crossCompanyLinks = "explicit_only";
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -86,6 +91,11 @@ public class SynthesisConfig {
 
         public WorkspaceMetadata getMetadata() { return metadata; }
         public void setMetadata(WorkspaceMetadata metadata) { this.metadata = metadata; }
+
+        public String getCrossCompanyLinks() { return crossCompanyLinks; }
+        public void setCrossCompanyLinks(String crossCompanyLinks) {
+            this.crossCompanyLinks = crossCompanyLinks != null ? crossCompanyLinks : "explicit_only";
+        }
 
         /**
          * Returns the resolved workspace type, preferring metadata.category
@@ -346,6 +356,33 @@ public class SynthesisConfig {
      *       - "**&#47;archive/**"
      * </pre>
      */
+    /**
+     * Maps a docs sub-directory to a corresponding source code workspace.
+     * Used by {@code CrossWorkspaceResolver} to build cross-workspace edges
+     * in the knowledge graph.
+     *
+     * <p>Example YAML:
+     * <pre>
+     *   clientRepos:
+     *     - docs: eXOReaction/clients/Elprint
+     *       src:  /src/elprint/
+     * </pre>
+     */
+    public static class ClientRepoConfig {
+        /** Relative docs path under the workspace root (e.g. {@code eXOReaction/clients/Elprint}). */
+        private String docs = "";
+        /** Absolute path to the source workspace (e.g. {@code /src/elprint/}). */
+        private String src  = "";
+
+        public ClientRepoConfig() {}
+
+        public String getDocs() { return docs; }
+        public void setDocs(String docs) { this.docs = docs != null ? docs : ""; }
+
+        public String getSrc() { return src; }
+        public void setSrc(String src) { this.src = src != null ? src : ""; }
+    }
+
     public static class SubWorkspaceConfig {
         private String name = "";
         private String path = "";
@@ -355,6 +392,17 @@ public class SynthesisConfig {
         private List<String> codebases = new ArrayList<>();
         private List<String> includePatterns = null;
         private List<String> excludePatterns = null;
+        /**
+         * Absolute path to the primary source workspace for this sub-workspace
+         * (e.g. {@code /src/exoreaction/}). Used for cross-workspace edges in the
+         * knowledge graph. Empty string means no link declared.
+         */
+        private String srcPath = "";
+        /**
+         * Fine-grained client repository mappings within this sub-workspace.
+         * Each entry maps a relative docs path to an absolute src workspace path.
+         */
+        private List<ClientRepoConfig> clientRepos = new ArrayList<>();
 
         public SubWorkspaceConfig() {}
 
@@ -403,6 +451,16 @@ public class SynthesisConfig {
          */
         public List<String> getExcludePatterns() { return excludePatterns; }
         public void setExcludePatterns(List<String> excludePatterns) { this.excludePatterns = excludePatterns; }
+
+        /** Absolute src workspace path for this sub-workspace (empty = not declared). */
+        public String getSrcPath() { return srcPath; }
+        public void setSrcPath(String srcPath) { this.srcPath = srcPath != null ? srcPath : ""; }
+
+        /** Fine-grained client repository mappings. */
+        public List<ClientRepoConfig> getClientRepos() { return clientRepos; }
+        public void setClientRepos(List<ClientRepoConfig> clientRepos) {
+            this.clientRepos = clientRepos != null ? clientRepos : new ArrayList<>();
+        }
 
         /**
          * Returns whether this sub-workspace is a staging type.
