@@ -1,0 +1,406 @@
+name: synthesis-knowledge-graphs
+version: 1.1.0
+description: |
+  Deep reference for all three Synthesis knowledge graph layers: Document KG (directory
+  centroids + health signals + cross-workspace edges), Code KG (CKG-1 through CKG-5), and
+  KCP KG (synthesis kg). No competitor operates at all three levels simultaneously. Covers
+  commercial value per layer, ICP per layer, and defensibility assessment.
+
+tags:
+  - synthesis
+  - knowledge-graph
+  - architecture
+  - code-graph
+  - kcp
+
+trigger_phrases:
+  - "knowledge graph"
+  - "document knowledge graph"
+  - "code knowledge graph"
+  - "CKG"
+  - "synthesis kg"
+  - "directory centroids"
+  - "health signals"
+  - "W020"
+  - "code-graph"
+  - "three layer"
+  - "synthesis graph layers"
+  - "cross-workspace edges"
+  - "srcPath"
+  - "clientRepos"
+  - "crossCompanyLinks"
+  - "docs to src"
+
+instructions: |
+  # Synthesis Three-Layer Knowledge Graph Architecture
+
+  **The single most defensible differentiator in the Synthesis product:**
+  No competitor operates at document, code, AND protocol graph levels simultaneously.
+
+  ---
+
+  ## Layer Overview
+
+  | Layer | Commands | What it models | Who buys for this |
+  |-------|----------|---------------|-------------------|
+  | **Document KG** | `synthesis insights`, `synthesis describe`, `synthesis structure` | Directory purpose, document health, content drift | Knowledge Manager, Operations Lead, Technical Founder |
+  | **Code KG** | `synthesis code-graph`, `synthesis relate`, `synthesis impact` | Package DAG, security signals, quality gaps | Engineering Manager, Staff Engineer, CISO |
+  | **KCP KG** | `synthesis kg`, `synthesis export --format kcp` | Agent-navigable knowledge units, dependencies | Platform Engineer, DevRel, AI infrastructure teams |
+
+  ---
+
+  ## Layer 1 — Document Knowledge Graph
+
+  ### What it does
+
+  Models the *purpose* and *health* of directory structures — not just what files are there,
+  but whether the directories are achieving their intended function.
+
+  **Core concept:** Directories are not passive containers. They are knowledge nodes with:
+  - An inferred archetype (what kind of directory is this?)
+  - A semantic centroid (what is this directory actually about?)
+  - Wants (what files would make it healthier?)
+  - Health signals (is it fulfilling its purpose or drifting?)
+
+  ### Six Document Archetypes
+
+  | Archetype | Description | Example directories |
+  |-----------|-------------|---------------------|
+  | `architecture` | Design decisions, ADRs, architecture docs | `docs/architecture/`, `adr/` |
+  | `implementation` | Source code with inline documentation | `src/`, `lib/` |
+  | `test` | Test suites and fixtures | `test/`, `spec/` |
+  | `config` | Configuration files, infrastructure | `config/`, `deploy/`, `.github/` |
+  | `docs` | General documentation | `docs/`, `wiki/` |
+  | `data` | Data files, schemas, migrations | `data/`, `migrations/` |
+
+  ### Health Signals
+
+  These appear in `synthesis insights` and code-graph analysis:
+
+  | Signal | Code | Meaning | Action |
+  |--------|------|---------|--------|
+  | **Starvation** | W020 | Directory has too few files for its archetype | Add content or reclassify |
+  | **Drift** | W021 | Directory content diverging from its inferred purpose | Refactor or split |
+  | **Fulfillment** | I020 | Directory achieving its archetypal purpose | No action needed |
+  | **Conflict** | I021 | Two directories with overlapping semantic centroids | Consider merging |
+
+  ### Jaccard Similarity Bidding Model
+
+  When Synthesis determines which archetype a directory belongs to, it uses a weighted
+  Jaccard similarity bidding system:
+
+  | Dimension | Weight | What it measures |
+  |-----------|--------|-----------------|
+  | Topics | 40% | Subject-matter overlap with archetype corpus |
+  | Entities | 45% | Named entities (classes, functions, concepts) matching archetype |
+  | Type | 10% | File type distribution |
+  | Timeframe | 5% | Recency and update cadence |
+
+  The archetype with the highest weighted bid wins. This is why similar directories can be
+  classified differently based on what their files actually discuss.
+
+  ### Commands
+
+  ```bash
+  # Full workspace insights including health signals
+  synthesis insights 2>/dev/null
+
+  # Describe a specific directory's purpose
+  synthesis describe src/main/java/io/exoreaction/ 2>/dev/null
+
+  # Annotated directory tree with archetypes
+  synthesis structure 2>/dev/null
+
+  # Discover scattered concerns, cohesion issues
+  synthesis scatter 2>/dev/null
+  ```
+
+  ### Cross-Workspace Edges (Issue #281, v1.21.3-SNAPSHOT)
+
+  Documents workspaces often sit alongside source code workspaces
+  (e.g. `Documents/eXOReaction/` docs ↔ `/src/exoreaction/` code). Cross-workspace edges
+  make these declared links first-class graph edges, with company-boundary enforcement to
+  prevent false cross-company connections.
+
+  **Configuration** (`.synthesis/config.yaml` or `synthesis-config.yaml`):
+  ```yaml
+  workspace:
+    crossCompanyLinks: explicit_only   # never | explicit_only (default) | allow_all
+
+  subWorkspaces:
+    - name: eXOReaction
+      path: eXOReaction
+      srcPath: /src/exoreaction          # → 0.80 confidence edge
+      clientRepos:
+        - docs: eXOReaction/clients/Elprint
+          src:  /src/elprint             # → 0.90 confidence (more specific)
+    - name: Cantara
+      path: Cantara
+      srcPath: /src/cantara
+  ```
+
+  **How edges are resolved:**
+  1. `clientRepos` entries checked first (most specific → confidence 0.90)
+  2. `subWorkspaces[].srcPath` fallback (top-level → confidence 0.80)
+  3. `canLink()` boundary policy: same-company always allowed; cross-company only if `allow_all`
+
+  **Output:**
+  - **ASCII:** "Cross-workspace links" section at the end — one line per unique src target
+    ```
+    Cross-workspace links:
+    ----------------------------------------
+      Cantara/                       ──[src]──> /src/cantara
+      eXOReaction/clients/Elprint/   ──[src]──> /src/elprint
+      eXOReaction/                   ──[src]──> /src/exoreaction
+    ```
+  - **Mermaid:** External nodes with stadium shape `([label])` + `==>|src|` double arrows
+    (visually distinct from intra-workspace `-.->` dashed arrows)
+  - **JSON:** `relationship: "src"` edges in `virtualMemberships` array
+
+  **Key class:** `CrossWorkspaceResolver` in `io.exoreaction.synthesis.graph`
+
+  ### Commercial Value
+
+  **ICP:** Knowledge Manager, Operations Lead, or Technical Founder at 10-50 person company
+  generating 100+ documents/month. Trigger: "we can never find anything" or "new hires take
+  3 months to get productive."
+
+  **Defensibility:** MEDIUM-HIGH (6-12 months to replicate by a well-funded competitor).
+  The bidding model and archetype system require design decisions hard to replicate without
+  seeing the full architecture. **Marketing challenge:** No customer has yet paid specifically
+  for "directory centroids." Needs a simpler wrapper — "your workspace organizes itself."
+
+  ---
+
+  ## Layer 2 — Code Knowledge Graph (CKG-1 through CKG-5)
+
+  The **most commercially valuable layer today.** Solves well-understood problems with
+  quantifiable outputs that engineering managers and architects budget for.
+
+  ### CKG-1: Package-Level DAG
+
+  Directed acyclic graph of package/module dependencies with Martin instability metrics.
+
+  **Martin metrics (from Robert Martin's "Clean Architecture"):**
+  - **Instability (I):** `fan-out / (fan-in + fan-out)`. 0 = maximally stable (depended on by many), 1 = maximally unstable (depends on many)
+  - **Abstractness (A):** proportion of abstract types in the package
+  - **Distance from main sequence (D):** `|A + I - 1|`. Should be near 0.
+
+  ```bash
+  synthesis code-graph describe 2>/dev/null      # Overview with instability scores
+  synthesis code-graph health 2>/dev/null        # Quality metrics, completeness scoring
+  ```
+
+  **What it surfaces:** Packages that are both unstable AND non-abstract (concrete, volatile
+  — highest change risk), circular dependency clusters, god packages.
+
+  ### CKG-2: Cross-Format Dependency Links
+
+  Maps dependencies that cross file type boundaries:
+  - Code → config (a Java class that reads a specific YAML config key)
+  - Code → schema (a service that validates against a JSON Schema)
+  - Code → docs (a module with an ADR that describes its design)
+  - Code → tests (module-to-test-suite mapping)
+
+  **Why it matters:** Traditional dependency graphs miss that `application.yaml` is a
+  dependency of `ConfigurationService.java`. Cross-format links capture the full picture.
+
+  ### CKG-3: Security Signal Mapping (21 signal types)
+
+  Maps all security findings (from `synthesis security`) as graph nodes, showing which
+  packages and files carry which risk types. Unique: **agentic AI security signals**.
+
+  **Traditional signals (T-prefix):**
+  - SQL injection surfaces, XSS vectors, hardcoded credentials, command injection, path traversal, OWASP Top 10
+
+  **Agentic AI signals (S-prefix, unique to Synthesis):**
+  | Signal | Code | Description |
+  |--------|------|-------------|
+  | Prompt injection vectors | S016 | User-controlled content that reaches LLM prompts |
+  | RAG poisoning paths | S017 | Data sources that can contaminate retrieval |
+  | Unconfirmed agentic actions | S018 | Tool calls that execute without human confirmation |
+  | Missing prompt boundaries | S019 | Prompts that don't isolate user input from system instructions |
+  | Tool call surfaces | S020 | Functions accessible to AI agents without access control |
+  | Agent trust boundaries | S021 | Contexts where agent-generated content is trusted without verification |
+
+  ```bash
+  synthesis security 2>/dev/null                # Full security analysis
+  synthesis code-graph security 2>/dev/null     # Security signals as graph overlay
+  ```
+
+  **ICP:** CISO, VP Engineering at companies deploying AI agents in production.
+  **Defensibility:** HIGH — traditional SAST tools (Snyk, SonarQube, Semgrep) do not cover
+  agentic AI attack surfaces. This is an unclaimed market in 2026.
+
+  ### CKG-4: Quality Gap Identification
+
+  Maps which modules have:
+  - Missing test coverage (code exists, no corresponding test files)
+  - Missing documentation (code exists, no README or doc comments)
+  - High technical debt (large files, high complexity, low test ratio)
+  - Dead code candidates (no incoming references, no outgoing references)
+
+  ```bash
+  synthesis code-graph gaps 2>/dev/null         # Coverage and quality gaps per module
+  ```
+
+  ### CKG-5: Circular Dependency Detection + God Class Identification
+
+  - Circular dependency clusters (architectural smells)
+  - God classes (too many responsibilities)
+  - High-coupling modules (too many cross-dependencies)
+  - Architecture violations (lower layers referencing higher layers)
+
+  These surface both in `synthesis code-graph health` and as real-time LSP diagnostics when
+  using the `synthesis-lsp-server.jar`.
+
+  ### Combined Code-Graph Commands
+
+  ```bash
+  # Full code graph analysis
+  synthesis code-graph 2>/dev/null
+
+  # Specific subcommands
+  synthesis code-graph describe 2>/dev/null      # Package DAG overview
+  synthesis code-graph health 2>/dev/null        # Quality metrics, Martin metrics
+  synthesis code-graph gaps 2>/dev/null          # Missing coverage
+  synthesis code-graph security 2>/dev/null      # Security signal overlay
+
+  # Flags
+  synthesis code-graph --cycles 2>/dev/null      # Focus on circular dependencies
+  synthesis code-graph --hotspots 2>/dev/null    # Focus on high-coupling modules
+
+  # Impact analysis (which files break if this changes?)
+  synthesis impact "src/main/java/io/exoreaction/synthesis/SearchCommand.java" 2>/dev/null
+
+  # Trace path between two files
+  synthesis trace "from:SearchCommand" "to:IndexService" 2>/dev/null
+
+  # Find which file contains a class/function
+  synthesis which "SearchCommand" 2>/dev/null
+  ```
+
+  ### Commercial Value
+
+  **Most commercially valuable layer.** Engineering managers and architects already budget
+  for tools that provide:
+  - Architectural drift detection
+  - Dependency health metrics
+  - Security posture assessment
+
+  **Sales angle:** "A dedicated 'AI Security Posture' report that runs `code-graph security`
+  and produces a PDF-ready audit report would sell to CISOs without requiring adoption of
+  the full Synthesis platform." — 2-month development, no existing competitor.
+
+  **Defensibility:** MEDIUM-HIGH. A well-funded competitor (Sourcegraph, GitHub) could
+  replicate the Code KG in 3-6 months. The agentic AI signals (S016-S021) are more defensible
+  — 12+ months because competitors aren't looking at this problem yet.
+
+  ---
+
+  ## Layer 3 — KCP Knowledge Graph (`synthesis kg`)
+
+  Makes KCP v0.5 knowledge units first-class nodes in the graph, enabling agent-navigable
+  knowledge infrastructure.
+
+  **Synthesis is the first tool with native KCP v0.5 support.**
+
+  ### What it does
+
+  When `synthesis scan` detects `knowledge.yaml` files in the workspace, it:
+  1. Parses all KCP units (id, path, intent, scope, audience, triggers)
+  2. Stores them in SQLite (`kcp_manifests`, `kcp_units`, `kcp_relationships` — V17 tables)
+  3. Makes them available as first-class nodes in all graph outputs
+
+  ### Commands
+
+  ```bash
+  # Knowledge graph (KCP units as pill nodes)
+  synthesis kg 2>/dev/null                       # ASCII output (default)
+  synthesis kg --format mermaid 2>/dev/null      # Mermaid diagram
+  synthesis kg --format json 2>/dev/null         # JSON (for agent consumption)
+  synthesis kg --scope eXOReaction 2>/dev/null   # Scoped to sub-workspace
+
+  # Generate a KCP manifest from indexed workspace
+  synthesis -d /path/to/repo export --format kcp -o knowledge.yaml
+
+  # Audit KCP coverage
+  synthesis kg --format json | jq '.kcpUnits | group_by(.project) | map({project: .[0].project, units: length})'
+  ```
+
+  ### Output Example (ASCII)
+
+  ```
+  KCP Knowledge Units:
+  ----------------------------------------
+    [my-project]
+      • overview: What is this project and why does it exist?
+        → README.md  [scope: global]
+        triggers: overview, introduction, getting-started
+      • api-ref: What endpoints does the API expose?
+        → docs/api.md  [scope: module]
+
+    Relationships:
+      api-ref --[context]--> overview
+  ```
+
+  ### MCP Discovery
+
+  The `synthesis knowledge-graph` MCP tool returns `kcpUnits` and `kcpRelationships` in
+  its JSON response, enabling AI agents to reason about knowledge manifest structure without
+  loading all files.
+
+  ### Commercial Value and Defensibility
+
+  **ICP:** Platform Engineer or DevRel at a company building AI agent workflows.
+  Trigger: MCP integration already in place, seeking better context management for agents.
+
+  **Defensibility:** Depends entirely on KCP ecosystem adoption.
+  - If KCP becomes a standard alongside MCP: first-mover advantage is significant
+  - If KCP fails to gain traction: investment is stranded (but other graph layers are unaffected)
+  - Risk: Anthropic/MCP ecosystem may subsume KCP's role if Claude Code ships native `knowledge.yaml` support
+
+  **Current IANA status:** `kcp.json` well-known URI registration submitted 2026-03-02.
+  Expert review pending. See: `/src/cantara/knowledge-context-protocol/IANA-REGISTRATION.md`
+
+  ---
+
+  ## Cross-Graph Queries (What Makes the Combination Valuable)
+
+  The individual graphs are replicable. The cross-graph insight is not.
+
+  **Example cross-graph query:**
+  "This document directory (Document KG) is showing W020 (starvation) because the code
+  module it describes (Code KG) had 4 files added in the last week but received zero
+  documentation updates. The KCP manifest for this module (KCP KG) specifies `scope: module`
+  and `audience: [developer]` but has not been updated since 2025-11-01."
+
+  No competitor can produce this multi-layer diagnostic because no competitor has all three layers.
+
+  ---
+
+  ## Defensibility Summary
+
+  | Layer | Defensibility | Timeline to Competitor Replication |
+  |-------|--------------|-------------------------------------|
+  | Document KG (directory identity + health) | MEDIUM-HIGH | 6-12 months |
+  | Code KG — CKG-1 (package DAG + Martin metrics) | MEDIUM | 3-6 months |
+  | Code KG — CKG-3 (agentic AI security signals) | HIGH | 12+ months (market not yet aware) |
+  | Code KG — CKG-4/5 (quality gaps + circular deps) | MEDIUM | 3-6 months |
+  | KCP KG (agent-navigable units) | STRATEGIC BET | Depends on KCP adoption |
+  | Cross-graph integration | HIGH | 18-24 months (requires all three layers) |
+
+  ---
+
+  ## Related Skills
+
+  - **synthesis-kcp** — Full KCP v0.5 format reference, manifest generation, database schema
+  - **synthesis-graph-architecture** — `synthesis graph` command (module/dependency/cross-repo)
+  - **synthesis-competitive-positioning** — How the three-layer graph positions vs competitors
+  - **synthesis-executive-reporting** — How the graphs power executive reports
+  - **synthesis-security-analysis** — Detailed security signal reference (coming soon)
+
+  ---
+
+  *Created: March 2, 2026 — Based on Opus product analysis + SYNTHESIS-PRODUCT-ANALYSIS-2026-03-02.md*
+  *Updated: March 4, 2026 — Cross-workspace edges (Issue #281, v1.21.3-SNAPSHOT)*
