@@ -653,17 +653,22 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             sb.append(renderKcpAsciiSection(kcpUnits, kcpEdges));
         }
 
-        // Cross-workspace links section
-        List<KnowledgeEdge> srcEdges = edges.stream()
-                .filter(e -> "src".equals(e.relationship()))
-                .toList();
-        if (!srcEdges.isEmpty()) {
+        // Cross-workspace links section — one line per unique src target (shortest docs path)
+        Map<String, String> srcTargetToDocsPath = new java.util.TreeMap<>();
+        for (KnowledgeEdge edge : edges) {
+            if (!"src".equals(edge.relationship())) continue;
+            String target = edge.directoryPath();
+            String current = srcTargetToDocsPath.get(target);
+            if (current == null || edge.filePath().length() < current.length()) {
+                srcTargetToDocsPath.put(target, edge.filePath());
+            }
+        }
+        if (!srcTargetToDocsPath.isEmpty()) {
             sb.append("\nCross-workspace links:\n");
             sb.append("-".repeat(40)).append("\n");
-            for (KnowledgeEdge edge : srcEdges) {
-                sb.append(String.format("  %-30s ──[src]──> %s%n",
-                        edge.filePath() + "/", edge.directoryPath()));
-            }
+            srcTargetToDocsPath.forEach((target, docsPath) ->
+                    sb.append(String.format("  %-30s ──[src]──> %s%n",
+                            docsPath + "/", target)));
         }
 
         return sb.toString();
