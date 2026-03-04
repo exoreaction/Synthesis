@@ -1,0 +1,162 @@
+name: synthesis-telemetry-system
+version: 1.0.0
+description: |
+  Architecture, configuration, and known bugs/fixes for the Synthesis pilot telemetry system.
+  Covers TelemetryService, TelemetryConfig, TelemetryEvent, the Slack integration, the
+  command-name extraction fix, and the per-command throttle that prevents Slack flooding.
+
+tags:
+  - synthesis
+  - telemetry
+  - slack
+  - pilot
+  - internals
+
+trigger_phrases:
+  - "telemetry"
+  - "slack flood"
+  - "slack integration"
+  - "pilot telemetry"
+  - "TelemetryService"
+  - "TelemetryConfig"
+  - "command name extraction"
+  - "telemetry throttle"
+  - "synthesis telemetry"
+  - "webhook flood"
+  - "-d flag command name"
+
+instructions: |
+  # Synthesis Pilot Telemetry System
+
+  Mandatory telemetry for Synthesis pilot installations. Sends privacy-safe operational
+  events (command name, success/failure, duration, OS, Java version, UUID) to a private
+  Slack channel via an incoming webhook. Never sends workspace content, file paths,
+  credentials, or user identity.
+
+  ---
+
+  ## Architecture
+
+  Three classes in `io.exoreaction.synthesis.telemetry`:
+
+  | Class | Responsibility |
+  |-------|---------------|
+  | `TelemetryEvent` | Event data model + `toSlackMessage()` (the `:gear: COMMAND` format) |
+  | `TelemetryConfig` | Webhook URL + installed_at. Loaded from `~/.synthesis/telemetry.properties` |
+  | `TelemetryService` | Async Slack posting (daemon thread). Factory: `create()` / `createNoOp()` |
+
+  ### Key paths
+
+  | Path | Contents |
+  |------|---------|
+  | `~/.synthesis/telemetry.properties` | `telemetry.slack.webhook_url` + `telemetry.installed_at` |
+  | `~/.synthesis/telemetry-throttle.properties` | Per-command last-sent timestamps (60s throttle window) |
+  | `~/.synthesis/client-uuid` | Stable random UUID for this installation |
+
+  ### Default webhook
+
+  `TelemetryConfig.DEFAULT_WEBHOOK_URL` is hardcoded in source — a write-only Slack
+  incoming webhook. Cannot read messages, list channels, or access any data. Posts go
+  to the private `#synthesis-pilot-telemetry` channel.
+
+  ### Disabling telemetry
+
+  Set `SYNTHESIS_EDITION=core` or `SYNTHESIS_EDITION=enterprise` in the environment.
+  `SynthesisApp.isAirGapped()` returns true → `TelemetryService.createNoOp()` is used.
+  The no-op instance has `throttlePath=null` (no file I/O).
+
+  ---
+
+  ## Known Bugs Fixed (v1.21.5-SNAPSHOT)
+
+  ### Bug 1: `-d` flag recorded as command name
+
+  **Symptom:** Slack showed `command: -d` instead of `command: changelog` when invoked as:
+  ```
+  synthesis -d /home/totto/Documents changelog
+  ```
+
+  **Root cause:** `SynthesisApp.main()` used `args[0]` directly.
+
+  **Fix:** `SynthesisApp.extractCommandName(String[] args)` — skips `-d`/`--directory` +
+  their value, then returns the first non-flag argument.
+
+  ```java
+  static String extractCommandName(String[] args) {
+      boolean skipNext = false;
+      for (String arg : args) {
+          if (skipNext) { skipNext = false; continue; }
+          if (arg.equals("-d") || arg.equals("--directory")) { skipNext = true; continue; }
+          if (arg.startsWith("-")) continue;
+          return arg;
+      }
+      return "help";
+  }
+  ```
+
+  **Test class:** `SynthesisAppCommandNameTest` (9 tests)
+
+  ### Bug 2: Slack flood from cron scripts
+
+  **Symptom:** `synthesis-morning-push.sh` runs `synthesis -d <workspace> changelog`
+  across 4 org workspaces (cantara, exoreaction, totto, elprint). Each invocation posted
+  a Slack message → 4 near-simultaneous `:gear: changelog` messages flooded the channel.
+
+  **Fix:** File-based per-command throttle in `TelemetryService`:
+  - `THROTTLE_WINDOW_MS = 60_000` (60 seconds)
+  - State file: `~/.synthesis/telemetry-throttle.properties`
+  - Format: `commandName=epochMillis` entries
+  - If same command reported within window → silently skip (no Slack post, no timestamp update)
+  - Different commands are independent
+  - `null` throttlePath → no throttling (used by `createNoOp()`)
+
+  **Key method:** `TelemetryService.isThrottled(String commandName)` — reads state, checks
+  window, updates timestamp if allowed, all wrapped in try/catch to never block telemetry.
+
+  **Test class:** 5 throttle tests added to `TelemetryServiceTest`
+
+  ---
+
+  ## Slack Message Format
+
+  Produced by `TelemetryEvent.toSlackMessage()`:
+
+  ```
+  :gear: *changelog* | `3f8a2b1c-...` | 2026-03-04T09:15:22Z
+      command: `changelog`
+      success: `true`
+      duration_ms: `1234`
+      os: `Linux 6.17.0`
+      java: `24.0.1`
+      synthesis: `1.21.4`
+  ```
+
+  ---
+
+  ## Adding New Telemetry Events
+
+  1. Add a factory method to `TelemetryEvent` (like `TelemetryEvent.command()`)
+  2. Call `telemetryService.send(event)` — it's async, non-blocking
+  3. Note: `reportCommand()` is throttled. Other `send()` calls are NOT throttled.
+     Add throttle logic to the specific method if needed.
+
+  ---
+
+  ## Testing Pattern
+
+  Use `new TelemetryService(config, uuid, throttlePath)` (package-private constructor)
+  with `@TempDir` for isolated throttle state:
+
+  ```java
+  TelemetryConfig config = new TelemetryConfig();
+  config.setSlackWebhookUrl("https://hooks.slack.com/test");
+  Path throttlePath = tempDir.resolve(".synthesis/telemetry-throttle.properties");
+  TelemetryService service = new TelemetryService(config, "test-uuid", throttlePath);
+  ```
+
+  For throttle tests: pre-populate the properties file with a recent or old timestamp
+  to simulate within-window or expired-window conditions.
+
+  ---
+
+  *Created: March 4, 2026 — Based on fix(telemetry) commit 9256c7c, v1.21.5-SNAPSHOT*
