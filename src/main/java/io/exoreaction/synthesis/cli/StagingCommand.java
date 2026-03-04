@@ -2,7 +2,9 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
+import io.exoreaction.synthesis.analyzer.PresentationExtractor;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.RoutingRule;
@@ -801,7 +803,72 @@ public class StagingCommand implements Callable<Integer> {
             System.out.println();
             AnsiOutput.printInfo("Enriching " + enrichable.size() + " unmatched image/PDF file(s) before classification...");
 
+            // Partition PDFs that are presentations from everything else
+            List<StagedFile> presentations = new ArrayList<>();
+            List<StagedFile> otherMedia = new ArrayList<>();
+
             for (StagedFile file : enrichable) {
+                Path filePath = workspaceRoot.resolve(file.relativePath());
+                if (!Files.exists(filePath)) {
+                    otherMedia.add(file);
+                    continue;
+                }
+                if ("PDF".equals(file.fileType())) {
+                    try {
+                        BasicFileAttributes attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
+                        FileMetadata meta = FileMetadata.of(filePath, workspaceRoot,
+                                attrs.size(), attrs.lastModifiedTime().toInstant(), null);
+                        Object mediaType = analyzers.analyze(meta).metrics().get("mediaType");
+                        if ("presentation".equals(mediaType)) {
+                            presentations.add(file);
+                            continue;
+                        }
+                    } catch (Exception ignored) {
+                        // Analysis failed — fall through to normal enrichment
+                    }
+                }
+                otherMedia.add(file);
+            }
+
+            // Handle presentation PDFs: extract slides, enrich per-slide, write index companion
+            if (!presentations.isEmpty()) {
+                AnsiOutput.printInfo("Extracting slides from " + presentations.size() + " presentation(s)...");
+                for (StagedFile pres : presentations) {
+                    Path filePath = workspaceRoot.resolve(pres.relativePath());
+                    try {
+                        extractAndEnrichPresentation(pres, workspaceRoot, filePath,
+                                generator, analyzers, verbose);
+                        enriched++;
+                    } catch (Exception e) {
+                        if (verbose) {
+                            AnsiOutput.printWarning("Could not extract slides from " + pres.relativePath()
+                                    + ": " + e.getMessage());
+                        }
+                        // Fall back to regular companion generation
+                        try {
+                            BasicFileAttributes attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
+                            FileMetadata metadata = FileMetadata.of(filePath, workspaceRoot,
+                                    attrs.size(), attrs.lastModifiedTime().toInstant(), null);
+                            Optional<Path> companion = generator.generate(metadata,
+                                    analyzers.analyze(metadata), List.of());
+                            if (companion.isPresent()) {
+                                enriched++;
+                                if (verbose) {
+                                    System.out.println("  + companion (fallback): " + companion.get().getFileName());
+                                }
+                            }
+                        } catch (Exception fallbackEx) {
+                            if (verbose) {
+                                AnsiOutput.printWarning("Fallback enrichment also failed for "
+                                        + pres.relativePath() + ": " + fallbackEx.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Handle regular images and non-presentation PDFs
+            for (StagedFile file : otherMedia) {
                 Path filePath = workspaceRoot.resolve(file.relativePath());
                 if (!Files.exists(filePath)) continue;
                 try {
@@ -827,6 +894,64 @@ public class StagingCommand implements Callable<Integer> {
 
             if (enriched > 0) {
                 System.out.printf("  Enriched %d file(s) — level: %s%n%n", enriched, level.name());
+            }
+        }
+
+        /**
+         * Extracts slides from a presentation PDF, generates a per-slide companion for each
+         * PNG, and writes a slide-index companion for the PDF itself.
+         *
+         * <p>The slides directory is created as {@code <pdf-basename>-slides/} in the same
+         * directory as the PDF. The PDF-level companion lists all slides with a one-line
+         * summary drawn from each slide's companion file.
+         */
+        private void extractAndEnrichPresentation(StagedFile file, Path workspaceRoot,
+                                                   Path filePath, CompanionFileGenerator generator,
+                                                   AnalyzerRegistry analyzers, boolean verbose) throws Exception {
+            String pdfName = filePath.getFileName().toString();
+            String baseName = pdfName.endsWith(".pdf")
+                    ? pdfName.substring(0, pdfName.length() - 4)
+                    : pdfName;
+            Path slidesDir = filePath.getParent().resolve(baseName + "-slides");
+
+            // Extract slides as PNGs (no AI client — CompanionFileGenerator handles vision)
+            PresentationExtractor extractor = new PresentationExtractor();
+            PresentationExtractor.ExtractionResult result =
+                    extractor.extractSlides(filePath, slidesDir, PresentationExtractor.DEFAULT_DPI, null);
+
+            if (verbose) {
+                System.out.printf("  %s → %d slides extracted to %s/%n",
+                        pdfName, result.slidesExtracted(), slidesDir.getFileName());
+            }
+
+            // Enrich each slide PNG with its own companion
+            for (PresentationExtractor.SlideInfo slide : result.slides()) {
+                Path slidePath = slide.imagePath();
+                if (!Files.exists(slidePath)) continue;
+                try {
+                    BasicFileAttributes slideAttrs = Files.readAttributes(slidePath, BasicFileAttributes.class);
+                    FileMetadata slideMeta = FileMetadata.of(slidePath, workspaceRoot,
+                            slideAttrs.size(), slideAttrs.lastModifiedTime().toInstant(), null);
+                    Optional<Path> slideCompanion = generator.generate(slideMeta,
+                            analyzers.analyze(slideMeta), List.of());
+                    if (slideCompanion.isPresent() && verbose) {
+                        System.out.println("  + " + slideCompanion.get().getFileName());
+                    }
+                } catch (Exception e) {
+                    if (verbose) {
+                        AnsiOutput.printWarning("  Could not enrich slide " + slidePath.getFileName()
+                                + ": " + e.getMessage());
+                    }
+                }
+            }
+
+            // Write slide-index companion for the PDF
+            Path pdfCompanion = filePath.getParent().resolve(pdfName + ".synthesis.md");
+            String indexContent = buildSlideIndexCompanion(result, filePath, baseName);
+            Files.writeString(pdfCompanion, indexContent);
+
+            if (verbose) {
+                System.out.println("  + " + pdfCompanion.getFileName() + " (slide index)");
             }
         }
 
@@ -1835,6 +1960,73 @@ public class StagingCommand implements Callable<Integer> {
         if (instant == null) return "never";
         return LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    /**
+     * Builds the content of the slide-index companion for a presentation PDF.
+     *
+     * <p>Reads each slide's companion file (if present) and extracts the first
+     * non-header, non-empty line as the one-line summary for the table.
+     */
+    static String buildSlideIndexCompanion(PresentationExtractor.ExtractionResult result,
+                                            Path pdfPath, String baseName) {
+        String pdfFileName = pdfPath.getFileName().toString();
+        String slidesDirName = baseName + "-slides";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("---\n");
+        sb.append("companion_for: ").append(pdfFileName).append("\n");
+        sb.append("type: PDF\n");
+        sb.append("media_type: presentation\n");
+        sb.append("---\n\n");
+        sb.append("# ").append(result.presentationTitle()).append("\n\n");
+        sb.append("**Source:** `").append(pdfFileName).append("`\n");
+        sb.append("**Slides:** ").append(result.slidesExtracted()).append("\n");
+        sb.append("**Slides directory:** `").append(slidesDirName).append("/`\n\n");
+
+        sb.append("| Slide | File | Summary |\n");
+        sb.append("|-------|------|---------|\n");
+
+        for (PresentationExtractor.SlideInfo slide : result.slides()) {
+            String slideFileName = slide.imagePath().getFileName().toString();
+            String slideLink = "[" + slideFileName + "](" + slidesDirName + "/" + slideFileName + ")";
+            String summary = extractSlideOneLiner(slide.imagePath());
+            sb.append("| ").append(slide.slideNumber()).append(" | ")
+              .append(slideLink).append(" | ")
+              .append(summary).append(" |\n");
+        }
+
+        sb.append("\n*Generated by Synthesis — slide-level enrichment*\n");
+        return sb.toString();
+    }
+
+    /**
+     * Reads the companion file for a slide PNG and returns the first non-header,
+     * non-empty content line as a one-line summary. Returns "—" if unavailable.
+     */
+    static String extractSlideOneLiner(Path slidePath) {
+        Path companionPath = slidePath.getParent().resolve(slidePath.getFileName() + ".synthesis.md");
+        if (!Files.exists(companionPath)) return "—";
+        try {
+            List<String> lines = Files.readAllLines(companionPath);
+            // Skip YAML front-matter block (lines between opening and closing ---)
+            int start = 0;
+            if (!lines.isEmpty() && lines.get(0).equals("---")) {
+                start = 1;
+                while (start < lines.size() && !lines.get(start).equals("---")) {
+                    start++;
+                }
+                start++; // skip the closing ---
+            }
+            for (int i = start; i < lines.size(); i++) {
+                String l = lines.get(i);
+                if (l.isBlank() || l.startsWith("#") || l.startsWith("**")) continue;
+                return l.length() > 120 ? l.substring(0, 117) + "..." : l;
+            }
+            return "—";
+        } catch (IOException e) {
+            return "—";
+        }
     }
 
     static String formatDuration(Duration duration) {
