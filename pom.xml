@@ -358,8 +358,8 @@
                 </executions>
             </plugin>
 
-            <!-- Maven Release Plugin: disable shallow clone (Jenkins injects scmShallowClone=true
-                 which causes 'git clone --depth 1 --branch <tag>' to fail during perform) -->
+            <!-- Maven Release Plugin: disable shallow clone.
+                 Jenkins injects scmShallowClone=true which causes perform to fail. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-release-plugin</artifactId>
