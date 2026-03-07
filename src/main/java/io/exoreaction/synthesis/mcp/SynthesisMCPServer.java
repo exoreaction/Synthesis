@@ -730,6 +730,15 @@ public class SynthesisMCPServer {
 
         // Group 7: Agent awareness tools
         toolsArray.add(createToolDefinition(
+                "team_context",
+                "Get briefing for active Claude Code agent team — tasks, related files, " +
+                        "skill recommendations, and conflict warnings. " +
+                        "Inject the compact output into an agent's spawn prompt to skip " +
+                        "the 40-60% blind retrieval phase at session start. " +
+                        "Requires a workspace with a Synthesis index.",
+                createTeamContextSchema()
+        ));
+        toolsArray.add(createToolDefinition(
                 "match_skills",
                 "Find Claude Code skills relevant to a task description. " +
                         "Scans ~/.claude/skills/ and ranks skills by relevance using trigger phrases, " +
@@ -809,6 +818,7 @@ public class SynthesisMCPServer {
                 case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
                 case "sessions" -> toolHandler.handleSessions(toolArgs);
                 // Group 7: Agent awareness
+                case "team_context" -> toolHandler.handleTeamContext(toolArgs);
                 case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
@@ -1879,6 +1889,31 @@ public class SynthesisMCPServer {
         System.err.println("      }");
         System.err.println("    }");
         System.err.println("  }");
+    }
+
+    private ObjectNode createTeamContextSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode teamName = mapper.createObjectNode();
+        teamName.put("type", "string");
+        teamName.put("description", "Team name (auto-detects if only one team exists in ~/.claude/teams/)");
+        properties.set("team_name", teamName);
+
+        ObjectNode compact = mapper.createObjectNode();
+        compact.put("type", "boolean");
+        compact.put("default", false);
+        compact.put("description", "Return single-paragraph summary for Agent prompt injection");
+        properties.set("compact", compact);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
+        return schema;
     }
 
     private ObjectNode createMatchSkillsSchema() {
