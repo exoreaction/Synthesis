@@ -2629,6 +2629,101 @@ public class SynthesisToolHandler {
     }
 
     /**
+     * Plans an agent dispatch: skills, related files, team conflicts, and token estimate.
+     *
+     * @param params JSON object with: query (required), top_skills (int, default 3),
+     *               top_files (int, default 5), skills_dir (string, optional),
+     *               workspace (string, optional)
+     * @return JSON object with: query, skills, relatedFiles, conflicts, estimatedTokens, workspace
+     */
+    public ObjectNode handleDispatch(JsonNode params) throws McpToolException {
+        String query = params != null && params.has("query") && !params.get("query").isNull()
+                ? params.get("query").asText() : "";
+        if (query.isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "query is required");
+        }
+
+        int topSkills = params != null && params.has("top_skills") ? params.get("top_skills").asInt(3) : 3;
+        int topFiles = params != null && params.has("top_files") ? params.get("top_files").asInt(5) : 5;
+
+        Path skillsDir;
+        if (params != null && params.has("skills_dir") && !params.get("skills_dir").isNull()) {
+            skillsDir = Path.of(params.get("skills_dir").asText()).toAbsolutePath().normalize();
+        } else {
+            skillsDir = Path.of(System.getProperty("user.home"), ".claude", "skills");
+        }
+
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+
+        try {
+            // Step 1: Skill matching
+            List<SkillMatch> skillMatches = SkillMatcher.match(skillsDir, query, topSkills);
+
+            // Step 2: Related files from index
+            List<SearchResult> fileResults = List.of();
+            try (SearchIndex index = SearchIndex.openReadOnly(new io.exoreaction.synthesis.core.WorkspaceManager(workspacePath).getIndexPath())) {
+                fileResults = index.search(query, null, topFiles);
+            } catch (Exception e) {
+                // Index unavailable — continue without files
+            }
+
+            // Step 3: Team conflict check (graceful if no team)
+            List<String> conflicts = new ArrayList<>();
+            try {
+                TeamContext teamCtx = TeamReader.readAutoDetect();
+                TeamBriefing briefing = TeamContextBuilder.build(teamCtx, null, null);
+                conflicts = briefing.globalConflicts();
+            } catch (TeamNotFoundException ignored) {
+                // No team — skip
+            } catch (Exception ignored) {
+                // Any other failure — skip
+            }
+
+            // Step 4: Token estimate
+            long estimatedTokens = fileResults.stream().mapToLong(SearchResult::sizeBytes).sum() / 4;
+
+            // Build response
+            ObjectNode response = mapper.createObjectNode();
+            response.put("query", query);
+
+            ArrayNode skillsArray = mapper.createArrayNode();
+            for (SkillMatch m : skillMatches) {
+                ObjectNode item = mapper.createObjectNode();
+                item.put("name", m.skillName());
+                item.put("score", m.score());
+                item.put("preview", m.firstLine());
+                skillsArray.add(item);
+            }
+            response.set("skills", skillsArray);
+
+            ArrayNode filesArray = mapper.createArrayNode();
+            for (SearchResult r : fileResults) {
+                ObjectNode item = mapper.createObjectNode();
+                item.put("path", r.relativePath() != null ? r.relativePath() : r.path().toString());
+                item.put("score", r.score());
+                item.put("type", r.fileType() != null ? r.fileType() : "");
+                item.put("sizeBytes", r.sizeBytes());
+                filesArray.add(item);
+            }
+            response.set("relatedFiles", filesArray);
+
+            ArrayNode conflictsArray = mapper.createArrayNode();
+            conflicts.forEach(conflictsArray::add);
+            response.set("conflicts", conflictsArray);
+
+            response.put("estimatedTokens", estimatedTokens);
+            response.put("workspace", workspacePath.toString());
+
+            return response;
+
+        } catch (Exception e) {
+            LOG.warning("dispatch failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "dispatch failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Exception type for MCP tool errors that map to JSON-RPC error codes.
      */
     public static class McpToolException extends Exception {
