@@ -29,6 +29,11 @@ import io.exoreaction.synthesis.sessions.SessionStore;
 import static io.exoreaction.synthesis.sessions.SessionStore.sanitizeFtsQuery;
 import io.exoreaction.synthesis.skills.SkillMatcher;
 import io.exoreaction.synthesis.skills.SkillMatcher.SkillMatch;
+import io.exoreaction.synthesis.agents.TeamReader;
+import io.exoreaction.synthesis.agents.TeamReader.TeamContext;
+import io.exoreaction.synthesis.agents.TeamReader.TeamNotFoundException;
+import io.exoreaction.synthesis.agents.TeamContextBuilder;
+import io.exoreaction.synthesis.agents.TeamContextBuilder.TeamBriefing;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -2521,6 +2526,56 @@ public class SynthesisToolHandler {
     // -----------------------------------------------------------------------
     // Group 7: Agent awareness tools
     // -----------------------------------------------------------------------
+
+    /**
+     * Builds a codebase-aware briefing for a Claude Code agent team.
+     *
+     * @param params JSON object with: team_name (optional), compact (optional), workspace (optional)
+     * @return JSON object with: team, description, taskCount, compact, briefing
+     */
+    public ObjectNode handleTeamContext(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+        validateWorkspace(workspacePath);
+
+        String teamName = params != null && params.has("team_name") && !params.get("team_name").isNull()
+                ? params.get("team_name").asText() : null;
+        boolean compact = params != null && params.has("compact") && params.get("compact").asBoolean(false);
+
+        try {
+            TeamContext context;
+            if (teamName != null && !teamName.isBlank()) {
+                context = TeamReader.read(teamName);
+            } else {
+                context = TeamReader.readAutoDetect();
+            }
+
+            WorkspaceManager workspace = new WorkspaceManager(workspacePath);
+            Path skillsDir = Path.of(System.getProperty("user.home"), ".claude", "skills");
+
+            TeamBriefing briefing;
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                briefing = TeamContextBuilder.build(context, index, skillsDir);
+            } catch (Exception e) {
+                briefing = TeamContextBuilder.build(context, null, skillsDir);
+            }
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("team", context.teamName());
+            response.put("description", context.description());
+            response.put("taskCount", context.tasks().size());
+            response.put("agentCount", context.agents().size());
+            response.put("conflictCount", briefing.globalConflicts().size());
+            response.put("briefing", compact ? briefing.toCompact() : briefing.toVerbose());
+            response.put("compact", compact);
+            return response;
+
+        } catch (TeamNotFoundException e) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, e.getMessage());
+        } catch (Exception e) {
+            LOG.warning("team_context failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "team_context failed: " + e.getMessage());
+        }
+    }
 
     /**
      * Finds Claude Code skills relevant to a task description.
