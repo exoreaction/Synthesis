@@ -747,6 +747,14 @@ public class SynthesisMCPServer {
                         "Returns top-N skills with scores and matched terms.",
                 createMatchSkillsSchema()
         ));
+        toolsArray.add(createToolDefinition(
+                "dispatch",
+                "Plan an agent dispatch: given a task description, returns skills to load, " +
+                        "files to pre-read, team conflict check, and token estimate. " +
+                        "Use before spawning an agent to skip blind retrieval. " +
+                        "Composes SkillMatcher + index search + team conflict check in one call.",
+                createDispatchSchema()
+        ));
 
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
@@ -820,6 +828,7 @@ public class SynthesisMCPServer {
                 // Group 7: Agent awareness
                 case "team_context" -> toolHandler.handleTeamContext(toolArgs);
                 case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
+                case "dispatch" -> toolHandler.handleDispatch(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1936,6 +1945,47 @@ public class SynthesisMCPServer {
         skillsDir.put("type", "string");
         skillsDir.put("description", "Skills directory path (default: ~/.claude/skills/)");
         properties.set("skills_dir", skillsDir);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("query");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createDispatchSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode query = mapper.createObjectNode();
+        query.put("type", "string");
+        query.put("description", "Task description for the agent to work on");
+        properties.set("query", query);
+
+        ObjectNode topSkills = mapper.createObjectNode();
+        topSkills.put("type", "integer");
+        topSkills.put("default", 3);
+        topSkills.put("description", "Number of skills to recommend (default 3)");
+        properties.set("top_skills", topSkills);
+
+        ObjectNode topFiles = mapper.createObjectNode();
+        topFiles.put("type", "integer");
+        topFiles.put("default", 5);
+        topFiles.put("description", "Number of related files to include (default 5)");
+        properties.set("top_files", topFiles);
+
+        ObjectNode skillsDir = mapper.createObjectNode();
+        skillsDir.put("type", "string");
+        skillsDir.put("description", "Skills directory path (default: ~/.claude/skills/)");
+        properties.set("skills_dir", skillsDir);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
 
         schema.set("properties", properties);
 
