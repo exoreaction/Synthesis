@@ -27,6 +27,8 @@ import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import io.exoreaction.synthesis.sessions.ClaudeSession;
 import io.exoreaction.synthesis.sessions.SessionStore;
 import static io.exoreaction.synthesis.sessions.SessionStore.sanitizeFtsQuery;
+import io.exoreaction.synthesis.skills.SkillMatcher;
+import io.exoreaction.synthesis.skills.SkillMatcher.SkillMatch;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -2513,6 +2515,61 @@ public class SynthesisToolHandler {
     public void shutdown() {
         if (metrics != null) {
             metrics.shutdown();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Group 7: Agent awareness tools
+    // -----------------------------------------------------------------------
+
+    /**
+     * Finds Claude Code skills relevant to a task description.
+     *
+     * @param params JSON object with: query (required), top (optional), skills_dir (optional)
+     * @return JSON object with: matches (array), count, skills_dir
+     */
+    public ObjectNode handleMatchSkills(JsonNode params) throws McpToolException {
+        String query = params != null && params.has("query") && !params.get("query").isNull()
+                ? params.get("query").asText() : "";
+        if (query.isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "query is required");
+        }
+
+        int top = params != null && params.has("top") ? params.get("top").asInt(5) : 5;
+
+        Path skillsDir;
+        if (params != null && params.has("skills_dir") && !params.get("skills_dir").isNull()) {
+            skillsDir = Path.of(params.get("skills_dir").asText()).toAbsolutePath().normalize();
+        } else {
+            skillsDir = Path.of(System.getProperty("user.home"), ".claude", "skills");
+        }
+
+        try {
+            List<SkillMatch> matches = SkillMatcher.match(skillsDir, query, top);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("query", query);
+            response.put("skills_dir", skillsDir.toString());
+            response.put("count", matches.size());
+
+            ArrayNode matchesArray = mapper.createArrayNode();
+            for (SkillMatch m : matches) {
+                ObjectNode item = mapper.createObjectNode();
+                item.put("skill", m.skillName());
+                item.put("file", m.filePath().toString());
+                item.put("score", m.score());
+                item.put("preview", m.firstLine());
+                ArrayNode terms = mapper.createArrayNode();
+                m.matchedTerms().forEach(terms::add);
+                item.set("matched_terms", terms);
+                matchesArray.add(item);
+            }
+            response.set("matches", matchesArray);
+
+            return response;
+        } catch (Exception e) {
+            LOG.warning("match_skills failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "match_skills failed: " + e.getMessage());
         }
     }
 

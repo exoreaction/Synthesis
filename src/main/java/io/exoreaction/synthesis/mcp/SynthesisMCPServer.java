@@ -728,6 +728,17 @@ public class SynthesisMCPServer {
                 createSessionsSchema()
         ));
 
+        // Group 7: Agent awareness tools
+        toolsArray.add(createToolDefinition(
+                "match_skills",
+                "Find Claude Code skills relevant to a task description. " +
+                        "Scans ~/.claude/skills/ and ranks skills by relevance using trigger phrases, " +
+                        "name/description, and instruction keyword overlap. " +
+                        "Use this BEFORE starting a task to discover which skills to load. " +
+                        "Returns top-N skills with scores and matched terms.",
+                createMatchSkillsSchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -797,6 +808,8 @@ public class SynthesisMCPServer {
                 case "session_context" -> toolHandler.handleSessionContext(toolArgs);
                 case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
                 case "sessions" -> toolHandler.handleSessions(toolArgs);
+                // Group 7: Agent awareness
+                case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1866,5 +1879,35 @@ public class SynthesisMCPServer {
         System.err.println("      }");
         System.err.println("    }");
         System.err.println("  }");
+    }
+
+    private ObjectNode createMatchSkillsSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode query = mapper.createObjectNode();
+        query.put("type", "string");
+        query.put("description", "Task description to match skills against");
+        properties.set("query", query);
+
+        ObjectNode top = mapper.createObjectNode();
+        top.put("type", "integer");
+        top.put("default", 5);
+        top.put("description", "Number of results to return (default 5)");
+        properties.set("top", top);
+
+        ObjectNode skillsDir = mapper.createObjectNode();
+        skillsDir.put("type", "string");
+        skillsDir.put("description", "Skills directory path (default: ~/.claude/skills/)");
+        properties.set("skills_dir", skillsDir);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("query");
+        schema.set("required", required);
+
+        return schema;
     }
 }
