@@ -2724,6 +2724,99 @@ public class SynthesisToolHandler {
     }
 
     /**
+     * Analyzes recent Claude Code sessions and updates the skill library.
+     *
+     * @param params JSON with optional: since (string), skills_dir (string),
+     *               dry_run (boolean), max_new (integer), min_confidence (number),
+     *               workspace (string)
+     * @return JSON object with: status, sessionsAnalyzed, patternsExtracted,
+     *         skillsCreated, skillsUpdated, skillsSkipped, changes
+     */
+    public ObjectNode handleReflect(JsonNode params) throws McpToolException {
+        String since = params != null && params.has("since") && !params.get("since").isNull()
+                ? params.get("since").asText("7d") : "7d";
+        boolean dryRun = params != null && params.has("dry_run") && params.get("dry_run").asBoolean(false);
+        int maxNew = params != null && params.has("max_new") ? params.get("max_new").asInt(5) : 5;
+        double minConfidence = params != null && params.has("min_confidence")
+                ? params.get("min_confidence").asDouble(0.3) : 0.3;
+
+        Path skillsDir;
+        if (params != null && params.has("skills_dir") && !params.get("skills_dir").isNull()) {
+            skillsDir = Path.of(params.get("skills_dir").asText()).toAbsolutePath().normalize();
+        } else {
+            skillsDir = Path.of(System.getProperty("user.home"), ".claude", "skills");
+        }
+
+        try {
+            // Parse since duration
+            java.time.Instant sinceInstant = io.exoreaction.synthesis.cli.SessionsCommand.parseSince(since);
+
+            // Scan and load sessions
+            io.exoreaction.synthesis.db.SynthesisDatabase db = io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            io.exoreaction.synthesis.sessions.SessionStore store = new io.exoreaction.synthesis.sessions.SessionStore(db);
+            io.exoreaction.synthesis.sessions.ClaudeSessionScanner scanner =
+                    new io.exoreaction.synthesis.sessions.ClaudeSessionScanner(store);
+            scanner.scan();
+
+            java.util.List<io.exoreaction.synthesis.sessions.ClaudeSession> sessions =
+                    store.listSince(sinceInstant, null);
+
+            if (sessions.isEmpty()) {
+                ObjectNode response = mapper.createObjectNode();
+                response.put("status", "no-sessions");
+                response.put("sessionsAnalyzed", 0);
+                return response;
+            }
+
+            // Analyze patterns
+            java.util.List<io.exoreaction.synthesis.skills.SessionAnalyzer.ExtractedPattern> patterns =
+                    io.exoreaction.synthesis.skills.SessionAnalyzer.analyze(sessions, minConfidence);
+
+            // Apply to skill library
+            io.exoreaction.synthesis.skills.SkillUpdater.ReflectResult result =
+                    io.exoreaction.synthesis.skills.SkillUpdater.apply(patterns, skillsDir, dryRun, maxNew);
+
+            // Save state if not dry-run
+            if (!dryRun) {
+                io.exoreaction.synthesis.skills.ReflectState.save(
+                        new io.exoreaction.synthesis.skills.ReflectState.State(
+                                java.time.Instant.now(),
+                                sessions.size(),
+                                result.skillsCreated(),
+                                result.skillsUpdated()));
+            }
+
+            // Build response
+            ObjectNode response = mapper.createObjectNode();
+            response.put("status", "ok");
+            response.put("sessionsAnalyzed", sessions.size());
+            response.put("patternsExtracted", patterns.size());
+            response.put("skillsCreated", result.skillsCreated());
+            response.put("skillsUpdated", result.skillsUpdated());
+            response.put("skillsSkipped", result.skillsSkipped());
+            response.put("dryRun", dryRun);
+
+            ArrayNode changesArray = mapper.createArrayNode();
+            for (io.exoreaction.synthesis.skills.SkillUpdater.SkillChange change : result.changes()) {
+                ObjectNode item = mapper.createObjectNode();
+                item.put("type", change.type().name());
+                item.put("name", change.skillName());
+                item.put("description", change.description() != null ? change.description() : "");
+                if (change.newVersion() != null) item.put("version", change.newVersion());
+                if (change.filePath() != null) item.put("path", change.filePath().toString());
+                changesArray.add(item);
+            }
+            response.set("changes", changesArray);
+
+            return response;
+
+        } catch (Exception e) {
+            LOG.warning("reflect failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "reflect failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Exception type for MCP tool errors that map to JSON-RPC error codes.
      */
     public static class McpToolException extends Exception {

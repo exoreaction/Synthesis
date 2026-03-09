@@ -79,6 +79,37 @@ public class SkillMatcher {
     }
 
     /**
+     * Scores a pre-built list of skill file paths against {@code query}.
+     * Use this when you want to avoid re-scanning the directory (e.g. to exclude
+     * files created during the current run).
+     *
+     * @param skillFiles pre-collected list of {@code *.yaml} skill file paths
+     * @param query      natural-language task description
+     * @param topN       maximum number of results to return
+     * @return ranked list of matches, highest score first; empty list if input is empty
+     */
+    public static List<SkillMatch> match(Collection<Path> skillFiles, String query, int topN) {
+        if (skillFiles == null || skillFiles.isEmpty()) {
+            return List.of();
+        }
+        Set<String> queryTerms = tokenise(query);
+        if (queryTerms.isEmpty()) {
+            return List.of();
+        }
+        List<SkillMatch> results = new ArrayList<>();
+        for (Path file : skillFiles) {
+            SkillMatch m = scoreFile(file, queryTerms);
+            if (m != null && m.score() > 0) {
+                results.add(m);
+            }
+        }
+        return results.stream()
+                .sorted(Comparator.comparingDouble(SkillMatch::score).reversed())
+                .limit(topN)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Lists all skills in {@code skillsDir} with name and first line of description.
      *
      * @param skillsDir directory containing {@code *.yaml} skill files

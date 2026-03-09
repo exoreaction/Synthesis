@@ -300,7 +300,7 @@ public class SessionsCommand implements Callable<Integer> {
         return LocalDateTime.ofInstant(instant, ZoneId.systemDefault()).format(TIME_FMT);
     }
 
-    static Instant parseSince(String since) {
+    public static Instant parseSince(String since) {
         if (since == null || since.isBlank()) {
             return Instant.now().minus(30, ChronoUnit.DAYS);
         }

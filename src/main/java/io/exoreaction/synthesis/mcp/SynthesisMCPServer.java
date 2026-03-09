@@ -755,6 +755,13 @@ public class SynthesisMCPServer {
                         "Composes SkillMatcher + index search + team conflict check in one call.",
                 createDispatchSchema()
         ));
+        toolsArray.add(createToolDefinition(
+                "reflect",
+                "Analyze recent Claude Code sessions and update the skill library with discovered " +
+                        "patterns. Extracts corrections, explicit rules, domain terms, tool workflows, " +
+                        "and workflow steps from session transcripts. Creates or updates skill YAML files.",
+                createReflectSchema()
+        ));
 
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
@@ -829,6 +836,7 @@ public class SynthesisMCPServer {
                 case "team_context" -> toolHandler.handleTeamContext(toolArgs);
                 case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
                 case "dispatch" -> toolHandler.handleDispatch(toolArgs);
+                case "reflect" -> toolHandler.handleReflect(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1992,6 +2000,50 @@ public class SynthesisMCPServer {
         ArrayNode required = mapper.createArrayNode();
         required.add("query");
         schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createReflectSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode since = mapper.createObjectNode();
+        since.put("type", "string");
+        since.put("default", "7d");
+        since.put("description", "How far back to analyze sessions (e.g. '7d', '24h', '30d')");
+        properties.set("since", since);
+
+        ObjectNode skillsDir = mapper.createObjectNode();
+        skillsDir.put("type", "string");
+        skillsDir.put("description", "Skills directory path (default: ~/.claude/skills/)");
+        properties.set("skills_dir", skillsDir);
+
+        ObjectNode dryRun = mapper.createObjectNode();
+        dryRun.put("type", "boolean");
+        dryRun.put("default", false);
+        dryRun.put("description", "Preview changes without writing files");
+        properties.set("dry_run", dryRun);
+
+        ObjectNode maxNew = mapper.createObjectNode();
+        maxNew.put("type", "integer");
+        maxNew.put("default", 5);
+        maxNew.put("description", "Maximum number of new skills to create (default 5)");
+        properties.set("max_new", maxNew);
+
+        ObjectNode minConfidence = mapper.createObjectNode();
+        minConfidence.put("type", "number");
+        minConfidence.put("default", 0.3);
+        minConfidence.put("description", "Minimum confidence threshold (0.0 - 1.0, default 0.3)");
+        properties.set("min_confidence", minConfidence);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        schema.set("properties", properties);
 
         return schema;
     }
