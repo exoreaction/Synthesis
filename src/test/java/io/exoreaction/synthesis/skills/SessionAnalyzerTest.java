@@ -165,6 +165,58 @@ class SessionAnalyzerTest {
     }
 
     // -----------------------------------------------------------------------
+    // cleanUserText tests (#306)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void testCleanUserText_stripsSystemReminderBlocks() {
+        String input = "yes\n<system-reminder>\nWhenever you read a file...\n</system-reminder>\nok go";
+        String cleaned = SessionAnalyzer.cleanUserText(input);
+        assertFalse(cleaned.contains("<system-reminder>"), "Should strip <system-reminder> tags");
+        assertFalse(cleaned.contains("Whenever you read"), "Should strip content inside tag");
+        assertTrue(cleaned.contains("yes"), "Should keep content outside tags");
+        assertTrue(cleaned.contains("ok go"), "Should keep content outside tags");
+    }
+
+    @Test
+    void testCleanUserText_stripsTaskNotificationBlocks() {
+        String input = "go\n<task-notification>\n<task-id>abc</task-id>\n</task-notification>\ncontinue";
+        String cleaned = SessionAnalyzer.cleanUserText(input);
+        assertFalse(cleaned.contains("<task-notification>"), "Should strip <task-notification>");
+        assertFalse(cleaned.contains("task-id"), "Should strip content inside tag");
+        assertTrue(cleaned.contains("go"), "Should keep content outside tags");
+    }
+
+    @Test
+    void testCleanUserText_stripsKcpHookLines() {
+        String input = "lets push\n[kcp] git push: Upload local branch commits\nKey flags:\n  -u: Push and set upstream";
+        String cleaned = SessionAnalyzer.cleanUserText(input);
+        assertFalse(cleaned.contains("[kcp]"), "Should strip [kcp] hook lines");
+        assertTrue(cleaned.contains("lets push"), "Should keep user content");
+    }
+
+    @Test
+    void testCleanUserText_noiseDoesNotCreateFragments() {
+        // Simulate the exact noise patterns that were producing bogus skills
+        String noiseText = "<system-reminder>\nno, leave quadim for now\nalmost always use -L\n"
+                + "you must be dedicated\n</system-reminder>";
+        ClaudeSession session = makeSession("noise-session", noiseText);
+        List<RawFragment> fragments = SessionAnalyzer.extractFragments(session);
+        // After stripping system-reminder, no fragments should be extracted from noise
+        assertTrue(fragments.isEmpty(), "Noise from system-reminder should produce no fragments");
+    }
+
+    @Test
+    void testCleanUserText_preservesRealPatterns() {
+        // Real pattern mixed with noise — only real pattern should survive
+        String mixed = "<system-reminder>injected content must always be stripped</system-reminder>\n"
+                + "No, always use immutable records for DTOs.";
+        String cleaned = SessionAnalyzer.cleanUserText(mixed);
+        assertTrue(cleaned.contains("immutable records"), "Should preserve real user content");
+        assertFalse(cleaned.contains("injected content"), "Should strip injected content");
+    }
+
+    // -----------------------------------------------------------------------
     // Utility tests
     // -----------------------------------------------------------------------
 

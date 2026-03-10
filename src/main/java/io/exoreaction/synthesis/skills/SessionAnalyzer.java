@@ -105,7 +105,7 @@ public class SessionAnalyzer {
         List<RawFragment> fragments = new ArrayList<>();
         if (session == null) return fragments;
 
-        String userText = session.allUserText();
+        String userText = cleanUserText(session.allUserText());
         if (userText == null || userText.isBlank()) return fragments;
 
         String sessionId = session.sessionId();
@@ -371,6 +371,25 @@ public class SessionAnalyzer {
             }
         }
         return tokens;
+    }
+
+    /**
+     * Strips injected system content from session user text before fragment extraction.
+     * Removes {@code <system-reminder>} blocks, {@code <task-notification>} blocks,
+     * and lines injected by kcp-commands hooks (starting with {@code [kcp]}).
+     * This prevents noise skills from being created from hook output (#306).
+     */
+    static String cleanUserText(String text) {
+        if (text == null) return null;
+        // Strip <system-reminder>...</system-reminder> blocks (multi-line)
+        text = text.replaceAll("(?s)<system-reminder>.*?</system-reminder>", " ");
+        // Strip <task-notification>...</task-notification> blocks (multi-line)
+        text = text.replaceAll("(?s)<task-notification>.*?</task-notification>", " ");
+        // Strip [kcp] hook injection lines
+        text = text.replaceAll("(?m)^\\[kcp\\].*$", "");
+        // Collapse excess whitespace
+        text = text.replaceAll("[ \\t]{2,}", " ").replaceAll("\\n{3,}", "\n\n").strip();
+        return text.isBlank() ? null : text;
     }
 
     private static final Set<String> STOP_WORDS = Set.of(
