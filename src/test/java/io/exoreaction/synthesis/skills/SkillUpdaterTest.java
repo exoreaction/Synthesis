@@ -126,6 +126,50 @@ class SkillUpdaterTest {
     }
 
     @Test
+    void testBatchedUpdateProducesSingleVersionBump() throws Exception {
+        // Write a skill that will match multiple patterns — simulates the version inflation scenario (#307)
+        writeExistingSkill("synthesis-ask-workspace.yaml",
+                "name: synthesis-ask-workspace\n"
+                + "version: 1.0.14\n"
+                + "description: Ask questions about the workspace using Synthesis search\n"
+                + "trigger_phrases:\n"
+                + "  - \"how does X work\"\n"
+                + "instructions: |\n"
+                + "  Use synthesis ask to query the workspace.\n"
+        );
+
+        // Three patterns all matching the same skill
+        ExtractedPattern p1 = makePattern("workspace-query",
+                "Ask workspace questions using synthesis ask command",
+                List.of("search the workspace"), List.of("Run synthesis search for queries"),
+                List.of("synthesis", "workspace", "ask"), 0.8);
+        ExtractedPattern p2 = makePattern("workspace-search",
+                "synthesis workspace search query command",
+                List.of("query the codebase"), List.of("Use synthesis ask for codebase questions"),
+                List.of("synthesis", "workspace", "search"), 0.75);
+        ExtractedPattern p3 = makePattern("synthesis-find",
+                "find things in workspace using synthesis",
+                List.of("find in workspace"), List.of("synthesis search finds relevant files"),
+                List.of("synthesis", "find", "workspace"), 0.7);
+
+        ReflectResult result = SkillUpdater.apply(List.of(p1, p2, p3), tempDir, false, 5);
+
+        // Should produce exactly 1 UPDATED change (batched), not 3 separate bumps
+        long updatedCount = result.changes().stream()
+                .filter(c -> c.type() == SkillUpdater.ChangeType.UPDATED)
+                .count();
+        assertTrue(updatedCount <= 1,
+                "Multiple patterns matching same skill should produce at most 1 UPDATED change, got " + updatedCount);
+
+        // Version should be bumped exactly once: 1.0.14 → 1.0.15
+        String content = Files.readString(tempDir.resolve("synthesis-ask-workspace.yaml"));
+        assertTrue(content.contains("version: 1.0.15"),
+                "Version should be bumped exactly once to 1.0.15, not higher");
+        assertFalse(content.contains("version: 1.0.16"), "Version must not jump multiple times");
+        assertFalse(content.contains("version: 1.0.17"), "Version must not jump multiple times");
+    }
+
+    @Test
     void testMaxNewSkillsLimit() throws Exception {
         // Create 5 patterns but set max-new to 2
         List<ExtractedPattern> patterns = List.of(

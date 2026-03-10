@@ -101,34 +101,39 @@ public class ReflectCommand implements Callable<Integer> {
             Path resolvedSkillsDir = skillsDir != null ? skillsDir.toAbsolutePath().normalize()
                     : Path.of(System.getProperty("user.home"), ".claude", "skills");
 
-            // Step 2: Check staleness
+            // Step 2: Load reflect state and scan sessions
             Instant sinceInstant = SessionsCommand.parseSince(since);
             State state = ReflectState.load();
 
-            if (!force && !ReflectState.isStale(state, sinceInstant)) {
-                long ago = Duration.between(state.lastReflectedAt(), Instant.now()).toMinutes();
-                String humanDuration = formatDuration(ago);
-
-                if (compact) {
-                    System.out.println("reflect: up-to-date (last: " + humanDuration + " ago)");
-                } else if (json) {
-                    System.out.println("{\"status\":\"up-to-date\",\"lastReflected\":\""
-                            + state.lastReflectedAt() + "\"}");
-                } else {
-                    AnsiOutput.printInfo("Skill library is up-to-date (last reflected "
-                            + humanDuration + " ago). Use --force to re-analyze.");
-                }
-                return 0;
-            }
-
-            // Step 3: Scan sessions
             SynthesisDatabase db = SynthesisDatabase.getDefault();
             SessionStore store = new SessionStore(db);
             ClaudeSessionScanner scanner = new ClaudeSessionScanner(store);
             scanner.scan();
 
-            // Step 4: Load sessions
-            List<ClaudeSession> sessions = store.listSince(sinceInstant, null);
+            // Step 3: Load only sessions newer than last reflect (not the full since window).
+            // This ensures staleness is measured by new session count, not elapsed time (#311).
+            Instant effectiveSince = (state.lastReflectedAt() != null && !force
+                    && state.lastReflectedAt().isAfter(sinceInstant))
+                    ? state.lastReflectedAt()
+                    : sinceInstant;
+            List<ClaudeSession> sessions = store.listSince(effectiveSince, null);
+
+            // Up-to-date check: no new sessions since last reflect
+            if (!force && sessions.isEmpty()) {
+                long ago = state.lastReflectedAt() != null
+                        ? Duration.between(state.lastReflectedAt(), Instant.now()).toMinutes() : -1;
+                String humanDuration = ago >= 0 ? formatDuration(ago) : "never";
+                if (compact) {
+                    System.out.println("reflect: up-to-date (0 new sessions since " + humanDuration + " ago)");
+                } else if (json) {
+                    System.out.println("{\"status\":\"up-to-date\",\"newSessions\":0,\"lastReflected\":\""
+                            + state.lastReflectedAt() + "\"}");
+                } else {
+                    AnsiOutput.printInfo("Skill library is up-to-date (0 new sessions since last reflect "
+                            + humanDuration + " ago). Use --force to re-analyze.");
+                }
+                return 0;
+            }
 
             if (sessions.isEmpty()) {
                 if (compact) {

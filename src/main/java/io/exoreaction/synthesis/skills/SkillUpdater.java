@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Applies extracted patterns to the skill library by creating new skill YAML
@@ -62,12 +63,18 @@ public class SkillUpdater {
 
     private static final double MATCH_THRESHOLD = 5.0;
 
+    /** Pairs a skill match with a pattern that targets it. */
+    private record PatternMatch(SkillMatch match, ExtractedPattern pattern) {}
+
     // -----------------------------------------------------------------------
     // Public API
     // -----------------------------------------------------------------------
 
     /**
      * Applies extracted patterns to the skill library.
+     *
+     * <p>Patterns targeting the same existing skill are batched into a single
+     * file write with one version bump, preventing version inflation (#307).
      *
      * @param patterns     patterns from {@link SessionAnalyzer#analyze}
      * @param skillsDir    directory containing skill YAML files
@@ -90,34 +97,50 @@ public class SkillUpdater {
         // reflect-*.yaml files don't interfere with matching for subsequent patterns.
         List<Path> existingSkillFiles = snapshotSkillFiles(skillsDir);
 
+        // Partition patterns: those matching an existing skill vs. new ones.
+        // Group by skill file path to batch multiple patterns into one write (#307).
+        Map<Path, List<PatternMatch>> bySkillFile = new LinkedHashMap<>();
+        List<ExtractedPattern> newPatterns = new ArrayList<>();
+
+        for (ExtractedPattern pattern : patterns) {
+            Optional<SkillMatch> existing = findMatchingSkill(pattern, existingSkillFiles);
+            if (existing.isPresent()) {
+                bySkillFile
+                        .computeIfAbsent(existing.get().filePath(), k -> new ArrayList<>())
+                        .add(new PatternMatch(existing.get(), pattern));
+            } else {
+                newPatterns.add(pattern);
+            }
+        }
+
         List<SkillChange> changes = new ArrayList<>();
         int created = 0;
         int updated = 0;
         int skipped = 0;
 
-        for (ExtractedPattern pattern : patterns) {
-            Optional<SkillMatch> existing = findMatchingSkill(pattern, existingSkillFiles);
+        // Apply batched updates — one write per skill file
+        for (List<PatternMatch> group : bySkillFile.values()) {
+            SkillChange change = updateSkillBatched(group, dryRun);
+            changes.add(change);
+            if (change.type() == ChangeType.UPDATED) updated++;
+            else skipped++;
+        }
 
-            if (existing.isPresent()) {
-                SkillChange change = updateSkill(existing.get(), pattern, dryRun);
-                changes.add(change);
-                if (change.type() == ChangeType.UPDATED) updated++;
-                else skipped++;
+        // Create new skills up to the cap
+        for (ExtractedPattern pattern : newPatterns) {
+            if (created >= maxNewSkills) {
+                changes.add(new SkillChange(
+                        ChangeType.SKIPPED,
+                        pattern.suggestedName(),
+                        null,
+                        "Max new skills limit reached (" + maxNewSkills + ")",
+                        null, null));
+                skipped++;
             } else {
-                if (created >= maxNewSkills) {
-                    changes.add(new SkillChange(
-                            ChangeType.SKIPPED,
-                            pattern.suggestedName(),
-                            null,
-                            "Max new skills limit reached (" + maxNewSkills + ")",
-                            null, null));
-                    skipped++;
-                } else {
-                    SkillChange change = createSkill(pattern, skillsDir, dryRun);
-                    changes.add(change);
-                    if (change.type() == ChangeType.CREATED) created++;
-                    else skipped++;
-                }
+                SkillChange change = createSkill(pattern, skillsDir, dryRun);
+                changes.add(change);
+                if (change.type() == ChangeType.CREATED) created++;
+                else skipped++;
             }
         }
 
@@ -255,6 +278,95 @@ public class SkillUpdater {
                 filePath,
                 "Added " + newPhrases.size() + " trigger phrases, "
                         + newInstructions.size() + " instructions",
+                previousVersion, newVersion);
+    }
+
+    /**
+     * Updates an existing skill file with content from multiple patterns in a single
+     * write and a single version bump. Prevents version inflation when many session
+     * patterns all match the same skill (#307).
+     */
+    static SkillChange updateSkillBatched(List<PatternMatch> group, boolean dryRun) throws IOException {
+        if (group == null || group.isEmpty()) {
+            return new SkillChange(ChangeType.SKIPPED, "unknown", null, "Empty group", null, null);
+        }
+        SkillMatch existing = group.get(0).match();
+        Path filePath = existing.filePath();
+        String content = Files.readString(filePath);
+        String contentLower = content.toLowerCase();
+
+        // Collect all new phrases and instructions across all patterns in the group
+        List<String> allNewPhrases = new ArrayList<>();
+        List<String> allNewInstructions = new ArrayList<>();
+        for (PatternMatch pm : group) {
+            for (String phrase : pm.pattern().triggerPhrases()) {
+                if (!contentLower.contains(phrase.toLowerCase())
+                        && !allNewPhrases.contains(phrase)) {
+                    allNewPhrases.add(phrase);
+                }
+            }
+            for (String instr : pm.pattern().instructions()) {
+                String prefix = instr.toLowerCase().substring(0, Math.min(30, instr.length()));
+                if (!contentLower.contains(prefix) && !allNewInstructions.contains(instr)) {
+                    allNewInstructions.add(instr);
+                }
+            }
+        }
+
+        if (allNewPhrases.isEmpty() && allNewInstructions.isEmpty()) {
+            return new SkillChange(ChangeType.SKIPPED, existing.skillName(), filePath,
+                    "No new content to add", null, null);
+        }
+
+        // Append all new trigger phrases in one block
+        if (!allNewPhrases.isEmpty()) {
+            int triggerIdx = content.indexOf("trigger_phrases:");
+            if (triggerIdx >= 0) {
+                int insertAt = findBlockEnd(content, triggerIdx);
+                StringBuilder insert = new StringBuilder();
+                for (String phrase : allNewPhrases) {
+                    insert.append("  - \"").append(escapeYaml(phrase)).append("\"\n");
+                }
+                content = content.substring(0, insertAt) + insert + content.substring(insertAt);
+            }
+        }
+
+        // Append all new instructions in one reflected section
+        if (!allNewInstructions.isEmpty()) {
+            String reflectedSection = "\n  ## Reflected " + LocalDate.now() + "\n";
+            for (String instr : allNewInstructions) {
+                reflectedSection += "  " + instr + "\n";
+            }
+            if (content.contains("instructions:")) {
+                content = content.stripTrailing() + "\n" + reflectedSection;
+            }
+        }
+
+        // Single version bump for all patterns in this group
+        String previousVersion = null;
+        String newVersion = null;
+        Pattern versionPattern = Pattern.compile("version:\\s*([0-9]+)\\.([0-9]+)\\.([0-9]+)");
+        Matcher vMatcher = versionPattern.matcher(content);
+        if (vMatcher.find()) {
+            previousVersion = vMatcher.group(1) + "." + vMatcher.group(2) + "." + vMatcher.group(3);
+            int patch = Integer.parseInt(vMatcher.group(3));
+            newVersion = vMatcher.group(1) + "." + vMatcher.group(2) + "." + (patch + 1);
+            content = content.substring(0, vMatcher.start())
+                    + "version: " + newVersion
+                    + content.substring(vMatcher.end());
+        }
+
+        if (!dryRun) {
+            atomicWrite(filePath, content);
+        }
+
+        return new SkillChange(
+                ChangeType.UPDATED,
+                existing.skillName(),
+                filePath,
+                "Added " + allNewPhrases.size() + " trigger phrases, "
+                        + allNewInstructions.size() + " instructions"
+                        + (group.size() > 1 ? " (batched from " + group.size() + " patterns)" : ""),
                 previousVersion, newVersion);
     }
 

@@ -329,14 +329,18 @@ public class ScanCommand implements Callable<Integer> {
         if (config.getAi().getVision().isConfirmBeforeScan()) {
             System.out.print("  Continue with vision analysis? [Y/n] ");
             try {
-                // Read from stdin -- for non-interactive contexts, default to yes
-                if (System.console() != null) {
-                    String response = System.console().readLine();
-                    if (response != null && (response.trim().equalsIgnoreCase("n")
-                            || response.trim().equalsIgnoreCase("no"))) {
-                        AnsiOutput.printInfo("Vision analysis skipped.");
-                        return;
-                    }
+                if (System.console() == null) {
+                    // Non-interactive mode (background, piped) — default to skip to avoid
+                    // unexpected API costs (#308)
+                    System.out.println();
+                    AnsiOutput.printInfo("Vision analysis skipped (non-interactive mode).");
+                    return;
+                }
+                String response = System.console().readLine();
+                if (response != null && (response.trim().equalsIgnoreCase("n")
+                        || response.trim().equalsIgnoreCase("no"))) {
+                    AnsiOutput.printInfo("Vision analysis skipped.");
+                    return;
                 }
             } catch (Exception e) {
                 // Non-interactive mode -- skip
