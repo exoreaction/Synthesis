@@ -497,6 +497,18 @@ public class SkillsGraphCommand implements Callable<Integer> {
                  .append("}},\n");
         }
 
+        // Cluster label nodes (positioned at cluster centroids by JS layout)
+        Set<String> seenClusters = new LinkedHashSet<>();
+        for (SkillNode n : nodes) seenClusters.add(n.cluster());
+        for (String cluster : seenClusters) {
+            String displayName = cluster.startsWith("cluster-") ? cluster.substring(8) : cluster;
+            elems.append("  {\"data\":{\"id\":").append(jsonStr("clabel-" + cluster))
+                 .append(",\"label\":").append(jsonStr(displayName))
+                 .append(",\"type\":\"cluster-label\"")
+                 .append(",\"cluster\":").append(jsonStr(cluster))
+                 .append("}},\n");
+        }
+
         // Edges — only render explicit edges (mention edges are too noisy at ~570+)
         // Mention edges are still computed and available in the JSON output
         for (SkillEdge e : edges) {
@@ -697,7 +709,14 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("        'width': 1.5, 'curve-style': 'bezier', 'opacity': 0.6\n");
         html.append("    }},\n");
         html.append("    { selector: '.highlighted', style: { 'background-color': '#f78166', 'border-color': '#ff7b72', 'border-width': 2 } },\n");
-        html.append("    { selector: '.dimmed', style: { 'opacity': 0.12 } }\n");
+        html.append("    { selector: '.dimmed', style: { 'opacity': 0.12 } },\n");
+        html.append("    { selector: '[type = \"cluster-label\"]', style: {\n");
+        html.append("        'background-opacity': 0, 'border-width': 0, 'width': 5, 'height': 5,\n");
+        html.append("        'label': 'data(label)', 'font-size': '15px', 'font-weight': '700',\n");
+        html.append("        'text-valign': 'center', 'text-halign': 'center',\n");
+        html.append("        'color': '#ffffff', 'text-outline-color': '#0d1117', 'text-outline-width': 3,\n");
+        html.append("        'z-index': 999, 'events': 'no'\n");
+        html.append("    }}\n");
         html.append("  ]\n");
         html.append("});\n\n");
 
@@ -705,7 +724,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         // Galaxy layout: cluster centroids on phyllotaxis spiral, nodes in circles within each cluster
         html.append("function computeGalaxyPositions() {\n");
         html.append("    const map = {};\n");
-        html.append("    cy.nodes().forEach(n => { const c = n.data('cluster')||'misc'; (map[c]||(map[c]=[])).push(n.id()); });\n");
+        html.append("    cy.nodes('[type != \"cluster-label\"]').forEach(n => { const c = n.data('cluster')||'misc'; (map[c]||(map[c]=[])).push(n.id()); });\n");
         html.append("    const clusters = Object.entries(map).sort((a,b) => b[1].length - a[1].length);\n");
         html.append("    const nC = clusters.length;\n");
         html.append("    const W = cy.width()||900, H = cy.height()||600;\n");
@@ -724,6 +743,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("            const rMult = 0.55 + (j * 0.618034 % 1) * 0.7;\n");
         html.append("            positions[id] = { x: ccx + clR*rMult*Math.cos(a), y: ccy + clR*rMult*Math.sin(a) };\n");
         html.append("        });\n");
+        html.append("        positions['clabel-' + cluster] = { x: ccx, y: ccy };\n");
         html.append("    });\n");
         html.append("    return positions;\n");
         html.append("}\n");
@@ -735,7 +755,15 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("            nodeSeparation: 100,\n");
         html.append("            idealEdgeLength: function(e){ return e.data('type')==='explicit'?100:180; },\n");
         html.append("            nodeRepulsion: function(){ return 8000; },\n");
-        html.append("            stop: function(){ cy.fit(50); }\n");
+        html.append("            stop: function(){\n");
+        html.append("                cy.nodes('[type = \"cluster-label\"]').forEach(ln => {\n");
+        html.append("                    const members = cy.nodes('[cluster = \"' + ln.data('cluster') + '\"][type != \"cluster-label\"]');\n");
+        html.append("                    if (!members.length) return;\n");
+        html.append("                    const bb = members.boundingBox();\n");
+        html.append("                    ln.position({ x: bb.x1 + bb.w/2, y: bb.y1 + bb.h/2 });\n");
+        html.append("                });\n");
+        html.append("                cy.fit(50);\n");
+        html.append("            }\n");
         html.append("        }).run();\n");
         html.append("    } else {\n");
         html.append("        const positions = computeGalaxyPositions();\n");
@@ -794,6 +822,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
 
         html.append("cy.on('tap', 'node', function(evt) {\n");
         html.append("  const node = evt.target;\n");
+        html.append("  if (node.data('type') === 'cluster-label') return;\n");
         html.append("  cy.nodes().removeClass('highlighted dimmed'); cy.edges().removeClass('dimmed');\n");
         html.append("  node.addClass('highlighted');\n");
         html.append("  node.neighborhood('node').forEach(n => n.addClass('highlighted'));\n");
@@ -887,12 +916,12 @@ public class SkillsGraphCommand implements Callable<Integer> {
         String allLabel = ("workspace".equals(mode) || "modules".equals(mode)) ? "All nodes" : "All skills";
         html.append("    all.innerHTML = `<div class=\"cluster-dot\" style=\"background:#58a6ff\"></div>\n");
         html.append("        <span class=\"cluster-label\">").append(allLabel).append("</span>\n");
-        html.append("        <span class=\"cluster-count\">${cy.nodes().length}</span>`;\n");
+        html.append("        <span class=\"cluster-count\">${cy.nodes('[type != \"cluster-label\"]').length}</span>`;\n");
         html.append("    all.onclick = () => resetGraph();\n");
         html.append("    list.appendChild(all);\n");
-        html.append("    const clusterIds = [...new Set(cy.nodes().map(n => n.data('cluster')).filter(Boolean))];\n");
+        html.append("    const clusterIds = [...new Set(cy.nodes('[type != \"cluster-label\"]').map(n => n.data('cluster')).filter(Boolean))];\n");
         html.append("    const clusterData = clusterIds.map(id => ({\n");
-        html.append("        id, count: cy.nodes(`[cluster=\"${id}\"]`).length\n");
+        html.append("        id, count: cy.nodes('[cluster = \"' + id + '\"][type != \"cluster-label\"]').length\n");
         html.append("    })).sort((a,b) => b.count - a.count);\n");
         html.append("    clusterData.forEach(({ id, count }) => {\n");
         html.append("        const label = id.replace('cluster-','').replace(/-/g,' ');\n");
