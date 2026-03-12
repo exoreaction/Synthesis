@@ -133,6 +133,19 @@ public class SkillsGraphCommand implements Callable<Integer> {
         AnsiOutput.printInfo("Parsing skills from " + dir + " ...");
         List<SkillNode> nodes = parseSkills(dir);
 
+        // Post-process: merge singleton clusters into cluster-misc
+        // (clusters with only 1 skill AND no explicit related_skills pointing within the cluster)
+        Map<String, Long> clusterCounts = nodes.stream()
+                .collect(Collectors.groupingBy(SkillNode::cluster, Collectors.counting()));
+        nodes = nodes.stream().map(n -> {
+            if (clusterCounts.getOrDefault(n.cluster(), 0L) == 1L) {
+                return new SkillNode(n.id(), n.version(), n.description(), n.tags(),
+                    n.triggerPhrases(), n.relatedSkills(), n.filePath(),
+                    n.instructions(), n.instructionLines(), "cluster-misc");
+            }
+            return n;
+        }).collect(Collectors.toList());
+
         if (nodes.isEmpty()) {
             AnsiOutput.printError("No skill YAML files found in " + dir);
             return 1;
@@ -306,7 +319,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
                             file.toAbsolutePath().toString(),
                             instructions != null ? instructions : "",
                             instrLines,
-                            primaryCluster(tags)
+                            primaryCluster(tags, id)
                     ));
                 } catch (Exception ignored) {
                     // skip malformed files
@@ -382,17 +395,41 @@ public class SkillsGraphCommand implements Callable<Integer> {
             "java", "context", "reference", "general"
     );
 
-    private static String primaryCluster(List<String> tags) {
-        if (tags == null || tags.isEmpty()) return "cluster-other";
-        // First pass: find first non-generic tag
-        for (String tag : tags) {
-            String t = tag.toLowerCase().strip();
-            if (!GENERIC_TAGS.contains(t)) {
-                return "cluster-" + t.replaceAll("[^a-z0-9]", "-");
+    private static String primaryCluster(List<String> tags, String skillId) {
+        // Pass 1: use first non-generic tag (existing logic)
+        if (tags != null && !tags.isEmpty()) {
+            for (String tag : tags) {
+                String t = tag.toLowerCase().strip();
+                if (!GENERIC_TAGS.contains(t)) {
+                    return "cluster-" + t.replaceAll("[^a-z0-9]", "-");
+                }
+            }
+            // All tags generic — use last tag (most specific)
+            String last = tags.get(tags.size() - 1).toLowerCase().strip();
+            return "cluster-" + last.replaceAll("[^a-z0-9]", "-");
+        }
+
+        // Pass 2: extract prefix from skill ID filename
+        if (skillId != null && !skillId.isBlank()) {
+            String[] parts = skillId.toLowerCase().split("-");
+            if (parts.length >= 1) {
+                String first = parts[0];
+                // Common action verbs -> dev-actions cluster
+                Set<String> ACTION_VERBS = Set.of("add", "fix", "integrate", "migrate", "verify",
+                    "prepare", "resolve", "generate", "locate", "modernize", "create",
+                    "update", "build", "run", "check", "setup", "configure");
+                if (ACTION_VERBS.contains(first)) {
+                    return "cluster-dev-actions";
+                }
+                // Two-segment prefix for known namespaces
+                if (parts.length >= 2 && Set.of("jenkins", "expert", "kcp", "company").contains(first)) {
+                    return "cluster-" + first + "-" + parts[1];
+                }
+                return "cluster-" + first;
             }
         }
-        // Second pass: use any tag (including generic ones) — last tag tends to be most specific
-        return "cluster-" + tags.get(tags.size() - 1).toLowerCase().replaceAll("[^a-z0-9]", "-");
+
+        return "cluster-other";
     }
 
     // -------------------------------------------------------------------------
@@ -439,30 +476,16 @@ public class SkillsGraphCommand implements Callable<Integer> {
     // -------------------------------------------------------------------------
 
     private String toHtml(List<SkillNode> nodes, List<SkillEdge> edges, String subtitle) {
-        // Build cluster set (preserving insertion order)
-        Set<String> clusters = nodes.stream()
-                .map(SkillNode::cluster)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        // Build Cytoscape elements array
+        // Build Cytoscape elements array (flat — no compound parent nodes)
         StringBuilder elems = new StringBuilder();
         elems.append("[\n");
-
-        // Cluster (compound parent) nodes
-        for (String cluster : clusters) {
-            String label = cluster.replace("cluster-", "").replace("-", " ");
-            long count = nodes.stream().filter(n -> n.cluster().equals(cluster)).count();
-            elems.append("  {\"data\":{\"id\":").append(jsonStr(cluster))
-                 .append(",\"label\":").append(jsonStr(label + " (" + count + ")"))
-                 .append(",\"isCluster\":true}},\n");
-        }
 
         // Skill nodes
         for (SkillNode n : nodes) {
             int w = Math.max(14, Math.min(52, n.instructionLines() / 6));
             elems.append("  {\"data\":{\"id\":").append(jsonStr(n.id()))
                  .append(",\"label\":").append(jsonStr(n.id()))
-                 .append(",\"parent\":").append(jsonStr(n.cluster()))
+                 .append(",\"cluster\":").append(jsonStr(n.cluster()))
                  .append(",\"version\":").append(jsonStr(n.version()))
                  .append(",\"description\":").append(jsonStr(n.description()))
                  .append(",\"tags\":").append(jsonStr(String.join(", ", n.tags())))
@@ -474,8 +497,10 @@ public class SkillsGraphCommand implements Callable<Integer> {
                  .append("}},\n");
         }
 
-        // Edges
+        // Edges — only render explicit edges (mention edges are too noisy at ~570+)
+        // Mention edges are still computed and available in the JSON output
         for (SkillEdge e : edges) {
+            if (!"explicit".equals(e.type())) continue;
             elems.append("  {\"data\":{\"source\":").append(jsonStr(e.source()))
                  .append(",\"target\":").append(jsonStr(e.target()))
                  .append(",\"type\":").append(jsonStr(e.type()))
@@ -521,6 +546,9 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("#reset-btn{margin-left:auto;background:#21262d;border:1px solid #30363d;");
         html.append("border-radius:6px;color:#8b949e;padding:5px 11px;font-size:11px;cursor:pointer}\n");
         html.append("#reset-btn:hover{border-color:#8b949e;color:#e6edf3}\n");
+        html.append("#edge-toggle{background:#21262d;border:1px solid #30363d;border-radius:6px;");
+        html.append("color:#8b949e;padding:5px 11px;font-size:11px;cursor:pointer}\n");
+        html.append("#edge-toggle:hover,#edge-toggle.active{border-color:#3fb950;color:#3fb950}\n");
         html.append("#stats{font-size:11px;color:#8b949e;white-space:nowrap}\n");
         html.append("#main{display:flex;flex:1;overflow:hidden}\n");
         html.append("#cy{flex:1;background:#0d1117;cursor:default}\n");
@@ -584,6 +612,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         String nodeLabel = "workspace".equals(mode) || "modules".equals(mode) ? "nodes" : "skills";
         html.append("  <input id=\"search\" type=\"text\" placeholder=\"Search ").append(nodeLabel).append("...\">\n");
         html.append("  <button id=\"reset-btn\" onclick=\"resetGraph()\">Reset</button>\n");
+        html.append("  <button id=\"edge-toggle\" onclick=\"toggleEdges()\">Show edges</button>\n");
         html.append("  <span id=\"stats\">").append(nodes.size()).append(" ").append(nodeLabel).append(" · ")
             .append(edges.size()).append(" edges · ").append(generated).append("</span>\n");
         html.append("</div>\n");
@@ -606,10 +635,8 @@ public class SkillsGraphCommand implements Callable<Integer> {
 
         // Legend
         html.append("<div id=\"legend\">\n");
-        html.append("  <div><div class=\"ld\" style=\"background:#1f6feb\"></div> Skill</div>\n");
-        html.append("  <div><div class=\"ld\" style=\"background:#161b22;border:1px solid #388bfd\"></div> Cluster</div>\n");
+        html.append("  <div><div class=\"ld\" style=\"background:#1f6feb\"></div> Skill (color = cluster)</div>\n");
         html.append("  <div><div class=\"le\" style=\"background:#3fb950\"></div> explicit link</div>\n");
-        html.append("  <div><div class=\"le\" style=\"background:#d29922;border-top:2px dashed #d29922;height:0\"></div> mention</div>\n");
         html.append("</div>\n");
         html.append("<div id=\"tooltip\"></div>\n");
 
@@ -618,7 +645,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("const ELEMENTS = ").append(elemsStr).append(";\n\n");
 
         // A3: Cluster color functions (HSL palette)
-        html.append("const CLUSTER_IDS = [...new Set(ELEMENTS.filter(e => e.data && e.data.isCluster).map(e => e.data.id))];\n");
+        html.append("const CLUSTER_IDS = [...new Set(ELEMENTS.filter(e => e.data && e.data.cluster).map(e => e.data.cluster))];\n");
         html.append("function clusterHue(id) {\n");
         html.append("    const idx = CLUSTER_IDS.indexOf(id);\n");
         html.append("    return idx < 0 ? 210 : Math.round((idx * 360) / CLUSTER_IDS.length);\n");
@@ -636,15 +663,16 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("  autoungrabify: false,\n");
         // Scale font and node size based on graph density
         int nodeCount = nodes.size();
-        String nodeFontSize = nodeCount < 30 ? "14px" : nodeCount < 80 ? "11px" : "9px";
-        int nodeMin = nodeCount < 30 ? 28 : 16;
-        int nodeMax = nodeCount < 30 ? 56 : 44;
+        String nodeFontSize = nodeCount < 30 ? "14px" : nodeCount < 100 ? "12px" : "10px";
+        int nodeMin = nodeCount < 30 ? 28 : 22;
+        int nodeMax = nodeCount < 30 ? 56 : 50;
 
         html.append("  style: [\n");
-        html.append("    { selector: 'node[!isCluster]', style: {\n");
+        html.append("    { selector: 'edge', style: { 'display': 'none' } },\n");
+        html.append("    { selector: 'node', style: {\n");
         html.append("        'label': 'data(label)',\n");
-        html.append("        'background-color': function(ele){ return clusterColor(ele.data('parent')); },\n");
-        html.append("        'border-color': function(ele){ return clusterBorderColor(ele.data('parent')); },\n");
+        html.append("        'background-color': function(ele){ return clusterColor(ele.data('cluster')); },\n");
+        html.append("        'border-color': function(ele){ return clusterBorderColor(ele.data('cluster')); },\n");
         html.append("        'border-width': 1.5,\n");
         html.append("        'color': '#e6edf3',\n");
         html.append("        'font-size': '").append(nodeFontSize).append("',\n");
@@ -654,21 +682,6 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("        'text-outline-width': 2,\n");
         html.append("        'width': 'mapData(w, 14, 52, ").append(nodeMin).append(", ").append(nodeMax).append(")',\n");
         html.append("        'height': 'mapData(w, 14, 52, ").append(nodeMin).append(", ").append(nodeMax).append(")'\n");
-        html.append("    }},\n");
-        html.append("    { selector: 'node[?isCluster]', style: {\n");
-        html.append("        'label': 'data(label)',\n");
-        html.append("        'background-color': function(ele){ return clusterBgColor(ele.data('id')); },\n");
-        html.append("        'background-opacity': 0.06,\n");
-        html.append("        'border-color': function(ele){ return clusterBorderColor(ele.data('id')); },\n");
-        html.append("        'border-width': 1,\n");
-        html.append("        'border-style': 'dashed',\n");
-        html.append("        'color': '#c9d1d9',\n");
-        html.append("        'font-size': '").append(nodeCount < 30 ? "13px" : "10px").append("',\n");
-        html.append("        'font-weight': 'bold',\n");
-        html.append("        'text-valign': 'top',\n");
-        html.append("        'padding': '16px',\n");
-        html.append("        'text-outline-color': '#0d1117',\n");
-        html.append("        'text-outline-width': 2\n");
         html.append("    }},\n");
         html.append("    { selector: 'node:selected', style: {\n");
         html.append("        'border-color': '#58a6ff', 'border-width': 3, 'background-color': '#388bfd'\n");
@@ -688,22 +701,47 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("  ]\n");
         html.append("});\n\n");
 
-        // A2: fcose layout with cose fallback (run after constructor)
+        // A2: fcose layout with galaxy-preset fallback (run after constructor)
+        // Galaxy layout: cluster centroids on phyllotaxis spiral, nodes in circles within each cluster
+        html.append("function computeGalaxyPositions() {\n");
+        html.append("    const map = {};\n");
+        html.append("    cy.nodes().forEach(n => { const c = n.data('cluster')||'misc'; (map[c]||(map[c]=[])).push(n.id()); });\n");
+        html.append("    const clusters = Object.entries(map).sort((a,b) => b[1].length - a[1].length);\n");
+        html.append("    const nC = clusters.length;\n");
+        html.append("    const W = cy.width()||900, H = cy.height()||600;\n");
+        html.append("    const ox = W/2, oy = H/2;\n");
+        html.append("    const maxR = Math.min(W,H) * 0.40;\n");
+        html.append("    const positions = {};\n");
+        html.append("    const golden = Math.PI * (3 - Math.sqrt(5));\n");
+        html.append("    clusters.forEach(([cluster, ids], ci) => {\n");
+        html.append("        const r = ci===0 ? 0 : maxR * Math.sqrt(ci / Math.max(nC-1,1)) * 0.95;\n");
+        html.append("        const a0 = ci * golden;\n");
+        html.append("        const ccx = ox + r * Math.cos(a0), ccy = oy + r * Math.sin(a0);\n");
+        html.append("        const n = ids.length;\n");
+        html.append("        const clR = Math.max(28, Math.sqrt(n) * 20);\n");
+        html.append("        ids.forEach((id, j) => {\n");
+        html.append("            const a = 2 * Math.PI * j / Math.max(n,1);\n");
+        html.append("            const rMult = 0.55 + (j * 0.618034 % 1) * 0.7;\n");
+        html.append("            positions[id] = { x: ccx + clR*rMult*Math.cos(a), y: ccy + clR*rMult*Math.sin(a) };\n");
+        html.append("        });\n");
+        html.append("    });\n");
+        html.append("    return positions;\n");
+        html.append("}\n");
         html.append("function runLayout() {\n");
         html.append("    const useFcose = typeof cytoscapeFcose !== 'undefined';\n");
-        html.append("    cy.layout(useFcose ? {\n");
-        html.append("        name: 'fcose', quality: 'default', animate: false, fit: true, padding: 40,\n");
-        html.append("        nodeSeparation: 75,\n");
-        html.append("        idealEdgeLength: function(e){ return e.data('type')==='explicit'?80:150; },\n");
-        html.append("        nodeRepulsion: function(){ return 4500; },\n");
-        html.append("        stop: function(){ cy.fit(40); }\n");
-        html.append("    } : {\n");
-        html.append("        name: 'cose', animate: false, fit: true, padding: 40,\n");
-        html.append("        nodeDimensionsIncludeLabels: true, idealEdgeLength: 100,\n");
-        html.append("        nodeRepulsion: function(){ return 400000; }, nodeOverlap: 20,\n");
-        html.append("        componentSpacing: 80, randomize: true,\n");
-        html.append("        stop: function(){ cy.fit(40); }\n");
-        html.append("    }).run();\n");
+        html.append("    if (useFcose) {\n");
+        html.append("        cy.layout({\n");
+        html.append("            name: 'fcose', quality: 'default', animate: false, fit: true, padding: 50,\n");
+        html.append("            nodeSeparation: 100,\n");
+        html.append("            idealEdgeLength: function(e){ return e.data('type')==='explicit'?100:180; },\n");
+        html.append("            nodeRepulsion: function(){ return 8000; },\n");
+        html.append("            stop: function(){ cy.fit(50); }\n");
+        html.append("        }).run();\n");
+        html.append("    } else {\n");
+        html.append("        const positions = computeGalaxyPositions();\n");
+        html.append("        cy.layout({ name: 'preset', positions: function(n){ return positions[n.id()]; },\n");
+        html.append("            fit: true, padding: 50 }).run();\n");
+        html.append("    }\n");
         html.append("}\n");
         html.append("runLayout();\n\n");
 
@@ -714,7 +752,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("  let relHtml = '';\n");
         html.append("  edges.forEach(e => {\n");
         html.append("    const oid = e.source().id() === d.id ? e.target().id() : e.source().id();\n");
-        html.append("    if (oid !== d.id && !cy.getElementById(oid).data('isCluster')) {\n");
+        html.append("    if (oid !== d.id) {\n");
         html.append("      relHtml += `<a class=\"rlink\" onclick=\"focusNode('${oid}')\">${oid} <span class=\"et-${e.data('type')}\">[${e.data('type')}]</span></a>`;\n");
         html.append("    }\n");
         html.append("  });\n");
@@ -736,6 +774,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("  document.getElementById('panel').classList.remove('visible');\n");
         html.append("  cy.nodes().removeClass('highlighted dimmed');\n");
         html.append("  cy.edges().removeClass('dimmed');\n");
+        html.append("  if (!edgesVisible) cy.edges().style('display', 'none');\n");
         html.append("}\n\n");
 
         html.append("function focusNode(id) {\n");
@@ -753,16 +792,16 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("let _tabNeighbors = [];\n");
         html.append("let _tabIdx = -1;\n\n");
 
-        html.append("cy.on('tap', 'node[!isCluster]', function(evt) {\n");
+        html.append("cy.on('tap', 'node', function(evt) {\n");
         html.append("  const node = evt.target;\n");
         html.append("  cy.nodes().removeClass('highlighted dimmed'); cy.edges().removeClass('dimmed');\n");
         html.append("  node.addClass('highlighted');\n");
-        html.append("  node.neighborhood('node[!isCluster]').forEach(n => n.addClass('highlighted'));\n");
-        html.append("  cy.nodes('[!isCluster]').not(node).not(node.neighborhood('node[!isCluster]')).addClass('dimmed');\n");
-        html.append("  node.connectedEdges().removeClass('dimmed');\n");
+        html.append("  node.neighborhood('node').forEach(n => n.addClass('highlighted'));\n");
+        html.append("  cy.nodes().not(node).not(node.neighborhood('node')).addClass('dimmed');\n");
+        html.append("  node.connectedEdges().style('display', 'element').removeClass('dimmed');\n");
         html.append("  showPanel(node);\n");
         // B4: populate tab neighbors on tap
-        html.append("  _tabNeighbors = [node.id(), ...node.neighborhood('node[!isCluster]').map(n => n.id())];\n");
+        html.append("  _tabNeighbors = [node.id(), ...node.neighborhood('node').map(n => n.id())];\n");
         html.append("  _tabIdx = 0;\n");
         html.append("});\n\n");
 
@@ -770,7 +809,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
 
         // A4: Tooltip event handlers
         html.append("const tooltip = document.getElementById('tooltip');\n");
-        html.append("cy.on('mouseover', 'node[!isCluster]', function(evt) {\n");
+        html.append("cy.on('mouseover', 'node', function(evt) {\n");
         html.append("    const d = evt.target.data();\n");
         html.append("    const tagsStr = d.tags ? d.tags.split(',').map(t=>t.trim()).filter(Boolean).join(' \\u00B7 ') : '';\n");
         html.append("    tooltip.innerHTML = `<div class=\"tt-name\">${d.label}</div>\n");
@@ -778,7 +817,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("        ${tagsStr ? `<div class=\"tt-tags\">${tagsStr}</div>` : ''}`;\n");
         html.append("    tooltip.style.display = 'block';\n");
         html.append("});\n");
-        html.append("cy.on('mouseout', 'node[!isCluster]', function() { tooltip.style.display = 'none'; });\n");
+        html.append("cy.on('mouseout', 'node', function() { tooltip.style.display = 'none'; });\n");
         html.append("cy.on('mousemove', function(evt) {\n");
         html.append("    if (tooltip.style.display !== 'none') {\n");
         html.append("        tooltip.style.left = (evt.originalEvent.clientX + 15) + 'px';\n");
@@ -789,7 +828,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("document.getElementById('search').addEventListener('input', function() {\n");
         html.append("  const q = this.value.toLowerCase().trim();\n");
         html.append("  if (!q) { cy.nodes().removeClass('highlighted dimmed'); cy.edges().removeClass('dimmed'); return; }\n");
-        html.append("  cy.nodes('[!isCluster]').forEach(n => {\n");
+        html.append("  cy.nodes().forEach(n => {\n");
         html.append("    const hit = n.id().toLowerCase().includes(q) || (n.data('tags')||'').toLowerCase().includes(q) || (n.data('description')||'').toLowerCase().includes(q);\n");
         html.append("    n.toggleClass('highlighted', hit).toggleClass('dimmed', !hit);\n");
         html.append("  });\n");
@@ -797,10 +836,19 @@ public class SkillsGraphCommand implements Callable<Integer> {
 
         html.append("function filterByTag(tag) {\n");
         html.append("  closePanel();\n");
-        html.append("  cy.nodes('[!isCluster]').forEach(n => {\n");
+        html.append("  cy.nodes().forEach(n => {\n");
         html.append("    const hit = (n.data('tags')||'').toLowerCase().split(',').map(t=>t.trim()).includes(tag.toLowerCase());\n");
         html.append("    n.toggleClass('highlighted', hit).toggleClass('dimmed', !hit);\n");
         html.append("  });\n");
+        html.append("}\n\n");
+
+        // Edge visibility toggle
+        html.append("let edgesVisible = false;\n");
+        html.append("function toggleEdges() {\n");
+        html.append("    edgesVisible = !edgesVisible;\n");
+        html.append("    cy.edges().style('display', edgesVisible ? 'element' : 'none');\n");
+        html.append("    document.getElementById('edge-toggle').classList.toggle('active', edgesVisible);\n");
+        html.append("    document.getElementById('edge-toggle').textContent = edgesVisible ? 'Hide edges' : 'Show edges';\n");
         html.append("}\n\n");
 
         // A5: Updated resetGraph to also reset cluster nav
@@ -810,6 +858,10 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("  document.querySelectorAll('.cluster-item').forEach(b => b.classList.remove('active'));\n");
         html.append("  const allBtn = document.getElementById('cluster-all');\n");
         html.append("  if (allBtn) allBtn.classList.add('active');\n");
+        html.append("  edgesVisible = false;\n");
+        html.append("  cy.edges().style('display', 'none');\n");
+        html.append("  document.getElementById('edge-toggle').textContent = 'Show edges';\n");
+        html.append("  document.getElementById('edge-toggle').classList.remove('active');\n");
         html.append("  closePanel(); cy.fit();\n");
         html.append("}\n\n");
 
@@ -825,7 +877,7 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("    }\n");
         html.append("});\n\n");
 
-        // A5: Cluster nav sidebar builder
+        // A5: Cluster nav sidebar builder (flat — no compound parent nodes)
         html.append("function buildClusterNav() {\n");
         html.append("    const list = document.getElementById('cluster-list');\n");
         html.append("    list.innerHTML = '';\n");
@@ -835,14 +887,15 @@ public class SkillsGraphCommand implements Callable<Integer> {
         String allLabel = ("workspace".equals(mode) || "modules".equals(mode)) ? "All nodes" : "All skills";
         html.append("    all.innerHTML = `<div class=\"cluster-dot\" style=\"background:#58a6ff\"></div>\n");
         html.append("        <span class=\"cluster-label\">").append(allLabel).append("</span>\n");
-        html.append("        <span class=\"cluster-count\">${cy.nodes('[!isCluster]').length}</span>`;\n");
+        html.append("        <span class=\"cluster-count\">${cy.nodes().length}</span>`;\n");
         html.append("    all.onclick = () => resetGraph();\n");
         html.append("    list.appendChild(all);\n");
-        html.append("    const clusters = cy.nodes('[?isCluster]').sort((a,b) => b.children().length - a.children().length);\n");
-        html.append("    clusters.forEach(c => {\n");
-        html.append("        const id = c.data('id');\n");
+        html.append("    const clusterIds = [...new Set(cy.nodes().map(n => n.data('cluster')).filter(Boolean))];\n");
+        html.append("    const clusterData = clusterIds.map(id => ({\n");
+        html.append("        id, count: cy.nodes(`[cluster=\"${id}\"]`).length\n");
+        html.append("    })).sort((a,b) => b.count - a.count);\n");
+        html.append("    clusterData.forEach(({ id, count }) => {\n");
         html.append("        const label = id.replace('cluster-','').replace(/-/g,' ');\n");
-        html.append("        const count = c.children().length;\n");
         html.append("        const item = document.createElement('div');\n");
         html.append("        item.className = 'cluster-item';\n");
         html.append("        item.dataset.clusterId = id;\n");
@@ -858,16 +911,16 @@ public class SkillsGraphCommand implements Callable<Integer> {
         html.append("    document.querySelectorAll('.cluster-item').forEach(i => i.classList.remove('active'));\n");
         html.append("    const item = document.querySelector(`.cluster-item[data-cluster-id=\"${clusterId}\"]`);\n");
         html.append("    if (item) item.classList.add('active');\n");
-        html.append("    cy.nodes('[!isCluster]').forEach(n => {\n");
-        html.append("        const hit = n.data('parent') === clusterId;\n");
+        html.append("    const matchedNodes = cy.nodes(`[cluster=\"${clusterId}\"]`);\n");
+        html.append("    cy.nodes().forEach(n => {\n");
+        html.append("        const hit = n.data('cluster') === clusterId;\n");
         html.append("        n.toggleClass('highlighted', hit).toggleClass('dimmed', !hit);\n");
         html.append("    });\n");
         html.append("    cy.edges().forEach(e => {\n");
-        html.append("        const show = e.source().data('parent') === clusterId || e.target().data('parent') === clusterId;\n");
+        html.append("        const show = e.source().data('cluster') === clusterId || e.target().data('cluster') === clusterId;\n");
         html.append("        e.toggleClass('dimmed', !show);\n");
         html.append("    });\n");
-        html.append("    const cluster = cy.getElementById(clusterId);\n");
-        html.append("    if (cluster && cluster.length) cy.animate({ fit: { eles: cluster, padding: 60 } });\n");
+        html.append("    if (matchedNodes.length) cy.animate({ fit: { eles: matchedNodes, padding: 60 } });\n");
         html.append("}\n\n");
 
         html.append("function toggleNav() {\n");
