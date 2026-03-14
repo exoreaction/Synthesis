@@ -83,6 +83,11 @@ public class ClaudeSessionScanner {
                         continue;
                     }
 
+                    // Detect subagent files: path contains /subagents/agent-<id>.jsonl
+                    boolean isSubagentFile = isSubagentPath(file);
+                    // For subagent files, use "agent-<agentId>" as the stored session key
+                    // (the filename already is agent-<id>.jsonl, so sessionId = "agent-<id>")
+
                     // Incremental: skip if file hasn't changed since last scan
                     long lastModified = Files.getLastModifiedTime(file).toInstant().getEpochSecond();
                     Long prevScanned = known.get(sessionId);
@@ -110,6 +115,7 @@ public class ClaudeSessionScanner {
      * @return a session record, or {@code null} if the file has no user messages
      */
     ClaudeSession parseFile(Path file, String sessionId) throws IOException {
+        boolean isSubagentFile = isSubagentPath(file);
         String projectDir = null;
         Instant startedAt = null;
         Instant endedAt = null;
@@ -118,6 +124,13 @@ public class ClaudeSessionScanner {
         Set<String> toolNames = new LinkedHashSet<>();
         String firstMessage = null;
         StringBuilder allUserText = new StringBuilder();
+
+        // Subagent metadata — extracted from the first parseable JSONL line
+        boolean isSubagent = false;
+        String parentSessionId = null;
+        String agentId = null;
+        String agentSlug = null;
+        boolean subagentMetaExtracted = false;
 
         try (Stream<String> lines = Files.lines(file)) {
             for (String line : (Iterable<String>) lines::iterator) {
@@ -130,6 +143,27 @@ public class ClaudeSessionScanner {
                 } catch (Exception e) {
                     LOG.fine("Unparseable line in " + file + ": " + e.getMessage());
                     continue;
+                }
+
+                // On the first parseable line, check for subagent indicators
+                if (!subagentMetaExtracted) {
+                    subagentMetaExtracted = true;
+                    if (isSubagentFile || event.path("isSidechain").asBoolean(false)) {
+                        isSubagent = true;
+                        // sessionId in subagent JSONL = the PARENT session UUID
+                        String parentId = event.path("sessionId").asText(null);
+                        if (parentId != null && !parentId.isBlank()) {
+                            parentSessionId = parentId;
+                        }
+                        String aid = event.path("agentId").asText(null);
+                        if (aid != null && !aid.isBlank()) {
+                            agentId = aid;
+                        }
+                        String slug = event.path("slug").asText(null);
+                        if (slug != null && !slug.isBlank()) {
+                            agentSlug = slug;
+                        }
+                    }
                 }
 
                 String type = event.path("type").asText("");
@@ -200,7 +234,11 @@ public class ClaudeSessionScanner {
                 toolCallCount,
                 new ArrayList<>(toolNames),
                 firstMessage,
-                allUserText.toString().strip()
+                allUserText.toString().strip(),
+                parentSessionId,
+                agentId,
+                isSubagent,
+                agentSlug
         );
     }
 
@@ -245,6 +283,17 @@ public class ClaudeSessionScanner {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Detects whether a JSONL file is a subagent transcript based on its path.
+     * Subagent files live under {@code .../subagents/agent-<id>.jsonl}.
+     */
+    static boolean isSubagentPath(Path file) {
+        Path parent = file.getParent();
+        if (parent == null) return false;
+        return "subagents".equals(parent.getFileName().toString())
+                && file.getFileName().toString().startsWith("agent-");
     }
 
     private String truncate(String s, int maxLen) {

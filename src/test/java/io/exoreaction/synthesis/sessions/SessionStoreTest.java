@@ -50,7 +50,11 @@ class SessionStoreTest {
                 2,
                 List.of("Read", "Edit"),
                 firstMsg,
-                allText
+                allText,
+                null,   // parentSessionId
+                null,   // agentId
+                false,  // isSubagent
+                null    // agentSlug
         );
     }
 
@@ -78,7 +82,7 @@ class SessionStoreTest {
     void upsert_idempotent_updatesExisting() throws SQLException {
         ClaudeSession v1 = session("sess-001", "/proj", "First message", "First message content");
         ClaudeSession v2 = new ClaudeSession("sess-001", "/proj", Instant.now(), null,
-                5, 4, List.of("Bash"), "Updated first", "Updated content");
+                5, 4, List.of("Bash"), "Updated first", "Updated content", null, null, false, null);
 
         store.upsert(v1);
         store.upsert(v2);
@@ -100,9 +104,9 @@ class SessionStoreTest {
     @Test
     void listRecent_orderedByStartedAtDesc() throws SQLException {
         ClaudeSession older = new ClaudeSession("old", "/p",
-                Instant.now().minus(5, ChronoUnit.DAYS), null, 1, 0, List.of(), "older", "older");
+                Instant.now().minus(5, ChronoUnit.DAYS), null, 1, 0, List.of(), "older", "older", null, null, false, null);
         ClaudeSession newer = new ClaudeSession("new", "/p",
-                Instant.now().minus(1, ChronoUnit.HOURS), null, 1, 0, List.of(), "newer", "newer");
+                Instant.now().minus(1, ChronoUnit.HOURS), null, 1, 0, List.of(), "newer", "newer", null, null, false, null);
 
         store.upsert(older);
         store.upsert(newer);
@@ -186,9 +190,9 @@ class SessionStoreTest {
     @Test
     void listSince_filtersCorrectly() throws SQLException {
         ClaudeSession old = new ClaudeSession("old", "/p",
-                Instant.now().minus(60, ChronoUnit.DAYS), null, 1, 0, List.of(), "old msg", "old text");
+                Instant.now().minus(60, ChronoUnit.DAYS), null, 1, 0, List.of(), "old msg", "old text", null, null, false, null);
         ClaudeSession recent = new ClaudeSession("recent", "/p",
-                Instant.now().minus(1, ChronoUnit.DAYS), null, 1, 0, List.of(), "recent msg", "recent text");
+                Instant.now().minus(1, ChronoUnit.DAYS), null, 1, 0, List.of(), "recent msg", "recent text", null, null, false, null);
 
         store.upsert(old);
         store.upsert(recent);

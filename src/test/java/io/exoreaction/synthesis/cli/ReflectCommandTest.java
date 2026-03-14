@@ -42,7 +42,8 @@ class ReflectCommandTest {
                 2,
                 List.of("Read", "Edit", "Bash"),
                 userText != null ? userText.substring(0, Math.min(50, userText.length())) : null,
-                userText
+                userText,
+                null, null, false, null
         );
     }
 

@@ -203,4 +203,84 @@ class ClaudeSessionScannerTest {
         ClaudeSession session = store.getBySessionId(SESSION_UUID).orElseThrow();
         assertEquals("Array content message", session.firstMessage());
     }
+
+    // -----------------------------------------------------------------------
+    // Subagent tests
+    // -----------------------------------------------------------------------
+
+    private static final String PARENT_UUID = "624a7854-a7d2-4331-8ddb-7dab21e7064c";
+    private static final String AGENT_ID = "ae5fb06d98fb195b2";
+    private static final String AGENT_SLUG = "tingly-soaring-naur";
+
+    private Path writeSubagentSession(String parentSessionId, String agentId,
+                                       String slug, String... extraLines) throws IOException {
+        Path subagentsDir = projectsDir.resolve(parentSessionId).resolve("subagents");
+        Files.createDirectories(subagentsDir);
+        Path file = subagentsDir.resolve("agent-" + agentId + ".jsonl");
+        StringBuilder content = new StringBuilder();
+        // First line: a user message with subagent metadata
+        content.append("{\"type\":\"user\",\"isSidechain\":true,\"sessionId\":\"")
+                .append(parentSessionId)
+                .append("\",\"agentId\":\"").append(agentId)
+                .append("\",\"slug\":\"").append(slug)
+                .append("\",\"cwd\":\"/src/test/subagent-project\"")
+                .append(",\"timestamp\":\"2026-03-14T10:00:00Z\"")
+                .append(",\"message\":{\"role\":\"user\",\"content\":\"Subagent task: implement feature X\"}}")
+                .append("\n");
+        for (String line : extraLines) {
+            content.append(line).append("\n");
+        }
+        Files.writeString(file, content.toString());
+        return file;
+    }
+
+    @Test
+    void scan_subagentFile_detectsSubagentMetadata() throws Exception {
+        writeSubagentSession(PARENT_UUID, AGENT_ID, AGENT_SLUG);
+
+        ClaudeSessionScanner scanner = new ClaudeSessionScanner(store, projectsDir);
+        int processed = scanner.scan();
+
+        assertEquals(1, processed);
+
+        // The session is stored with key "agent-<agentId>"
+        Optional<ClaudeSession> result = store.getBySessionId("agent-" + AGENT_ID);
+        assertTrue(result.isPresent(), "Subagent session should be stored");
+
+        ClaudeSession session = result.get();
+        assertTrue(session.isSubagent(), "isSubagent should be true");
+        assertEquals(PARENT_UUID, session.parentSessionId());
+        assertEquals(AGENT_ID, session.agentId());
+        assertEquals(AGENT_SLUG, session.agentSlug());
+        assertEquals("/src/test/subagent-project", session.projectDir());
+        assertEquals("Subagent task: implement feature X", session.firstMessage());
+    }
+
+    @Test
+    void scan_regularSession_isNotSubagent() throws Exception {
+        writeSession(SESSION_UUID,
+                SNAPSHOT_LINE,
+                userLine(SESSION_UUID, "/home/user/myproject", "2026-02-01T10:00:00Z",
+                        "Regular session task")
+        );
+
+        ClaudeSessionScanner scanner = new ClaudeSessionScanner(store, projectsDir);
+        scanner.scan();
+
+        ClaudeSession session = store.getBySessionId(SESSION_UUID).orElseThrow();
+        assertFalse(session.isSubagent(), "Regular session should not be subagent");
+        assertNull(session.parentSessionId(), "Regular session should have no parent");
+        assertNull(session.agentId(), "Regular session should have no agentId");
+        assertNull(session.agentSlug(), "Regular session should have no agentSlug");
+    }
+
+    @Test
+    void isSubagentPath_detectsCorrectly() {
+        assertTrue(ClaudeSessionScanner.isSubagentPath(
+                Path.of("/home/user/.claude/projects/proj/abc-123/subagents/agent-xyz.jsonl")));
+        assertFalse(ClaudeSessionScanner.isSubagentPath(
+                Path.of("/home/user/.claude/projects/proj/abc-123.jsonl")));
+        assertFalse(ClaudeSessionScanner.isSubagentPath(
+                Path.of("/home/user/.claude/projects/proj/subagents/not-agent.jsonl")));
+    }
 }

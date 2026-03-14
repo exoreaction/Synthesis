@@ -36,7 +36,8 @@ class SessionAnalyzerTest {
                 toolNames.size(),
                 toolNames,
                 allUserText != null ? allUserText.substring(0, Math.min(50, allUserText.length())) : null,
-                allUserText
+                allUserText,
+                null, null, false, null
         );
     }
 

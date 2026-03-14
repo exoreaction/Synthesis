@@ -44,18 +44,23 @@ public class SessionStore {
             INSERT INTO claude_sessions (
                 session_id, project_dir, started_at, ended_at,
                 turn_count, tool_call_count, tool_names_json,
-                first_message, all_user_text, scanned_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_message, all_user_text, scanned_at,
+                parent_session_id, agent_id, is_subagent, agent_slug
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
-                project_dir     = excluded.project_dir,
-                started_at      = excluded.started_at,
-                ended_at        = excluded.ended_at,
-                turn_count      = excluded.turn_count,
-                tool_call_count = excluded.tool_call_count,
-                tool_names_json = excluded.tool_names_json,
-                first_message   = excluded.first_message,
-                all_user_text   = excluded.all_user_text,
-                scanned_at      = excluded.scanned_at
+                project_dir       = excluded.project_dir,
+                started_at        = excluded.started_at,
+                ended_at          = excluded.ended_at,
+                turn_count        = excluded.turn_count,
+                tool_call_count   = excluded.tool_call_count,
+                tool_names_json   = excluded.tool_names_json,
+                first_message     = excluded.first_message,
+                all_user_text     = excluded.all_user_text,
+                scanned_at        = excluded.scanned_at,
+                parent_session_id = excluded.parent_session_id,
+                agent_id          = excluded.agent_id,
+                is_subagent       = excluded.is_subagent,
+                agent_slug        = excluded.agent_slug
             """;
 
         String toolNamesJson = null;
@@ -79,6 +84,10 @@ public class SessionStore {
             ps.setString(8, session.firstMessage());
             ps.setString(9, session.allUserText());
             ps.setLong(10, Instant.now().getEpochSecond());
+            ps.setString(11, session.parentSessionId());
+            ps.setString(12, session.agentId());
+            ps.setBoolean(13, session.isSubagent());
+            ps.setString(14, session.agentSlug());
             ps.executeUpdate();
         }
     }
@@ -128,27 +137,41 @@ public class SessionStore {
     /**
      * Lists recent sessions, optionally filtered by project directory.
      *
-     * @param limit         maximum rows
-     * @param projectFilter substring match on project_dir (null = all projects)
-     * @return sessions ordered by started_at DESC
+     * @param limit            maximum rows
+     * @param projectFilter    substring match on project_dir (null = all projects)
+     * @return sessions ordered by started_at DESC (excludes subagents)
      */
     public synchronized List<ClaudeSession> listRecent(int limit, String projectFilter) throws SQLException {
-        String sql;
-        if (projectFilter != null && !projectFilter.isBlank()) {
-            sql = "SELECT * FROM claude_sessions WHERE project_dir LIKE ? ORDER BY started_at DESC LIMIT ?";
-        } else {
-            sql = "SELECT * FROM claude_sessions ORDER BY started_at DESC LIMIT ?";
+        return listRecent(limit, projectFilter, false);
+    }
+
+    /**
+     * Lists recent sessions, optionally filtered by project directory.
+     *
+     * @param limit            maximum rows
+     * @param projectFilter    substring match on project_dir (null = all projects)
+     * @param includeSubagents if false, subagent sessions are excluded
+     * @return sessions ordered by started_at DESC
+     */
+    public synchronized List<ClaudeSession> listRecent(int limit, String projectFilter,
+                                                        boolean includeSubagents) throws SQLException {
+        StringBuilder sql = new StringBuilder("SELECT * FROM claude_sessions WHERE 1=1");
+        if (!includeSubagents) {
+            sql.append(" AND is_subagent = FALSE");
         }
+        if (projectFilter != null && !projectFilter.isBlank()) {
+            sql.append(" AND project_dir LIKE ?");
+        }
+        sql.append(" ORDER BY started_at DESC LIMIT ?");
 
         Connection conn = db.getConnection();
         List<ClaudeSession> results = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int idx = 1;
             if (projectFilter != null && !projectFilter.isBlank()) {
-                ps.setString(1, "%" + projectFilter + "%");
-                ps.setInt(2, limit);
-            } else {
-                ps.setInt(1, limit);
+                ps.setString(idx++, "%" + projectFilter + "%");
             }
+            ps.setInt(idx, limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(fromResultSet(rs));
@@ -159,22 +182,35 @@ public class SessionStore {
     }
 
     /**
-     * Lists sessions since a given instant.
+     * Lists sessions since a given instant (excludes subagents by default).
      */
     public synchronized List<ClaudeSession> listSince(Instant since, String projectFilter) throws SQLException {
-        String sql;
-        if (projectFilter != null && !projectFilter.isBlank()) {
-            sql = "SELECT * FROM claude_sessions WHERE started_at >= ? AND project_dir LIKE ? ORDER BY started_at DESC";
-        } else {
-            sql = "SELECT * FROM claude_sessions WHERE started_at >= ? ORDER BY started_at DESC";
+        return listSince(since, projectFilter, false);
+    }
+
+    /**
+     * Lists sessions since a given instant.
+     *
+     * @param includeSubagents if false, subagent sessions are excluded
+     */
+    public synchronized List<ClaudeSession> listSince(Instant since, String projectFilter,
+                                                       boolean includeSubagents) throws SQLException {
+        StringBuilder sql = new StringBuilder("SELECT * FROM claude_sessions WHERE started_at >= ?");
+        if (!includeSubagents) {
+            sql.append(" AND is_subagent = FALSE");
         }
+        if (projectFilter != null && !projectFilter.isBlank()) {
+            sql.append(" AND project_dir LIKE ?");
+        }
+        sql.append(" ORDER BY started_at DESC");
 
         Connection conn = db.getConnection();
         List<ClaudeSession> results = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, since.getEpochSecond());
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int idx = 1;
+            ps.setLong(idx++, since.getEpochSecond());
             if (projectFilter != null && !projectFilter.isBlank()) {
-                ps.setString(2, "%" + projectFilter + "%");
+                ps.setString(idx, "%" + projectFilter + "%");
             }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -299,7 +335,11 @@ public class SessionStore {
                 rs.getInt("tool_call_count"),
                 Collections.unmodifiableList(toolNames),
                 rs.getString("first_message"),
-                rs.getString("all_user_text")
+                rs.getString("all_user_text"),
+                rs.getString("parent_session_id"),
+                rs.getString("agent_id"),
+                rs.getBoolean("is_subagent"),
+                rs.getString("agent_slug")
         );
     }
 }

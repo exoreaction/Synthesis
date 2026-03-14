@@ -2173,12 +2173,15 @@ public class SynthesisToolHandler {
         String action = params != null && params.has("action") && !params.get("action").isNull()
                 ? params.get("action").asText() : "list";
         int limit = params != null && params.has("limit") ? params.get("limit").asInt(10) : 10;
+        boolean includeSubagents = params != null && params.has("includeSubagents")
+                && params.get("includeSubagents").asBoolean(false);
 
         try {
             List<String> args = new java.util.ArrayList<>();
             args.add("sessions");
 
             if ("search".equals(action)) {
+                // Search always includes subagents — they contain valuable knowledge
                 String query = params != null && params.has("query") && !params.get("query").isNull()
                         ? params.get("query").asText() : "";
                 args.add("search");
@@ -2187,6 +2190,9 @@ public class SynthesisToolHandler {
             } else {
                 args.add("list");
                 args.add("--limit=" + limit);
+                if (includeSubagents) {
+                    args.add("--include-subagents");
+                }
                 if (params != null && params.has("project") && !params.get("project").isNull()) {
                     args.add("--project=" + params.get("project").asText());
                 }

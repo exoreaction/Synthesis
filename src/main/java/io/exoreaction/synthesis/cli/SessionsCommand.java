@@ -175,6 +175,10 @@ public class SessionsCommand implements Callable<Integer> {
         @Option(names = {"-v", "--verbose"}, description = "Show full user text", defaultValue = "false")
         private boolean verbose;
 
+        @Option(names = {"--include-subagents"}, description = "Include subagent sessions in listing",
+                defaultValue = "false")
+        private boolean includeSubagents;
+
         @Override
         public Integer call() {
             try {
@@ -183,7 +187,7 @@ public class SessionsCommand implements Callable<Integer> {
                 SessionStore store = new SessionStore(db);
 
                 Instant sinceInstant = parseSince(since);
-                List<ClaudeSession> sessions = store.listSince(sinceInstant, project);
+                List<ClaudeSession> sessions = store.listSince(sinceInstant, project, includeSubagents);
 
                 // Apply limit
                 if (sessions.size() > limit) {
@@ -197,7 +201,8 @@ public class SessionsCommand implements Callable<Integer> {
 
                 String header = "Recent sessions (" + sessions.size() + ")"
                         + (project != null ? " — project: " + project : "")
-                        + " — since: " + since;
+                        + " — since: " + since
+                        + (includeSubagents ? " (including subagents)" : "");
                 System.out.println("  " + AnsiOutput.bold(header));
                 System.out.println();
 
@@ -244,6 +249,18 @@ public class SessionsCommand implements Callable<Integer> {
                 ClaudeSession session = result.get();
                 System.out.println();
                 System.out.println("  " + AnsiOutput.bold("Session: ") + AnsiOutput.cyan(session.sessionId()));
+                if (session.isSubagent()) {
+                    System.out.println("  " + AnsiOutput.bold("Type:    ") + "subagent");
+                    if (session.parentSessionId() != null) {
+                        System.out.println("  " + AnsiOutput.bold("Parent:  ") + session.parentSessionId());
+                    }
+                    if (session.agentId() != null) {
+                        System.out.println("  " + AnsiOutput.bold("AgentId: ") + session.agentId());
+                    }
+                    if (session.agentSlug() != null) {
+                        System.out.println("  " + AnsiOutput.bold("Slug:    ") + session.agentSlug());
+                    }
+                }
                 System.out.println("  " + AnsiOutput.bold("Project: ") + session.projectDir());
                 System.out.println("  " + AnsiOutput.bold("Started: ") + formatTime(session.startedAt()));
                 if (session.endedAt() != null) {
@@ -281,7 +298,13 @@ public class SessionsCommand implements Callable<Integer> {
 
     static void printSession(ClaudeSession session, boolean verbose) {
         String ts = formatTime(session.startedAt());
-        System.out.println("  " + AnsiOutput.cyan(ts) + "  " + AnsiOutput.bold(session.sessionId()));
+        String idLabel = session.isSubagent()
+                ? AnsiOutput.bold(session.sessionId())
+                        + " " + AnsiOutput.dim("[sub -> " + truncate(
+                                session.parentSessionId() != null ? session.parentSessionId() : "?", 12) + "]")
+                        + (session.agentSlug() != null ? " " + AnsiOutput.dim("(" + session.agentSlug() + ")") : "")
+                : AnsiOutput.bold(session.sessionId());
+        System.out.println("  " + AnsiOutput.cyan(ts) + "  " + idLabel);
         System.out.println("    " + AnsiOutput.dim("project: ") + session.projectDir());
         System.out.println("    " + AnsiOutput.dim("turns:   ") + session.turnCount()
                 + "   " + AnsiOutput.dim("tools: ") + session.toolCallCount());

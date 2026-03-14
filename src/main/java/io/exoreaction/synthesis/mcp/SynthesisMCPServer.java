@@ -1525,6 +1525,13 @@ public class SynthesisMCPServer {
         limit.put("description", "Maximum number of results (default 10)");
         properties.set("limit", limit);
 
+        ObjectNode includeSubagents = mapper.createObjectNode();
+        includeSubagents.put("type", "boolean");
+        includeSubagents.put("default", false);
+        includeSubagents.put("description",
+                "Include subagent sessions in listing (default false for list, always true for search)");
+        properties.set("includeSubagents", includeSubagents);
+
         schema.set("properties", properties);
 
         ArrayNode required = mapper.createArrayNode();

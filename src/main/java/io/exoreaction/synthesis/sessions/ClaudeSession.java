@@ -19,7 +19,11 @@ public record ClaudeSession(
         int toolCallCount,
         List<String> toolNames,
         String firstMessage,
-        String allUserText
+        String allUserText,
+        String parentSessionId,  // non-null for subagent sessions (the parent's UUID)
+        String agentId,          // non-null for subagent sessions (from JSONL agentId field)
+        boolean isSubagent,      // true when parsed from a subagents/ directory
+        String agentSlug         // human-readable agent name (e.g. "tingly-soaring-naur")
 ) {
     /**
      * Compact representation for list views.
@@ -34,8 +38,11 @@ public record ClaudeSession(
         String msg = firstMessage != null
                 ? abbreviate(firstMessage, 60)
                 : "";
-        return String.format("  [%s] %-40s  turns=%-3d  tools=%-2d  %s",
-                ts, project, turnCount, toolCallCount, msg);
+        String subIndicator = isSubagent && parentSessionId != null
+                ? " [sub -> " + abbreviate(parentSessionId, 12) + "]"
+                : "";
+        return String.format("  [%s] %-40s  turns=%-3d  tools=%-2d  %s%s",
+                ts, project, turnCount, toolCallCount, msg, subIndicator);
     }
 
     private static String abbreviate(String s, int max) {
