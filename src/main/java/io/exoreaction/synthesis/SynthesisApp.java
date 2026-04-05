@@ -134,7 +134,9 @@ import java.util.concurrent.Callable;
                 SkillsGraphCommand.class,
                 TeamContextCommand.class,
                 DispatchCommand.class,
-                ReflectCommand.class
+                ReflectCommand.class,
+                TopicHealthCommand.class,
+                TopicTriageCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -381,7 +383,8 @@ public class SynthesisApp implements Callable<Integer> {
             "list", "discover", "validate", "report", "upcoming",
             "extract-slides", "migrate-repos", "export-skills", "trace",
             "metrics", "mcp-stats", "dashboard", "enrich",
-            "session-context", "hooks", "claude-md", "skills", "skills-graph", "team-context", "dispatch", "reflect"
+            "session-context", "hooks", "claude-md", "skills", "skills-graph", "team-context", "dispatch", "reflect",
+            "topic-health", "topic-triage"
         ));
     }
 
