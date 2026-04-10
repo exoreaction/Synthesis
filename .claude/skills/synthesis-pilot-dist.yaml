@@ -178,8 +178,61 @@ instructions: |
   - Deep Research Reports section (always include, it's popular)
   - Enable AI Features section (export key + `synthesis credentials set`)
   - Multi-Workspace section
+  - **"Connect to Claude (MCP)" section — USE THE CANONICAL SNIPPET BELOW VERBATIM**
   - Key Commands Reference table (update with new commands)
   - Troubleshooting
+
+  ### Canonical MCP section (copy verbatim into QUICKSTART.md)
+
+  The authoritative transport configuration lives in
+  `docs/guides/MCP-QUICKSTART.md`. Do **not** freestyle the MCP config — the
+  server exposes streamable HTTP at `/mcp` only. Writing `"type": "sse"` or
+  `http://localhost:8765/sse` ships a broken pilot (the `/sse` path returns
+  404 and Claude Code reports "Failed to connect").
+
+  Paste this block into the generated QUICKSTART.md as-is:
+
+  ```markdown
+  ## 5. Connect to Claude (MCP)
+
+  **Start the MCP server:**
+  ```bash
+  synthesis-mcp-server --workspace ~/Documents --http-port 8765
+  ```
+  *(Windows: use `synthesis-mcp-server.bat`)*
+
+  **Claude Code** — edit `~/.claude.json` (or `%USERPROFILE%\.claude.json`):
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "type": "http",
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  **Claude Desktop** — edit `claude_desktop_config.json`:
+  - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "command": "synthesis-mcp-server",
+        "args": ["--workspace", "/absolute/path/to/your-project"]
+      }
+    }
+  }
+  ```
+
+  Verify: `curl http://localhost:8765/health` returns `{"status":"ok"}`.
+  ```
+
+  For the full reference (stdio transport, troubleshooting, Cursor setup),
+  see `docs/guides/MCP-QUICKSTART.md` in the project repo.
 
   ## Step 8: Create the Zip
 
