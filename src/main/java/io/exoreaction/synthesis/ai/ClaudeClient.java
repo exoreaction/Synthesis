@@ -5,6 +5,7 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.*;
 import io.exoreaction.synthesis.config.CredentialStore;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.util.AnsiOutput;
 
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -56,6 +57,12 @@ public class ClaudeClient {
         String apiKey = resolveApiKey();
 
         if (apiKey == null || apiKey.isBlank()) {
+            if (config.isEnabled()) {
+                AnsiOutput.printWarning("AI features require an API key.");
+                System.out.println("  Run: synthesis credentials set ANTHROPIC_API_KEY sk-ant-...");
+                System.out.println("  Or:  export ANTHROPIC_API_KEY=sk-ant-...");
+                System.out.println("  Get a key at: https://console.anthropic.com/");
+            }
             return Optional.empty();
         }
 

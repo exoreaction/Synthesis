@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.cli;
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.CredentialStore;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.index.FileIndexer;
@@ -403,6 +404,21 @@ public class InitCommand implements Callable<Integer> {
             System.out.println("  " + (changes == 0 ? "clean" : changes + " change" + (changes == 1 ? "" : "s")));
         } catch (Exception e) {
             System.out.println("  skipped");
+        }
+
+        // Credentials nudge — show before "what you can do" if no API key configured
+        boolean hasApiKey = CredentialStore.hasAny() || System.getenv("ANTHROPIC_API_KEY") != null;
+        if (!hasApiKey) {
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Enable AI features (recommended):"));
+            System.out.println();
+            System.out.println("  Commands like " + AnsiOutput.cyan("synthesis ask") + ", "
+                    + AnsiOutput.cyan("synthesis enrich") + ", and " + AnsiOutput.cyan("synthesis report")
+                    + " need an Anthropic API key.");
+            System.out.println();
+            System.out.println("    " + AnsiOutput.cyan("synthesis credentials set ANTHROPIC_API_KEY sk-ant-..."));
+            System.out.println();
+            System.out.println("  " + AnsiOutput.dim("Get a key at: https://console.anthropic.com/"));
         }
 
         // "What you can do now"
