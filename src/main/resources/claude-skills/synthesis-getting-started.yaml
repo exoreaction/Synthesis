@@ -1,0 +1,366 @@
+name: synthesis-getting-started
+version: 1.0.0
+description: |
+  Complete first-time setup guide for Synthesis: install, init, scan, API key,
+  Claude Code MCP, skill export, and daily workflow. Platform-generic (Windows/Linux/Mac).
+  Use this when setting up Synthesis for the first time.
+
+trigger_phrases:
+  - "set up synthesis"
+  - "install synthesis"
+  - "first time synthesis"
+  - "synthesis getting started"
+  - "synthesis setup"
+  - "new synthesis user"
+  - "how to start synthesis"
+  - "synthesis first workspace"
+  - "synthesis init"
+  - "synthesis not installed"
+  - "how do I use synthesis"
+
+instructions: |
+  # Synthesis — First-Time Setup Guide
+
+  Follow these steps in order. Each step builds on the previous.
+
+  ---
+
+  ## Step 0: Prerequisites
+
+  Synthesis requires **Java 21 or later**.
+
+  ```bash
+  java -version
+  # Must show: openjdk 21... or java version "21...
+  ```
+
+  **Install Java 21 if missing:**
+
+  | Platform | Command |
+  |----------|---------|
+  | Windows  | `winget install Azul.Zulu.21.JDK` |
+  | macOS    | `brew install --cask zulu21` |
+  | Linux    | `sudo apt install openjdk-21-jdk` or use SDKMAN |
+
+  Recommended JDK: **Azul Zulu 21** (reliable, free, widely tested with Synthesis).
+  Download: https://www.azul.com/downloads/?version=java-21&package=jdk
+
+  After installing on Windows, open a new PowerShell window for PATH to take effect.
+
+  ---
+
+  ## Step 1: Install Synthesis
+
+  **Windows** (PowerShell, ExecutionPolicy RemoteSigned):
+  ```powershell
+  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser   # first time only
+  iex (iwr -useb https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.ps1).Content
+  ```
+
+  **Linux / macOS:**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.sh | bash
+  ```
+
+  **From local zip** (if you received a synthesis-{name}.zip):
+  ```powershell
+  # Windows — expand zip, then:
+  .\install.ps1
+  ```
+
+  **Verify installation:**
+  ```bash
+  synthesis --version
+  # Should print: Synthesis x.y.z
+  ```
+
+  If `synthesis` is not found, open a new terminal window (PATH update requires new session).
+
+  ---
+
+  ## Step 2: Initialize Your First Workspace
+
+  A "workspace" is any folder you want Synthesis to index — your code repo,
+  your documents folder, a project directory, etc.
+
+  ```bash
+  # Navigate to your folder
+  cd C:\Users\YourName\Documents          # Windows
+  # or
+  cd ~/Documents                          # Linux/Mac
+
+  # Initialize
+  synthesis init
+  ```
+
+  This creates a `.synthesis/` folder with `config.yaml` and the index storage.
+  It does NOT scan yet — that's the next step.
+
+  **You can have multiple workspaces** (one per folder you want to search).
+  Each has its own `.synthesis/` directory and index.
+
+  ---
+
+  ## Step 3: Scan the Workspace
+
+  ```bash
+  synthesis scan
+  ```
+
+  This walks the directory tree and indexes all supported files:
+  - Code: `.java .py .js .ts .go .rs .kt .cs .cpp .sh`
+  - Docs: `.md .txt .pdf`
+  - Config: `.yaml .json .xml .toml`
+  - Media: `.png .jpg .mp4 .mov .mp3`
+
+  **Expected output:**
+  ```
+  Phase 1: Scanning directory tree...
+  Phase 2: Analyzing files and building index...
+  Scan Summary: 1,234 files indexed in 3.2s
+  ```
+
+  Large projects (5,000+ files) may take 30–60 seconds. This is the only slow scan —
+  all subsequent scans are incremental (only changed files).
+
+  **Verify the scan worked:**
+  ```bash
+  synthesis search "test"
+  synthesis status
+  ```
+
+  ---
+
+  ## Step 4: Enable AI Features (Optional but Recommended)
+
+  Synthesis AI features (ask, research, perspectives, explain) require an Anthropic API key.
+
+  **Store the key securely (encrypted in ~/.synthesis/):**
+  ```bash
+  synthesis credentials set ANTHROPIC_API_KEY sk-ant-...
+  ```
+
+  **Verify:**
+  ```bash
+  synthesis credentials status
+  ```
+
+  **Test AI features:**
+  ```bash
+  synthesis ask "What is in this workspace?"
+  ```
+
+  If you don't have an API key, core search/relate/graph features still work fully.
+  AI features can be enabled later by running the credentials command.
+
+  ---
+
+  ## Step 5: Export Skills to Claude Code
+
+  This installs all Synthesis Claude Code skills into `~/.claude/skills/`:
+
+  ```bash
+  synthesis export-skills
+  ```
+
+  **Verify:**
+  ```bash
+  synthesis export-skills --list
+  ```
+
+  After exporting, Claude Code automatically loads all Synthesis skills at session start.
+  These skills teach Claude which commands to use and when.
+
+  ---
+
+  ## Step 6: Connect Claude Code via MCP (Recommended)
+
+  The MCP server gives Claude direct access to the Synthesis index — sub-second search,
+  relationship analysis, architecture views — all without shell commands.
+
+  ### HTTP transport (recommended for Windows and persistent use)
+
+  **Start the MCP server:**
+  ```bash
+  # Windows
+  synthesis-mcp-server --workspace "C:\Users\YourName\Documents" --http-port 8765
+
+  # Linux/Mac
+  synthesis-mcp-server --workspace /home/yourname/Documents --http-port 8765
+  ```
+
+  **Verify it's running:**
+  ```bash
+  # Linux/Mac
+  curl http://localhost:8765/health
+  # Windows PowerShell
+  Invoke-WebRequest http://localhost:8765/health
+  # Expected: {"status":"ok"}
+  ```
+
+  **Configure Claude Code** (`~/.claude/config.json` on Linux/Mac,
+  `%USERPROFILE%\.claude\config.json` on Windows):
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "type": "http",
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  **Configure Claude Desktop** (`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
+  `~/Library/Application Support/Claude/claude_desktop_config.json` on Mac):
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "type": "http",
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  Restart Claude Desktop after editing the config.
+
+  ### stdio transport (simpler, no separate server process)
+
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "command": "synthesis-mcp-server",
+        "args": ["--workspace", "C:\\Users\\YourName\\Documents"]
+      }
+    }
+  }
+  ```
+
+  Note: On Windows, backslashes must be doubled in JSON. Use absolute paths — `~` is not expanded.
+
+  ### Multiple workspaces in one MCP server
+
+  ```bash
+  synthesis-mcp-server \
+    --workspaces "C:\Users\YourName\Documents,C:\src\myproject" \
+    --http-port 8765
+  ```
+
+  ---
+
+  ## Step 7: Set Up Automatic Maintenance
+
+  Synthesis needs periodic scans to stay current. Set up `synthesis maintain` to run automatically.
+
+  **Windows — one-time setup (no admin required):**
+  ```powershell
+  # From the synthesis zip you received, or from ~/.synthesis/bin/:
+  .\setup-tasks.ps1
+  ```
+  This registers:
+  - `SynthesisMaintain`: runs `synthesis maintain` Mon–Fri at 08:00, 12:00, 16:00, 20:00
+  - `SynthesisMCP`: starts the MCP server at login with 3 auto-restarts
+
+  With `SynthesisMCP` registered, you don't need to manually start the MCP server.
+
+  **Linux/macOS — cron (example):**
+  ```bash
+  # Add to crontab (crontab -e):
+  0 8,12,16,20 * * 1-5 synthesis -d ~/Documents maintain --quiet
+  ```
+
+  **What `synthesis maintain` does:**
+  - Incremental scan (only changed files)
+  - Prunes deleted files from index
+  - Updates relationship graph
+  - Reports what changed (unless --quiet)
+
+  ---
+
+  ## Step 8: Verify Everything Works
+
+  Run this checklist:
+
+  ```bash
+  # 1. Version
+  synthesis --version
+
+  # 2. Workspace indexed
+  synthesis status
+  # Should show: "X files indexed, last scan: ..."
+
+  # 3. Search works
+  synthesis search "test"
+  # Should return results
+
+  # 4. AI works (requires API key from Step 4)
+  synthesis ask "Give me a one-paragraph summary of this workspace"
+
+  # 5. MCP server running (HTTP mode)
+  curl http://localhost:8765/health
+  # {"status":"ok"}
+
+  # 6. Skills exported
+  ls ~/.claude/skills/ | grep synthesis
+  # Should list 25+ synthesis-*.yaml files
+  ```
+
+  In Claude Code, start a new session and ask:
+  > "Use synthesis to search for [something in your project]"
+
+  You should see the `mcp__synthesis__search` tool being called.
+
+  ---
+
+  ## Daily Workflow
+
+  After initial setup, your daily workflow is minimal:
+
+  1. **Maintain runs automatically** (via scheduled task or cron)
+  2. **MCP server auto-starts on login** (Windows, via SynthesisMCP task)
+  3. **Ask Claude** to search, analyze, explain your workspace
+
+  **If something changed and you want index updated now:**
+  ```bash
+  synthesis maintain      # or: synthesis scan
+  ```
+
+  **If you added a new workspace folder:**
+  ```bash
+  synthesis -d /path/to/new/folder init
+  synthesis -d /path/to/new/folder scan
+  ```
+
+  ---
+
+  ## Troubleshooting
+
+  | Symptom | Fix |
+  |---------|-----|
+  | `synthesis` not found | Open new terminal; if still missing, re-run install |
+  | `java -version` fails | Install Java 21 (Azul Zulu), open new terminal |
+  | "Not a Synthesis workspace" | Run `synthesis init` in that folder first |
+  | No search results | Run `synthesis scan` — index may be empty |
+  | MCP not showing in Claude | Restart Claude; check config.json JSON syntax |
+  | `curl localhost:8765/health` fails | Start MCP server; check port not in use |
+  | Slow first scan | Normal; incremental scans after first are fast (1–10 sec) |
+  | AI features not working | Run `synthesis credentials set ANTHROPIC_API_KEY sk-ant-...` |
+  | PowerShell execution policy error | `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+
+  ---
+
+  ## Key Paths Reference
+
+  | What | Windows | Linux/Mac |
+  |------|---------|-----------|
+  | Install dir | `%USERPROFILE%\.synthesis\` | `~/.synthesis/` |
+  | Synthesis binary | `%USERPROFILE%\.synthesis\bin\synthesis.bat` | `~/.synthesis/bin/synthesis` |
+  | MCP binary | `%USERPROFILE%\.synthesis\bin\synthesis-mcp-server.bat` | `~/.synthesis/bin/synthesis-mcp-server` |
+  | Claude Code config | `%USERPROFILE%\.claude\config.json` | `~/.claude/config.json` |
+  | Claude Desktop config | `%APPDATA%\Claude\claude_desktop_config.json` | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+  | Skills directory | `%USERPROFILE%\.claude\skills\` | `~/.claude/skills/` |
+  | Workspace index | `<workspace>\.synthesis\` | `<workspace>/.synthesis/` |
+  | Credentials | `%USERPROFILE%\.synthesis\credentials` | `~/.synthesis/credentials` |

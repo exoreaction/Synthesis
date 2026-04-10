@@ -1,0 +1,165 @@
+name: synthesis-mcp-decision-guide
+version: 1.0.0
+description: |
+  Decision guide: which mcp__synthesis__* tool to call for each work task.
+  Covers all 43 MCP tools with intent-to-tool mapping, key rules, and workspace routing.
+  Use MCP tools instead of CLI for queries — faster, no shell permission prompt.
+
+trigger_phrases:
+  - "find callers of"
+  - "what depends on"
+  - "what breaks if"
+  - "what changed recently"
+  - "past sessions"
+  - "deep research"
+  - "architecture overview"
+  - "find symbol"
+  - "security audit"
+  - "what file contains"
+  - "trace call chain"
+  - "blast radius"
+  - "who uses this"
+  - "which mcp tool"
+  - "synthesis mcp"
+
+instructions: |
+  # MCP Tool Decision Guide
+
+  Use MCP tools (`mcp__synthesis__*`) instead of Bash `synthesis` CLI for queries —
+  they're faster and don't consume a shell permission prompt.
+  Reserve the CLI for write operations (init, scan, maintain, credentials).
+
+  ---
+
+  ## Intent → Tool Mapping
+
+  | Intent | Tool | Notes |
+  |--------|------|-------|
+  | Find files/code matching a concept | `mcp__synthesis__search` | Semantic + keyword; faster than Grep for discovery |
+  | Find callers / dependents of a file | `mcp__synthesis__relate` | Bidirectional; more complete than Grep |
+  | What breaks if I change X? | `mcp__synthesis__impact` | Transitive blast radius, depth 3 default |
+  | Find which file contains a class/fn | `mcp__synthesis__which` | Resolves symbol → file path instantly |
+  | Trace call chain A → B | `mcp__synthesis__trace` | Multi-hop dependency path |
+  | Module/package architecture | `mcp__synthesis__architecture` | Layers, modules, anti-patterns |
+  | Code dependency graph | `mcp__synthesis__code-graph` | DAG, circular deps, instability metrics |
+  | What changed since [date/ref]? | `mcp__synthesis__changed` | Git-based, grouped by add/modify/delete |
+  | Git diff with context | `mcp__synthesis__diff` | Synthesis-aware diff vs ref |
+  | Past session search (episodic) | `mcp__synthesis__sessions` | action=search or action=list |
+  | Deep research on a topic | `mcp__synthesis__research` | Multi-pass, AI-synthesized answer |
+  | AI Q&A about codebase | `mcp__synthesis__ask` | Single question, auto-enriched with sessions |
+  | Explain a file/dir/pattern | `mcp__synthesis__explain` | Purpose + code references + context |
+  | Executive/manager codebase summary | `mcp__synthesis__summary` | Cached; level: executive/manager/developer |
+  | Security findings | `mcp__synthesis__security` | HIGH/MEDIUM/LOW/INFO severity |
+  | Workspace health (broken links, orphans) | `mcp__synthesis__health` | Returns score 0-100 |
+  | Directory structure annotated | `mcp__synthesis__structure` | Smart tree with purpose + file counts |
+  | Find hidden patterns/anomalies | `mcp__synthesis__discover` | Surfaces non-obvious relationships |
+  | Scattered logic (duplication) | `mcp__synthesis__scatter` | Cohesion issues across files |
+  | TODOs/FIXMEs in codebase | `mcp__synthesis__upcoming` | Actionable items from comments |
+  | Cross-repo dependency map | `mcp__synthesis__cross-repo-deps` | Artifact-level; all repos in workspace |
+  | File moved? Where did it go? | `mcp__synthesis__track` | Hash-based movement detection |
+  | Workspace index fresh? | `mcp__synthesis__status` | Index health + last scan time |
+  | Naming inconsistencies | `mcp__synthesis__naming` | Convention violations across codebase |
+  | Workspace evolution over time | `mcp__synthesis__evolution` | Growth trends, churn hotspots |
+  | Validate broken links/orphans | `mcp__synthesis__validate` | pass/fail with actionable fixes |
+  | LOC, complexity, doc ratio | `mcp__synthesis__metrics` | Quantitative codebase metrics |
+  | Business report (weekly/pipeline) | `mcp__synthesis__report` | target: ceo/board/investor |
+  | Onboarding/learning guide | `mcp__synthesis__learn` | Recommended reading order + entry points |
+  | Enrich media files (AI descriptions) | `mcp__synthesis__enrich` | Make videos/images/PDFs searchable |
+  | Describe a file or directory | `mcp__synthesis__describe` | AI-generated description |
+  | Knowledge graph of concepts | `mcp__synthesis__knowledge-graph` | Entities + relationships |
+  | Codebase insights dashboard | `mcp__synthesis__insights` | Quality, coverage, hotspots |
+  | Graph (architecture/dependency) | `mcp__synthesis__graph` | Mermaid/DOT format output |
+  | Analysis of a specific aspect | `mcp__synthesis__analyze` | Focused analysis with context |
+  | Codebase stats | `mcp__synthesis__stats` | File counts, language breakdown |
+  | MCP server stats | `mcp__synthesis__mcp-stats` | Tool call frequency, latency |
+  | Custom perspectives on topic | `mcp__synthesis__perspectives` | Multi-angle synthesis |
+  | Relate concepts across workspace | `mcp__synthesis__relate` | Cross-file concept connections |
+  | Enrich workspace knowledge | `mcp__synthesis__enrich` | AI-generated descriptions for files |
+  | Hook configuration | `mcp__synthesis__hooks_generate` | Generate Claude Code hook config |
+  | Session context (one-liner) | `mcp__synthesis__session_context` | Fresh index snapshot for hook injection |
+  | Scan workspace (update index) | `mcp__synthesis__scan` | Trigger incremental index update |
+
+  ---
+
+  ## Six Key Rules
+
+  1. **`search` before `Grep`** — for discovery (not exact string match). Grep wins only
+     when you know the exact string AND the file location.
+
+  2. **`relate` before Grep for callers** — `relate` gives bidirectional import graph instantly.
+     Grep for callers misses indirect references and requires knowing all directories upfront.
+
+  3. **`impact` before editing a shared/core file** — shows transitive blast radius before
+     you touch anything. Especially important for shared libraries and utility files.
+
+  4. **`sessions` for episodic context** — before starting any non-trivial task, check:
+     `mcp__synthesis__sessions` with `action=list, since=7d` to orient on recent work.
+
+  5. **`which` before `Glob`** — resolves class/function names to file paths in one call,
+     searches across all workspaces simultaneously.
+
+  6. **`ask` for narrative answers** — when you need a synthesized explanation that combines
+     workspace files AND session history, `ask` does both automatically with citations.
+
+  ---
+
+  ## Workspace Parameter
+
+  All MCP tools accept an optional `workspace` parameter to scope the query.
+  Omit it to use the default workspace configured when starting the MCP server.
+
+  ```
+  # Scope to a specific workspace:
+  mcp__synthesis__search  query="authentication"  workspace="/path/to/project"
+
+  # Use default (no workspace param):
+  mcp__synthesis__search  query="authentication"
+  ```
+
+  The MCP server is started with `--workspace` (single) or `--workspaces` (comma-separated).
+  All workspaces in that list are available for scoped queries.
+
+  ---
+
+  ## When NOT to Use MCP
+
+  - **Exact string search in a known file** → use `Grep` (faster, no index needed)
+  - **Single named file already located** → use `Read` directly (skip search entirely)
+  - **First-time setup** → use CLI: `synthesis init`, `synthesis scan`, `synthesis credentials set`
+  - **Workspace not indexed yet** → run `mcp__synthesis__scan` or `synthesis scan` first
+  - **Writing/editing files** → use Write/Edit tools (MCP is read-only)
+
+  ---
+
+  ## Common Patterns
+
+  ### Onboard to a new codebase (first session)
+  ```
+  1. mcp__synthesis__status           → verify index is fresh
+  2. mcp__synthesis__summary          level=developer
+  3. mcp__synthesis__structure        → annotated directory tree
+  4. mcp__synthesis__architecture     → layers and modules
+  5. mcp__synthesis__learn            → recommended entry points
+  ```
+
+  ### Before refactoring a file
+  ```
+  1. mcp__synthesis__impact    file="MyClass.java"   → blast radius
+  2. mcp__synthesis__relate    file="MyClass.java"   → direct callers
+  3. mcp__synthesis__security  → any related security concerns
+  ```
+
+  ### Understanding a bug
+  ```
+  1. mcp__synthesis__search    query="error message or symptom"
+  2. mcp__synthesis__sessions  action=search  query="similar bug"  → past fixes
+  3. mcp__synthesis__ask       "Why does X happen?"
+  4. mcp__synthesis__trace     from="EntryPoint"  to="FailingFile"
+  ```
+
+  ### Weekly team sync prep
+  ```
+  1. mcp__synthesis__changed   since="7d"          → what changed this week
+  2. mcp__synthesis__sessions  action=list  since=7d  → what Claude worked on
+  3. mcp__synthesis__report    target=team           → AI-generated summary
+  ```

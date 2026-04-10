@@ -1,0 +1,267 @@
+name: synthesis-windows-setup
+version: 1.1.0
+description: |
+  Synthesis Windows installation, MCP server setup, scheduled tasks, and troubleshooting.
+  Covers HTTP vs stdio transport, Claude Desktop + Claude Code config, diagnostics checklist.
+
+trigger_phrases:
+  - "synthesis windows"
+  - "synthesis on windows"
+  - "windows install synthesis"
+  - "synthesis mcp windows"
+  - "synthesis scheduled task"
+  - "setup-tasks"
+  - "synthesis task scheduler"
+  - "synthesis claude desktop"
+  - "synthesis mcp port"
+  - "synthesis mcp not working"
+  - "synthesis windows troubleshoot"
+  - "synthesis windows setup"
+  - "mcp server not starting"
+  - "synthesis path windows"
+
+instructions: |
+  # Synthesis Windows Setup
+
+  Helps diagnose and fix Synthesis installation, MCP server, and scheduled task issues on Windows.
+  Always read the actual state before suggesting fixes.
+
+  ---
+
+  ## Architecture Overview
+
+  | Component | Path | Notes |
+  |-----------|------|-------|
+  | Install dir | `%USERPROFILE%\.synthesis\` | Created by install.ps1 |
+  | Main launcher | `%USERPROFILE%\.synthesis\bin\synthesis.bat` | On PATH |
+  | MCP launcher | `%USERPROFILE%\.synthesis\bin\synthesis-mcp-server.bat` | On PATH |
+  | Main JAR | `%USERPROFILE%\.synthesis\lib\current.jar` | Hard link or copy |
+  | MCP JAR | `%USERPROFILE%\.synthesis\lib\synthesis-mcp-server.jar` | Separate JAR |
+  | Metadata | `%USERPROFILE%\.synthesis\.metadata\version` | Installed version |
+  | Logs | `%USERPROFILE%\.synthesis\logs\maintain.log` | From scheduled task |
+  | Scheduled tasks | Task Scheduler → SynthesisMaintain, SynthesisMCP | User-level, no admin needed |
+
+  ---
+
+  ## Java Requirement
+
+  **Azul Zulu 21** is recommended:
+  ```powershell
+  winget install Azul.Zulu.21.JDK
+  ```
+  Download: https://www.azul.com/downloads/?version=java-21&os=windows&package=jdk
+
+  Verify: `java -version` — must show 21.x.x or higher.
+
+  Open a **new PowerShell window** after installation for PATH to take effect.
+
+  ---
+
+  ## Installation
+
+  ```powershell
+  # One-liner (requires RemoteSigned execution policy):
+  Set-ExecutionPolicy RemoteSigned -Scope CurrentUser   # first time only
+  iex (iwr -useb https://raw.githubusercontent.com/exoreaction/Synthesis/main/bin/install.ps1).Content
+
+  # Or from local zip:
+  .\install.ps1
+
+  # Force reinstall:
+  .\install.ps1 -Force
+  ```
+
+  Verify: `synthesis --version`
+
+  ---
+
+  ## MCP Server Setup
+
+  ### Transport Choice
+
+  | Transport | When to use | Pros | Cons |
+  |-----------|-------------|------|------|
+  | **HTTP** | Recommended for Windows | Survives idle timeouts, Claude reconnects | Requires server running |
+  | **stdio** | Simple setups | No separate process | Drops on session idle |
+
+  ### HTTP Mode (Recommended)
+
+  **Start manually:**
+  ```powershell
+  synthesis-mcp-server --workspace "C:\Users\YourName\Documents" --http-port 8765
+  ```
+
+  **Multiple workspaces:**
+  ```powershell
+  synthesis-mcp-server --workspaces "C:\Users\YourName\Documents,C:\src\myproject" --http-port 8765
+  ```
+
+  **Verify:**
+  ```powershell
+  Invoke-WebRequest http://localhost:8765/health
+  # Expected: {"status":"ok"}
+  ```
+
+  **Claude Desktop config** (`%APPDATA%\Claude\claude_desktop_config.json`):
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "type": "http",
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+  ```
+  Restart Claude Desktop after editing.
+
+  **Claude Code config** (`%USERPROFILE%\.claude\config.json`):
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "type": "http",
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  ### stdio Mode (Alternative)
+
+  ```json
+  {
+    "mcpServers": {
+      "synthesis": {
+        "command": "synthesis-mcp-server",
+        "args": ["--workspace", "C:\\Users\\YourName\\Documents"]
+      }
+    }
+  }
+  ```
+
+  Note: backslashes must be doubled in JSON strings. Use absolute paths — `~` is not expanded.
+
+  ---
+
+  ## Scheduled Tasks (setup-tasks.ps1)
+
+  Run once to register both tasks — **no admin required**:
+  ```powershell
+  .\setup-tasks.ps1
+  # With custom workspace and port:
+  .\setup-tasks.ps1 -Workspace "C:\Work" -HttpPort 8766
+  ```
+
+  | Task name | What it does | Schedule |
+  |-----------|-------------|----------|
+  | `SynthesisMaintain` | Runs `synthesis maintain --quiet` | Mon–Fri at 08:00, 12:00, 16:00, 20:00 |
+  | `SynthesisMCP` | Starts MCP server on login, 3× auto-restart | At login |
+
+  With `SynthesisMCP` registered, you don't need to manually start the MCP server.
+
+  **Check task status:**
+  ```powershell
+  Get-ScheduledTask SynthesisMaintain | Select-Object TaskName, State, LastRunTime, LastTaskResult
+  Get-ScheduledTask SynthesisMCP      | Select-Object TaskName, State, LastRunTime, LastTaskResult
+  ```
+
+  **Trigger maintain now (test):**
+  ```powershell
+  Start-ScheduledTask SynthesisMaintain
+  ```
+
+  **Remove tasks:**
+  ```powershell
+  .\setup-tasks.ps1 -Remove
+  ```
+
+  ---
+
+  ## Diagnostics Checklist
+
+  Run these to gather state when something isn't working:
+
+  ```powershell
+  # 1. Java version
+  java -version
+
+  # 2. Synthesis version
+  synthesis --version
+
+  # 3. MCP JAR present?
+  Test-Path "$env:USERPROFILE\.synthesis\lib\synthesis-mcp-server.jar"
+
+  # 4. MCP server running?
+  Invoke-WebRequest http://localhost:8765/health -ErrorAction SilentlyContinue
+
+  # 5. Scheduled task status
+  Get-ScheduledTask Synthesis* | Select-Object TaskName, State, LastRunTime, LastTaskResult
+
+  # 6. Maintain log (last 20 lines)
+  Get-Content "$env:USERPROFILE\.synthesis\logs\maintain.log" -Tail 20 -ErrorAction SilentlyContinue
+
+  # 7. PATH has .synthesis\bin?
+  $env:PATH -split ';' | Where-Object { $_ -like '*.synthesis*' }
+
+  # 8. Installed version
+  Get-Content "$env:USERPROFILE\.synthesis\.metadata\version" -ErrorAction SilentlyContinue
+  ```
+
+  ---
+
+  ## Common Issues and Fixes
+
+  | Symptom | Likely cause | Fix |
+  |---------|-------------|-----|
+  | `synthesis` not found | PATH not updated | Open new PowerShell window |
+  | `synthesis` not found after new window | Install failed | Re-run `install.ps1` |
+  | Java error on install | Java < 21 or not on PATH | `winget install Azul.Zulu.21.JDK`, new window |
+  | MCP JAR missing | Install couldn't find it | Copy JAR manually (see below) |
+  | MCP not in Claude | Config file wrong path or bad JSON | Check path, validate JSON |
+  | MCP not in Claude | Claude Desktop not restarted | Restart Claude Desktop |
+  | Port 8765 in use | Another process | Use `--http-port 8766`, update config |
+  | Scheduled task not running | Task disabled | Task Scheduler → Enable |
+  | Script execution blocked | ExecutionPolicy Restricted | `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+  | "Access denied" on uninstall | Terminal holds JAR file | Close all synthesis terminals, retry |
+
+  ---
+
+  ## MCP JAR is Missing — What to Do
+
+  The `synthesis-mcp-server.jar` is a separate artifact. If it's missing:
+
+  **Option A** — Install with explicit source:
+  ```powershell
+  .\install.ps1 -Force -Source C:\src\Synthesis
+  ```
+
+  **Option B** — Copy manually (if you have the JAR):
+  ```powershell
+  Copy-Item synthesis-mcp-server.jar "$env:USERPROFILE\.synthesis\lib\synthesis-mcp-server.jar"
+  ```
+
+  **Option C** — Re-run the one-liner installer (fetches latest from GitHub releases).
+
+  ---
+
+  ## Update Synthesis
+
+  ```powershell
+  synthesis-update            # Update to latest
+  synthesis-update -Check     # Check only (no install)
+  synthesis-update -Rollback  # Rollback to previous version
+  ```
+
+  ---
+
+  ## Key Paths Quick Reference
+
+  | What | Path |
+  |------|------|
+  | Install directory | `%USERPROFILE%\.synthesis\` |
+  | Skills (exported) | `%USERPROFILE%\.claude\skills\` |
+  | Claude Code config | `%USERPROFILE%\.claude\config.json` |
+  | Claude Desktop config | `%APPDATA%\Claude\claude_desktop_config.json` |
+  | Workspace index | `<workspace>\.synthesis\` |
+  | Maintain log | `%USERPROFILE%\.synthesis\logs\maintain.log` |
