@@ -110,7 +110,13 @@ synthesis search -d /src/exoreaction "keyword"   # Search source code
 synthesis search "keyword"              # Search business docs (~/Documents)
 synthesis search --all "keyword"        # Search across all workspaces
 synthesis relate "filename"             # What breaks if you change this?
-synthesis impact "filename"             # Co-change file impact analysis
+synthesis impact "filename"             # Co-change file impact analysis (+ git co-change partners)
+synthesis hotspots                      # Files ranked by temporal hotspot score (git churn, decay half-life 180d)
+synthesis hotspots --refresh            # Recompute from git history before display
+synthesis hotspots --path src/          # Filter to path prefix
+synthesis archaeology                   # Surface architectural decisions from git commit messages
+synthesis archaeology --since 180       # Last N days of history
+synthesis archaeology --min-confidence 0.80  # Only migration/inline signals (skip fix-signals)
 synthesis which "filename"              # Find which workspace(s) contain a file
 synthesis discover                      # Find unindexed git repos in configured search paths
 
@@ -505,7 +511,8 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V17.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V20.
+- **V20**: `git_file_metrics` + `git_cochange` tables. Populated by `synthesis hotspots --refresh` via `GitMetricsComputer`. Both are reconstructible caches — losing them loses no information.
 - **KCP detection heuristic**: `knowledge.yaml` files are detected as KCP manifests when ALL THREE hold: filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists. Files failing any condition are indexed as generic YAML.
 - **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:
   - `PromptTemplates.java`: `sanitizeUserInput()` + XML boundary tags (`<system>`, `<user>`, `<document>`) on all prompts
