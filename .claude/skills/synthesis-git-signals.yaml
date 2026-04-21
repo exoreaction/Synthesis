@@ -1,0 +1,169 @@
+name: synthesis-git-signals
+version: 1.0.0
+description: |
+  Git signal analysis for Synthesis — temporal hotspot scoring, co-change coupling,
+  bus factor detection, and decision archaeology from commit history.
+  Commands: synthesis hotspots, synthesis archaeology, synthesis impact (enhanced), synthesis health G001.
+
+trigger_phrases:
+  - "synthesis hotspots"
+  - "synthesis archaeology"
+  - "hotspot score"
+  - "co-change coupling"
+  - "bus factor"
+  - "knowledge silo"
+  - "git churn"
+  - "temporal decay"
+  - "decision archaeology"
+  - "architectural decisions in git"
+  - "WHY: in commit"
+  - "git history mining"
+  - "GitMetricsComputer"
+  - "git_file_metrics"
+  - "git_cochange"
+  - "files that change together"
+  - "who owns this file"
+
+instructions: |
+  # Synthesis Git Signals
+
+  Four features that surface signal from git history: hotspot scoring, co-change coupling,
+  bus factor, and decision archaeology. Inspired by Repowise's temporal decay approach.
+  Implemented in v1.28.0-SNAPSHOT.
+
+  ---
+
+  ## Architecture
+
+  **Computation:** `GitMetricsComputer` (git/ package) — uses JGit, iterates up to 500 commits,
+  computes all metrics in one pass. Batch upserts to SQLite via `ON CONFLICT DO UPDATE`.
+
+  **Decay formula:** `score = exp(-ln(2) * ageDays / 180)`
+  - Age 0 days → score 1.0
+  - Age 180 days → score 0.5 (half-life)
+  - Age 360 days → score 0.25
+
+  **Storage (V20 migration):**
+  ```sql
+  git_file_metrics(workspace_path, file_path, hotspot_score,
+                   commit_count_total, commit_count_90d, commit_count_30d,
+                   author_count, bus_factor, last_commit_at, computed_at)
+  git_cochange(workspace_path, file_a, file_b, coupling_score,
+               cochange_count, last_cochange_at, computed_at)
+  ```
+  Both tables are **reconstructible caches** — deleting them and re-running `synthesis hotspots --refresh`
+  loses no information. Source of truth is always the git history.
+
+  ---
+
+  ## synthesis hotspots
+
+  ```bash
+  synthesis hotspots                          # Show top 20 hotspots (uses cached data)
+  synthesis hotspots --refresh                # Recompute from git history first
+  synthesis hotspots --limit 50              # Show more files
+  synthesis hotspots --path src/main/java    # Filter to a path prefix
+  synthesis hotspots --min-commits 5         # Only files with 5+ commits
+  ```
+
+  **Output columns:** rank, file path, hotspot score, commit counts (30d/90d/all), trend (↑→↓), bus factor
+  - Score > 10.0 → red (very hot)
+  - Score > 5.0 → yellow (hot)
+  - Bus factor = 1 → yellow ⚠ (knowledge silo)
+  - Trend ↑ = 30d rate > 1.5× 90d average (rising pressure)
+  - Trend ↓ = 30d rate < 0.5× 90d average (cooling)
+
+  **First run:** If the cache is empty, `--refresh` is triggered automatically.
+
+  ---
+
+  ## synthesis impact (enhanced)
+
+  Co-change coupling section is now appended after the existing blast-radius output:
+
+  ```bash
+  synthesis impact SynthesisDatabase.java          # Shows blast radius + co-change partners
+  synthesis impact SomeCommand.java --no-cochange  # Suppress co-change section
+  ```
+
+  **Co-change partners:** top 10 files ranked by temporally-weighted coupling score,
+  with co-change count and days since last co-change.
+  If the `git_cochange` table is empty, section is silently skipped.
+  Run `synthesis hotspots --refresh` to populate.
+
+  ---
+
+  ## synthesis health G001
+
+  New health check added to `synthesis health`:
+
+  | Signal | Severity | Condition |
+  |--------|----------|-----------|
+  | G001 | INFO | git_file_metrics not populated |
+  | G001 | INFO | < 5 files with bus_factor=1 AND commits≥5 |
+  | G001 | WARNING | 5–20 knowledge silos |
+  | G001 | ERROR | > 20 knowledge silos |
+
+  If the table is empty, G001 shows INFO with fix: `synthesis hotspots --refresh`.
+
+  ---
+
+  ## synthesis archaeology
+
+  Pure regex scan of git commit messages. No LLM, no database. Always runs live.
+
+  ```bash
+  synthesis archaeology                         # Last 365 days, all confidence levels
+  synthesis archaeology --since 180             # Last 180 days
+  synthesis archaeology --min-confidence 0.80   # Only migration/inline signals
+  synthesis archaeology --path src/payment      # Only commits touching payment/ files
+  synthesis archaeology --limit 50
+  ```
+
+  **Signal tiers:**
+
+  | Tier | Confidence | Patterns |
+  |------|-----------|---------|
+  | Inline markers | 0.95 | `WHY:`, `DECISION:`, `TRADEOFF:`, `ADR:`, `RATIONALE:`, `REJECTED:` |
+  | Migration | 0.80 | `migrate`, `switch to`, `replace X with`, `deprecate`, `adopt`, `rewrite`, `redesign` |
+  | Fix signals | 0.65 | `workaround`, `hotfix`, `hot-fix` |
+
+  Output grouped by tier: commit hash, date, author, matched line, affected files (up to 3).
+
+  ---
+
+  ## Workflow: first-time setup
+
+  ```bash
+  # 1. Compute all git metrics (hotspot + co-change + bus factor)
+  synthesis hotspots --refresh -d /src/myproject
+
+  # 2. See what's under pressure
+  synthesis hotspots --limit 30
+
+  # 3. Before touching a file, check what else moves with it
+  synthesis impact src/main/java/com/example/PaymentService.java
+
+  # 4. Find architectural decisions buried in history
+  synthesis archaeology --since 365 --path src/payment
+
+  # 5. Check for knowledge silos in health report
+  synthesis health
+  ```
+
+  ---
+
+  ## Key Classes
+
+  | Class | Package | Purpose |
+  |-------|---------|---------|
+  | `GitMetricsComputer` | `git` | Computes hotspot scores, co-change pairs, bus factors |
+  | `HotspotsCommand` | `cli` | `synthesis hotspots` CLI |
+  | `ArchaeologyCommand` | `cli` | `synthesis archaeology` CLI |
+  | `ImpactCommand` | `cli` | Enhanced with `printCoChange()` + `--no-cochange` |
+  | `HealthCommand` | `cli` | Enhanced with `checkBusFactor()` → G001 |
+
+  ## Related Skills
+  - `synthesis-code-graph.yaml` — static analysis (CKG), structural health signals C001-C021
+  - `synthesis-relate-dependencies.yaml` — relate/impact blast radius
+  - `synthesis-database-migrations.md` — Flyway patterns (V20 = git metrics tables)

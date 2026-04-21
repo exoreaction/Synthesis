@@ -16,6 +16,10 @@ import picocli.CommandLine.ParentCommand;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -237,6 +241,9 @@ public class HealthCommand implements Callable<Integer> {
             }
         }
 
+        // G001: Knowledge silos (bus factor = 1 with meaningful commit history)
+        checkBusFactor(workspaceRoot, issues);
+
         printIssues(issues);
 
         int score = calculateScore(issues);
@@ -244,6 +251,81 @@ public class HealthCommand implements Callable<Integer> {
         System.out.printf("Score: %d/100 (%s)%n%n", score, grade);
 
         return issues.stream().anyMatch(i -> i.severity() == HealthIssue.Severity.ERROR) ? 1 : 0;
+    }
+
+    private void checkBusFactor(Path workspaceRoot, List<HealthIssue> issues) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefaultIfExists();
+            if (db == null) return;
+            Connection conn = db.getConnection();
+            String wsPath = workspaceRoot.toString();
+
+            // Check if table is populated
+            String countSql = "SELECT COUNT(*) FROM git_file_metrics WHERE workspace_path = ?";
+            int total;
+            try (PreparedStatement ps = conn.prepareStatement(countSql)) {
+                ps.setString(1, wsPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    total = rs.next() ? rs.getInt(1) : 0;
+                }
+            }
+
+            if (total == 0) {
+                issues.add(new HealthIssue(
+                        HealthIssue.Severity.INFO, "G001",
+                        "Git metrics not computed — bus factor check skipped",
+                        "synthesis hotspots --refresh"));
+                return;
+            }
+
+            String sql = """
+                    SELECT file_path, commit_count_total
+                    FROM git_file_metrics
+                    WHERE workspace_path = ? AND bus_factor = 1 AND commit_count_total >= 5
+                    ORDER BY commit_count_total DESC
+                    LIMIT 10
+                    """;
+            List<String> silos = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, wsPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        silos.add(rs.getString("file_path")
+                                + " (" + rs.getInt("commit_count_total") + " commits, 1 author)");
+                    }
+                }
+            }
+
+            // Count total silos (not just top 10)
+            String countSilosSql = """
+                    SELECT COUNT(*) FROM git_file_metrics
+                    WHERE workspace_path = ? AND bus_factor = 1 AND commit_count_total >= 5
+                    """;
+            int siloCount;
+            try (PreparedStatement ps = conn.prepareStatement(countSilosSql)) {
+                ps.setString(1, wsPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    siloCount = rs.next() ? rs.getInt(1) : 0;
+                }
+            }
+
+            if (siloCount == 0) return;
+
+            HealthIssue.Severity severity = siloCount > 20
+                    ? HealthIssue.Severity.ERROR
+                    : siloCount > 5
+                    ? HealthIssue.Severity.WARNING
+                    : HealthIssue.Severity.INFO;
+
+            issues.add(new HealthIssue(
+                    severity, "G001",
+                    siloCount + " knowledge silo(s): files where one author owns 80%+ of commits",
+                    "synthesis hotspots",
+                    silos));
+
+        } catch (SQLException e) {
+            // Git metrics table may not exist yet — skip silently
+        }
     }
 
     private void printIssues(List<HealthIssue> issues) {

@@ -1,6 +1,6 @@
 name: synthesis-product-context
-version: 1.18.0
-description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, team staging, and 41-tool MCP server with HTTP transport
+version: 1.28.0
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, team staging, 43-tool MCP server, git signal analysis (hotspots, archaeology, bus factor), and topic health triage
 auto_load: true
 
 instructions: |
@@ -10,8 +10,9 @@ instructions: |
   **License:** MIT (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 21+
-  **Status:** Production-ready (v1.18.2)
-  **Latest:** Session lifecycle commands added (session-context, hooks generate, claude-md refresh); MCP expanded to 43 tools, HTTP transport added (`--http-port`), configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
+  **Status:** Production-ready (v1.28.0, April 2026)
+  **Latest (v1.28.0, Apr 11):** Explicit API key guidance when AI features unavailable (clear actionable error message with fix command). Also recently shipped: `synthesis topic-health`/`topic-triage` (v1.27.1), `synthesis dispatch` agent planner (v1.23.0), `synthesis reflect` self-maintaining skills (v1.24.0), `synthesis team-context` (v1.22.0), `synthesis skills match` (v1.22.0), parent-child subagent session linking V19 (v1.26.0), interactive skills-graph visualization (v1.26.0).
+  **Pending (PR #321):** Git signal analysis — `synthesis hotspots`, `synthesis archaeology`, enhanced `synthesis impact` with co-change partners, health check G001 for bus factor/knowledge silos, V20 Flyway migration (git_file_metrics, git_cochange tables).
 
   ---
 

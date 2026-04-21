@@ -136,7 +136,9 @@ import java.util.concurrent.Callable;
                 DispatchCommand.class,
                 ReflectCommand.class,
                 TopicHealthCommand.class,
-                TopicTriageCommand.class
+                TopicTriageCommand.class,
+                HotspotsCommand.class,
+                ArchaeologyCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {

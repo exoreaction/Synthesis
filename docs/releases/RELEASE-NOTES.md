@@ -1,8 +1,8 @@
 # Synthesis Release Notes
 
-**From first commit to v1.21.0 -- the full story.**
+**From first commit to v1.28.0 -- the full story.**
 
-This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 55 CLI commands, 4,170 tests, 18 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server).
+This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 65+ CLI commands, 4,177+ tests, 20 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server).
 
 ---
 
@@ -28,6 +28,12 @@ This document covers the complete development history of Synthesis, from its fir
 - [v1.13.1 -- CKG Dogfooding Fixes (February 22, 2026)](#v1131----ckg-dogfooding-fixes-february-22-2026)
 - [v1.18.2 -- Session Lifecycle Integration (February 28, 2026)](#v1182--session-lifecycle-integration-february-28-2026)
 - [v1.21.0 -- Episodic Memory: Claude Sessions (March 3, 2026)](#v1210--episodic-memory-claude-sessions-march-3-2026)
+- [v1.22.0 -- Skills Match + Team Context](#v1220--skills-match--team-context-march-2026)
+- [v1.23.0 -- Agent Dispatch Planner](#v1230--agent-dispatch-planner-march-2026)
+- [v1.24.0 -- Reflect: Self-Maintaining Skill Library](#v1240--reflect-self-maintaining-skill-library-march-2026)
+- [v1.26.0 -- Interactive Skills Graph + Subagent Session Linking](#v1260--interactive-skills-graph--subagent-session-linking-marchapril-2026)
+- [v1.27.1 -- Topic Health/Triage + 3 New Bundled Skills](#v1271--topic-healthtriage--3-new-bundled-skills-april-10-2026)
+- [v1.28.0 -- Explicit API Key Guidance](#v1280--explicit-api-key-guidance-april-11-2026)
 - [Current State](#current-state)
 
 ---
@@ -1138,23 +1144,94 @@ The sessions module was deliberately built as a standalone package (`io.exoreact
 
 ---
 
+## v1.22.0 -- Skills Match + Team Context (March 2026)
+
+**Highlights:** Two new productivity commands for AI-augmented teams.
+
+- **`synthesis skills match "query"`** — Find top-5 relevant Claude Code skills from `~/.claude/skills/` by relevance score. Enables agents to auto-select the right skill before starting a task.
+- **`synthesis team-context`** — Codebase-aware briefing for active Claude Code agent teams. `--compact` for single-line injection into Agent prompts; `--list` shows all defined teams.
+- MCP tool: `team_context` added.
+
+---
+
+## v1.23.0 -- Agent Dispatch Planner (March 2026)
+
+**Highlights:** `synthesis dispatch "task"` — generates an agent dispatch plan with skill recommendations, related files, team conflict check, and token estimate. `--compact` for single-line output; `--json` for machine-readable format; `--no-team` to skip conflict check.
+
+---
+
+## v1.24.0 -- Reflect: Self-Maintaining Skill Library (March 2026)
+
+**Highlights:** `synthesis reflect` — scans Claude Code session history and auto-creates/updates skill YAML files in `~/.claude/skills/`. `--dry-run --compact` previews changes without writing. `--since 7d --max-new 5` tunes scan window and bloat cap.
+
+The reflect loop closes the session→skill lifecycle: sessions are indexed by `synthesis sessions`, analyzed by `synthesis reflect`, and surfaced back to future sessions as skills.
+
+---
+
+## v1.26.0 -- Interactive Skills Graph + Subagent Session Linking (March/April 2026)
+
+**Commit:** `6a84bf2` (V19), `5e8e39d` (skills-graph)
+**Migration:** V19 (`session_subagent_links` table for parent-child session relationships)
+
+- **Interactive skills-graph visualization** (`5e8e39d`) — visual graph of skill relationships and usage patterns.
+- **Parent-child subagent session linking** (`6a84bf2`) — V19 Flyway migration; `session_subagent_links` table records when a session spawns subagents, enabling full agent-tree visibility in `synthesis sessions`.
+- `knowledge.yaml` KCP manifest added to Synthesis repo for self-indexing (`ae292df`).
+- Reflect improvements: noise filter, version batching, scan TTY detection, session freshness scoring (`c54c43e`).
+
+---
+
+## v1.27.1 -- Topic Health/Triage + 3 New Bundled Skills (April 10, 2026)
+
+**PR:** #316 · **Date:** 2026-04-10
+
+Two new commands for maintaining the Claude Code skills/memory ecosystem over time:
+
+**`synthesis topic-health`** — HOT/WARM/COLD classification table for memory topic files. Scores each topic file by FTS hits + file age: hot files are actively referenced and recently updated; cold files are stale candidates for archival or pruning.
+
+**`synthesis topic-triage`** — Scored triage: surfaces the top-5 topic files most urgently needing attention with a recommended action (ARCHIVE / PRUNE / UPDATE / KEEP). Options:
+- `--auto` — skips if dual-threshold not met (24h + 5 sessions) — safe for cron use
+- `--since 14d` — custom lookback window (default 30d)
+
+**3 new bundled Claude Code skills** added to the JAR resources, available via `synthesis export-skills --overwrite`.
+
+---
+
+## v1.28.0 -- Explicit API Key Guidance (April 11, 2026)
+
+**PR:** #317 · **Date:** 2026-04-11
+
+When AI-powered features (`synthesis ask`, `synthesis enrich --level AI`, etc.) are invoked without a configured API key, Synthesis now shows an explicit, actionable error message with the exact command to fix it:
+
+```
+AI features require an Anthropic API key.
+Run: synthesis credentials set ANTHROPIC_API_KEY <your-key>
+Or set environment variable: ANTHROPIC_API_KEY=<your-key>
+```
+
+Previously, these scenarios failed with a generic HTTP error or silent skip. This change applies to all commands that call `ClaudeClient` — the key check runs before any API call is attempted.
+
+---
+
 ## Current State
 
-**Version:** v1.21.0
-**Date:** March 3, 2026
-**Days since first commit:** 18
-**Tests:** 4,170 (all passing)
+**Version:** v1.28.0
+**Date:** April 11, 2026
+**Days since first commit:** 57
+**Tests:** 4,177+ (all passing)
 
-### Commands (55 subcommands)
+### Commands (65+ subcommands)
 
 **Workspace lifecycle:**
 `init`, `scan`, `maintain`, `status`, `health`, `dashboard`, `watch`, `discover`
 
 **Search and discovery:**
-`search`, `relate`, `impact`, `which`, `ask`
+`search`, `relate`, `impact`, `which`, `ask`, `hotspots`, `archaeology`
 
 **AI-powered analysis:**
 `explain`, `perspectives`, `summary`, `research`, `enrich`
+
+**Agent productivity:**
+`skills match`, `team-context`, `dispatch`, `reflect`, `topic-health`, `topic-triage`
 
 **Graphs and architecture:**
 `graph`, `cross-repo-deps`, `architecture`, `code-graph` (with `extract`, `describe`, `health`, `gaps` subcommands)
@@ -1198,6 +1275,8 @@ The sessions module was deliberately built as a standalone package (`io.exoreact
 | V12 | Directory classification |
 | V13 | Code knowledge graph (4 tables) |
 | V18 | Claude sessions + FTS5 virtual table + sync triggers |
+| V19 | Session subagent links (parent-child agent tree) |
+| V20 | Git file metrics (`git_file_metrics`, `git_cochange`) |
 
 ### Technology Stack
 
@@ -1265,7 +1344,7 @@ io.exoreaction.synthesis/
   research/                      # Research engine
   search/                        # Search configuration
   sessions/                      # Session history (episodic memory)
-  skills/                        # Skill generation
+  skills/                        # Skill generation + topic-health/triage
   staging/                       # Staging pipeline
   summary/                       # Executive summaries
   telemetry/                     # Pilot telemetry
@@ -1342,6 +1421,12 @@ io.exoreaction.synthesis/
 | v1.13.1 | Feb 22 | CKG dogfooding: 4 bugs + 3 improvements (PR #222), 3,865 tests |
 | v1.18.2 | Feb 28 | Session lifecycle integration, hooks generate, session-context, claude-md refresh, 4,107 tests |
 | v1.21.0 | Mar 3 | Episodic memory: Claude sessions module, V18 migration, FTS5 search, 4,170 tests |
+| v1.22.0 | Mar | Skills match + team-context commands, team_context MCP tool |
+| v1.23.0 | Mar | Dispatch command — agent dispatch planner with skill/file/conflict/token analysis |
+| v1.24.0 | Mar | Reflect — self-maintaining skill library from session history |
+| v1.26.0 | Apr | Interactive skills-graph, parent-child subagent linking (V19), reflect improvements |
+| v1.27.1 | Apr 10 | topic-health, topic-triage commands + 3 new bundled Claude skills |
+| v1.28.0 | Apr 11 | Explicit API key guidance for AI features |
 
 ---
 
