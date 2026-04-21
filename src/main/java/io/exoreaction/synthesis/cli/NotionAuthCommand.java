@@ -5,7 +5,9 @@ import io.exoreaction.synthesis.notion.NotionOAuthClient;
 import io.exoreaction.synthesis.notion.NotionTokenStore.NotionOAuthToken;
 import picocli.CommandLine.Command;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -24,10 +26,15 @@ import java.util.logging.Logger;
  *   <li>Generate CSRF state parameter</li>
  *   <li>Start a local HTTP callback server on port 54321</li>
  *   <li>Open the Notion OAuth authorization URL in the browser</li>
- *   <li>Wait for the callback with the authorization code (120s timeout)</li>
+ *   <li>Wait for the authorization code via callback OR stdin paste (dual mode)</li>
  *   <li>Exchange the code for an access token</li>
  *   <li>Store the token locally</li>
  * </ol>
+ *
+ * <p>The redirect URI is {@code https://localhost:54321/notion/callback}. If the browser
+ * shows a connection error after authorization (because the local server uses plain HTTP),
+ * the user can copy the {@code code} parameter from the address bar and paste it into
+ * the terminal prompt.
  *
  * <p>Usage: {@code synthesis notion auth}
  */
@@ -42,14 +49,14 @@ public class NotionAuthCommand implements Callable<Integer> {
 
     private static final String AUTH_ENDPOINT = "https://api.notion.com/v1/oauth/authorize";
     private static final int CALLBACK_PORT = 54321;
-    private static final int TIMEOUT_SECONDS = 120;
+    private static final int TIMEOUT_SECONDS = 300;
 
     private static final String SUCCESS_HTML = """
             <!DOCTYPE html>
             <html>
             <head><title>Synthesis — Notion Auth</title></head>
             <body style="font-family: system-ui, sans-serif; text-align: center; padding: 60px;">
-                <h2>Authentication successful!</h2>
+                <h2>&#x2713; Authentication successful!</h2>
                 <p>You can close this tab and return to the terminal.</p>
             </body>
             </html>
@@ -72,62 +79,33 @@ public class NotionAuthCommand implements Callable<Integer> {
         String state = UUID.randomUUID().toString();
         String authUrl = buildAuthUrl(state);
 
-        // Queue to receive the authorization code from the callback handler
+        // Shared queue: receives code from either the HTTP callback or stdin paste
         BlockingQueue<CallbackResult> resultQueue = new LinkedBlockingQueue<>();
 
         HttpServer server = null;
+        Thread stdinThread = null;
         try {
-            // Start callback server
-            server = HttpServer.create(new InetSocketAddress(CALLBACK_PORT), 0);
-            server.createContext("/notion/callback", exchange -> {
-                try {
-                    String query = exchange.getRequestURI().getQuery();
-                    var params = parseQuery(query);
+            // Start HTTP callback server (handles automatic redirect from browser)
+            server = startCallbackServer(state, resultQueue);
 
-                    String callbackState = params.state();
-                    String code = params.code();
-                    String error = params.error();
-
-                    if (error != null && !error.isEmpty()) {
-                        sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "Notion returned: " + error));
-                        resultQueue.put(new CallbackResult(null, "Notion authorization denied: " + error));
-                        return;
-                    }
-
-                    if (callbackState == null || !callbackState.equals(state)) {
-                        sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "State mismatch (possible CSRF attack)"));
-                        resultQueue.put(new CallbackResult(null, "State parameter mismatch"));
-                        return;
-                    }
-
-                    if (code == null || code.isEmpty()) {
-                        sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "No authorization code received"));
-                        resultQueue.put(new CallbackResult(null, "No authorization code in callback"));
-                        return;
-                    }
-
-                    sendHtmlResponse(exchange, 200, SUCCESS_HTML);
-                    resultQueue.put(new CallbackResult(code, null));
-                } catch (Exception e) {
-                    LOG.warning("Callback handler error: " + e.getMessage());
-                    try {
-                        resultQueue.put(new CallbackResult(null, "Callback handler error: " + e.getMessage()));
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-            });
-            server.start();
-
-            // Open browser and always print the URL for copy-paste fallback
-            System.out.println("Authorization URL:");
+            // Print instructions
+            System.out.println("Open this URL in your browser to authorize Synthesis:");
             System.out.println();
             System.out.println("  " + authUrl);
             System.out.println();
-            openBrowser(authUrl);
-            System.out.println("Waiting for authorization (timeout: " + TIMEOUT_SECONDS + "s)...");
+            System.out.println("After authorizing, one of two things will happen:");
+            System.out.println("  (a) Browser connects to the local server automatically — done.");
+            System.out.println("  (b) Browser shows a connection error — copy the 'code=' value");
+            System.out.println("      from the address bar and paste it below.");
+            System.out.println();
 
-            // Wait for callback
+            openBrowser(authUrl);
+
+            // Start stdin reader for manual code paste (runs in parallel)
+            stdinThread = Thread.ofVirtual().start(() -> readCodeFromStdin(resultQueue));
+
+            System.out.println("Waiting for authorization (paste code or wait for browser callback)...");
+
             CallbackResult result = resultQueue.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             if (result == null) {
@@ -145,8 +123,8 @@ public class NotionAuthCommand implements Callable<Integer> {
             NotionOAuthToken token = oauthClient.exchangeCode(result.code());
 
             System.out.println();
-            System.out.println("  Connected to Notion workspace: " + token.workspaceName());
-            System.out.println("  Token stored in ~/.synthesis/notion-oauth.json");
+            System.out.println("Connected to Notion workspace: " + token.workspaceName());
+            System.out.println("Token stored in ~/.synthesis/notion-oauth.json");
             return 0;
 
         } catch (IOException e) {
@@ -160,7 +138,96 @@ public class NotionAuthCommand implements Callable<Integer> {
             if (server != null) {
                 server.stop(0);
             }
+            if (stdinThread != null) {
+                stdinThread.interrupt();
+            }
         }
+    }
+
+    private HttpServer startCallbackServer(String expectedState, BlockingQueue<CallbackResult> resultQueue)
+            throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(CALLBACK_PORT), 0);
+        server.createContext("/notion/callback", exchange -> {
+            try {
+                String query = exchange.getRequestURI().getQuery();
+                var params = parseQuery(query);
+
+                String callbackState = params.state();
+                String code = params.code();
+                String error = params.error();
+
+                if (error != null && !error.isEmpty()) {
+                    sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "Notion returned: " + error));
+                    resultQueue.put(new CallbackResult(null, "Notion authorization denied: " + error));
+                    return;
+                }
+
+                if (callbackState == null || !callbackState.equals(expectedState)) {
+                    sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "State mismatch (possible CSRF attack)"));
+                    resultQueue.put(new CallbackResult(null, "State parameter mismatch"));
+                    return;
+                }
+
+                if (code == null || code.isEmpty()) {
+                    sendHtmlResponse(exchange, 400, String.format(ERROR_HTML, "No authorization code received"));
+                    resultQueue.put(new CallbackResult(null, "No authorization code in callback"));
+                    return;
+                }
+
+                sendHtmlResponse(exchange, 200, SUCCESS_HTML);
+                resultQueue.put(new CallbackResult(code, null));
+            } catch (Exception e) {
+                LOG.warning("Callback handler error: " + e.getMessage());
+                try {
+                    resultQueue.put(new CallbackResult(null, "Callback handler error: " + e.getMessage()));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    /**
+     * Reads an authorization code from stdin and submits it to the result queue.
+     * Extracts code from a pasted URL or accepts a bare code string.
+     */
+    private void readCodeFromStdin(BlockingQueue<CallbackResult> resultQueue) {
+        try {
+            System.out.print("Paste code (or full redirect URL): ");
+            System.out.flush();
+            var reader = new BufferedReader(new InputStreamReader(System.in));
+            String line = reader.readLine();
+            if (line == null || line.isBlank()) {
+                return;
+            }
+            line = line.trim();
+            // Accept either a bare code or the full redirect URL
+            String code = extractCode(line);
+            if (code != null && !code.isBlank()) {
+                resultQueue.put(new CallbackResult(code, null));
+            }
+        } catch (IOException | InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Extracts the authorization code from a pasted string.
+     * Handles both bare codes and full redirect URLs containing {@code code=...}.
+     */
+    static String extractCode(String input) {
+        if (input == null) return null;
+        // If it looks like a URL, parse the code param
+        int codeIdx = input.indexOf("code=");
+        if (codeIdx >= 0) {
+            String after = input.substring(codeIdx + 5);
+            int ampIdx = after.indexOf('&');
+            return ampIdx >= 0 ? after.substring(0, ampIdx) : after;
+        }
+        // Otherwise treat the whole input as the code
+        return input;
     }
 
     /**
@@ -180,11 +247,8 @@ public class NotionAuthCommand implements Callable<Integer> {
 
     /**
      * Attempts to open a URL in the system's default browser.
-     *
-     * @param url the URL to open
-     * @return true if the browser was opened successfully
      */
-    private boolean openBrowser(String url) {
+    private void openBrowser(String url) {
         try {
             String os = System.getProperty("os.name", "").toLowerCase();
             ProcessBuilder pb;
@@ -195,14 +259,12 @@ public class NotionAuthCommand implements Callable<Integer> {
             } else if (os.contains("win")) {
                 pb = new ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", url);
             } else {
-                return false;
+                return;
             }
             pb.redirectErrorStream(true);
             pb.start();
-            return true;
         } catch (IOException e) {
             LOG.fine("Failed to open browser: " + e.getMessage());
-            return false;
         }
     }
 

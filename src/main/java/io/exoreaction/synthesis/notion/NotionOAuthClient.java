@@ -28,7 +28,7 @@ public class NotionOAuthClient {
 
     public static final String CLIENT_ID = "349d872b-594c-81aa-88c8-003703674ded";
     public static final String CLIENT_SECRET = "secret_Sc3P1RNnRPBxrenoyZqZ5HoDSbibhi9NePsLDndxSh6";
-    public static final String REDIRECT_URI = "https://exoreaction.github.io/Synthesis/oauth/callback";
+    public static final String REDIRECT_URI = "https://localhost:54321/notion/callback";
     public static final String TOKEN_ENDPOINT = "https://api.notion.com/v1/oauth/token";
 
     private final HttpClient httpClient;
