@@ -185,6 +185,68 @@ public class NotionSyncState {
     }
 
     /**
+     * Returns the total number of pages recorded for a workspace from the sync state table.
+     *
+     * @param workspaceName the Synthesis workspace name
+     * @return the total pages count from the last sync, or 0 if no sync has occurred
+     */
+    public synchronized int getTotalPages(String workspaceName) throws SQLException {
+        String sql = "SELECT total_pages FROM notion_sync_state WHERE workspace_name = ?";
+        Connection conn = db.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspaceName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("total_pages");
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Returns the count of pages in the notion_pages table for a workspace.
+     *
+     * @param workspaceName the Synthesis workspace name
+     * @return the number of tracked Notion pages
+     */
+    public synchronized int getPageCount(String workspaceName) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM notion_pages WHERE workspace_name = ?";
+        Connection conn = db.getConnection();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspaceName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Returns all tracked page IDs for a workspace (for orphan detection without
+     * requiring a live page set).
+     *
+     * @param workspaceName the Synthesis workspace name
+     * @return set of all tracked page IDs
+     */
+    public synchronized Set<String> getAllPageIds(String workspaceName) throws SQLException {
+        String sql = "SELECT page_id FROM notion_pages WHERE workspace_name = ?";
+        Connection conn = db.getConnection();
+        Set<String> ids = new LinkedHashSet<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspaceName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getString("page_id"));
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
      * Returns virtual paths that are shared by more than one page in the workspace.
      *
      * @param workspaceName the Synthesis workspace name

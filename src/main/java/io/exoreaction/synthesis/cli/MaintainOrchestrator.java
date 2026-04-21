@@ -13,6 +13,8 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.notion.NotionPageMapper;
+import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
 import io.exoreaction.synthesis.staging.StagingManager;
 import io.exoreaction.synthesis.staging.StagingManager.StagedFile;
@@ -39,7 +41,7 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 /**
- * Orchestrates the 11-phase {@code synthesis maintain} workspace loop.
+ * Orchestrates the 12-phase {@code synthesis maintain} workspace loop.
  *
  * <p>Each phase is run in strict order. A phase failure is captured as a
  * {@link PhaseResult#failed} entry and does NOT abort subsequent phases.
@@ -56,6 +58,7 @@ import java.util.stream.Stream;
  * Phase 9:  Prune       — remove empty directories
  * Phase 10: Code Graph  — update persisted code dependency graph (CKG-1)
  * Phase 11: Security    — security analysis (S001-S021)
+ * Phase 12: Notion      — full Notion workspace re-sync (when notion.enabled)
  * </pre>
  *
  * <p>The orchestrator does NOT print anything to stdout/stderr. All output
@@ -100,7 +103,7 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Runs all 11 phases in sequence.
+     * Runs all 12 phases in sequence.
      *
      * @return aggregate result containing per-phase results and timing
      * @throws Exception only if workspace validation fails (phases themselves catch exceptions)
@@ -149,6 +152,9 @@ public class MaintainOrchestrator {
 
         // Phase 11: Security
         results.add(runPhase(11, "Security", this::runSecurity));
+
+        // Phase 12: Notion
+        results.add(runPhase(12, "Notion", this::runNotion));
 
         return new MaintainResult(results, System.currentTimeMillis() - start);
     }
@@ -1128,5 +1134,59 @@ public class MaintainOrchestrator {
         }
 
         return PhaseResult.success(11, "Security", signals.size(), summary, details);
+    }
+
+    // =========================================================================
+    // Phase 12: Notion
+    // =========================================================================
+
+    private PhaseResult runNotion() throws Exception {
+        if (!config.getNotion().isEnabled()) {
+            return PhaseResult.skipped(12, "Notion", "notion.enabled = false");
+        }
+
+        if (options.dryRun()) {
+            return PhaseResult.success(12, "Notion", 0,
+                    "Notion re-sync would be performed", List.of());
+        }
+
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        NotionWorkspaceSource source = NotionWorkspaceSource.fromConfig(config, db);
+        List<NotionPageMapper.NotionPage> pages = source.sync();
+
+        // Index each synced page as a virtual Markdown file
+        Path synthDir = workspaceRoot.resolve(".synthesis");
+        Path indexPath = synthDir.resolve("index");
+        int indexed = 0;
+        List<String> details = new ArrayList<>();
+
+        if (Files.isDirectory(indexPath)) {
+            FileIndexer indexer = new FileIndexer();
+            try (SearchIndex index = new SearchIndex(indexPath)) {
+                for (NotionPageMapper.NotionPage page : pages) {
+                    try {
+                        var doc = indexer.indexVirtualFile(
+                                page.virtualPath(),
+                                page.markdownContent(),
+                                page.lastEditedTime().toEpochMilli());
+                        index.addDocument(doc);
+                        indexed++;
+                        if (options.verbose()) {
+                            details.add("indexed: notion://" + page.virtualPath());
+                        }
+                    } catch (Exception e) {
+                        if (options.verbose()) {
+                            details.add("failed: " + page.virtualPath() + " (" + e.getMessage() + ")");
+                        }
+                    }
+                }
+                if (indexed > 0) {
+                    index.commit();
+                }
+            }
+        }
+
+        String summary = indexed + " page" + (indexed != 1 ? "s" : "") + " synced and indexed";
+        return PhaseResult.success(12, "Notion", indexed, summary, details);
     }
 }

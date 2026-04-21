@@ -120,7 +120,7 @@ public class MaintainCommand implements Callable<Integer> {
 
     @Option(
             names = {"--dry-run"},
-            description = "Preview all 9 maintenance phases without making changes",
+            description = "Preview all maintenance phases without making changes",
             defaultValue = "false"
     )
     private boolean dryRun;
@@ -482,18 +482,18 @@ public class MaintainCommand implements Callable<Integer> {
     }
 
     /**
-     * Formats and prints the 9-phase result table.
+     * Formats and prints the phase result table.
      *
      * <pre>
-     *   [1/9] Ingest ......................... 3 new files ingested
-     *   [2/9] Route .......................... 2 file(s) routed
+     *   [1/12] Ingest ........................ 3 new files ingested
+     *   [2/12] Route ......................... 2 file(s) routed
      *   ...
      *   Done in 4.2s  |  3 changes applied
      * </pre>
      *
      * <p>When {@code --quiet} is set, prints exactly one line:
      * <pre>
-     *   2026-02-20T14:32:01Z  OK  9 phases, 17 changes, 4.2s  health=-1
+     *   2026-02-20T14:32:01Z  OK  12 phases, 17 changes, 4.2s  health=-1
      * </pre>
      *
      * <p>When {@code --json} is set, prints a single JSON object to stdout.
@@ -518,7 +518,8 @@ public class MaintainCommand implements Callable<Integer> {
         for (PhaseResult phase : result.phases()) {
             String prefix = dryRun ? "(preview) " : "";
             String phaseName = prefix + phase.name();
-            String tag = String.format("  [%d/9] %-" + (dryRun ? "20" : "10") + "s", phase.phaseNumber(), phaseName);
+            String tag = String.format("  [%d/%d] %-" + (dryRun ? "20" : "10") + "s",
+                    phase.phaseNumber(), result.phases().size(), phaseName);
 
             // Pad with dots to align the summary
             int targetWidth = 45;

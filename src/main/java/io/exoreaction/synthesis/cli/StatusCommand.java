@@ -7,9 +7,11 @@ import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.core.RepositoryManager;
 import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsDatabase;
+import io.exoreaction.synthesis.notion.NotionSyncState;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
 import io.exoreaction.synthesis.telemetry.ClientUUID;
@@ -218,6 +220,11 @@ public class StatusCommand implements Callable<Integer> {
                 System.out.printf("  %-20s %s%n", "Files tracked:", AnsiOutput.bold(String.valueOf(scanState.getFileCount())));
             }
 
+            // Notion source status (when enabled)
+            if (config.getNotion().isEnabled()) {
+                showNotionStatus(config);
+            }
+
             // Media type breakdown (if available)
             Path indexPath2 = workspace.getIndexPath();
             if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
@@ -365,6 +372,63 @@ public class StatusCommand implements Callable<Integer> {
                 }
                 System.out.println();
             }
+        }
+    }
+
+    /**
+     * Shows Notion workspace source status including sync time, page count,
+     * poll interval, and health indicators.
+     */
+    private void showNotionStatus(SynthesisConfig config) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Notion Source:"));
+
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            NotionSyncState syncState = new NotionSyncState(db);
+            String wsName = config.getWorkspace().getName();
+
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.success("Enabled"));
+
+            // Last sync time
+            Optional<Instant> lastSync = syncState.getLastSyncTime(wsName);
+            if (lastSync.isPresent()) {
+                String formatted = LocalDateTime.ofInstant(lastSync.get(), ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                Duration elapsed = Duration.between(lastSync.get(), Instant.now());
+                System.out.printf("    %-20s %s (%s ago)%n", "Last sync:", formatted, formatDuration(elapsed));
+            } else {
+                System.out.printf("    %-20s %s%n", "Last sync:", AnsiOutput.dim("never"));
+            }
+
+            // Pages indexed
+            int totalPages = syncState.getTotalPages(wsName);
+            System.out.printf("    %-20s %s%n", "Pages indexed:",
+                    totalPages > 0 ? AnsiOutput.bold(String.valueOf(totalPages)) : AnsiOutput.dim("0"));
+
+            // Poll interval
+            int pollMinutes = config.getNotion().getPollIntervalMinutes();
+            System.out.printf("    %-20s %d min%n", "Poll interval:", pollMinutes);
+
+            // Stale paths (pages not synced within 2x poll interval)
+            Duration staleThreshold = Duration.ofMinutes(pollMinutes * 2L);
+            List<String> stalePaths = syncState.getStalePaths(wsName, staleThreshold);
+            if (stalePaths.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Stale paths:", AnsiOutput.success("0"));
+            } else {
+                System.out.printf("    %-20s %s%n", "Stale paths:",
+                        AnsiOutput.warning(String.valueOf(stalePaths.size())));
+            }
+
+            // Duplicate virtual paths (conflict indicator)
+            Set<String> duplicates = syncState.getDuplicateVirtualPaths(wsName);
+            if (!duplicates.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Path conflicts:",
+                        AnsiOutput.warning(String.valueOf(duplicates.size())));
+            }
+
+        } catch (Exception e) {
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.warning("Error: " + e.getMessage()));
         }
     }
 
