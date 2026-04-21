@@ -17,6 +17,10 @@ import picocli.CommandLine.ParentCommand;
 
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.Callable;
 
@@ -51,6 +55,9 @@ public class ImpactCommand implements Callable<Integer> {
 
     @Option(names = {"--refresh"}, description = "Force re-extraction from source files (ignore persisted graph)", defaultValue = "false")
     private boolean refresh;
+
+    @Option(names = {"--no-cochange"}, description = "Skip co-change coupling section", defaultValue = "false")
+    private boolean noCochange;
 
     private final RelationService relationService = new RelationService();
 
@@ -97,6 +104,9 @@ public class ImpactCommand implements Callable<Integer> {
                 printJson(target, impactSet, cliReachable, mcpReachable, lspReachable);
             } else {
                 printText(target, impactSet, cliReachable, mcpReachable, lspReachable);
+                if (!noCochange) {
+                    printCoChange(workspaceRoot.toString(), target.relativePath());
+                }
             }
             return 0;
         } catch (Exception e) {
@@ -236,6 +246,46 @@ public class ImpactCommand implements Callable<Integer> {
             if (lsp) System.out.println("  WARNING: LSP layer reachable");
         }
         System.out.println();
+    }
+
+    private void printCoChange(String workspacePath, String targetRelPath) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            Connection conn = db.getConnection();
+
+            String sql = """
+                    SELECT file_b, coupling_score, cochange_count, last_cochange_at
+                    FROM git_cochange
+                    WHERE workspace_path = ? AND file_a = ?
+                    ORDER BY coupling_score DESC
+                    LIMIT 10
+                    """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, workspacePath);
+                ps.setString(2, targetRelPath);
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<String> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        long lastAt = rs.getLong("last_cochange_at");
+                        long daysSince = ChronoUnit.DAYS.between(
+                                Instant.ofEpochSecond(lastAt), Instant.now());
+                        rows.add(String.format("    %-60s  score=%.2f  co-changed %dx  last %dd ago",
+                                rs.getString("file_b"),
+                                rs.getDouble("coupling_score"),
+                                rs.getInt("cochange_count"),
+                                daysSince));
+                    }
+                    if (!rows.isEmpty()) {
+                        System.out.println("  Co-change partners (files that move together):");
+                        rows.forEach(System.out::println);
+                        System.out.println("  Run 'synthesis hotspots --refresh' to update co-change data.");
+                        System.out.println();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Co-change data is optional -- silently skip if unavailable
+        }
     }
 
     private void printJson(SearchResult target, Map<String, Integer> impact,
