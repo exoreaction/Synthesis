@@ -119,16 +119,12 @@ public class NotionAuthCommand implements Callable<Integer> {
             });
             server.start();
 
-            // Open browser
-            System.out.println("Opening Notion authorization page in your browser...");
+            // Open browser and always print the URL for copy-paste fallback
+            System.out.println("Authorization URL:");
             System.out.println();
-            if (!openBrowser(authUrl)) {
-                System.out.println("Could not open browser automatically.");
-                System.out.println("Please open this URL manually:");
-                System.out.println();
-                System.out.println("  " + authUrl);
-                System.out.println();
-            }
+            System.out.println("  " + authUrl);
+            System.out.println();
+            openBrowser(authUrl);
             System.out.println("Waiting for authorization (timeout: " + TIMEOUT_SECONDS + "s)...");
 
             // Wait for callback

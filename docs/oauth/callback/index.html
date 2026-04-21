@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synthesis — Notion Authorization</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .box { text-align: center; max-width: 480px; padding: 2rem; }
+    .spinner { font-size: 2rem; animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .status { margin-top: 1rem; color: #8b949e; font-size: 0.9rem; }
+    .error { color: #f85149; }
+    .success { color: #3fb950; }
+    code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner" id="spinner">⚙</div>
+    <h2 style="margin: 1rem 0 0.5rem">Synthesis OAuth</h2>
+    <p class="status" id="status">Forwarding authorization to Synthesis CLI&hellip;</p>
+  </div>
+  <script>
+    (function () {
+      var params = window.location.search;
+      var code = new URLSearchParams(params).get('code');
+      var error = new URLSearchParams(params).get('error');
+
+      if (error) {
+        document.getElementById('spinner').textContent = '✗';
+        document.getElementById('spinner').style.animation = 'none';
+        document.getElementById('spinner').className = 'error';
+        document.getElementById('status').innerHTML = '<span class="error">Authorization denied: ' + error + '</span>';
+        return;
+      }
+
+      if (!code) {
+        document.getElementById('spinner').textContent = '?';
+        document.getElementById('spinner').style.animation = 'none';
+        document.getElementById('status').innerHTML = '<span class="error">No authorization code received.</span>';
+        return;
+      }
+
+      // Forward to the local Synthesis callback server
+      var localUrl = 'http://localhost:54321/notion/callback' + params;
+      window.location.replace(localUrl);
+
+      // Fallback message in case redirect is blocked
+      setTimeout(function () {
+        document.getElementById('spinner').textContent = '⚠';
+        document.getElementById('spinner').style.animation = 'none';
+        document.getElementById('status').innerHTML =
+          'Could not reach local Synthesis server.<br>' +
+          'Make sure <code>synthesis notion auth</code> is running, then ' +
+          '<a href="' + localUrl + '" style="color:#58a6ff">click here</a> to retry.<br><br>' +
+          'Or copy this code and paste it into the CLI:<br><code>' + code + '</code>';
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>
