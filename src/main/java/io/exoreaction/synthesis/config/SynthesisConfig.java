@@ -33,6 +33,7 @@ public class SynthesisConfig {
     private StagingConfig staging = new StagingConfig();
     private RoutingConfig routing = new RoutingConfig();
     private ReportConfig report = new ReportConfig();
+    private NotionConfig notion = new NotionConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -65,6 +66,9 @@ public class SynthesisConfig {
 
     public ReportConfig getReport() { return report; }
     public void setReport(ReportConfig report) { this.report = report != null ? report : new ReportConfig(); }
+
+    public NotionConfig getNotion() { return notion; }
+    public void setNotion(NotionConfig notion) { this.notion = notion != null ? notion : new NotionConfig(); }
 
     /**
      * Workspace identity and structure configuration.
@@ -604,5 +608,55 @@ public class SynthesisConfig {
 
         public String getOutputDir() { return outputDir; }
         public void setOutputDir(String outputDir) { this.outputDir = outputDir; }
+    }
+
+    /**
+     * Notion workspace source configuration (v1.29.0+).
+     *
+     * <p>When enabled, Synthesis treats a Notion workspace as a first-class source,
+     * syncing pages into the index as virtual Markdown files alongside local files.
+     *
+     * <p>Example YAML:
+     * <pre>
+     * notion:
+     *   enabled: true
+     *   token: "ntn_..."
+     *   rootPageId: "abc123"
+     *   pollIntervalMinutes: 15
+     *   maxPagesPerSync: 500
+     *   cacheContent: true
+     * </pre>
+     */
+    public static class NotionConfig {
+        private boolean enabled = false;
+        private String token;
+        private String rootPageId;
+        private int pollIntervalMinutes = 15;
+        private int maxPagesPerSync = 500;
+        private boolean cacheContent = true;
+
+        /** Whether Notion integration is enabled. */
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        /** Notion integration token (starts with {@code ntn_} or {@code secret_}). */
+        public String getToken() { return token; }
+        public void setToken(String token) { this.token = token; }
+
+        /** Root page ID to use as the sync starting point. */
+        public String getRootPageId() { return rootPageId; }
+        public void setRootPageId(String rootPageId) { this.rootPageId = rootPageId; }
+
+        /** Interval in minutes between automatic sync polls. */
+        public int getPollIntervalMinutes() { return pollIntervalMinutes; }
+        public void setPollIntervalMinutes(int pollIntervalMinutes) { this.pollIntervalMinutes = pollIntervalMinutes; }
+
+        /** Maximum number of pages to sync in a single poll cycle. */
+        public int getMaxPagesPerSync() { return maxPagesPerSync; }
+        public void setMaxPagesPerSync(int maxPagesPerSync) { this.maxPagesPerSync = maxPagesPerSync; }
+
+        /** Whether to cache page Markdown content locally for offline access. */
+        public boolean isCacheContent() { return cacheContent; }
+        public void setCacheContent(boolean cacheContent) { this.cacheContent = cacheContent; }
     }
 }
