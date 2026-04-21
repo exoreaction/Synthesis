@@ -90,6 +90,11 @@ public final class DocumentFields {
     /** Source file that this companion file was generated for. */
     public static final String COMPANION_FOR = "companionFor";
 
+    // --- Source fields ---
+
+    /** Source type: "filesystem" (default) or "notion" for virtual files. */
+    public static final String SOURCE = "source";
+
     // --- Embedding fields ---
 
     /** Embedding vector for semantic search (KNN vector field). */
