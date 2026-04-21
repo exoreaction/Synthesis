@@ -121,6 +121,13 @@ public class InitCommand implements Callable<Integer> {
     private String addRepo;
 
     @Option(
+            names = {"--source"},
+            description = "Workspace source: filesystem (default), notion",
+            defaultValue = "filesystem"
+    )
+    private String source;
+
+    @Option(
             names = {"--skip-org-scan"},
             description = "Skip automatic organization scanning",
             defaultValue = "false"
@@ -288,6 +295,11 @@ public class InitCommand implements Callable<Integer> {
             if (autoDiscover) {
                 System.out.println();
                 handleSubWorkspaceDiscovery(targetDir);
+            }
+
+            // Notion source setup (if --source notion)
+            if ("notion".equalsIgnoreCase(source)) {
+                handleNotionSourceSetup(targetDir);
             }
 
             // Register installation for pilot program (mandatory)
@@ -672,6 +684,56 @@ public class InitCommand implements Callable<Integer> {
 
         } catch (Exception e) {
             AnsiOutput.printWarning("Sub-workspace discovery failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handles Notion workspace source setup: appends Notion configuration
+     * block to the generated config file with guidance comments.
+     */
+    void handleNotionSourceSetup(Path targetDir) {
+        try {
+            // Find the config file (internal or root)
+            Path configFile = targetDir.resolve(".synthesis/config.yaml");
+            if (!Files.exists(configFile)) {
+                configFile = targetDir.resolve("synthesis-config.yaml");
+            }
+            if (!Files.exists(configFile)) {
+                AnsiOutput.printWarning("Config file not found. Create it first with 'synthesis init'.");
+                return;
+            }
+
+            // Append Notion config template
+            String notionBlock = """
+
+                # Notion workspace source (v1.29.0+)
+                # Set 'enabled: true' and provide your integration token and root page ID.
+                # Get a Notion integration token at: https://www.notion.so/my-integrations
+                notion:
+                  enabled: true
+                  # token: "ntn_..."          # Notion integration token (or set NOTION_TOKEN env var)
+                  # rootPageId: ""            # Root page ID to sync from (omit for entire workspace)
+                  pollIntervalMinutes: 15     # Interval between watch-mode sync polls
+                  maxPagesPerSync: 500
+                  cacheContent: true
+                """;
+
+            Files.writeString(configFile,
+                    Files.readString(configFile) + notionBlock);
+
+            System.out.println();
+            AnsiOutput.printInfo("Notion source configured. Next steps:");
+            System.out.println("    1. Create a Notion integration at https://www.notion.so/my-integrations");
+            System.out.println("    2. Set the token in your config:");
+            System.out.println("       " + AnsiOutput.cyan("notion.token: \"ntn_...\""));
+            System.out.println("       or set the " + AnsiOutput.cyan("NOTION_TOKEN") + " environment variable.");
+            System.out.println("    3. Set " + AnsiOutput.cyan("notion.rootPageId")
+                    + " to the page ID you want to sync from.");
+            System.out.println("    4. Run " + AnsiOutput.cyan("synthesis scan") + " to perform the initial sync.");
+            System.out.println("    5. Run " + AnsiOutput.cyan("synthesis watch") + " for continuous polling.");
+            System.out.println();
+        } catch (IOException e) {
+            AnsiOutput.printWarning("Failed to write Notion config: " + e.getMessage());
         }
     }
 

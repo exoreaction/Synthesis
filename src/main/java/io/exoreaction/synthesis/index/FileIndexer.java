@@ -4,6 +4,8 @@ import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.core.FileMetadata;
 import org.apache.lucene.document.*;
 
+import java.time.Instant;
+
 /**
  * Converts {@link FileMetadata} and {@link AnalysisResult} into
  * Lucene {@link Document} objects for indexing.
@@ -149,6 +151,57 @@ public class FileIndexer {
         if (subWorkspace != null && !subWorkspace.isEmpty()) {
             doc.add(new StringField(DocumentFields.SUB_WORKSPACE, subWorkspace, Field.Store.YES));
         }
+
+        return doc;
+    }
+
+    /**
+     * Creates a Lucene Document for a virtual file (e.g., a Notion page synced as Markdown).
+     *
+     * <p>Virtual files have no physical path on disk. The {@code virtualPath} is used
+     * as both the path and relative path, and the content is indexed directly.
+     * The {@link DocumentFields#SOURCE} field is set to "notion" to distinguish
+     * these from filesystem-backed documents.
+     *
+     * @param virtualPath    the virtual filesystem path (e.g., "notion://Engineering/Architecture.md")
+     * @param content        the Markdown content to index
+     * @param lastModifiedMs last modified time in epoch milliseconds
+     * @return a Lucene Document representing the virtual file
+     */
+    public Document indexVirtualFile(String virtualPath, String content, long lastModifiedMs) {
+        Document doc = new Document();
+
+        // Use "notion://" prefix to clearly distinguish from filesystem paths
+        String prefixedPath = "notion://" + virtualPath;
+
+        // Identity fields
+        doc.add(new StoredField(DocumentFields.PATH, prefixedPath));
+        doc.add(new StringField(DocumentFields.RELATIVE_PATH, prefixedPath, Field.Store.YES));
+
+        // Extract filename from virtual path
+        String fileName = virtualPath.contains("/")
+                ? virtualPath.substring(virtualPath.lastIndexOf('/') + 1)
+                : virtualPath;
+        doc.add(new TextField(DocumentFields.FILENAME, fileName, Field.Store.YES));
+        doc.add(new StringField(DocumentFields.EXTENSION, ".md", Field.Store.YES));
+
+        // Classification
+        doc.add(new StringField(DocumentFields.FILE_TYPE, "MARKDOWN", Field.Store.YES));
+        doc.add(new StringField(DocumentFields.SOURCE, "notion", Field.Store.YES));
+
+        // Content (tokenized, not stored — content can be re-fetched from Notion)
+        if (content != null && !content.isEmpty()) {
+            doc.add(new TextField(DocumentFields.CONTENT, content, Field.Store.NO));
+
+            // Extract a summary from the first 200 chars of content
+            String summary = content.length() > 200 ? content.substring(0, 200) + "..." : content;
+            doc.add(new TextField(DocumentFields.SUMMARY, summary, Field.Store.YES));
+        }
+
+        // Metadata
+        doc.add(new StoredField(DocumentFields.SIZE, Long.toString(content != null ? content.length() : 0)));
+        doc.add(new LongPoint(DocumentFields.LAST_MODIFIED, lastModifiedMs));
+        doc.add(new StoredField(DocumentFields.LAST_MODIFIED, Long.toString(lastModifiedMs)));
 
         return doc;
     }

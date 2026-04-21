@@ -5,6 +5,7 @@ import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.notion.NotionHealthChecks;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 /**
@@ -49,6 +52,8 @@ import java.util.stream.Stream;
         mixinStandardHelpOptions = true
 )
 public class HealthCommand implements Callable<Integer> {
+
+    private static final Logger LOG = Logger.getLogger(HealthCommand.class.getName());
 
     @ParentCommand
     private SynthesisApp parent;
@@ -222,6 +227,18 @@ public class HealthCommand implements Callable<Integer> {
             issues.add(new HealthIssue(
                     HealthIssue.Severity.INFO, "I021", finding.message(),
                     "synthesis describe"));
+        }
+
+        // W022/W023/W024: Notion workspace health (stale, orphan, conflict)
+        if (config.getNotion().isEnabled()) {
+            try {
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                String wsName = config.getWorkspace().getName();
+                NotionHealthChecks notionChecks = new NotionHealthChecks(config, db);
+                issues.addAll(notionChecks.checkAll(wsName));
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Notion health checks skipped: " + e.getMessage(), e);
+            }
         }
 
         // G001: Knowledge silos (bus factor = 1 with meaningful commit history)

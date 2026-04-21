@@ -15,6 +15,8 @@ import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.kcp.KcpRepository;
+import io.exoreaction.synthesis.notion.NotionPageMapper;
+import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FfprobeDetector;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -232,6 +234,11 @@ public class ScanCommand implements Callable<Integer> {
                 if (videoCount > 0 && (videosWithBasicMeta > 0 || videosNeedingFfprobe > 0)) {
                     printVideoSummary(videoCount, videosWithFullMeta,
                             videosWithBasicMeta, videosNeedingFfprobe);
+                }
+
+                // Notion workspace sync (when enabled)
+                if (config.getNotion().isEnabled()) {
+                    syncNotionPages(config, fileIndexer, index);
                 }
             }
 
@@ -555,6 +562,57 @@ public class ScanCommand implements Callable<Integer> {
             System.out.println();
             System.out.println("  Tip: Install ffmpeg for complete video support: "
                     + AnsiOutput.cyan(FfprobeDetector.getInstallHint()));
+        }
+    }
+
+    /**
+     * Syncs Notion workspace pages and indexes them as virtual Markdown files.
+     *
+     * <p>Called when {@code notion.enabled = true} in config. Each Notion page
+     * is converted to Markdown and added to the Lucene index alongside
+     * filesystem-backed documents.
+     *
+     * @param config      Synthesis configuration
+     * @param fileIndexer the file indexer for creating virtual documents
+     * @param index       the open search index (must be in write mode)
+     */
+    private void syncNotionPages(SynthesisConfig config, FileIndexer fileIndexer, SearchIndex index) {
+        try {
+            System.out.println();
+            AnsiOutput.printInfo("Syncing Notion workspace...");
+
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            NotionWorkspaceSource notionSource = NotionWorkspaceSource.fromConfig(config, db);
+            List<NotionPageMapper.NotionPage> pages = notionSource.sync();
+
+            int notionIndexed = 0;
+            for (NotionPageMapper.NotionPage page : pages) {
+                try {
+                    var doc = fileIndexer.indexVirtualFile(
+                            page.virtualPath(),
+                            page.markdownContent(),
+                            page.lastEditedTime().toEpochMilli());
+                    index.addDocument(doc);
+                    notionIndexed++;
+                } catch (Exception e) {
+                    if (verbose) {
+                        System.err.println("  Warning: Failed to index Notion page "
+                                + page.virtualPath() + ": " + e.getMessage());
+                    }
+                }
+            }
+
+            if (notionIndexed > 0) {
+                index.commit();
+            }
+
+            AnsiOutput.printSuccess("Synced " + notionIndexed + " Notion pages.");
+
+        } catch (Exception e) {
+            AnsiOutput.printWarning("Notion sync failed: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
         }
     }
 }
