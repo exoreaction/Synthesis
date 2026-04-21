@@ -8,8 +8,11 @@ import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.FileMetadata;
 import io.exoreaction.synthesis.core.SubWorkspaceResolver;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.notion.NotionWatcher;
+import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.org.OrganizationRegistry;
 import io.exoreaction.synthesis.skills.SkillGenerator;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -205,11 +208,47 @@ public class WatchCommand implements Callable<Integer> {
         Runtime.getRuntime().addShutdownHook(shutdownHook);
 
         // Start watching
+        Thread notionThread = null;
+        NotionWatcher notionWatcher = null;
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
             registerDirectories(workspaceRoot, watchService, config.getScan());
 
+            // Start Notion polling watcher on a virtual thread if enabled
+            if (config.getNotion().isEnabled()) {
+                try {
+                    SynthesisDatabase db = SynthesisDatabase.getDefault();
+                    NotionWorkspaceSource notionSource = NotionWorkspaceSource.fromConfig(config, db);
+                    FileIndexer notionIndexer = new FileIndexer();
+                    notionWatcher = new NotionWatcher(
+                            notionSource, notionIndexer,
+                            workspace.getIndexPath(),
+                            config.getNotion().getPollIntervalMinutes());
+                    NotionWatcher finalWatcher = notionWatcher;
+                    notionThread = Thread.ofVirtual().name("notion-watcher").start(() -> {
+                        try {
+                            finalWatcher.start();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
+                    AnsiOutput.printInfo("Notion watcher active (poll every "
+                            + config.getNotion().getPollIntervalMinutes() + " min)");
+                } catch (Exception e) {
+                    AnsiOutput.printWarning("Failed to start Notion watcher: " + e.getMessage());
+                    // Continue with filesystem watch only
+                }
+            }
+
             watchLoop(watchService, workspace, config, workspaceRoot);
         } finally {
+            // Shutdown Notion watcher
+            if (notionWatcher != null) {
+                notionWatcher.close();
+            }
+            if (notionThread != null) {
+                notionThread.interrupt();
+            }
+
             cleanupPidFile(pidFile);
             try {
                 Runtime.getRuntime().removeShutdownHook(shutdownHook);
