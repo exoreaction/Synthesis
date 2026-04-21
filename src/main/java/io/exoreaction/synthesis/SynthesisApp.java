@@ -138,7 +138,8 @@ import java.util.concurrent.Callable;
                 TopicHealthCommand.class,
                 TopicTriageCommand.class,
                 HotspotsCommand.class,
-                ArchaeologyCommand.class
+                ArchaeologyCommand.class,
+                NotionCommand.class
         }
 )
 public class SynthesisApp implements Callable<Integer> {
@@ -386,7 +387,7 @@ public class SynthesisApp implements Callable<Integer> {
             "extract-slides", "migrate-repos", "export-skills", "trace",
             "metrics", "mcp-stats", "dashboard", "enrich",
             "session-context", "hooks", "claude-md", "skills", "skills-graph", "team-context", "dispatch", "reflect",
-            "topic-health", "topic-triage"
+            "topic-health", "topic-triage", "notion"
         ));
     }
 
