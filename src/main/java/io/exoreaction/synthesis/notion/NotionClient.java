@@ -72,17 +72,18 @@ public class NotionClient {
     }
 
     /**
-     * Factory method that resolves the Notion token from config or environment.
+     * Factory method that resolves the Notion token from config, environment, or OAuth store.
      *
      * <p>Resolution order:
      * <ol>
      *   <li>{@link NotionConfig#getToken()} from the Synthesis config file</li>
      *   <li>{@code NOTION_TOKEN} environment variable</li>
+     *   <li>OAuth token from {@link NotionTokenStore} ({@code ~/.synthesis/notion-oauth.json})</li>
      * </ol>
      *
      * @param config the Notion configuration section
      * @return a new NotionClient instance
-     * @throws IllegalStateException if no token is found
+     * @throws IllegalStateException if no token is found from any source
      */
     public static NotionClient fromConfig(NotionConfig config) {
         String token = config.getToken();
@@ -90,8 +91,16 @@ public class NotionClient {
             token = System.getenv("NOTION_TOKEN");
         }
         if (token == null || token.isBlank()) {
+            var store = new NotionTokenStore();
+            var oauthToken = store.load();
+            if (oauthToken.isPresent()) {
+                token = oauthToken.get().accessToken();
+            }
+        }
+        if (token == null || token.isBlank()) {
             throw new IllegalStateException(
-                    "No Notion token configured. Set notion.token in config or NOTION_TOKEN env var.");
+                    "No Notion token configured. Set notion.token in config, "
+                    + "NOTION_TOKEN env var, or run 'synthesis notion auth'.");
         }
         return new NotionClient(token, HttpClient.newHttpClient());
     }
