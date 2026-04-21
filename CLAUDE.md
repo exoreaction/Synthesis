@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.19.1-SNAPSHOT, March 2026)
+**Status:** Production-ready (v1.28.0, April 2026)
 
 ---
 
@@ -29,7 +29,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V17; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables (kcp_manifests, kcp_units, kcp_relationships).
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V20; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange).
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
 - **Package root:** `io.exoreaction.synthesis.*` (31 packages, new `kcp` package)
