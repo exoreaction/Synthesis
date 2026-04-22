@@ -37,8 +37,8 @@ public class DirectoryScanner {
     private final List<PathMatcher> includeMatchers;
     private final List<PathMatcher> excludeMatchers;
 
-    // .synthesisignore directory-name patterns (e.g., "node_modules/")
-    private final List<String> synthesisIgnorePatterns;
+    // Compiled .synthesisignore directory predicates (gitignore-style).
+    private final List<java.util.function.Predicate<Path>> synthesisIgnoreMatchers;
 
     public DirectoryScanner(Path workspaceRoot, SynthesisConfig.ScanConfig scanConfig, boolean verbose) {
         this.workspaceRoot = workspaceRoot.toAbsolutePath().normalize();
@@ -65,13 +65,14 @@ public class DirectoryScanner {
                 .map(pattern -> fs.getPathMatcher("glob:" + pattern))
                 .toList();
 
-        // Load .synthesisignore patterns from workspace root
+        // Compile .synthesisignore into directory predicates (gitignore-style).
         Path ignoreFile = this.workspaceRoot.resolve(".synthesisignore");
-        if (Files.isRegularFile(ignoreFile)) {
-            this.synthesisIgnorePatterns = parseSynthesisIgnore(ignoreFile);
-        } else {
-            this.synthesisIgnorePatterns = Collections.emptyList();
-        }
+        this.synthesisIgnoreMatchers = Files.isRegularFile(ignoreFile)
+                ? parseSynthesisIgnore(ignoreFile).stream()
+                        .map(DirectoryScanner::compileIgnorePattern)
+                        .filter(java.util.Objects::nonNull)
+                        .toList()
+                : List.of();
 
         // Verbose output for smart exclusions
         if (verbose && scanConfig.isUseSmartDefaults()) {
@@ -191,17 +192,8 @@ public class DirectoryScanner {
 
         Path relative = workspaceRoot.relativize(dir);
 
-        // Check .synthesisignore patterns — a pattern like "node_modules/" means
-        // any directory component named "node_modules" should be excluded.
-        for (String pattern : synthesisIgnorePatterns) {
-            String dirName = pattern.endsWith("/") ? pattern.substring(0, pattern.length() - 1) : pattern;
-            // Check if any component of the relative path matches the pattern
-            for (int i = 0; i < relative.getNameCount(); i++) {
-                if (relative.getName(i).toString().equals(dirName)) {
-                    return true;
-                }
-            }
-        }
+        // .synthesisignore — compiled predicates (bare-name or glob, see compileIgnorePattern).
+        if (synthesisIgnoreMatchers.stream().anyMatch(p -> p.test(relative))) return true;
 
         // Check against configured exclude patterns (includes smart defaults if enabled)
         for (PathMatcher matcher : excludeMatchers) {
@@ -241,6 +233,38 @@ public class DirectoryScanner {
         } catch (IOException e) {
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Compiles a single {@code .synthesisignore} line into a directory-path predicate.
+     *
+     * <p>Bare names (no slash, no glob chars) match any path component at any depth.
+     * Everything else compiles as a root-anchored Java glob with a dummy-suffix probe
+     * so descendant-targeting patterns ({@code **&#47;.archive/**}) prune the parent.
+     *
+     * @return predicate, or {@code null} if the pattern is empty after normalization
+     */
+    static java.util.function.Predicate<Path> compileIgnorePattern(String raw) {
+        String p = raw;
+        if (p.endsWith("/"))   p = p.substring(0, p.length() - 1);
+        if (p.startsWith("/")) p = p.substring(1);
+        if (p.isEmpty()) return null;
+
+        boolean isBareName = p.indexOf('/') < 0
+                && p.indexOf('*') < 0
+                && p.indexOf('?') < 0
+                && p.indexOf('[') < 0;
+
+        if (isBareName) {
+            String name = p;
+            return rel -> {
+                for (int i = 0; i < rel.getNameCount(); i++)
+                    if (rel.getName(i).toString().equals(name)) return true;
+                return false;
+            };
+        }
+        PathMatcher glob = FileSystems.getDefault().getPathMatcher("glob:" + p);
+        return rel -> glob.matches(rel) || glob.matches(Path.of(rel.toString(), "dummy"));
     }
 
     /**
