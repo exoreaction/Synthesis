@@ -1,6 +1,6 @@
 name: synthesis-product-context
-version: 1.8.1
-description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, and team staging
+version: 1.29.1
+description: Comprehensive Synthesis product context - open source knowledge infrastructure with AI enrichment, research, reporting, executive dashboard, team staging, 43-tool MCP server, git signal analysis (hotspots, archaeology, bus factor), topic health triage, and Notion workspace source
 auto_load: true
 
 instructions: |
@@ -10,8 +10,15 @@ instructions: |
   **License:** MIT (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 21+
-  **Status:** Production-ready (v1.8.4-SNAPSHOT as of Feb 18, 2026)
-  **Latest:** Configurable report output directory (`report.outputDir`), report date anchoring + --no-cache fix (PR #55), AI image enrichment, research command, executive reporting, staging areas
+  **Status:** Production-ready (v1.29.0, April 2026) — v1.29.1-SNAPSHOT installed
+  **Latest (v1.29.0, Apr 22):** Notion workspace source — Phase 1 Foundation + OAuth flow. `synthesis notion auth`, `synthesis notion sync`. V21 Flyway migration (notion_pages, notion_sync_state tables). NotionConfig in SynthesisConfig (enabled, token, rootPageId, pollIntervalMinutes, maxPagesPerSync, cacheContent). Converts Notion blocks → Markdown for indexing.
+  **Also recently shipped:**
+  - v1.28.0 (Apr 11): Git signal analysis — `synthesis hotspots`, `synthesis archaeology`, `synthesis cochange`, enhanced `synthesis impact` with co-change partners, G001 bus factor health check, V20 Flyway migration (git_file_metrics, git_cochange)
+  - v1.27.1 (Apr 10): `synthesis topic-health` / `synthesis topic-triage` + 3 new bundled skills
+  - v1.26.0: Interactive skills-graph visualization, parent-child subagent session linking (V19)
+  - v1.24.0: `synthesis reflect` — self-maintaining skill library from session history
+  - v1.23.0: `synthesis dispatch` — agent dispatch planner
+  - v1.22.0: `synthesis skills match`, `synthesis team-context`
 
   ---
 
@@ -108,7 +115,9 @@ instructions: |
   # Session lifecycle (Claude Code integration, v1.18.2)
   synthesis session-context --compact                 # Single-line codebase freshness snapshot for hook injection
   synthesis hooks generate                            # Generate Claude Code hook config (~/.claude/settings.json)
+  synthesis hooks generate --dry-run                  # Preview hook JSON without writing
   synthesis claude-md refresh                         # Auto-update Synthesis Stats section in CLAUDE.md
+  synthesis claude-md refresh --dry-run               # Preview result without modifying
 
   # AI research & reporting (v1.5+)
   synthesis research --topic <topic>                  # Multi-pass AI analysis (architecture/security/synthesis)
@@ -553,6 +562,41 @@ instructions: |
   - **Screenshots** (`~/Pictures/Screenshots`): 90-day retention, 1,726+ images
 
   All three: `staging.enabled: true`, `ai.enabled: true`, image-focused scan patterns.
+
+  ## MCP Server (v1.18.2)
+
+  **43 tools** exposed over MCP to Claude Code, Cursor, and other AI agents.
+
+  **Transports:**
+  - **HTTP (recommended):** `synthesis-mcp-server --workspace /path --http-port 8765`
+    - Health endpoint: `GET http://localhost:8765/health` → `{"status":"ok"}`
+    - Claude Code config: `{ "type": "http", "url": "http://localhost:8765/mcp" }`
+    - Survives session idle timeouts; run as systemd user service for persistence
+  - **stdio:** `synthesis-mcp-server --workspace /path` (classic, subprocess spawned per session)
+
+  **Tool Categories (41 total):**
+  - **Search & Discovery (6):** search, relate, which, discover, diff, changed
+  - **Architecture & Code (7):** graph, code-graph, architecture, knowledge-graph, trace, impact, cross-repo-deps
+  - **Insights & AI (7):** ask, insights, perspectives, research, analyze, summary, report
+  - **Content & Documentation (3):** export, enrich, explain
+  - **Security & Quality (5):** security, health, validate, metrics, scatter
+  - **Change Tracking (3):** changelog, track, status
+  - **Operations (5):** stats, scan, maintain, mcp-stats, upcoming
+  - **Workspace Intelligence (5):** describe, structure, evolution, naming, learn
+
+  **Key new tools vs. original 8:**
+  - `impact` - transitive blast radius before refactoring
+  - `security` - vulnerability findings by severity
+  - `trace` - shortest path between two files/symbols
+  - `summary` - multi-perspective executive summary with caching
+  - `report` - AI business reports (weekly/pipeline/activities/decisions)
+  - `changelog`, `track` - file movement tracking with audit trail
+  - `cross-repo-deps` - cross-repo dependency analysis
+  - `learn` - auto-generated learning guide with recommended reading order
+
+  **Full documentation:** `docs/guides/MCP-COMPREHENSIVE-GUIDE.md`
+
+  ---
 
   ## Multi-Perspective Documentation (v1.8.0, Feb 2026)
 
