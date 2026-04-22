@@ -8,6 +8,20 @@ Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge
 
 ---
 
+## Contribution Policy (for Claude)
+
+This is an **upstream open-source repository** owned by eXOReaction — we are contributors, not maintainers.
+
+- **Never commit or push to `main`.** All work goes on a feature branch → PR for maintainer review.
+- **Never push to `origin/main`** or any protected branch. Assume push permissions are revoked.
+- `git checkout main` is fine for reading; do not modify files while on `main`.
+- New work: `git checkout -b <feat|fix|docs>/<topic> origin/main`, commit there, push the branch, open a PR.
+- Do not delete or force-push remote branches unless explicitly asked.
+
+If a task seems to require a `main` change, stop and surface it — the maintainer decides.
+
+---
+
 ## What It Solves
 
 AI tools made developers 10x faster at creating code -- but comprehension speed stayed at 1x. 40-60% of time is spent searching for context, wasting the AI investment. Synthesis bridges that gap:
