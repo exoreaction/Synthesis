@@ -285,6 +285,10 @@ public class SynthesisMCPServer {
             case "tools/call" -> handleToolsCall(id, params);
             case "ping" -> JsonRpcMessage.Response.success(id, Map.of());
             default -> {
+                if (method.startsWith("notifications/")) {
+                    log.fine("Ignoring notification: " + method);
+                    yield null;
+                }
                 log.info("Unknown method: " + method);
                 yield JsonRpcMessage.ErrorResponse.error(id, JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown method: " + method);
