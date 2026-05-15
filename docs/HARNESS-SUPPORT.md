@@ -58,6 +58,35 @@ in [`docs/integrations/`](integrations/).
 
 ---
 
+## Harness-neutral startup surface
+
+**`bootstrap_context`** is the recommended first call for any non-Claude harness.
+
+It returns a single compact startup packet by composing:
+- workspace freshness (from `session_context`)
+- relevant skills (from `match_skills`, only when `task` is provided)
+- key documents (from `knowledge.yaml`, `README.md`, `AGENTS.md`, etc.)
+- workspace validation warnings
+
+Call it at session start and inject the `compact` field into the initial prompt.
+No hooks, no config files, no harness-specific setup required.
+
+**MCP:**
+```json
+{ "name": "bootstrap_context", "arguments": { "task": "add OAuth login", "compact": true } }
+```
+
+**CLI:**
+```bash
+synthesis bootstrap-context --task "add OAuth login"
+synthesis bootstrap-context --json   # full JSON output
+```
+
+Claude Code users keep their hook-driven `session_context` — `bootstrap_context`
+is additive, not a replacement.
+
+---
+
 ## Recommended minimum for any new harness
 
 If you want Synthesis "working" inside a new harness with the least effort:
@@ -68,6 +97,9 @@ If you want Synthesis "working" inside a new harness with the least effort:
 2. **CLI on PATH** — ensures `synthesis search`, `synthesis ask`, etc. work
    from the harness's shell tool.
 3. **`ANTHROPIC_API_KEY` in env** — unlocks all AI features.
+4. **Call `bootstrap_context` at session start** — inject the `compact` output
+   into the initial prompt. Replaces the manual composition of `session_context`
+   + `match_skills` + KCP lookup that harnesses previously had to do themselves.
 
 Everything else (skills distribution, hook-driven freshness, instructions-file
 auto-refresh) is an enhancement layer that can be added per-harness.

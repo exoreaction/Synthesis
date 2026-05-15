@@ -2822,6 +2822,159 @@ public class SynthesisToolHandler {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Tool: bootstrap_context
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns a harness-neutral startup context packet.
+     *
+     * <p>Composes workspace freshness, session summary, skill recommendations, and key document
+     * hints in one call. Tolerates partial failure: each component degrades independently.
+     * Read-only: never writes hooks, skills, or instruction files.
+     *
+     * @param params JSON object with: task, workspace, skills_dir, compact, top_skills, top_kcp_units
+     * @return JSON object with: workspace, freshness, session_summary, warnings,
+     *         recommended_skills, kcp_units, suggested_tools, compact
+     */
+    public ObjectNode handleBootstrapContext(JsonNode params) throws McpToolException {
+        Path workspacePath = resolveWorkspace(params);
+
+        String task = params != null && params.has("task") && !params.get("task").isNull()
+                ? params.get("task").asText("").strip() : "";
+        boolean compact = params == null || !params.has("compact") || params.get("compact").asBoolean(true);
+        int topSkills = params != null && params.has("top_skills") ? params.get("top_skills").asInt(5) : 5;
+        int topKcpUnits = params != null && params.has("top_kcp_units") ? params.get("top_kcp_units").asInt(5) : 5;
+
+        Path skillsDir;
+        if (params != null && params.has("skills_dir") && !params.get("skills_dir").isNull()) {
+            skillsDir = Path.of(params.get("skills_dir").asText()).toAbsolutePath().normalize();
+        } else {
+            skillsDir = Path.of(System.getProperty("user.home"), ".claude", "skills");
+        }
+
+        ObjectNode response = mapper.createObjectNode();
+        response.put("workspace", workspacePath.toString());
+        ArrayNode warnings = mapper.createArrayNode();
+
+        // 1. Validate workspace (tolerant — warning instead of throwing)
+        boolean workspaceValid = false;
+        try {
+            validateWorkspace(workspacePath);
+            workspaceValid = true;
+        } catch (McpToolException e) {
+            warnings.add("Workspace not initialized: " + e.getMessage());
+        }
+
+        // 2. Freshness via session-context --compact subprocess
+        ObjectNode freshness = mapper.createObjectNode();
+        String sessionSummary = "";
+        if (workspaceValid) {
+            try {
+                String out = runSynthesisCli(List.of("session-context", "--compact"), workspacePath);
+                sessionSummary = out.strip();
+                freshness.put("indexed", true);
+                freshness.put("stale", false);
+                freshness.put("summary", sessionSummary);
+            } catch (Exception e) {
+                freshness.put("indexed", false);
+                freshness.put("stale", true);
+                freshness.put("summary", "index unavailable");
+                warnings.add("session-context unavailable: " + e.getMessage());
+            }
+        } else {
+            freshness.put("indexed", false);
+            freshness.put("stale", true);
+            freshness.put("summary", "workspace not initialized");
+        }
+        response.set("freshness", freshness);
+        response.put("session_summary", sessionSummary);
+
+        // 3. Skill matching (only when task is provided; empty list otherwise)
+        ArrayNode recommendedSkills = mapper.createArrayNode();
+        if (!task.isBlank()) {
+            try {
+                List<SkillMatch> matches = SkillMatcher.match(skillsDir, task, topSkills);
+                for (SkillMatch m : matches) {
+                    ObjectNode item = mapper.createObjectNode();
+                    item.put("name", m.skillName());
+                    item.put("score", m.score());
+                    item.put("preview", m.firstLine());
+                    recommendedSkills.add(item);
+                }
+            } catch (Exception e) {
+                LOG.warning("bootstrap_context: skill matching failed: " + e.getMessage());
+            }
+        }
+        response.set("recommended_skills", recommendedSkills);
+
+        // 4. Key docs / KCP units from workspace root (simple disk check, no DB required)
+        ArrayNode kcpUnits = mapper.createArrayNode();
+        if (workspaceValid) {
+            String[] candidates = {"knowledge.yaml", "README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"};
+            int count = 0;
+            for (String candidate : candidates) {
+                if (count >= topKcpUnits) break;
+                if (Files.exists(workspacePath.resolve(candidate))) {
+                    ObjectNode unit = mapper.createObjectNode();
+                    unit.put("id", candidate.toLowerCase().replace(".", "-"));
+                    unit.put("path", candidate);
+                    unit.put("intent", bootstrapDocIntent(candidate));
+                    kcpUnits.add(unit);
+                    count++;
+                }
+            }
+        }
+        response.set("kcp_units", kcpUnits);
+
+        // 5. Warnings
+        response.set("warnings", warnings);
+
+        // 6. Suggested tools heuristic
+        ArrayNode suggestedTools = mapper.createArrayNode();
+        suggestedTools.add("search");
+        suggestedTools.add("relate");
+        if (System.getenv("ANTHROPIC_API_KEY") != null) suggestedTools.add("ask");
+        boolean architectureTask = !task.isBlank() &&
+                (task.contains("architecture") || task.contains("refactor")
+                        || task.contains("depend") || task.contains("graph"));
+        if (architectureTask) suggestedTools.add("code-graph");
+        response.set("suggested_tools", suggestedTools);
+
+        // 7. Compact one-liner for prompt injection
+        List<String> parts = new ArrayList<>();
+        parts.add("workspace:" + workspacePath.getFileName());
+        if (!sessionSummary.isBlank()) parts.add(sessionSummary);
+        if (!recommendedSkills.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < Math.min(recommendedSkills.size(), 3); i++) {
+                names.add(recommendedSkills.get(i).path("name").asText(""));
+            }
+            parts.add("skills:" + String.join(", ", names));
+        }
+        if (!kcpUnits.isEmpty()) {
+            List<String> docs = new ArrayList<>();
+            for (int i = 0; i < Math.min(kcpUnits.size(), 2); i++) {
+                docs.add(kcpUnits.get(i).path("path").asText(""));
+            }
+            parts.add("docs:" + String.join(", ", docs));
+        }
+        response.put("compact", String.join(" | ", parts));
+
+        return response;
+    }
+
+    private String bootstrapDocIntent(String filename) {
+        return switch (filename) {
+            case "knowledge.yaml" -> "KCP manifest: structured reading order and unit descriptions";
+            case "README.md" -> "Project overview and entry point";
+            case "AGENTS.md" -> "Instructions for AI agents working in this repo";
+            case "CLAUDE.md" -> "Claude Code session context and contribution policy";
+            case "CONTRIBUTING.md" -> "How to contribute to this project";
+            default -> "Key project document";
+        };
+    }
+
     /**
      * Exception type for MCP tool errors that map to JSON-RPC error codes.
      */

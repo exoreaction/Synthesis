@@ -86,6 +86,36 @@ synthesis scan
 
 ---
 
+## Session startup: call `bootstrap_context` first
+
+Pi has no equivalent to Claude Code's `UserPromptSubmit` hook, so there is no
+automatic freshness injection at session start. The `bootstrap_context` MCP tool
+is the harness-neutral replacement.
+
+Call it once at session start (or via pi's `/bootstrap` shortcut if you wire
+one up) and inject the `compact` field into the initial prompt:
+
+```json
+{
+  "name": "bootstrap_context",
+  "arguments": {
+    "task": "optional — what you are about to work on",
+    "compact": true
+  }
+}
+```
+
+Example compact output:
+```
+workspace:my-project | workspace:4823files·61MB | changed:3files(24h) | skills:synthesis-development | docs:README.md, AGENTS.md
+```
+
+This replaces the manual composition of `session_context` + `match_skills` that
+was previously needed. The tool is read-only and harness-neutral — it never
+writes to `~/.claude/`, `AGENTS.md`, or any config file.
+
+---
+
 ## Recommended direct-tool promotions
 
 `pi-mcp-adapter` uses a **proxy pattern**: one `mcp` meta-tool
@@ -98,11 +128,12 @@ adapter's config so they show up as top-level tools:
 
 | Tool | Why promote |
 |---|---|
+| `bootstrap_context` | First call at session start — should be instant, not proxied. |
 | `search` | Highest-frequency call; should not go through the proxy. |
 | `ask` | AI Q&A grounded in index — common high-value call. |
 | `relate` | Dependency lookups during code reading. |
-| `code-graph` | Fast impact analysis for code tasks. |
-| `session_context` | Useful at session start to orient the model. |
+| `session_context` | On-demand freshness check; fast and read-only. |
+| `match_skills` | Skill lookup for task routing. |
 
 Leave the long tail (`architecture`, `evolution`, `sessions`, `enrich`,
 `perspectives`, `summary`, etc.) behind the proxy — they are called rarely
@@ -130,10 +161,11 @@ without burning the main-agent context.
 
 ## Known gaps
 
-- **No session-start freshness injection.** Claude Code users get a
-  one-line codebase freshness summary on every new session via a hook.
-  Pi has no equivalent, so freshness must be fetched on-demand:
-  `synthesis session-context --compact`.
+- **Session-start freshness requires a manual call.** Claude Code users get
+  automatic freshness injection via a `UserPromptSubmit` hook. Pi has no
+  equivalent hook surface. Use `bootstrap_context` instead — call it once at
+  session start and inject the `compact` field into the initial prompt (see
+  [Session startup](#session-startup-call-bootstrap_context-first) above).
 - **Skills are not portable to pi.** The 33 Synthesis skills in
   `~/.claude/skills/` assume Claude Code's skill discovery. In pi you would
   need to re-author them as pi TS extensions, or treat them as reference

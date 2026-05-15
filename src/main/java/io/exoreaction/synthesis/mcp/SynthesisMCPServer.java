@@ -767,6 +767,18 @@ public class SynthesisMCPServer {
                 createReflectSchema()
         ));
 
+        // Tool: bootstrap_context (harness-neutral startup surface)
+        toolsArray.add(createToolDefinition(
+                "bootstrap_context",
+                "Return a harness-neutral startup/context packet for the current workspace. " +
+                        "Composes workspace freshness, session context, relevant skills, and key document " +
+                        "reading hints into one call. Use this at session start instead of manually composing " +
+                        "session_context + match_skills + KCP lookup. " +
+                        "Read-only: does not write hooks, skills, or instruction files. " +
+                        "Works with Claude Code, pi.dev, Cursor, Codex, and any other MCP-capable harness.",
+                createBootstrapContextSchema()
+        ));
+
         ObjectNode result = mapper.createObjectNode();
         result.set("tools", toolsArray);
 
@@ -841,6 +853,7 @@ public class SynthesisMCPServer {
                 case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
                 case "dispatch" -> toolHandler.handleDispatch(toolArgs);
                 case "reflect" -> toolHandler.handleReflect(toolArgs);
+                case "bootstrap_context" -> toolHandler.handleBootstrapContext(toolArgs);
                 default -> throw new McpToolException(JsonRpcMessage.METHOD_NOT_FOUND,
                         "Unknown tool: " + toolName);
             };
@@ -1815,6 +1828,48 @@ public class SynthesisMCPServer {
 
         return schema;
     }
+    private ObjectNode createBootstrapContextSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "Optional task description to tailor skill and document recommendations");
+        properties.set("task", task);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        properties.set("workspace", workspace);
+
+        ObjectNode skillsDir = mapper.createObjectNode();
+        skillsDir.put("type", "string");
+        skillsDir.put("description", "Skills directory path (default: ~/.claude/skills/)");
+        properties.set("skills_dir", skillsDir);
+
+        ObjectNode compact = mapper.createObjectNode();
+        compact.put("type", "boolean");
+        compact.put("default", true);
+        compact.put("description", "Return compact summaries suitable for prompt injection");
+        properties.set("compact", compact);
+
+        ObjectNode topSkills = mapper.createObjectNode();
+        topSkills.put("type", "integer");
+        topSkills.put("default", 5);
+        topSkills.put("description", "Number of skills to recommend (default: 5)");
+        properties.set("top_skills", topSkills);
+
+        ObjectNode topKcp = mapper.createObjectNode();
+        topKcp.put("type", "integer");
+        topKcp.put("default", 5);
+        topKcp.put("description", "Number of key docs / KCP units to include (default: 5)");
+        properties.set("top_kcp_units", topKcp);
+
+        schema.set("properties", properties);
+        return schema;
+    }
+
     // Utility Methods
     // -----------------------------------------------------------------------
 
