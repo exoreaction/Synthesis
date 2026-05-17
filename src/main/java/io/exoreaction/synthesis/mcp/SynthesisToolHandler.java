@@ -102,15 +102,61 @@ public class SynthesisToolHandler {
 
     /**
      * Resolves the workspace path from params or falls back to default.
+     *
+     * <p>Accepts:
+     * <ul>
+     *   <li>Absolute paths (existing directory) — used directly.</li>
+     *   <li>Workspace names or directory basenames — resolved against {@code allWorkspaces}
+     *       in multi-workspace mode.</li>
+     * </ul>
+     *
+     * @throws McpToolException if the requested name matches more than one workspace
      */
-    private Path resolveWorkspace(JsonNode params) {
+    private Path resolveWorkspace(JsonNode params) throws McpToolException {
         if (params != null && params.has("workspace") && !params.get("workspace").isNull()) {
             String ws = params.get("workspace").asText();
             if (!ws.isBlank()) {
-                return Path.of(ws).toAbsolutePath().normalize();
+                Path asPath = Path.of(ws).toAbsolutePath().normalize();
+                if (Files.exists(asPath)) {
+                    return asPath;
+                }
+                if (multiWorkspaceMode) {
+                    List<Path> matches = allWorkspaces.stream()
+                            .filter(p -> workspaceMatches(p, ws))
+                            .toList();
+                    if (matches.size() == 1) {
+                        return matches.get(0);
+                    }
+                    if (matches.size() > 1) {
+                        List<String> matchStrings = matches.stream().map(Path::toString).toList();
+                        throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                                "Ambiguous workspace '" + ws + "'. Use an absolute path. Matches: " + matchStrings);
+                    }
+                }
+                return asPath;
             }
         }
         return defaultWorkspace;
+    }
+
+    /**
+     * Returns true if {@code workspacePath} matches the requested name by either
+     * directory basename or the workspace name configured in .synthesis/config.yaml.
+     */
+    private boolean workspaceMatches(Path workspacePath, String requested) {
+        if (workspacePath.getFileName() != null
+                && workspacePath.getFileName().toString().equals(requested)) {
+            return true;
+        }
+        try {
+            SynthesisConfig config = ConfigLoader.load(workspacePath);
+            if (config.getWorkspace() != null) {
+                return requested.equals(config.getWorkspace().getName());
+            }
+        } catch (Exception e) {
+            // Config not loadable — basename-only matching
+        }
+        return false;
     }
 
     /**
