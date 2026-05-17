@@ -927,13 +927,16 @@ public class SynthesisMCPServer {
 
         ObjectNode subWorkspace = mapper.createObjectNode();
         subWorkspace.put("type", "string");
-        subWorkspace.put("description", "Scope search to a named sub-workspace (e.g. 'eXOReaction', 'Cantara'). " +
-                "Useful in multi-workspace setups to limit results to a specific organisation or project.");
+        subWorkspace.put("description", "Filter results by a logical sub-workspace tag configured in " +
+                ".synthesis/config.yaml (e.g. a team or module name). This is NOT used to select a " +
+                "top-level workspace in multi-workspace mode — use the 'workspace' parameter for that.");
         properties.set("subWorkspace", subWorkspace);
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -958,7 +961,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         ObjectNode format = mapper.createObjectNode();
@@ -1015,7 +1020,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1031,7 +1038,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1052,7 +1061,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1094,7 +1105,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1132,7 +1145,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1210,7 +1225,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1242,7 +1259,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1294,7 +1313,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1310,7 +1331,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1353,7 +1376,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1380,7 +1405,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1424,7 +1451,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1463,7 +1492,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1487,7 +1518,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1553,7 +1586,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1569,7 +1604,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         ObjectNode filter = mapper.createObjectNode();
@@ -1606,7 +1643,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1631,7 +1670,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1669,7 +1710,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1690,7 +1733,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1723,7 +1768,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1748,7 +1795,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1773,7 +1822,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1803,7 +1854,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -1937,7 +1990,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -2003,7 +2058,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
@@ -2051,7 +2108,9 @@ public class SynthesisMCPServer {
 
         ObjectNode workspace = mapper.createObjectNode();
         workspace.put("type", "string");
-        workspace.put("description", "Workspace path (defaults to server's configured workspace)");
+        workspace.put("description", "Workspace path or registered workspace name (in multi-workspace mode). " +
+                "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
+                "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
