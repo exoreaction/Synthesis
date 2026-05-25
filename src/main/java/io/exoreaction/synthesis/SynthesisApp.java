@@ -127,6 +127,7 @@ import java.util.concurrent.Callable;
                 EvolutionReportCommand.class,
                 CodeGraphCommand.class,
                 SessionContextCommand.class,
+                BootstrapContextCommand.class,
                 HooksCommand.class,
                 ClaudeMdCommand.class,
                 SessionsCommand.class,
