@@ -75,8 +75,8 @@ public class WorkspaceDiscoveryConfig {
         if (Files.exists(configPath)) {
             try {
                 WorkspaceDiscoveryConfig config = loadFromFile(configPath);
-                LOG.info("Loaded workspace discovery config from " + configPath);
-                LOG.info("Search paths: " + config.searchPaths);
+                LOG.fine("Loaded workspace discovery config from " + configPath);
+                LOG.fine("Search paths: " + config.searchPaths);
                 return config;
             } catch (Exception e) {
                 LOG.warning("Failed to load workspace discovery config from " + configPath + ": " + e.getMessage());
@@ -84,7 +84,7 @@ public class WorkspaceDiscoveryConfig {
                 e.printStackTrace();
             }
         } else {
-            LOG.info("No config file found at " + configPath + ", using defaults");
+            LOG.fine("No workspace-discovery.yaml found at " + configPath + ", using defaults");
         }
 
         return getDefaults();

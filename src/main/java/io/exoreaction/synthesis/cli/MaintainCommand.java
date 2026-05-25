@@ -467,7 +467,22 @@ public class MaintainCommand implements Callable<Integer> {
             }
 
             // Print results and get exit code
-            return printMaintainResult(result, workspaceRoot);
+            int exitCode = printMaintainResult(result, workspaceRoot);
+
+            // Hint: maintain only re-tags files that were added/modified in this
+            // run. If subWorkspaces config was just added or changed, existing files
+            // keep their old (or absent) tags until a full scan is run.
+            if (!quiet && !json
+                    && config.getSubWorkspaces() != null
+                    && !config.getSubWorkspaces().isEmpty()
+                    && result.totalChanges() == 0) {
+                System.out.println("  ℹ  Sub-workspace config detected with no file changes this run.");
+                System.out.println("     If you recently edited subWorkspaces:, run `synthesis scan`");
+                System.out.println("     to apply tags to all existing files.");
+                System.out.println();
+            }
+
+            return exitCode;
         } catch (Exception e) {
             AnsiOutput.printError("Maintain failed: " + e.getMessage());
             if (verbose) {
