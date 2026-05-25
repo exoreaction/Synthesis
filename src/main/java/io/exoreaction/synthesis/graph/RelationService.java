@@ -117,6 +117,13 @@ public class RelationService {
         List<String> matches = fileNameIndex.get(fileName);
         if (matches != null && !matches.isEmpty()) return matches.get(0);
 
+        // Bun/NodeNext TypeScript projects emit `import './Foo.js'` even though the source
+        // file is `Foo.ts`. After the literal `.js` lookup fails, try the TypeScript
+        // counterparts so the relate command resolves to the source, not a compiled artifact.
+        // See issue #323.
+        String tsRewriteResolved = tryTsRewrite(fileName, fileNameIndex);
+        if (tsRewriteResolved != null) return tsRewriteResolved;
+
         if (ref.contains(".") && !ref.contains("/") && !hasKnownExtension(ref)) {
             String[] parts = ref.split("\\.");
             fileName = parts[parts.length - 1] + ".java";
@@ -124,8 +131,34 @@ public class RelationService {
         matches = fileNameIndex.get(fileName);
         if (matches != null && !matches.isEmpty()) return matches.get(0);
 
-        for (String ext : List.of(".java", ".py", ".js", ".ts", ".md")) {
+        // Bare-stem extension fallback. Prefer TypeScript over JavaScript so source files
+        // win over compiled artifacts in mixed Bun/NodeNext projects (#323).
+        for (String ext : List.of(".java", ".py", ".ts", ".tsx", ".js", ".jsx", ".md")) {
             matches = fileNameIndex.get(fileName + ext);
+            if (matches != null && !matches.isEmpty()) return matches.get(0);
+        }
+        return null;
+    }
+
+    /**
+     * Rewrites JS-extension references to their TypeScript counterparts. Bun/NodeNext
+     * style imports use `.js` even when the on-disk source is `.ts` (or `.tsx`).
+     *
+     * @return the resolved relative path, or {@code null} if no TS counterpart exists
+     */
+    private String tryTsRewrite(String fileName, Map<String, List<String>> fileNameIndex) {
+        List<String> candidates;
+        if (fileName.endsWith(".js")) {
+            String stem = fileName.substring(0, fileName.length() - 3);
+            candidates = List.of(stem + ".ts", stem + ".tsx");
+        } else if (fileName.endsWith(".jsx")) {
+            String stem = fileName.substring(0, fileName.length() - 4);
+            candidates = List.of(stem + ".tsx", stem + ".ts");
+        } else {
+            return null;
+        }
+        for (String candidate : candidates) {
+            List<String> matches = fileNameIndex.get(candidate);
             if (matches != null && !matches.isEmpty()) return matches.get(0);
         }
         return null;
