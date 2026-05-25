@@ -164,6 +164,7 @@ public class PruneCommand implements Callable<Integer> {
         try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
             stream.filter(Files::isDirectory)
                   .filter(p -> !p.equals(scanRoot))
+                  .filter(p -> !Files.isSymbolicLink(p))   // never prune symlinks
                   .filter(p -> !p.getFileName().toString().startsWith("."))
                   .filter(p -> !p.toString().contains("/.synthesis/"))
                   .filter(p -> !protectedPaths.contains(
@@ -177,8 +178,10 @@ public class PruneCommand implements Callable<Integer> {
         return result;
     }
 
-    /** Returns true if {@code dir} contains no regular files anywhere in its subtree. */
+    /** Returns true if {@code dir} contains no regular files anywhere in its subtree.
+     *  Symlinks are never considered empty — they are user-managed and must not be pruned. */
     static boolean isEmptyTree(Path dir) {
+        if (Files.isSymbolicLink(dir)) return false;
         try (Stream<Path> stream = Files.walk(dir)) {
             return stream.filter(Files::isRegularFile).findFirst().isEmpty();
         } catch (IOException e) {
@@ -207,6 +210,7 @@ public class PruneCommand implements Callable<Integer> {
         try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
             return stream.filter(Files::isDirectory)
                          .filter(p -> !p.equals(scanRoot))
+                         .filter(p -> !Files.isSymbolicLink(p))
                          .filter(p -> !p.getFileName().toString().startsWith("."))
                          .filter(p -> !p.toString().contains("/.synthesis/"))
                          .filter(p -> {

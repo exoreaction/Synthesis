@@ -30,7 +30,7 @@ instructions: |
   ```
 
   **Shows:**
-  - All registered workspaces
+  - All discovered workspaces (scans configured search paths, not a global registry)
   - Sub-workspace tree structure with Unicode connectors
   - File counts per sub-workspace
   - Index sizes
@@ -261,7 +261,7 @@ instructions: |
       tags: ["company"]
   ```
 
-  Then re-scan:
+  Then run a full scan to apply tags to all existing files (`maintain` only re-tags newly added/modified files):
   ```bash
   synthesis scan 2>/dev/null
   ```

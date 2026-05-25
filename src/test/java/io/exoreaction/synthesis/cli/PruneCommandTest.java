@@ -133,6 +133,32 @@ class PruneCommandTest {
     }
 
     @Test
+    void findPruneable_symlinkToDirectory_isNotPruned() throws IOException {
+        // Regression: symlinks-to-directories at the workspace root were silently
+        // deleted because Files.isDirectory() follows links (returns true) and
+        // isEmptyTree() with no FOLLOW_LINKS visits only the symlink itself
+        // (no regular files found → "empty" → prune). Bug report: Pål, 2026-05-22.
+        Path target = Files.createDirectories(workspace.resolve("../external-target").normalize());
+        Path link = workspace.resolve("devdata");
+        Files.createSymbolicLink(link, target);
+
+        List<Path> result = PruneCommand.findPruneable(workspace, workspace, Set.of());
+        assertFalse(result.contains(link), "Symlink to directory must never be pruned");
+    }
+
+    @Test
+    void isEmptyTree_symlinkToDir_returnsFalse() throws IOException {
+        // A symlink to a directory must not be treated as an empty tree — it is
+        // user-managed infrastructure that prune has no business deleting.
+        Path target = Files.createDirectories(workspace.resolve("../link-target").normalize());
+        Path link = workspace.resolve("mylink");
+        Files.createSymbolicLink(link, target);
+
+        assertFalse(PruneCommand.isEmptyTree(link),
+                "Symlink to directory should not be reported as an empty tree");
+    }
+
+    @Test
     void findPruneable_emptyMixedWithNonEmpty() throws IOException {
         Path empty = Files.createDirectories(workspace.resolve("empty"));
         Path notEmpty = Files.createDirectories(workspace.resolve("filled"));
