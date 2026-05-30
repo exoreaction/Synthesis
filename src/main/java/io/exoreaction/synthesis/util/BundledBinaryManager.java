@@ -155,20 +155,15 @@ public class BundledBinaryManager {
         }
         Files.move(tempFile, targetPath, StandardCopyOption.REPLACE_EXISTING);
 
-        // Set executable permission on Unix systems
+        // Set executable permission on Unix systems — add execute bits only, preserve existing perms
         if (!isWindows()) {
             try {
-                Set<PosixFilePermission> perms = Set.of(
-                        PosixFilePermission.OWNER_READ,
-                        PosixFilePermission.OWNER_WRITE,
-                        PosixFilePermission.OWNER_EXECUTE,
-                        PosixFilePermission.GROUP_READ,
-                        PosixFilePermission.GROUP_EXECUTE,
-                        PosixFilePermission.OTHERS_READ,
-                        PosixFilePermission.OTHERS_EXECUTE
-                );
+                Set<PosixFilePermission> perms = Files.getPosixFilePermissions(targetPath);
+                perms.add(PosixFilePermission.OWNER_EXECUTE);
+                perms.add(PosixFilePermission.GROUP_EXECUTE);
+                perms.add(PosixFilePermission.OTHERS_EXECUTE);
                 Files.setPosixFilePermissions(targetPath, perms);
-            } catch (UnsupportedOperationException e) {
+            } catch (IOException | UnsupportedOperationException e) {
                 // File system doesn't support POSIX permissions (e.g., FAT32)
                 // The binary may still work if the default permissions allow execution
             }

@@ -790,7 +790,7 @@ public class UpdateManager {
                         Files.createDirectories(targetPath);
                     } else {
                         Files.createDirectories(targetPath.getParent());
-                        Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                        Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
                     }
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
