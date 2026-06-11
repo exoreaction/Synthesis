@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.ai.CodeExplainer;
 import io.exoreaction.synthesis.ai.CodeExplainer.Depth;
 import io.exoreaction.synthesis.ai.CodeExplainer.ExplanationResult;
@@ -104,7 +105,8 @@ public class ExplainCommand implements Callable<Integer> {
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printError("AI not configured. Set ANTHROPIC_API_KEY to enable explain.");
+                AnsiOutput.printError("AI not configured. Set "
+                        + AiProvider.forConfig(config.getAi()).apiKeyName() + " to enable explain.");
                 return 1;
             }
 

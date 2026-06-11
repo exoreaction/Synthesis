@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
@@ -296,7 +297,8 @@ public class StatusCommand implements Callable<Integer> {
                         + " for multi-perspective analysis.");
             } else {
                 System.out.printf("  %-20s %s%n", "AI features:", AnsiOutput.dim("Disabled"));
-                System.out.println("  Set ai.enabled=true and ANTHROPIC_API_KEY to enable.");
+                System.out.println("  Set ai.enabled=true and "
+                        + AiProvider.forConfig(config.getAi()).apiKeyName() + " to enable.");
             }
 
             // Pilot status

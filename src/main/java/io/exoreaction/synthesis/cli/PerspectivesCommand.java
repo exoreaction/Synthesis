@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine.AnalysisMode;
 import io.exoreaction.synthesis.config.ConfigLoader;
@@ -97,7 +98,8 @@ public class PerspectivesCommand implements Callable<Integer> {
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printError("AI not configured. Set ai.enabled=true and ANTHROPIC_API_KEY.");
+                AnsiOutput.printError("AI not configured. Set ai.enabled=true and "
+                        + AiProvider.forConfig(config.getAi()).apiKeyName() + ".");
                 AnsiOutput.printInfo("The 'perspectives' command requires AI to generate analysis.");
                 return 1;
             }

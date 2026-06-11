@@ -369,7 +369,7 @@ public class ExportCommand implements Callable<Integer> {
 
         sb.append("---\n");
         sb.append("*Note: This is a basic architecture overview. Enable AI (set ai.enabled=true " +
-                "and ANTHROPIC_API_KEY) for a detailed narrative document.*\n");
+                "and the provider's API key) for a detailed narrative document.*\n");
 
         return sb.toString();
     }
@@ -716,7 +716,7 @@ public class ExportCommand implements Callable<Integer> {
 
         sb.append("---\n");
         sb.append("*Note: This is a basic onboarding guide. Enable AI (set ai.enabled=true " +
-                "and ANTHROPIC_API_KEY) for a detailed narrative guide.*\n");
+                "and the provider's API key) for a detailed narrative guide.*\n");
 
         return sb.toString();
     }

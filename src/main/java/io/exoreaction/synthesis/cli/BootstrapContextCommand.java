@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.changelog.ChangeEvent;
 import io.exoreaction.synthesis.changelog.SnapshotManager;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -191,7 +192,7 @@ public class BootstrapContextCommand implements Callable<Integer> {
         ).collect(Collectors.joining(", ")));
         sb.append("],\n");
         sb.append("  \"suggested_tools\": [\"search\", \"relate\"");
-        if (System.getenv("ANTHROPIC_API_KEY") != null) sb.append(", \"ask\"");
+        if (AiProvider.anyKeyAvailable()) sb.append(", \"ask\"");
         sb.append("]\n");
         sb.append("}");
         System.out.println(sb);

@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -222,7 +223,8 @@ public class SummaryCommand implements Callable<Integer> {
                         // AI not configured - show warning only for terminal output
                         if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
                             AnsiOutput.printWarning("AI not configured. Showing metrics-only summary.");
-                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and ANTHROPIC_API_KEY");
+                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and "
+                                    + AiProvider.forConfig(config.getAi()).apiKeyName());
                             System.err.println();
                         }
                     }

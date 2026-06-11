@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.ai.CodeExplainer;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
@@ -892,7 +893,8 @@ public class SynthesisToolHandler {
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
-                        "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
+                        "AI not configured. Set " + AiProvider.forConfig(config.getAi()).apiKeyName()
+                                + " environment variable.");
             }
 
             DirectedSynthesisEngine engine = new DirectedSynthesisEngine(clientOpt.get(), config.getAi().getMaxTokens());
@@ -1167,7 +1169,8 @@ public class SynthesisToolHandler {
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
-                        "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
+                        "AI not configured. Set " + AiProvider.forConfig(config.getAi()).apiKeyName()
+                                + " environment variable.");
             }
 
             CodeExplainer.Depth depth = switch (depthStr.toLowerCase()) {
@@ -2980,7 +2983,7 @@ public class SynthesisToolHandler {
         ArrayNode suggestedTools = mapper.createArrayNode();
         suggestedTools.add("search");
         suggestedTools.add("relate");
-        if (System.getenv("ANTHROPIC_API_KEY") != null) suggestedTools.add("ask");
+        if (AiProvider.anyKeyAvailable()) suggestedTools.add("ask");
         boolean architectureTask = !task.isBlank() &&
                 (task.contains("architecture") || task.contains("refactor")
                         || task.contains("depend") || task.contains("graph"));

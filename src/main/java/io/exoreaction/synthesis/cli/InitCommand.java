@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.CredentialStore;
@@ -419,7 +420,7 @@ public class InitCommand implements Callable<Integer> {
         }
 
         // Credentials nudge — show before "what you can do" if no API key configured
-        boolean hasApiKey = CredentialStore.hasAny() || System.getenv("ANTHROPIC_API_KEY") != null;
+        boolean hasApiKey = CredentialStore.hasAny() || AiProvider.anyKeyAvailable();
         if (!hasApiKey) {
             System.out.println();
             System.out.println("  " + AnsiOutput.bold("Enable AI features (recommended):"));

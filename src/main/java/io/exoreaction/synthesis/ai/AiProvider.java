@@ -1,6 +1,7 @@
 package io.exoreaction.synthesis.ai;
 
 import io.exoreaction.synthesis.config.CredentialStore;
+import io.exoreaction.synthesis.config.SynthesisConfig;
 
 import java.util.Arrays;
 import java.util.Optional;
@@ -49,6 +50,16 @@ public enum AiProvider {
                         .filter(provider -> provider.id.equalsIgnoreCase(value))
                         .findFirst())
                 .orElse(ANTHROPIC);
+    }
+
+    /** Resolves the provider declared in the AI config (defaults to {@link #ANTHROPIC}). */
+    public static AiProvider forConfig(SynthesisConfig.AiConfig config) {
+        return fromId(config.getProvider());
+    }
+
+    /** True when any provider's API key resolves (environment or credential store). */
+    public static boolean anyKeyAvailable() {
+        return Arrays.stream(values()).anyMatch(provider -> provider.resolveApiKey().isPresent());
     }
 
     public String id() { return id; }

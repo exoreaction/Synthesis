@@ -101,8 +101,9 @@ public class CredentialsCommand implements Callable<Integer> {
             if (names.isEmpty()) {
                 System.out.println("  No credentials stored.");
                 System.out.println();
-                System.out.println("  To store your Anthropic API key:");
+                System.out.println("  To store your AI provider API key:");
                 System.out.println("    synthesis credentials set ANTHROPIC_API_KEY sk-ant-...");
+                System.out.println("    synthesis credentials set DEEPSEEK_API_KEY sk-...");
             } else {
                 System.out.println("  Stored credentials:");
                 for (String name : names) {

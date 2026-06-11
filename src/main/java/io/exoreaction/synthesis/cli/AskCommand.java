@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
@@ -119,8 +120,9 @@ public class AskCommand implements Callable<Integer> {
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide ANTHROPIC_API_KEY.");
-                AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable ANTHROPIC_API_KEY.");
+                String keyName = AiProvider.forConfig(config.getAi()).apiKeyName();
+                AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide " + keyName + ".");
+                AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable " + keyName + ".");
                 return 1;
             }
 
@@ -301,8 +303,9 @@ public class AskCommand implements Callable<Integer> {
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
             Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide ANTHROPIC_API_KEY.");
-                AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable ANTHROPIC_API_KEY.");
+                String keyName = AiProvider.forConfig(config.getAi()).apiKeyName();
+                AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide " + keyName + ".");
+                AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable " + keyName + ".");
                 return 1;
             }
 

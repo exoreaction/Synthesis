@@ -1329,8 +1329,8 @@ public class DashboardCommand implements Callable<Integer> {
         try {
             Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
-                        + " and enable AI in a workspace config (ai.enabled: true).");
+                AnsiOutput.printWarning("AI not available. Set " + configuredApiKeyName()
+                        + " environment variable and enable AI in a workspace config (ai.enabled: true).");
                 pressEnterToContinue();
                 return;
             }
@@ -1397,8 +1397,8 @@ public class DashboardCommand implements Callable<Integer> {
         try {
             Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
-                        + " and enable AI in a workspace config (ai.enabled: true).");
+                AnsiOutput.printWarning("AI not available. Set " + configuredApiKeyName()
+                        + " environment variable and enable AI in a workspace config (ai.enabled: true).");
                 pressEnterToContinue();
                 return;
             }
@@ -1447,8 +1447,8 @@ public class DashboardCommand implements Callable<Integer> {
         try {
             Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
-                AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
-                        + " and enable AI in a workspace config (ai.enabled: true).");
+                AnsiOutput.printWarning("AI not available. Set " + configuredApiKeyName()
+                        + " environment variable and enable AI in a workspace config (ai.enabled: true).");
                 pressEnterToContinue();
                 return;
             }
@@ -1708,6 +1708,10 @@ public class DashboardCommand implements Callable<Integer> {
             return Optional.empty();
         }
         return AiClient.create(aiConfig);
+    }
+
+    private String configuredApiKeyName() {
+        return AiProvider.forConfig(resolveAiConfig()).apiKeyName();
     }
 
     private SynthesisConfig.AiConfig resolveAiConfig() {
