@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.analyzer;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -73,7 +73,7 @@ public class PresentationExtractor {
      * @throws IOException if the PDF cannot be read or images cannot be written
      */
     public ExtractionResult extractSlides(Path pdfPath, Path outputDir, int dpi,
-                                           ClaudeClient client) throws IOException {
+                                           AiClient client) throws IOException {
         Files.createDirectories(outputDir);
 
         try (PDDocument document = Loader.loadPDF(pdfPath.toFile())) {

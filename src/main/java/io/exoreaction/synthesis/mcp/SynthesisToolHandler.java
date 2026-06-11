@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.CodeExplainer;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
@@ -889,7 +889,7 @@ public class SynthesisToolHandler {
 
         try {
             SynthesisConfig config = ConfigLoader.load(workspacePath);
-            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                         "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
@@ -1024,10 +1024,10 @@ public class SynthesisToolHandler {
             };
 
             // Get optional AI client
-            ClaudeClient aiClient = null;
+            AiClient aiClient = null;
             if (level.hasAI()) {
                 SynthesisConfig config = ConfigLoader.load(workspacePath);
-                aiClient = ClaudeClient.create(config.getAi()).orElse(null);
+                aiClient = AiClient.create(config.getAi()).orElse(null);
                 if (aiClient == null) {
                     level = EnrichmentLevel.BASIC;
                 }
@@ -1164,7 +1164,7 @@ public class SynthesisToolHandler {
 
         try {
             SynthesisConfig config = ConfigLoader.load(workspacePath);
-            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                         "AI not configured. Set ANTHROPIC_API_KEY environment variable.");
@@ -1307,7 +1307,7 @@ public class SynthesisToolHandler {
                 String modelUsed = null;
                 if (!noAi) {
                     SynthesisConfig config = ConfigLoader.load(workspacePath);
-                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                    Optional<AiClient> clientOpt = AiClient.create(config.getAi());
 
                     if (clientOpt.isPresent()) {
                         io.exoreaction.synthesis.summary.SummaryEngine engine =
@@ -1457,8 +1457,8 @@ public class SynthesisToolHandler {
         try {
             // Try direct Java API
             SynthesisConfig config = ConfigLoader.load(workspacePath);
-            Optional<io.exoreaction.synthesis.ai.ClaudeClient> clientOpt =
-                    io.exoreaction.synthesis.ai.ClaudeClient.create(config.getAi());
+            Optional<io.exoreaction.synthesis.ai.AiClient> clientOpt =
+                    io.exoreaction.synthesis.ai.AiClient.create(config.getAi());
 
             if (clientOpt.isPresent()) {
                 io.exoreaction.synthesis.report.ReportTarget reportTarget =

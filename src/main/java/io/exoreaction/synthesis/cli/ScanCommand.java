@@ -10,6 +10,7 @@ import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.index.DocumentFields;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
@@ -357,13 +358,13 @@ public class ScanCommand implements Callable<Integer> {
         }
 
         // Create AI client
-        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        Optional<AiClient> clientOpt = AiClient.create(config.getAi());
         if (clientOpt.isEmpty()) {
             AnsiOutput.printWarning("AI not configured. Set ANTHROPIC_API_KEY to enable vision.");
             return;
         }
 
-        ClaudeClient client = clientOpt.get();
+        AiClient client = clientOpt.get();
         int analyzed = 0;
         int errors = 0;
 
@@ -398,7 +399,7 @@ public class ScanCommand implements Callable<Integer> {
     }
 
     private void generateReadmes(SynthesisConfig config, Path workspaceRoot, ScanResult scanResult) {
-        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        Optional<AiClient> clientOpt = AiClient.create(config.getAi());
         if (clientOpt.isEmpty()) {
             AnsiOutput.printWarning("AI not configured. Set ai.enabled=true and ANTHROPIC_API_KEY to use --with-readme.");
             return;

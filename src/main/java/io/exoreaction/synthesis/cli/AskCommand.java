@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
@@ -117,14 +117,14 @@ public class AskCommand implements Callable<Integer> {
 
             // Load config and create AI client
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
-            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide ANTHROPIC_API_KEY.");
                 AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable ANTHROPIC_API_KEY.");
                 return 1;
             }
 
-            ClaudeClient client = clientOpt.get();
+            AiClient client = clientOpt.get();
 
             // Search for relevant files
             if (verbose) {
@@ -299,14 +299,14 @@ public class AskCommand implements Callable<Integer> {
 
             // Load config and create AI client
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
-            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            Optional<AiClient> clientOpt = AiClient.create(config.getAi());
             if (clientOpt.isEmpty()) {
                 AnsiOutput.printError("AI is not configured. Set ai.enabled=true in config and provide ANTHROPIC_API_KEY.");
                 AnsiOutput.printInfo("Edit .synthesis/config.yaml or set environment variable ANTHROPIC_API_KEY.");
                 return 1;
             }
 
-            ClaudeClient client = clientOpt.get();
+            AiClient client = clientOpt.get();
 
             // Print welcome banner
             System.out.println();

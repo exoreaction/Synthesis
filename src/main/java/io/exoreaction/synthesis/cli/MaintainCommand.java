@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.changelog.ActivityLogUpdater;
@@ -287,8 +287,8 @@ public class MaintainCommand implements Callable<Integer> {
                         SnapshotManager snapshots = new SnapshotManager(synthDb);
                         List<ChangeEvent> events = snapshots.getChangesForWorkspace(
                                 workspaceRoot.toString(), previousState.getLastScanTime());
-                        Optional<ClaudeClient> aiClient = ClaudeClient.createIfApiKeyAvailable(
-                                config.getAi().getModel());
+                        Optional<AiClient> aiClient = AiClient.createIfApiKeyAvailable(
+                                config.getAi(), config.getAi().getModel());
                         ActivityLogUpdater updater = new ActivityLogUpdater();
                         boolean written = updater.update(workspaceRoot, events,
                                 config.getWorkspace().getName(), aiClient);

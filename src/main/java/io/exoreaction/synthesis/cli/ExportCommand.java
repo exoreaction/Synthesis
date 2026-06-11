@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -240,7 +240,7 @@ public class ExportCommand implements Callable<Integer> {
     private String exportAsArchitectureDoc(SynthesisConfig config, List<SearchResult> results, Path workspaceRoot) {
         String fileIndex = buildFileIndex(results);
 
-        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        Optional<AiClient> clientOpt = AiClient.create(config.getAi());
         if (clientOpt.isEmpty()) {
             AnsiOutput.printWarning("AI not configured. Generating basic architecture overview.");
             return exportAsBasicArchitecture(config, results, workspaceRoot, fileIndex);
@@ -269,7 +269,7 @@ public class ExportCommand implements Callable<Integer> {
     private String exportAsOnboardingGuide(SynthesisConfig config, List<SearchResult> results, Path workspaceRoot) {
         String fileIndex = buildFileIndex(results);
 
-        Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+        Optional<AiClient> clientOpt = AiClient.create(config.getAi());
         if (clientOpt.isEmpty()) {
             AnsiOutput.printWarning("AI not configured. Generating basic onboarding guide.");
             return exportAsBasicOnboarding(config, results, workspaceRoot, fileIndex);

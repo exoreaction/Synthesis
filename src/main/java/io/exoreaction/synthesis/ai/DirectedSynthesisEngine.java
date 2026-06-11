@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
  */
 public class DirectedSynthesisEngine {
 
-    private final ClaudeClient client;
+    private final AiClient client;
     private final int maxTokens;
 
     /**
@@ -54,7 +54,7 @@ public class DirectedSynthesisEngine {
             long durationMs
     ) {}
 
-    public DirectedSynthesisEngine(ClaudeClient client, int maxTokens) {
+    public DirectedSynthesisEngine(AiClient client, int maxTokens) {
         this.client = client;
         this.maxTokens = maxTokens;
     }

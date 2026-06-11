@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.changelog;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  *
  * <p>Reads change events from the SnapshotManager and produces a structured
  * Markdown entry grouped by change type (Added, Modified, Moved, Removed).
- * If a ClaudeClient is available, appends an AI-generated narrative paragraph.
+ * If an AiClient is available, appends an AI-generated narrative paragraph.
  *
  * <p>Entry insertion is newest-first: each new entry is placed immediately
  * after the top-level heading line.
@@ -67,7 +67,7 @@ public class ActivityLogUpdater {
      * @return fully-formatted Markdown entry string (without trailing newline)
      */
     public String buildEntry(List<ChangeEvent> events, String workspaceName,
-                             Optional<ClaudeClient> aiClient) {
+                             Optional<AiClient> aiClient) {
         StringBuilder sb = new StringBuilder();
 
         String today = DATE_FMT.format(LocalDate.now());
@@ -172,7 +172,7 @@ public class ActivityLogUpdater {
      */
     public boolean update(Path workspaceRoot, List<ChangeEvent> events,
                           String workspaceName,
-                          Optional<ClaudeClient> aiClient) throws IOException {
+                          Optional<AiClient> aiClient) throws IOException {
         if (events == null || events.isEmpty()) {
             return false;
         }
@@ -188,7 +188,7 @@ public class ActivityLogUpdater {
     // --- Private helpers ---
 
     private String generateNarrative(List<ChangeEvent> events, String workspaceName,
-                                     String date, ClaudeClient client) {
+                                     String date, AiClient client) {
         long added = events.stream().filter(e -> e.changeType() == ChangeEvent.ChangeType.ADDED).count();
         long modified = events.stream().filter(e -> e.changeType() == ChangeEvent.ChangeType.MODIFIED).count();
         long deleted = events.stream().filter(e -> e.changeType() == ChangeEvent.ChangeType.DELETED).count();

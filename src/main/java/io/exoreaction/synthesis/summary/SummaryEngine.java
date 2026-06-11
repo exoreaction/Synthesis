@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.summary;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.summary.CodebaseProfile.Profile;
 
 /**
@@ -11,9 +11,9 @@ import io.exoreaction.synthesis.summary.CodebaseProfile.Profile;
  */
 public class SummaryEngine {
 
-    private final ClaudeClient client;
+    private final AiClient client;
 
-    public SummaryEngine(ClaudeClient client) {
+    public SummaryEngine(AiClient client) {
         this.client = client;
     }
 

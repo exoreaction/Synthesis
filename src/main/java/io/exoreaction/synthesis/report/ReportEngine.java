@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.report;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.SecurityPosture;
 import io.exoreaction.synthesis.research.ResearchPassResult;
@@ -30,7 +30,7 @@ import java.util.List;
  */
 public class ReportEngine {
 
-    private final ClaudeClient client;
+    private final AiClient client;
     private final int maxTokensPerPass;
 
     /**
@@ -39,7 +39,7 @@ public class ReportEngine {
      * @param client           the AI client for generation
      * @param maxTokensPerPass maximum tokens per pass output
      */
-    public ReportEngine(ClaudeClient client, int maxTokensPerPass) {
+    public ReportEngine(AiClient client, int maxTokensPerPass) {
         this.client = client;
         this.maxTokensPerPass = maxTokensPerPass;
     }

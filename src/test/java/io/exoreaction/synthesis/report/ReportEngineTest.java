@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.report;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -159,19 +159,19 @@ class ReportEngineTest {
 
     @Test
     void generationResult_reportsContentCorrectly_issue44() {
-        var result = new ClaudeClient.GenerationResult("Hello world", false);
+        var result = new AiClient.GenerationResult("Hello world", false);
         assertEquals("Hello world", result.content());
     }
 
     @Test
     void generationResult_reportsTruncatedTrue_issue44() {
-        var result = new ClaudeClient.GenerationResult("Partial...", true);
+        var result = new AiClient.GenerationResult("Partial...", true);
         assertTrue(result.truncated(), "Should report truncated=true (#44)");
     }
 
     @Test
     void generationResult_reportsTruncatedFalse_issue44() {
-        var result = new ClaudeClient.GenerationResult("Complete.", false);
+        var result = new AiClient.GenerationResult("Complete.", false);
         assertFalse(result.truncated(), "Should report truncated=false (#44)");
     }
 

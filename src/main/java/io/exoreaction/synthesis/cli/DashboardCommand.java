@@ -1,7 +1,8 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.changelog.*;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -1319,14 +1320,14 @@ public class DashboardCommand implements Callable<Integer> {
     // ===============================================================
 
     /**
-     * Generates an AI digest for a client using ClaudeClient.
+     * Generates an AI digest for a client using the configured AiClient.
      */
     private void runClientAiDigest(Client client) {
         System.out.println();
         AnsiOutput.printInfo("Generating AI digest...");
 
         try {
-            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
                 AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
                         + " and enable AI in a workspace config (ai.enabled: true).");
@@ -1387,14 +1388,14 @@ public class DashboardCommand implements Callable<Integer> {
     }
 
     /**
-     * Generates an AI digest for a product using ClaudeClient.
+     * Generates an AI digest for a product using the configured AiClient.
      */
     private void runProductAiDigest(Product product) {
         System.out.println();
         AnsiOutput.printInfo("Generating AI digest...");
 
         try {
-            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
                 AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
                         + " and enable AI in a workspace config (ai.enabled: true).");
@@ -1444,7 +1445,7 @@ public class DashboardCommand implements Callable<Integer> {
         AnsiOutput.printInfo("Generating CEO briefing...");
 
         try {
-            Optional<ClaudeClient> clientOpt = createClaudeClient();
+            Optional<AiClient> clientOpt = createAiClient();
             if (clientOpt.isEmpty()) {
                 AnsiOutput.printWarning("AI not available. Set ANTHROPIC_API_KEY environment variable"
                         + " and enable AI in a workspace config (ai.enabled: true).");
@@ -1698,30 +1699,28 @@ public class DashboardCommand implements Callable<Integer> {
     }
 
     /**
-     * Creates a ClaudeClient by trying to find an AI-enabled config across workspaces.
-     * Falls back to checking just the ANTHROPIC_API_KEY env var with default model.
+     * Creates an AiClient by trying to find an AI-enabled config across workspaces.
+     * Falls back to a default-enabled config when only the provider's API key is present.
      */
-    private Optional<ClaudeClient> createClaudeClient() {
-        // Check if API key is available at all
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
-        if (apiKey == null || apiKey.isBlank()) {
+    private Optional<AiClient> createAiClient() {
+        SynthesisConfig.AiConfig aiConfig = resolveAiConfig();
+        if (AiProvider.fromId(aiConfig.getProvider()).resolveApiKey().isEmpty()) {
             return Optional.empty();
         }
+        return AiClient.create(aiConfig);
+    }
 
-        // Try to find an AI config from any workspace
+    private SynthesisConfig.AiConfig resolveAiConfig() {
         try {
-            // Try parent workspace root first
-            Path workspaceRoot = parent.getWorkspaceRoot();
-            SynthesisConfig config = ConfigLoader.load(workspaceRoot);
+            SynthesisConfig config = ConfigLoader.load(parent.getWorkspaceRoot());
             if (config.getAi().isEnabled()) {
-                return ClaudeClient.create(config.getAi());
+                return config.getAi();
             }
         } catch (Exception ignored) {}
 
-        // API key is present -- create with a default enabled config
-        SynthesisConfig.AiConfig aiConfig = new SynthesisConfig.AiConfig();
-        aiConfig.setEnabled(true);
-        return ClaudeClient.create(aiConfig);
+        SynthesisConfig.AiConfig fallback = new SynthesisConfig.AiConfig();
+        fallback.setEnabled(true);
+        return fallback;
     }
 
     /**

@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -133,7 +133,7 @@ public class AnalyzeCommand implements Callable<Integer> {
 
             // AI analysis if available
             if (!noAi) {
-                Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                Optional<AiClient> clientOpt = AiClient.create(config.getAi());
                 if (clientOpt.isPresent()) {
                     AnsiOutput.printInfo("Running AI-powered deep analysis...");
                     String samples = buildFileSamples(allFiles, workspaceRoot);
