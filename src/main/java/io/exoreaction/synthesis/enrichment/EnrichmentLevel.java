@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.enrichment;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.config.CredentialStore;
+import io.exoreaction.synthesis.ai.AiProvider;
 
 /**
  * Enrichment capability tiers for companion file generation.
@@ -65,7 +65,7 @@ public enum EnrichmentLevel {
      * <p>Checks in order:
      * <ol>
      *   <li>Air-gapped mode? -> BASIC</li>
-     *   <li>Claude API available? -> AI</li>
+     *   <li>Any AI provider API key available? -> AI</li>
      *   <li>Local tools available? -> LOCAL</li>
      *   <li>Otherwise -> BASIC</li>
      * </ol>
@@ -77,12 +77,8 @@ public enum EnrichmentLevel {
             return BASIC;
         }
 
-        // Check if Claude API is available (env var or credential store)
-        String apiKey = System.getenv("ANTHROPIC_API_KEY");
-        if (apiKey == null || apiKey.isBlank()) {
-            apiKey = CredentialStore.retrieve("ANTHROPIC_API_KEY").orElse(null);
-        }
-        if (apiKey != null && !apiKey.isBlank()) {
+        // Check if any AI provider API key is available (env var or credential store)
+        if (AiProvider.anyKeyAvailable()) {
             return AI;
         }
 

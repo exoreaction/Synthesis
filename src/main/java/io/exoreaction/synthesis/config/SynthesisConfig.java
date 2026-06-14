@@ -138,7 +138,11 @@ public class SynthesisConfig {
      */
     public static class AiConfig {
         private boolean enabled = false;
-        private String apiKey = null;  // Falls back to ANTHROPIC_API_KEY env var if null
+        /** Provider: "anthropic" (default), "openai", or "deepseek" (OpenAI-compatible). */
+        private String provider = "anthropic";
+        /** Endpoint override for OpenAI-compatible servers (null = provider default). */
+        private String endpoint = null;
+        private String apiKey = null;  // Falls back to the provider's env var if null
         private String model = "claude-sonnet-4-5-20250929";
         private boolean readmeGeneration = true;
         private boolean contentSummary = false;
@@ -147,6 +151,14 @@ public class SynthesisConfig {
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) {
+            this.provider = provider != null && !provider.isBlank() ? provider : "anthropic";
+        }
+
+        public String getEndpoint() { return endpoint; }
+        public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
 
         public String getApiKey() { return apiKey; }
         public void setApiKey(String apiKey) { this.apiKey = apiKey; }

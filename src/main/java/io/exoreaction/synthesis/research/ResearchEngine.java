@@ -1,6 +1,6 @@
 package io.exoreaction.synthesis.research;
 
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.summary.CodebaseProfile.Profile;
 
 import java.util.ArrayList;
@@ -30,7 +30,7 @@ public class ResearchEngine {
             "architecture", "security", "quality", "dependencies", "evolution"
     );
 
-    private final ClaudeClient client;
+    private final AiClient client;
     private final int maxTokensPerPass;
 
     /**
@@ -39,7 +39,7 @@ public class ResearchEngine {
      * @param client           the AI client for generation
      * @param maxTokensPerPass maximum tokens per pass output
      */
-    public ResearchEngine(ClaudeClient client, int maxTokensPerPass) {
+    public ResearchEngine(AiClient client, int maxTokensPerPass) {
         this.client = client;
         this.maxTokensPerPass = maxTokensPerPass;
     }

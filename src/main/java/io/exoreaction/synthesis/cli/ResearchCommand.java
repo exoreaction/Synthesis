@@ -1,7 +1,8 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -156,10 +157,11 @@ public class ResearchCommand implements Callable<Integer> {
 
             // Load config and create AI client
             SynthesisConfig config = ConfigLoader.load(workspaceRoot);
-            Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+            Optional<AiClient> clientOpt = AiClient.create(config.getAi());
 
             if (clientOpt.isEmpty() && !estimate) {
-                AnsiOutput.printError("AI not configured. Set ai.enabled=true and ANTHROPIC_API_KEY.");
+                AnsiOutput.printError("AI not configured. Set ai.enabled=true and "
+                        + AiProvider.forConfig(config.getAi()).apiKeyName() + ".");
                 AnsiOutput.printInfo("Use --estimate to preview cost without an AI key.");
                 return 1;
             }

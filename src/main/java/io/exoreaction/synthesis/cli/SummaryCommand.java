@@ -1,7 +1,8 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
+import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
@@ -207,7 +208,7 @@ public class SummaryCommand implements Callable<Integer> {
                 String modelUsed = null;
                 if (!noAi) {
                     SynthesisConfig config = ConfigLoader.load(workspaceRoot);
-                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                    Optional<AiClient> clientOpt = AiClient.create(config.getAi());
 
                     if (clientOpt.isPresent()) {
                         SummaryEngine engine = new SummaryEngine(clientOpt.get());
@@ -222,7 +223,8 @@ public class SummaryCommand implements Callable<Integer> {
                         // AI not configured - show warning only for terminal output
                         if ("terminal".equalsIgnoreCase(format) && outputFile == null) {
                             AnsiOutput.printWarning("AI not configured. Showing metrics-only summary.");
-                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and ANTHROPIC_API_KEY");
+                            AnsiOutput.printInfo("To enable AI: set ai.enabled=true and "
+                                    + AiProvider.forConfig(config.getAi()).apiKeyName());
                             System.err.println();
                         }
                     }

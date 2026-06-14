@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.analyzer.PresentationExtractor;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -110,13 +110,13 @@ public class ExtractSlidesCommand implements Callable<Integer> {
             AnsiOutput.printInfo("DPI: " + dpi);
 
             // Initialize AI client (optional)
-            ClaudeClient client = null;
+            AiClient client = null;
             if (!noVision) {
                 Path workspaceRoot = parent.getWorkspaceRoot();
                 SynthesisConfig config = ConfigLoader.load(workspaceRoot);
 
                 if (config.getAi().isEnabled() && config.getAi().getVision().isEnabled()) {
-                    Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                    Optional<AiClient> clientOpt = AiClient.create(config.getAi());
                     if (clientOpt.isPresent()) {
                         client = clientOpt.get();
 

@@ -382,7 +382,7 @@ public class SynthesisMCPServer {
                 "ask",
                 "Ask questions about the codebase using AI. Searches the Synthesis index for " +
                         "relevant files, builds context, and generates an answer with file citations. " +
-                        "Requires ANTHROPIC_API_KEY.",
+                        "Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createAskSchema()
         ));
 
@@ -400,7 +400,7 @@ public class SynthesisMCPServer {
                 "explain",
                 "AI-powered explanation of files, directories, or architectural patterns. " +
                         "Generates comprehensive explanations with code references and context. " +
-                        "Pass a file path, directory path, or pattern name. Requires ANTHROPIC_API_KEY.",
+                        "Pass a file path, directory path, or pattern name. Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createExplainSchema()
         ));
 
@@ -428,7 +428,7 @@ public class SynthesisMCPServer {
                 "report",
                 "Generate AI-powered business reports. Topics: weekly executive, pipeline status, " +
                         "activities, decisions. Target audiences: CEO, board, investor. " +
-                        "Requires ANTHROPIC_API_KEY.",
+                        "Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createReportSchema()
         ));
 
@@ -492,7 +492,7 @@ public class SynthesisMCPServer {
         toolsArray.add(createToolDefinition(
                 "perspectives",
                 "Answer a question about the codebase from multiple role perspectives " +
-                        "(architect, security, devops, product). Requires ANTHROPIC_API_KEY.",
+                        "(architect, security, devops, product). Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createPerspectivesSchema()
         ));
 
@@ -500,7 +500,7 @@ public class SynthesisMCPServer {
         toolsArray.add(createToolDefinition(
                 "research",
                 "Deep research into a codebase topic. Searches index, follows references, " +
-                        "and synthesizes a comprehensive answer. Requires ANTHROPIC_API_KEY.",
+                        "and synthesizes a comprehensive answer. Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createResearchSchema()
         ));
 

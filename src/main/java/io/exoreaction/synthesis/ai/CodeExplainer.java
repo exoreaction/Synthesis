@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  */
 public class CodeExplainer {
 
-    private final ClaudeClient client;
+    private final AiClient client;
     private final int maxTokens;
 
     /**
@@ -66,7 +66,7 @@ public class CodeExplainer {
             long durationMs
     ) {}
 
-    public CodeExplainer(ClaudeClient client, int maxTokens) {
+    public CodeExplainer(AiClient client, int maxTokens) {
         this.client = client;
         this.maxTokens = maxTokens;
     }

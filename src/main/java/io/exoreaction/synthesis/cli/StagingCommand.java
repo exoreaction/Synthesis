@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.analyzer.PresentationExtractor;
@@ -784,11 +784,11 @@ public class StagingCommand implements Callable<Integer> {
             if (enrichable.isEmpty()) return;
 
             EnrichmentLevel level = EnrichmentLevel.maxAvailable();
-            ClaudeClient aiClient = null;
+            AiClient aiClient = null;
             if (level.hasAI()) {
-                Optional<ClaudeClient> opt = ClaudeClient.create(config.getAi());
+                Optional<AiClient> opt = AiClient.create(config.getAi());
                 if (opt.isEmpty()) {
-                    opt = ClaudeClient.createIfApiKeyAvailable(config.getAi().getModel());
+                    opt = AiClient.createIfApiKeyAvailable(config.getAi(), config.getAi().getModel());
                 }
                 aiClient = opt.orElse(null);
                 if (aiClient == null) {
@@ -1397,10 +1397,10 @@ public class StagingCommand implements Callable<Integer> {
                     return 0;
                 }
 
-                // Optionally initialize Claude client for AI-assisted naming
-                Optional<ClaudeClient> claude = Optional.empty();
+                // Optionally initialize AI client for AI-assisted naming (cheap/fast model)
+                Optional<AiClient> claude = Optional.empty();
                 if (useAi) {
-                    claude = ClaudeClient.createIfApiKeyAvailable("claude-haiku-4-5-20251001");
+                    claude = AiClient.createFast(ConfigLoader.load(parent.parent.getWorkspaceRoot()).getAi());
                     if (claude.isEmpty()) {
                         AnsiOutput.printWarning("No API key found — falling back to heuristic naming.");
                     }
@@ -1500,7 +1500,7 @@ public class StagingCommand implements Callable<Integer> {
         }
 
         /** Asks Claude to generate a 3-5 word kebab-case filename from the companion content. */
-        private String generateNameWithClaude(ClaudeClient claude, String companionContent) {
+        private String generateNameWithClaude(AiClient claude, String companionContent) {
             String prompt = """
                     Based on this companion file describing an image or document, generate a concise descriptive \
                     filename in kebab-case (3-5 words, no extension, no underscores).

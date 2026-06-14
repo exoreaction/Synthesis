@@ -1,5 +1,6 @@
 package io.exoreaction.synthesis.enrichment;
 
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.core.FileMetadata;
@@ -43,7 +44,7 @@ public class CompanionFileGenerator {
 
     private final EnrichmentLevel level;
     private final boolean forceRegenerate;
-    private final ClaudeClient aiClient;
+    private final AiClient aiClient;
 
     /**
      * Creates a generator with the specified enrichment level (no AI client).
@@ -63,7 +64,7 @@ public class CompanionFileGenerator {
      * @param aiClient        Claude client for AI enrichment (may be null)
      */
     public CompanionFileGenerator(EnrichmentLevel level, boolean forceRegenerate,
-                                   ClaudeClient aiClient) {
+                                   AiClient aiClient) {
         this.level = level;
         this.forceRegenerate = forceRegenerate;
         this.aiClient = aiClient;

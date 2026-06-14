@@ -1,7 +1,7 @@
 package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
-import io.exoreaction.synthesis.ai.ClaudeClient;
+import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
@@ -229,11 +229,11 @@ public class EnrichCommand implements Callable<Integer> {
 
             // Create AI client if needed for AI-level enrichment.
             // Falls back to API-key-only client when ai.enabled=false but a key is available.
-            ClaudeClient aiClient = null;
+            AiClient aiClient = null;
             if (level.hasAI()) {
-                Optional<ClaudeClient> clientOpt = ClaudeClient.create(config.getAi());
+                Optional<AiClient> clientOpt = AiClient.create(config.getAi());
                 if (clientOpt.isEmpty()) {
-                    clientOpt = ClaudeClient.createIfApiKeyAvailable(config.getAi().getModel());
+                    clientOpt = AiClient.createIfApiKeyAvailable(config.getAi(), config.getAi().getModel());
                 }
                 aiClient = clientOpt.orElse(null);
                 if (aiClient == null) {

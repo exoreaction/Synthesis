@@ -73,6 +73,45 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void aiProviderAndEndpointRoundTrip() throws IOException {
+        Files.writeString(tempDir.resolve("synthesis-config.yaml"), """
+                ai:
+                  enabled: true
+                  provider: "deepseek"
+                  endpoint: "http://localhost:9999"
+                  model: "deepseek-v4-flash"
+                """);
+
+        SynthesisConfig config = ConfigLoader.load(tempDir);
+
+        assertEquals("deepseek", config.getAi().getProvider());
+        assertEquals("http://localhost:9999", config.getAi().getEndpoint());
+        assertEquals("deepseek-v4-flash", config.getAi().getModel());
+    }
+
+    @Test
+    void aiConfigWithoutProviderDefaultsToAnthropic() throws IOException {
+        Files.writeString(tempDir.resolve("synthesis-config.yaml"), """
+                ai:
+                  enabled: true
+                  model: "claude-sonnet-4-5-20250929"
+                """);
+
+        SynthesisConfig config = ConfigLoader.load(tempDir);
+
+        assertEquals("anthropic", config.getAi().getProvider());
+        assertNull(config.getAi().getEndpoint());
+        assertEquals("claude-sonnet-4-5-20250929", config.getAi().getModel());
+    }
+
+    @Test
+    void generateDefaultConfigIncludesProvider() {
+        String yaml = ConfigLoader.generateDefaultConfig("my-project", "general");
+
+        assertTrue(yaml.contains("provider: \"anthropic\""));
+    }
+
+    @Test
     void generateDefaultConfigProducesValidYaml() throws IOException {
         String yaml = ConfigLoader.generateDefaultConfig("my-project", "monorepo");
 

@@ -20,10 +20,10 @@ import java.util.stream.Stream;
  */
 public class ReadmeGenerator {
 
-    private final ClaudeClient client;
+    private final AiClient client;
     private final int maxTokens;
 
-    public ReadmeGenerator(ClaudeClient client, int maxTokens) {
+    public ReadmeGenerator(AiClient client, int maxTokens) {
         this.client = client;
         this.maxTokens = maxTokens;
     }

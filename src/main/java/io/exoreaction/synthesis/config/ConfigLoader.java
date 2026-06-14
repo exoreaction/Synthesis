@@ -169,8 +169,12 @@ public final class ConfigLoader {
                   contentPreviewBytes: 10240
 
                 ai:
-                  # Set to true and provide ANTHROPIC_API_KEY to enable AI features
+                  # Set to true and provide the provider's API key to enable AI features
                   enabled: false
+                  # Provider: anthropic (default), openai, or deepseek (OpenAI-compatible)
+                  # API keys: ANTHROPIC_API_KEY / OPENAI_API_KEY / DEEPSEEK_API_KEY
+                  provider: "anthropic"
+                  # endpoint: override for any OpenAI-compatible server (optional)
                   model: "claude-sonnet-4-5-20250929"
                   readmeGeneration: true
                   contentSummary: false
