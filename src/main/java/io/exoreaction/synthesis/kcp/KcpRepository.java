@@ -7,8 +7,10 @@ import io.exoreaction.synthesis.core.FileMetadata;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -321,6 +323,43 @@ public class KcpRepository {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     result.add(rs.getString("unit_id"));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns all file paths that are temporally inactive at asOf.
+     * Covers both manifest files (knowledge.yaml) and unit content paths.
+     * Used for post-filtering search results by temporal validity.
+     */
+    public Set<String> getInactiveFilePaths(Connection conn,
+                                             String workspacePath,
+                                             String asOf) throws SQLException {
+        String sql = """
+                SELECT file_path AS p FROM kcp_manifests
+                WHERE workspace_path = ?
+                  AND ((valid_from IS NOT NULL AND valid_from > ?)
+                    OR (valid_until IS NOT NULL AND valid_until < ?))
+                UNION
+                SELECT path AS p FROM kcp_units
+                WHERE workspace_path = ?
+                  AND ((valid_from IS NOT NULL AND valid_from > ?)
+                    OR (valid_until IS NOT NULL AND valid_until < ?))
+                """;
+        Set<String> result = new HashSet<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, asOf);
+            ps.setString(3, asOf);
+            ps.setString(4, workspacePath);
+            ps.setString(5, asOf);
+            ps.setString(6, asOf);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String p = rs.getString("p");
+                    if (p != null) result.add(p);
                 }
             }
         }

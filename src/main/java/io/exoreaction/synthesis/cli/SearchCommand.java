@@ -198,6 +198,12 @@ public class SearchCommand implements Callable<Integer> {
                     results = index.search(query, fileType, repo, limit);
                 }
 
+                // Apply KCP temporal filtering
+                if (!includeAllTemporal) {
+                    String effectiveAsOf = asOf != null ? asOf : java.time.LocalDate.now().toString();
+                    results = filterByKcpTemporal(results, workspaceRoot.toString(), effectiveAsOf);
+                }
+
                 if (results.isEmpty()) {
                     System.out.println();
                     System.out.println("  No results found for: " + AnsiOutput.bold(query));
@@ -569,6 +575,29 @@ public class SearchCommand implements Callable<Integer> {
                 System.out.printf("       %s%n", AnsiOutput.dim(meta.toString()));
             }
             System.out.println();
+        }
+    }
+
+    private List<SearchResult> filterByKcpTemporal(List<SearchResult> results,
+                                                     String workspacePath,
+                                                     String asOf) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            try (java.sql.Connection conn = db.getConnection()) {
+                io.exoreaction.synthesis.kcp.KcpRepository repo =
+                        new io.exoreaction.synthesis.kcp.KcpRepository();
+                Set<String> inactive = repo.getInactiveFilePaths(conn, workspacePath, asOf);
+                if (inactive.isEmpty()) return results;
+                return results.stream()
+                        .filter(r -> inactive.stream().noneMatch(ip ->
+                                r.relativePath().equals(ip)
+                                        || r.relativePath().endsWith("/" + ip)
+                                        || ip.endsWith("/" + r.relativePath())))
+                        .toList();
+            }
+        } catch (Exception e) {
+            return results; // best-effort: don't break search if KCP DB unavailable
         }
     }
 

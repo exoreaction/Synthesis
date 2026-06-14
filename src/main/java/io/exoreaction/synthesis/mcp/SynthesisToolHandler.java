@@ -290,13 +290,13 @@ public class SynthesisToolHandler {
     }
 
     /**
-     * Enriches search response results with KCP temporal metadata.
+     * Enriches search response results with KCP temporal metadata and removes
+     * temporally inactive results from the response.
      *
-     * <p>For each result that matches a file path in a KCP manifest unit,
-     * adds a {@code kcpTemporal} object with validity window and provenance.
-     * When {@code asOf} is provided and temporal filtering is active,
-     * results for expired or not-yet-valid KCP units are annotated with
-     * {@code "active": false} (not removed — the consumer decides).
+     * <p>Two-pass: first removes results whose file path is in an inactive KCP
+     * manifest or unit (manifest-level and content-level filtering), then enriches
+     * remaining results with kcpTemporal metadata. Superseded units are removed
+     * in a second pass after enrichment.
      */
     private void enrichWithKcpTemporal(ObjectNode response, String workspacePath,
                                         String asOf, boolean includeAllTemporal) {
@@ -313,6 +313,30 @@ public class SynthesisToolHandler {
                     kcpRepo.getManifests(conn, workspacePath);
 
             if (manifests.isEmpty()) return;
+
+            // Pass 1: Remove temporally inactive results upfront (manifest + unit level)
+            if (!includeAllTemporal && asOf != null) {
+                Set<String> inactivePaths = kcpRepo.getInactiveFilePaths(conn, workspacePath, asOf);
+                if (!inactivePaths.isEmpty()) {
+                    JsonNode currentResults = response.get("results");
+                    if (currentResults != null && currentResults.isArray()) {
+                        com.fasterxml.jackson.databind.node.ArrayNode filtered = mapper.createArrayNode();
+                        int excluded = 0;
+                        for (JsonNode node : currentResults) {
+                            String rp = node.path("relativePath").asText("");
+                            boolean inactive = inactivePaths.stream()
+                                    .anyMatch(ip -> rp.equals(ip) || rp.endsWith("/" + ip)
+                                            || ip.endsWith("/" + rp));
+                            if (inactive) excluded++;
+                            else filtered.add(node);
+                        }
+                        if (excluded > 0) {
+                            response.set("results", filtered);
+                            response.put("kcpTemporallyExcluded", excluded);
+                        }
+                    }
+                }
+            }
 
             // Build a map: relativePath -> KcpUnitRow (for all manifests)
             java.util.Map<String, io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> unitByPath =
@@ -433,8 +457,19 @@ public class SynthesisToolHandler {
                 resultObj.set("kcpTemporal", kcpMeta);
             }
 
-            // Add summary to response
-            if (temporallyExcluded > 0) {
+            // Pass 2: Remove results annotated active:false (catches superseded units)
+            if (!includeAllTemporal && temporallyExcluded > 0) {
+                JsonNode afterPass1 = response.get("results");
+                if (afterPass1 != null && afterPass1.isArray()) {
+                    com.fasterxml.jackson.databind.node.ArrayNode filtered = mapper.createArrayNode();
+                    for (JsonNode node : afterPass1) {
+                        JsonNode meta = node.get("kcpTemporal");
+                        if (meta == null || meta.path("active").asBoolean(true)) {
+                            filtered.add(node);
+                        }
+                    }
+                    response.set("results", filtered);
+                }
                 response.put("kcpTemporallyInactive", temporallyExcluded);
             }
             if (asOf != null) {
