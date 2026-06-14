@@ -187,6 +187,62 @@ public class YamlAnalyzer implements FileAnalyzer {
         List<KcpUnit> units = new ArrayList<>();
         List<KcpRelationship> relationships = new ArrayList<>();
 
+        // --- Root-level temporal defaults (applied to units that don't override) ---
+        String rootValidFrom = null;
+        String rootValidUntil = null;
+        Object rootTemporalObj = data.get("temporal");
+        if (rootTemporalObj instanceof Map<?, ?> rootTemporal) {
+            rootValidFrom = getNestedString(rootTemporal, "valid_from");
+            rootValidUntil = getNestedString(rootTemporal, "valid_until");
+        }
+
+        // --- Root-level not_for (§3.10) ---
+        List<String> rootNotFor = extractStringList(data.get("not_for"));
+
+        // --- Root-level content_structure ---
+        String rootContentStructurePrimary = null;
+        String rootContentStructureDensity = null;
+        Object rootCsObj = data.get("content_structure");
+        if (rootCsObj instanceof Map<?, ?> rootCs) {
+            rootContentStructurePrimary = getNestedString(rootCs, "primary");
+            rootContentStructureDensity = getNestedString(rootCs, "density");
+        }
+
+        // --- Root-level discovery ---
+        String rootVerificationStatus = null;
+        double rootConfidence = -1.0;
+        String rootVerifiedBy = null;
+        String rootEvidence = null;
+        String rootVerifiedAt = null;
+        Object discoveryObj = data.get("discovery");
+        if (discoveryObj instanceof Map<?, ?> discovery) {
+            rootVerificationStatus = getNestedString(discovery, "verification_status");
+            Object confObj = discovery.get("confidence");
+            if (confObj instanceof Number n) {
+                rootConfidence = n.doubleValue();
+            }
+            rootVerifiedBy = getNestedString(discovery, "verified_by");
+            rootEvidence = getNestedString(discovery, "evidence");
+            rootVerifiedAt = getNestedString(discovery, "verified_at");
+        }
+
+        // --- Root-level trust.content_integrity (RFC-0018) ---
+        String signingAlgorithm = null;
+        String signingKeyId = null;
+        String signatureFile = null;
+        Object trustObj = data.get("trust");
+        if (trustObj instanceof Map<?, ?> trust) {
+            Object ciObj = trust.get("content_integrity");
+            if (ciObj instanceof Map<?, ?> ci) {
+                Object signingObj = ci.get("signing");
+                if (signingObj instanceof Map<?, ?> signing) {
+                    signingAlgorithm = getNestedString(signing, "algorithm");
+                    signingKeyId = getNestedString(signing, "key_id");
+                }
+                signatureFile = getNestedString(ci, "signature_file");
+            }
+        }
+
         Object unitsObj = data.get("units");
         if (unitsObj instanceof List<?> unitsList) {
             for (Object u : unitsList) {
@@ -250,9 +306,78 @@ public class YamlAnalyzer implements FileAnalyzer {
                     }
                 }
 
+                // --- Unit-level temporal (overrides root field-by-field) ---
+                String unitValidFrom = rootValidFrom;
+                String unitValidUntil = rootValidUntil;
+                String unitRecordedAt = null;
+                String unitSupersededBy = null;
+                Object unitTemporalObj = unit.get("temporal");
+                if (unitTemporalObj instanceof Map<?, ?> unitTemporal) {
+                    String vf = getNestedString(unitTemporal, "valid_from");
+                    if (vf != null) unitValidFrom = vf;
+                    String vu = getNestedString(unitTemporal, "valid_until");
+                    if (vu != null) unitValidUntil = vu;
+                    unitRecordedAt = getNestedString(unitTemporal, "recorded_at");
+                    unitSupersededBy = getNestedString(unitTemporal, "superseded_by");
+                }
+
+                // --- Unit-level content_hash (RFC-0019) ---
+                String contentHashAlgorithm = null;
+                String contentHashValue = null;
+                Object chObj = unit.get("content_hash");
+                if (chObj instanceof Map<?, ?> ch) {
+                    contentHashAlgorithm = getNestedString(ch, "algorithm");
+                    contentHashValue = getNestedString(ch, "value");
+                }
+
+                // --- Unit-level not_for (RFC-0015) ---
+                List<String> unitNotFor = extractStringList(unit.get("not_for"));
+                // Inherit root not_for if unit doesn't declare its own
+                if (unitNotFor == null || unitNotFor.isEmpty()) {
+                    unitNotFor = rootNotFor;
+                }
+                boolean unitNotForStrict = false;
+                Object nfsObj = unit.get("not_for_strict");
+                if (nfsObj instanceof Boolean b) {
+                    unitNotForStrict = b;
+                }
+
+                // --- Unit-level content_structure (RFC-0016, inherit from root) ---
+                String unitCsPrimary = rootContentStructurePrimary;
+                String unitCsDensity = rootContentStructureDensity;
+                Object unitCsObj = unit.get("content_structure");
+                if (unitCsObj instanceof Map<?, ?> unitCs) {
+                    String p = getNestedString(unitCs, "primary");
+                    if (p != null) unitCsPrimary = p;
+                    String d = getNestedString(unitCs, "density");
+                    if (d != null) unitCsDensity = d;
+                }
+
+                // --- Unit-level discovery (RFC-0012, inherit from root) ---
+                String unitVerificationStatus = rootVerificationStatus;
+                double unitConfidence = rootConfidence;
+                String unitVerifiedBy = rootVerifiedBy;
+                String unitEvidence = rootEvidence;
+                Object unitDiscObj = unit.get("discovery");
+                if (unitDiscObj instanceof Map<?, ?> unitDisc) {
+                    String vs = getNestedString(unitDisc, "verification_status");
+                    if (vs != null) unitVerificationStatus = vs;
+                    Object uc = unitDisc.get("confidence");
+                    if (uc instanceof Number n) unitConfidence = n.doubleValue();
+                    String vb = getNestedString(unitDisc, "verified_by");
+                    if (vb != null) unitVerifiedBy = vb;
+                    String ev = getNestedString(unitDisc, "evidence");
+                    if (ev != null) unitEvidence = ev;
+                }
+
                 units.add(new KcpUnit(unitId, unitPath, intentStr, scope,
                         List.copyOf(audienceList), List.copyOf(triggerList),
-                        hints != null ? Map.copyOf(hints) : Map.of()));
+                        hints != null ? Map.copyOf(hints) : Map.of(),
+                        unitValidFrom, unitValidUntil, unitRecordedAt, unitSupersededBy,
+                        contentHashAlgorithm, contentHashValue,
+                        unitNotFor, unitNotForStrict,
+                        unitCsPrimary, unitCsDensity,
+                        unitVerificationStatus, unitConfidence, unitVerifiedBy, unitEvidence));
             }
         }
 
@@ -293,9 +418,48 @@ public class YamlAnalyzer implements FileAnalyzer {
         // Full structured data for DB persistence (read by KcpRepository)
         metrics.put("kcpUnits", List.copyOf(units));
         metrics.put("kcpRelationships", List.copyOf(relationships));
+        // Root-level metadata for manifest table (read by KcpRepository)
+        // Only add non-null values — Map.copyOf() in AnalysisResult rejects nulls
+        putIfNonNull(metrics, "signingAlgorithm", signingAlgorithm);
+        putIfNonNull(metrics, "signingKeyId", signingKeyId);
+        putIfNonNull(metrics, "signatureFile", signatureFile);
+        putIfNonNull(metrics, "rootVerificationStatus", rootVerificationStatus);
+        if (rootConfidence >= 0) metrics.put("rootConfidence", rootConfidence);
+        putIfNonNull(metrics, "rootVerifiedBy", rootVerifiedBy);
+        putIfNonNull(metrics, "rootVerifiedAt", rootVerifiedAt);
+        putIfNonNull(metrics, "rootValidFrom", rootValidFrom);
+        putIfNonNull(metrics, "rootValidUntil", rootValidUntil);
+        putIfNonNull(metrics, "rootNotFor", rootNotFor);
+        putIfNonNull(metrics, "rootContentStructurePrimary", rootContentStructurePrimary);
+        putIfNonNull(metrics, "rootContentStructureDensity", rootContentStructureDensity);
 
         return new KcpExtraction(summary, kcpVersion, unitIds, dedupedKeywords, metrics,
                 List.copyOf(units), List.copyOf(relationships));
+    }
+
+    /** Extract a list of strings from a YAML list value. Returns null if not a list. */
+    private List<String> extractStringList(Object value) {
+        if (!(value instanceof List<?> list)) return null;
+        List<String> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item != null) {
+                result.add(item.toString());
+            }
+        }
+        return result.isEmpty() ? null : List.copyOf(result);
+    }
+
+    /** Safe string extraction from a Map with non-String keys. */
+    private String getNestedString(Map<?, ?> map, String key) {
+        Object v = map.get(key);
+        return v != null ? v.toString() : null;
+    }
+
+    /** Only insert into metrics map if value is non-null (Map.copyOf rejects nulls). */
+    private static void putIfNonNull(Map<String, Object> map, String key, Object value) {
+        if (value != null) {
+            map.put(key, value);
+        }
     }
 
     private String extractClaudeSkillInfo(Map<String, Object> data) {

@@ -244,6 +244,9 @@ public class HealthCommand implements Callable<Integer> {
         // G001: Knowledge silos (bus factor = 1 with meaningful commit history)
         checkBusFactor(workspaceRoot, issues);
 
+        // K001-K004: KCP integrity checks (content hash, temporal, superseded_by, verification)
+        checkKcpIntegrity(workspaceRoot, issues);
+
         printIssues(issues);
 
         int score = calculateScore(issues);
@@ -251,6 +254,141 @@ public class HealthCommand implements Callable<Integer> {
         System.out.printf("Score: %d/100 (%s)%n%n", score, grade);
 
         return issues.stream().anyMatch(i -> i.severity() == HealthIssue.Severity.ERROR) ? 1 : 0;
+    }
+
+    /**
+     * K001-K004: KCP manifest integrity health checks.
+     *
+     * <ul>
+     *   <li>K001 (ERROR): Content hash mismatch — computed sha256 differs from declared content_hash</li>
+     *   <li>K002 (WARNING): Expired units with no superseded_by — valid_until in the past, no successor</li>
+     *   <li>K003 (ERROR): Dangling superseded_by — points to a unit that doesn't exist</li>
+     *   <li>K004 (INFO): Units with verification_status: rumored — low confidence content</li>
+     * </ul>
+     */
+    private void checkKcpIntegrity(Path workspaceRoot, List<HealthIssue> issues) {
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefaultIfExists();
+            if (db == null) return;
+            Connection conn = db.getConnection();
+            String wsPath = workspaceRoot.toString();
+
+            io.exoreaction.synthesis.kcp.KcpRepository kcpRepo =
+                    new io.exoreaction.synthesis.kcp.KcpRepository();
+
+            var manifests = kcpRepo.getManifests(conn, wsPath);
+            if (manifests.isEmpty()) return;
+
+            String today = java.time.LocalDate.now().toString();
+            int hashMismatches = 0;
+            int expiredNoSuccessor = 0;
+            int danglingSupersededBy = 0;
+            int rumoredUnits = 0;
+            List<String> hashMismatchDetails = new ArrayList<>();
+            List<String> danglingDetails = new ArrayList<>();
+
+            for (var manifest : manifests) {
+                var units = kcpRepo.getUnitsForManifest(conn, wsPath, manifest.filePath());
+
+                // Build unit ID set for this manifest (for superseded_by validation)
+                Set<String> unitIds = new java.util.HashSet<>();
+                for (var unit : units) {
+                    unitIds.add(unit.unitId());
+                }
+
+                for (var unit : units) {
+                    // K001: Content hash mismatch
+                    if (unit.contentHashAlgorithm() != null
+                            && "sha256".equals(unit.contentHashAlgorithm())
+                            && unit.contentHashValue() != null
+                            && unit.path() != null) {
+                        Path manifestDir = Path.of(manifest.filePath()).getParent();
+                        Path unitFile = manifestDir != null
+                                ? manifestDir.resolve(unit.path())
+                                : Path.of(unit.path());
+                        if (Files.exists(unitFile)) {
+                            try {
+                                java.security.MessageDigest digest =
+                                        java.security.MessageDigest.getInstance("SHA-256");
+                                byte[] hash = digest.digest(Files.readAllBytes(unitFile));
+                                String computed = bytesToHex(hash);
+                                if (!computed.equals(unit.contentHashValue())) {
+                                    hashMismatches++;
+                                    hashMismatchDetails.add(unit.unitId() + " in "
+                                            + manifest.project() + " (expected: "
+                                            + unit.contentHashValue().substring(0, 12) + "..., got: "
+                                            + computed.substring(0, 12) + "...)");
+                                }
+                            } catch (Exception e) {
+                                // skip hash check on error
+                            }
+                        }
+                    }
+
+                    // K002: Expired with no successor
+                    if (unit.validUntil() != null
+                            && unit.validUntil().compareTo(today) < 0
+                            && unit.supersededBy() == null) {
+                        expiredNoSuccessor++;
+                    }
+
+                    // K003: Dangling superseded_by
+                    if (unit.supersededBy() != null && !unitIds.contains(unit.supersededBy())) {
+                        danglingSupersededBy++;
+                        danglingDetails.add(unit.unitId() + " -> " + unit.supersededBy()
+                                + " (manifest: " + manifest.project() + ")");
+                    }
+
+                    // K004: Rumored verification status
+                    if ("rumored".equals(unit.verificationStatus())) {
+                        rumoredUnits++;
+                    }
+                }
+            }
+
+            if (hashMismatches > 0) {
+                issues.add(new HealthIssue(
+                        HealthIssue.Severity.ERROR, "K001",
+                        hashMismatches + " KCP unit(s) with content hash mismatch — "
+                                + "file content differs from declared sha256",
+                        "Re-sign manifests after content changes",
+                        hashMismatchDetails));
+            }
+
+            if (expiredNoSuccessor > 0) {
+                issues.add(new HealthIssue(
+                        HealthIssue.Severity.WARNING, "K002",
+                        expiredNoSuccessor + " KCP unit(s) expired (valid_until in the past) "
+                                + "with no superseded_by successor",
+                        "Add superseded_by or remove expired units"));
+            }
+
+            if (danglingSupersededBy > 0) {
+                issues.add(new HealthIssue(
+                        HealthIssue.Severity.ERROR, "K003",
+                        danglingSupersededBy + " KCP unit(s) with dangling superseded_by — "
+                                + "successor unit does not exist in the manifest",
+                        "Fix superseded_by to reference an existing unit ID",
+                        danglingDetails));
+            }
+
+            if (rumoredUnits > 0) {
+                issues.add(new HealthIssue(
+                        HealthIssue.Severity.INFO, "K004",
+                        rumoredUnits + " KCP unit(s) with verification_status: rumored — "
+                                + "low confidence content, consider verifying"));
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "KCP integrity checks skipped: " + e.getMessage(), e);
+        }
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     private void checkBusFactor(Path workspaceRoot, List<HealthIssue> issues) {
