@@ -939,6 +939,20 @@ public class SynthesisMCPServer {
                 "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
 
+        ObjectNode asOf = mapper.createObjectNode();
+        asOf.put("type", "string");
+        asOf.put("description", "ISO 8601 date (YYYY-MM-DD) for temporal filtering of KCP knowledge units. " +
+                "Only units valid at this date are included. Default: today. " +
+                "Use this for point-in-time queries like 'what rules applied on 2022-03-15?'");
+        properties.set("as_of", asOf);
+
+        ObjectNode includeAllTemporal = mapper.createObjectNode();
+        includeAllTemporal.put("type", "boolean");
+        includeAllTemporal.put("default", false);
+        includeAllTemporal.put("description", "When true, bypass temporal filtering and return all KCP units " +
+                "regardless of validity window. Mutually exclusive with as_of.");
+        properties.set("include_all_temporal", includeAllTemporal);
+
         schema.set("properties", properties);
 
         ArrayNode required = mapper.createArrayNode();

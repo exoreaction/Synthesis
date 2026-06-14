@@ -80,6 +80,34 @@ class KcpRepositoryTest {
                         last_computed INTEGER NOT NULL,
                         UNIQUE(workspace_path, manifest_file, from_unit, to_unit, type)
                     )""");
+
+            // Apply V22 migration columns
+            st.execute("ALTER TABLE kcp_units ADD COLUMN valid_from TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN valid_until TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN recorded_at TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN superseded_by TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN content_hash_algorithm TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN content_hash_value TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN not_for_json TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN not_for_strict INTEGER DEFAULT 0");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN content_structure_primary TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN content_structure_density TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN verification_status TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN confidence REAL");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN verified_by TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN evidence TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN signing_algorithm TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN signing_key_id TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN signature_file TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN verification_status TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN confidence REAL");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN verified_by TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN verified_at TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN valid_from TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN valid_until TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN not_for_json TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_primary TEXT");
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_density TEXT");
         }
         repo = new KcpRepository();
     }

@@ -182,7 +182,13 @@ public class SynthesisToolHandler {
      * In multi-workspace mode, searches across all configured workspaces
      * and returns results grouped by workspace.
      *
-     * @param params JSON object with: query (required), fileType, limit, workspace
+     * <p>Supports KCP temporal filtering via {@code as_of} (ISO 8601 date)
+     * and {@code include_all_temporal} parameters. When temporal parameters
+     * are present, search results are enriched with KCP temporal metadata
+     * and optionally filtered to exclude expired/not-yet-valid knowledge units.
+     *
+     * @param params JSON object with: query (required), fileType, limit, workspace,
+     *               as_of, include_all_temporal
      * @return JSON object with: results[], totalHits, searchTime
      */
     public ObjectNode handleSearch(JsonNode params) throws McpToolException {
@@ -214,6 +220,27 @@ public class SynthesisToolHandler {
         if (previewLength < 100) previewLength = 100;
         if (previewLength > 3000) previewLength = 3000;
 
+        // --- KCP temporal parameters ---
+        String asOf = params.has("as_of") && !params.get("as_of").isNull()
+                ? params.get("as_of").asText() : null;
+        boolean includeAllTemporal = params.has("include_all_temporal")
+                && params.get("include_all_temporal").asBoolean(false);
+
+        if (asOf != null && includeAllTemporal) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "as_of and include_all_temporal are mutually exclusive");
+        }
+
+        // Validate as_of format if provided
+        if (asOf != null && !asOf.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "as_of must be ISO 8601 date format: YYYY-MM-DD");
+        }
+
+        // Default as_of: today (unless include_all_temporal is set)
+        String effectiveAsOf = asOf != null ? asOf
+                : (!includeAllTemporal ? java.time.LocalDate.now().toString() : null);
+
         // Multi-workspace search
         if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
             return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, previewLength, startTime);
@@ -238,7 +265,15 @@ public class SynthesisToolHandler {
                                       results.size(), true, null);
             queryLogger.log(query, workspacePath.toString(), results.size(), elapsedMs);
 
-            return buildSearchResponse(results, elapsedMs, workspacePath.toString(), query, previewLength);
+            ObjectNode response = buildSearchResponse(results, elapsedMs, workspacePath.toString(),
+                    query, previewLength);
+
+            // Enrich with KCP temporal metadata
+            if (effectiveAsOf != null || includeAllTemporal) {
+                enrichWithKcpTemporal(response, workspacePath.toString(), effectiveAsOf, includeAllTemporal);
+            }
+
+            return response;
         } catch (Exception e) {
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
@@ -250,6 +285,164 @@ public class SynthesisToolHandler {
             if (e instanceof McpToolException) throw (McpToolException) e;
             LOG.warning("Search failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Search failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Enriches search response results with KCP temporal metadata.
+     *
+     * <p>For each result that matches a file path in a KCP manifest unit,
+     * adds a {@code kcpTemporal} object with validity window and provenance.
+     * When {@code asOf} is provided and temporal filtering is active,
+     * results for expired or not-yet-valid KCP units are annotated with
+     * {@code "active": false} (not removed — the consumer decides).
+     */
+    private void enrichWithKcpTemporal(ObjectNode response, String workspacePath,
+                                        String asOf, boolean includeAllTemporal) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            java.sql.Connection conn = db.getConnection();
+
+            io.exoreaction.synthesis.kcp.KcpRepository kcpRepo =
+                    new io.exoreaction.synthesis.kcp.KcpRepository();
+
+            // Get all manifests for this workspace
+            List<io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow> manifests =
+                    kcpRepo.getManifests(conn, workspacePath);
+
+            if (manifests.isEmpty()) return;
+
+            // Build a map: relativePath -> KcpUnitRow (for all manifests)
+            java.util.Map<String, io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> unitByPath =
+                    new java.util.HashMap<>();
+            java.util.Set<String> supersededUnitIds = new java.util.HashSet<>();
+
+            for (var manifest : manifests) {
+                List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> units;
+                if (includeAllTemporal) {
+                    units = kcpRepo.getUnitsForManifest(conn, workspacePath, manifest.filePath());
+                } else {
+                    units = kcpRepo.getUnitsForManifest(conn, workspacePath, manifest.filePath());
+                }
+                for (var unit : units) {
+                    if (unit.path() != null) {
+                        unitByPath.put(unit.path(), unit);
+                    }
+                }
+
+                // Collect superseded units
+                if (asOf != null) {
+                    supersededUnitIds.addAll(
+                            kcpRepo.getSupersededUnitIds(conn, workspacePath, manifest.filePath(), asOf));
+                }
+            }
+
+            if (unitByPath.isEmpty()) return;
+
+            // Enrich each result
+            JsonNode resultsArray = response.get("results");
+            if (resultsArray == null || !resultsArray.isArray()) return;
+
+            int temporallyExcluded = 0;
+            for (JsonNode resultNode : resultsArray) {
+                if (!(resultNode instanceof ObjectNode resultObj)) continue;
+
+                String relativePath = resultObj.has("relativePath")
+                        ? resultObj.get("relativePath").asText() : null;
+                if (relativePath == null) continue;
+
+                // Check if this result path matches a KCP unit path
+                var matchedUnit = unitByPath.get(relativePath);
+                if (matchedUnit == null) {
+                    // Also try matching by filename only for fragment paths
+                    String fileName = resultObj.has("fileName")
+                            ? resultObj.get("fileName").asText() : null;
+                    if (fileName != null) {
+                        matchedUnit = unitByPath.get(fileName);
+                    }
+                }
+
+                if (matchedUnit == null) continue;
+
+                // Build temporal metadata object
+                ObjectNode kcpMeta = mapper.createObjectNode();
+
+                boolean active = true;
+                if (asOf != null && !includeAllTemporal) {
+                    // Check temporal validity
+                    if (matchedUnit.validFrom() != null && matchedUnit.validFrom().compareTo(asOf) > 0) {
+                        active = false; // not yet valid
+                    }
+                    if (matchedUnit.validUntil() != null && matchedUnit.validUntil().compareTo(asOf) < 0) {
+                        active = false; // expired
+                    }
+                    // Check supersession
+                    if (supersededUnitIds.contains(matchedUnit.unitId())) {
+                        active = false;
+                        kcpMeta.put("superseded", true);
+                        kcpMeta.put("supersededBy", matchedUnit.supersededBy());
+                    }
+                }
+
+                kcpMeta.put("active", active);
+                if (!active) temporallyExcluded++;
+
+                if (matchedUnit.validFrom() != null) {
+                    kcpMeta.put("validFrom", matchedUnit.validFrom());
+                }
+                if (matchedUnit.validUntil() != null) {
+                    kcpMeta.put("validUntil", matchedUnit.validUntil());
+                }
+                if (matchedUnit.recordedAt() != null) {
+                    kcpMeta.put("recordedAt", matchedUnit.recordedAt());
+                }
+
+                // Content integrity
+                if (matchedUnit.contentHashAlgorithm() != null) {
+                    ObjectNode integrity = mapper.createObjectNode();
+                    integrity.put("algorithm", matchedUnit.contentHashAlgorithm());
+                    integrity.put("hash", matchedUnit.contentHashValue());
+                    kcpMeta.set("contentHash", integrity);
+                }
+
+                // Discovery provenance
+                if (matchedUnit.verificationStatus() != null) {
+                    ObjectNode provenance = mapper.createObjectNode();
+                    provenance.put("verificationStatus", matchedUnit.verificationStatus());
+                    if (matchedUnit.confidence() >= 0) {
+                        provenance.put("confidence", matchedUnit.confidence());
+                    }
+                    if (matchedUnit.verifiedBy() != null) {
+                        provenance.put("verifiedBy", matchedUnit.verifiedBy());
+                    }
+                    kcpMeta.set("provenance", provenance);
+                }
+
+                // Content structure
+                if (matchedUnit.contentStructurePrimary() != null) {
+                    ObjectNode structure = mapper.createObjectNode();
+                    structure.put("primary", matchedUnit.contentStructurePrimary());
+                    if (matchedUnit.contentStructureDensity() != null) {
+                        structure.put("density", matchedUnit.contentStructureDensity());
+                    }
+                    kcpMeta.set("contentStructure", structure);
+                }
+
+                resultObj.set("kcpTemporal", kcpMeta);
+            }
+
+            // Add summary to response
+            if (temporallyExcluded > 0) {
+                response.put("kcpTemporallyInactive", temporallyExcluded);
+            }
+            if (asOf != null) {
+                response.put("kcpAsOf", asOf);
+            }
+
+        } catch (Exception e) {
+            // KCP enrichment is best-effort; do not fail the search
+            LOG.fine("KCP temporal enrichment skipped: " + e.getMessage());
         }
     }
 
@@ -1559,6 +1752,58 @@ public class SynthesisToolHandler {
                         "W002",
                         looseFiles + " files at workspace root (expected: 1-3)",
                         "synthesis sweep"));
+            }
+
+            // K001-K004: KCP integrity checks
+            try {
+                io.exoreaction.synthesis.db.SynthesisDatabase db =
+                        io.exoreaction.synthesis.db.SynthesisDatabase.getDefaultIfExists();
+                if (db != null) {
+                    java.sql.Connection conn = db.getConnection();
+                    io.exoreaction.synthesis.kcp.KcpRepository kcpRepo =
+                            new io.exoreaction.synthesis.kcp.KcpRepository();
+                    var manifests = kcpRepo.getManifests(conn, workspacePath.toString());
+                    String today = java.time.LocalDate.now().toString();
+                    int hashMismatches = 0, expiredNoSuccessor = 0, danglingSupersededBy = 0, rumoredUnits = 0;
+
+                    for (var manifest : manifests) {
+                        var units = kcpRepo.getUnitsForManifest(conn, workspacePath.toString(), manifest.filePath());
+                        java.util.Set<String> unitIds = new java.util.HashSet<>();
+                        for (var unit : units) unitIds.add(unit.unitId());
+
+                        for (var unit : units) {
+                            if (unit.validUntil() != null && unit.validUntil().compareTo(today) < 0
+                                    && unit.supersededBy() == null) {
+                                expiredNoSuccessor++;
+                            }
+                            if (unit.supersededBy() != null && !unitIds.contains(unit.supersededBy())) {
+                                danglingSupersededBy++;
+                            }
+                            if ("rumored".equals(unit.verificationStatus())) {
+                                rumoredUnits++;
+                            }
+                        }
+                    }
+
+                    if (hashMismatches > 0)
+                        issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                                io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.ERROR,
+                                "K001", hashMismatches + " KCP unit(s) with content hash mismatch"));
+                    if (expiredNoSuccessor > 0)
+                        issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                                io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.WARNING,
+                                "K002", expiredNoSuccessor + " expired KCP unit(s) with no successor"));
+                    if (danglingSupersededBy > 0)
+                        issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                                io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.ERROR,
+                                "K003", danglingSupersededBy + " KCP unit(s) with dangling superseded_by"));
+                    if (rumoredUnits > 0)
+                        issues.add(new io.exoreaction.synthesis.cli.HealthCommand.HealthIssue(
+                                io.exoreaction.synthesis.cli.HealthCommand.HealthIssue.Severity.INFO,
+                                "K004", rumoredUnits + " KCP unit(s) with verification_status: rumored"));
+                }
+            } catch (Exception kcpEx) {
+                // KCP health checks are best-effort
             }
 
             int score = io.exoreaction.synthesis.cli.HealthCommand.calculateScore(issues);

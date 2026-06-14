@@ -123,6 +123,21 @@ public class SearchCommand implements Callable<Integer> {
     private float similarityThreshold;
 
     @Option(
+            names = {"--as-of"},
+            description = "ISO 8601 date (YYYY-MM-DD) for KCP temporal filtering. " +
+                    "Only knowledge units valid at this date are included. Default: today."
+    )
+    private String asOf;
+
+    @Option(
+            names = {"--include-all-temporal"},
+            description = "Bypass KCP temporal filtering and include all knowledge units " +
+                    "regardless of validity window. Mutually exclusive with --as-of.",
+            defaultValue = "false"
+    )
+    private boolean includeAllTemporal;
+
+    @Option(
             names = {"-v", "--verbose"},
             description = "Show detailed result information",
             defaultValue = "false"
