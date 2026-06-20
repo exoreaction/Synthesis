@@ -1,3 +1,17 @@
+kcp_version: "0.21"
+updated: "2026-06-20"
+language: en
+license: "Apache-2.0"
+indexing: private
+temporal:
+  valid_from: "2026-06-14"
+signing:
+  scheme: ed25519
+  scope: this-manifest
+  public_key: "MCowBQYDK2VwAyEAudBZ8a/Fjz0cwpWTV0fVrdQPYEUWxv2FruVfRw7acYQ="
+  signature: "https://raw.githubusercontent.com/exoreaction/Synthesis/main/knowledge.yaml.sig"
+not_for: []
+
 id: synthesis
 name: "Synthesis"
 version: "1.25.1-SNAPSHOT"
@@ -8,51 +22,78 @@ units:
     type: cli
     description: "Picocli-based command-line interface providing all synthesis commands: scan, search, explain, relate, graph, track, changelog, reflect, dispatch, sessions, and more."
     path: src/main/java/io/exoreaction/synthesis/cli
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: index-and-search
     name: "Index and Search"
     type: backend
     description: "Lucene-based file indexing (200-300 files/sec) with full-text search, semantic vector search, heading/keyword extraction, code structure analysis, and PDF/video content extraction."
     path: src/main/java/io/exoreaction/synthesis/index
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: graph-and-relations
     name: "Graph and Relations"
     type: backend
     description: "Bi-directional relationship mapping (imports, references, dependencies), cross-repo dependency graphs, architecture visualisation, circular dependency detection, and blast-radius analysis."
     path: src/main/java/io/exoreaction/synthesis/graph
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: mcp-server
     name: "MCP Server"
     type: tool
     description: "Model Context Protocol server exposing synthesis capabilities as MCP tools for Claude Code, Cursor, and Aider integrations (ask, search, relate, explain, graph, dispatch, reflect, etc.)."
     path: src/main/java/io/exoreaction/synthesis/mcp
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: lsp-server
     name: "LSP Server"
     type: tool
     description: "Language Server Protocol server for IDE integration providing symbols, hover documentation, diagnostics, and real-time architecture alerts via synthesis watch daemon."
     path: src/main/java/io/exoreaction/synthesis/lsp
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: ai-layer
     name: "AI Layer"
     type: backend
     description: "Anthropic API integration for natural language Q&A, AI-powered explanation, semantic embeddings, AI-enriched companion file generation, and multi-perspective codebase analysis."
     path: src/main/java/io/exoreaction/synthesis/ai
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: skills-and-agents
     name: "Skills and Agents"
     type: backend
     description: "SkillMatcher for routing tasks to Claude Code skills, DispatchCommand for agent task planning, TeamContextBuilder for multi-agent awareness, and ReflectCommand for self-maintaining skill libraries from session history."
     path: src/main/java/io/exoreaction/synthesis/skills
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: tracking-and-changelog
     name: "Tracking and Changelog"
     type: backend
     description: "Hash-based file movement tracking with 7-day safety period and audit trail, cross-workspace daily change snapshots, and executive changelog summaries."
     path: src/main/java/io/exoreaction/synthesis/tracking
+    content_hash:
+      algorithm: sha256
+      value: ""
 
   - id: db
     name: "Database Layer"
     type: backend
     description: "SQLite persistence via sqlite-jdbc with Flyway migrations (V1-V3) for workspace metadata, file index, relationship graph, tracking records, and session history."
     path: src/main/java/io/exoreaction/synthesis/db
+    content_hash:
+      algorithm: sha256
+      value: ""
