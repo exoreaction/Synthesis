@@ -9,91 +9,115 @@ signing:
   scheme: ed25519
   scope: this-manifest
   public_key: "MCowBQYDK2VwAyEAudBZ8a/Fjz0cwpWTV0fVrdQPYEUWxv2FruVfRw7acYQ="
-  signature: "https://raw.githubusercontent.com/exoreaction/Synthesis/main/knowledge.yaml.sig"
+  signature: "https://raw.githubusercontent.com/exoreaction/Synthesis/main/knowle\
+    dge.yaml.sig"
 not_for: []
 
 id: synthesis
 name: "Synthesis"
 version: "1.25.1-SNAPSHOT"
-description: "AI operations partner for knowledge infrastructure that indexes codebases at 200-300 files/second, provides sub-second search, bi-directional dependency graphs, MCP/LSP integration, and AI-powered codebase Q&A — solving the AI-tools context gap where creation is 10x faster but comprehension stays at 1x."
+description: "AI operations partner for knowledge infrastructure that indexes
+  codebases at 200-300 files/second, provides sub-second search, bi-directional
+  dependency graphs, MCP/LSP integration, and AI-powered codebase Q&A — solving
+  the AI-tools context gap where creation is 10x faster but comprehension stays
+  at 1x."
 units:
   - id: cli
     name: "CLI"
     type: cli
-    description: "Picocli-based command-line interface providing all synthesis commands: scan, search, explain, relate, graph, track, changelog, reflect, dispatch, sessions, and more."
+    description: "Picocli-based command-line interface providing all synthesis
+      commands: scan, search, explain, relate, graph, track, changelog, reflect,
+      dispatch, sessions, and more."
     path: src/main/java/io/exoreaction/synthesis/cli
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "6309ca1c77f33c8343234893f575e4eb84ef36d9615b6be38e6298fd875be761"
 
   - id: index-and-search
     name: "Index and Search"
     type: backend
-    description: "Lucene-based file indexing (200-300 files/sec) with full-text search, semantic vector search, heading/keyword extraction, code structure analysis, and PDF/video content extraction."
+    description: "Lucene-based file indexing (200-300 files/sec) with full-text
+      search, semantic vector search, heading/keyword extraction, code structure
+      analysis, and PDF/video content extraction."
     path: src/main/java/io/exoreaction/synthesis/index
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "c95375dc5ead6ea013e8b2bffff63afcecd4d20fe45802023f483bc50f0d2a0c"
 
   - id: graph-and-relations
     name: "Graph and Relations"
     type: backend
-    description: "Bi-directional relationship mapping (imports, references, dependencies), cross-repo dependency graphs, architecture visualisation, circular dependency detection, and blast-radius analysis."
+    description: "Bi-directional relationship mapping (imports, references,
+      dependencies), cross-repo dependency graphs, architecture visualisation,
+      circular dependency detection, and blast-radius analysis."
     path: src/main/java/io/exoreaction/synthesis/graph
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "ac94244b49655c5377b6ffa79fb211b4e13dc5ba814cb20f52d7dbd770f50176"
 
   - id: mcp-server
     name: "MCP Server"
     type: tool
-    description: "Model Context Protocol server exposing synthesis capabilities as MCP tools for Claude Code, Cursor, and Aider integrations (ask, search, relate, explain, graph, dispatch, reflect, etc.)."
+    description: "Model Context Protocol server exposing synthesis capabilities as
+      MCP tools for Claude Code, Cursor, and Aider integrations (ask, search,
+      relate, explain, graph, dispatch, reflect, etc.)."
     path: src/main/java/io/exoreaction/synthesis/mcp
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "c28564ea7e872350c15a1d96c8a151953f7ffe5d737e36e5c1f35a7cea13c6f8"
 
   - id: lsp-server
     name: "LSP Server"
     type: tool
-    description: "Language Server Protocol server for IDE integration providing symbols, hover documentation, diagnostics, and real-time architecture alerts via synthesis watch daemon."
+    description: "Language Server Protocol server for IDE integration providing
+      symbols, hover documentation, diagnostics, and real-time architecture
+      alerts via synthesis watch daemon."
     path: src/main/java/io/exoreaction/synthesis/lsp
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "64c5230c95656b07d8835270dd0c9eeb7f301ae78185af22f7aa5d2e42bc0920"
 
   - id: ai-layer
     name: "AI Layer"
     type: backend
-    description: "Anthropic API integration for natural language Q&A, AI-powered explanation, semantic embeddings, AI-enriched companion file generation, and multi-perspective codebase analysis."
+    description: "Anthropic API integration for natural language Q&A, AI-powered
+      explanation, semantic embeddings, AI-enriched companion file generation,
+      and multi-perspective codebase analysis."
     path: src/main/java/io/exoreaction/synthesis/ai
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "75d3d13b7da85ecebec75a7a7ac945bc85f5b9515cb739b3373431a99634b65b"
 
   - id: skills-and-agents
     name: "Skills and Agents"
     type: backend
-    description: "SkillMatcher for routing tasks to Claude Code skills, DispatchCommand for agent task planning, TeamContextBuilder for multi-agent awareness, and ReflectCommand for self-maintaining skill libraries from session history."
+    description: "SkillMatcher for routing tasks to Claude Code skills,
+      DispatchCommand for agent task planning, TeamContextBuilder for
+      multi-agent awareness, and ReflectCommand for self-maintaining skill
+      libraries from session history."
     path: src/main/java/io/exoreaction/synthesis/skills
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "6bcaa9ea2dbd7bcbad0b5aeb8b5fad86c3a8f5ba064754274655f7b7503b5bb1"
 
   - id: tracking-and-changelog
     name: "Tracking and Changelog"
     type: backend
-    description: "Hash-based file movement tracking with 7-day safety period and audit trail, cross-workspace daily change snapshots, and executive changelog summaries."
+    description: "Hash-based file movement tracking with 7-day safety period and
+      audit trail, cross-workspace daily change snapshots, and executive
+      changelog summaries."
     path: src/main/java/io/exoreaction/synthesis/tracking
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "3db3ef8d2ae210afcd8e3785185000920db1e4f5aff69f3f39ed093c127c7213"
 
   - id: db
     name: "Database Layer"
     type: backend
-    description: "SQLite persistence via sqlite-jdbc with Flyway migrations (V1-V3) for workspace metadata, file index, relationship graph, tracking records, and session history."
+    description: "SQLite persistence via sqlite-jdbc with Flyway migrations (V1-V3)
+      for workspace metadata, file index, relationship graph, tracking records,
+      and session history."
     path: src/main/java/io/exoreaction/synthesis/db
     content_hash:
       algorithm: sha256
-      value: ""
+      value: "d104d23b3e2370437545a90e66f993507ef77010a6e5c9fffd8d9d6632854d1a"
