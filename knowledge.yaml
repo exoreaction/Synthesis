@@ -1,5 +1,5 @@
-kcp_version: "0.21"
-updated: "2026-06-20"
+kcp_version: "0.25"
+updated: "2026-07-05"
 language: en
 license: "Apache-2.0"
 indexing: private
@@ -13,6 +13,7 @@ signing:
     dge.yaml.sig"
 not_for: []
 
+project: "Synthesis"
 id: synthesis
 name: "Synthesis"
 version: "1.25.1-SNAPSHOT"
@@ -28,6 +29,8 @@ units:
     description: "Picocli-based command-line interface providing all synthesis
       commands: scan, search, explain, relate, graph, track, changelog, reflect,
       dispatch, sessions, and more."
+    intent: "How do I invoke Synthesis operations (scan, search, explain, graph, maintain) from the command line?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/cli
     content_hash:
       algorithm: sha256
@@ -39,6 +42,8 @@ units:
     description: "Lucene-based file indexing (200-300 files/sec) with full-text
       search, semantic vector search, heading/keyword extraction, code structure
       analysis, and PDF/video content extraction."
+    intent: "How are files indexed and searched (full-text, semantic vector, code structure, PDF/video extraction)?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/index
     content_hash:
       algorithm: sha256
@@ -50,6 +55,8 @@ units:
     description: "Bi-directional relationship mapping (imports, references,
       dependencies), cross-repo dependency graphs, architecture visualisation,
       circular dependency detection, and blast-radius analysis."
+    intent: "How are relationship graphs, cross-repo dependencies, and blast-radius analyses computed and visualised?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/graph
     content_hash:
       algorithm: sha256
@@ -61,6 +68,8 @@ units:
     description: "Model Context Protocol server exposing synthesis capabilities as
       MCP tools for Claude Code, Cursor, and Aider integrations (ask, search,
       relate, explain, graph, dispatch, reflect, etc.)."
+    intent: "How does an MCP client (Claude Code, Cursor, Aider) access Synthesis capabilities as tools?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/mcp
     content_hash:
       algorithm: sha256
@@ -72,6 +81,8 @@ units:
     description: "Language Server Protocol server for IDE integration providing
       symbols, hover documentation, diagnostics, and real-time architecture
       alerts via synthesis watch daemon."
+    intent: "How does IDE integration provide symbols, hover documentation, diagnostics, and real-time architecture alerts?"
+    audience: [developer]
     path: src/main/java/io/exoreaction/synthesis/lsp
     content_hash:
       algorithm: sha256
@@ -83,6 +94,8 @@ units:
     description: "Anthropic API integration for natural language Q&A, AI-powered
       explanation, semantic embeddings, AI-enriched companion file generation,
       and multi-perspective codebase analysis."
+    intent: "How does Synthesis use the Anthropic API for Q&A, explanation, embeddings, and companion-file enrichment?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/ai
     content_hash:
       algorithm: sha256
@@ -95,6 +108,8 @@ units:
       DispatchCommand for agent task planning, TeamContextBuilder for
       multi-agent awareness, and ReflectCommand for self-maintaining skill
       libraries from session history."
+    intent: "How are tasks routed to Claude Code skills and agent workflows (dispatch, reflect, team context)?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/skills
     content_hash:
       algorithm: sha256
@@ -106,6 +121,8 @@ units:
     description: "Hash-based file movement tracking with 7-day safety period and
       audit trail, cross-workspace daily change snapshots, and executive
       changelog summaries."
+    intent: "How are file movements tracked over time and daily change summaries produced?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/tracking
     content_hash:
       algorithm: sha256
@@ -117,6 +134,8 @@ units:
     description: "SQLite persistence via sqlite-jdbc with Flyway migrations (V1-V3)
       for workspace metadata, file index, relationship graph, tracking records,
       and session history."
+    intent: "How is Synthesis state persisted (SQLite schema, Flyway migrations, repository classes)?"
+    audience: [agent, developer]
     path: src/main/java/io/exoreaction/synthesis/db
     content_hash:
       algorithm: sha256
