@@ -2790,14 +2790,22 @@ public class SynthesisToolHandler {
         Process p = pb.start();
         String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         int exitCode = p.waitFor();
-        // Some subcommands (e.g. architecture) use a nonzero exit code to signal
-        // severity (warnings/errors found), not failure -- they still print a full
-        // report to stdout. Only treat this as a real failure when there's no
-        // output to show for it.
-        if (exitCode != 0 && output.isBlank()) {
+        if (exitCode != 0) {
+            // Some subcommands (e.g. architecture, validate) use a nonzero exit code
+            // to signal severity (warnings/errors/issues found), not failure -- they
+            // still print a full report to stdout, and genuine failures write to
+            // stderr. Only treat nonzero exit as a real failure when there's no
+            // output to show for it; otherwise surface any stderr alongside the
+            // report instead of silently dropping it (e.g. a command that failed
+            // partway through printing).
             String err = new String(p.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
-                    "synthesis " + args.get(0) + " failed: " + err.trim());
+            if (output.isBlank()) {
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                        "synthesis " + args.get(0) + " failed: " + err.trim());
+            }
+            if (!err.isBlank()) {
+                output = output + "\n[stderr] " + err.trim();
+            }
         }
         return output;
     }
