@@ -16,6 +16,7 @@ import io.exoreaction.synthesis.ai.ClaudeClient;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.ai.ReadmeGenerator;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.kcp.KcpManifestChecks;
 import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.notion.NotionPageMapper;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
@@ -225,7 +226,9 @@ public class ScanCommand implements Callable<Integer> {
                 progress.complete();
 
                 // Print summary
-                printSummary(scanResult, indexed, errors, index.documentCount());
+                List<String> gitignoredManifests =
+                        KcpManifestChecks.findGitignoredManifests(workspaceRoot, scanResult.files());
+                printSummary(scanResult, indexed, errors, index.documentCount(), gitignoredManifests);
 
                 // Print sub-workspace summary
                 if (!subWsCounts.isEmpty()) {
@@ -268,7 +271,8 @@ public class ScanCommand implements Callable<Integer> {
         }
     }
 
-    private void printSummary(ScanResult result, int indexed, int errors, int totalInIndex) {
+    private void printSummary(ScanResult result, int indexed, int errors, int totalInIndex,
+                               List<String> gitignoredManifests) {
         System.out.println();
         AnsiOutput.printHeader("Scan Summary");
 
@@ -301,6 +305,15 @@ public class ScanCommand implements Callable<Integer> {
                     .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                     .forEach(entry -> System.out.printf("    %-15s %d files%n",
                             entry.getKey(), entry.getValue()));
+        }
+
+        // Manifest coverage issues (issue #309)
+        if (!gitignoredManifests.isEmpty()) {
+            System.out.println();
+            System.out.println("  " + AnsiOutput.bold("Manifest coverage issues:"));
+            for (String path : gitignoredManifests) {
+                System.out.println("    " + AnsiOutput.error(KcpManifestChecks.warningFor(path)));
+            }
         }
 
         System.out.println();
