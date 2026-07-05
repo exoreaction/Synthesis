@@ -1,8 +1,8 @@
 package io.exoreaction.synthesis.kcp;
 
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.util.AnsiOutput;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +24,7 @@ public final class KcpManifestChecks {
      * immediately if {@code workspaceRoot} is not a git repository.
      */
     public static List<String> findGitignoredManifests(Path workspaceRoot, List<FileMetadata> scannedFiles) {
-        if (!Files.isDirectory(workspaceRoot.resolve(".git"))) {
+        if (!isRealGitRepo(workspaceRoot)) {
             return List.of();
         }
         return findGitignoredManifests(workspaceRoot, scannedFiles,
@@ -41,7 +41,7 @@ public final class KcpManifestChecks {
         List<String> result = new ArrayList<>();
         for (FileMetadata fm : scannedFiles) {
             String relativePath = fm.relativePath();
-            if (relativePath.equals("knowledge.yaml") || relativePath.endsWith("/knowledge.yaml")) {
+            if (fm.fileName().equals("knowledge.yaml")) {
                 if (isIgnored.test(relativePath)) {
                     result.add(relativePath);
                 }
@@ -50,9 +50,28 @@ public final class KcpManifestChecks {
         return result;
     }
 
+    /**
+     * Returns true if {@code workspaceRoot} is genuinely inside a git working tree
+     * (handles both plain repos and linked worktrees, where {@code .git} is a file,
+     * not a directory). Any failure to run git (missing binary, off PATH, permission
+     * issues, etc.) is treated as "not a git repo" rather than propagating -- this
+     * must never crash a scan/maintain run.
+     */
+    private static boolean isRealGitRepo(Path workspaceRoot) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("git", "rev-parse", "--is-inside-work-tree");
+            pb.directory(workspaceRoot.toFile());
+            Process proc = pb.start();
+            String stdout = new String(proc.getInputStream().readAllBytes()).trim();
+            return proc.waitFor() == 0 && "true".equals(stdout);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private static boolean isGitIgnored(Path workspaceRoot, String relativePath) {
         try {
-            ProcessBuilder pb = new ProcessBuilder("git", "check-ignore", "-q", relativePath);
+            ProcessBuilder pb = new ProcessBuilder("git", "check-ignore", "-q", "--", relativePath);
             pb.directory(workspaceRoot.toFile());
             pb.redirectErrorStream(true);
             Process proc = pb.start();
@@ -67,5 +86,20 @@ public final class KcpManifestChecks {
     public static String warningFor(String relativePath) {
         return "WARNING: " + relativePath + " found but is listed in .gitignore -- run: git add -f "
                 + relativePath + " to track it (or remove the .gitignore entry)";
+    }
+
+    /**
+     * Prints the "Manifest coverage issues" section for {@code gitignoredManifests}
+     * (header + one warning line per path), or nothing if the list is empty.
+     * Shared by ScanCommand and MaintainCommand to avoid duplicating this formatting.
+     */
+    public static void printWarnings(List<String> gitignoredManifests) {
+        if (gitignoredManifests.isEmpty()) {
+            return;
+        }
+        System.out.println("  " + AnsiOutput.bold("Manifest coverage issues:"));
+        for (String path : gitignoredManifests) {
+            System.out.println("    " + AnsiOutput.error(warningFor(path)));
+        }
     }
 }

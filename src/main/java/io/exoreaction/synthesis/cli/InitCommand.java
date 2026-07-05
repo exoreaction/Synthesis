@@ -5,6 +5,7 @@ import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.analyzer.AnalyzerRegistry;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.CredentialStore;
+import io.exoreaction.synthesis.kcp.KcpManifestChecks;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.*;
 import io.exoreaction.synthesis.index.FileIndexer;
@@ -415,6 +416,10 @@ public class InitCommand implements Callable<Integer> {
             MaintainResult result = orchestrator.run();
             int changes = result.totalChanges();
             System.out.println("  " + (changes == 0 ? "clean" : changes + " change" + (changes == 1 ? "" : "s")));
+            if (!result.gitignoredManifests().isEmpty()) {
+                System.out.println();
+            }
+            KcpManifestChecks.printWarnings(result.gitignoredManifests());
         } catch (Exception e) {
             System.out.println("  skipped");
         }

@@ -310,11 +310,8 @@ public class ScanCommand implements Callable<Integer> {
         // Manifest coverage issues (issue #309)
         if (!gitignoredManifests.isEmpty()) {
             System.out.println();
-            System.out.println("  " + AnsiOutput.bold("Manifest coverage issues:"));
-            for (String path : gitignoredManifests) {
-                System.out.println("    " + AnsiOutput.error(KcpManifestChecks.warningFor(path)));
-            }
         }
+        KcpManifestChecks.printWarnings(gitignoredManifests);
 
         System.out.println();
         System.out.println("  Run " + AnsiOutput.cyan("synthesis search <query>") + " to search your workspace.");

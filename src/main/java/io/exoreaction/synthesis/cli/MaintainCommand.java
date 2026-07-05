@@ -484,11 +484,7 @@ public class MaintainCommand implements Callable<Integer> {
 
             // Manifest coverage issues (issue #309) — printed every run, not gated on changes
             if (!quiet && !json && !result.gitignoredManifests().isEmpty()) {
-                System.out.println("  " + AnsiOutput.bold("Manifest coverage issues:"));
-                for (String path : result.gitignoredManifests()) {
-                    System.out.println("    " + AnsiOutput.error(
-                            io.exoreaction.synthesis.kcp.KcpManifestChecks.warningFor(path)));
-                }
+                io.exoreaction.synthesis.kcp.KcpManifestChecks.printWarnings(result.gitignoredManifests());
                 System.out.println();
             }
 
