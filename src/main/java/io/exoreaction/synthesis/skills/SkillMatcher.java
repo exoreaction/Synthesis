@@ -136,6 +136,30 @@ public class SkillMatcher {
         return results;
     }
 
+    /**
+     * Counts immediate subdirectories of {@code skillsDir} containing a
+     * {@code SKILL.md} file — Claude Code's native skill format. {@link #match}
+     * and {@link #list} only read flat {@code *.yaml}/{@code *.yml} files
+     * directly inside {@code skillsDir}, so skills in this format are never
+     * indexed; callers use this count to warn instead of failing silently.
+     *
+     * @param skillsDir directory to check
+     * @return number of subdirectory-format skills found; 0 if dir absent
+     */
+    public static int countSubdirectorySkills(Path skillsDir) {
+        if (skillsDir == null || !Files.isDirectory(skillsDir)) {
+            return 0;
+        }
+        try (Stream<Path> paths = Files.list(skillsDir)) {
+            return (int) paths
+                    .filter(Files::isDirectory)
+                    .filter(dir -> Files.isRegularFile(dir.resolve("SKILL.md")))
+                    .count();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
