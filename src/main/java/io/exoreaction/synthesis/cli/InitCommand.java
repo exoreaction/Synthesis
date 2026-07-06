@@ -171,7 +171,8 @@ public class InitCommand implements Callable<Integer> {
 
     /** Default patterns for a new {@code .synthesisignore} file. */
     private static final List<String> DEFAULT_IGNORE_PATTERNS = List.of(
-            "node_modules/", "target/", ".gradle/", "__pycache__/", ".venv/"
+            "node_modules/", "target/", ".gradle/", "__pycache__/", ".venv/",
+            ".claude/worktrees/", ".pi/worktrees/", ".git/worktrees/"
     );
 
     /**

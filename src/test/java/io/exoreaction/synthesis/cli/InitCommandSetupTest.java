@@ -273,6 +273,30 @@ class InitCommandSetupTest {
     }
 
     // =========================================================================
+    // 9. Default .synthesisignore includes agent-harness worktree patterns (#338)
+    // =========================================================================
+
+    @Test
+    void propose_synthesisignore_includes_worktree_patterns() throws Exception {
+        // Given: a fresh workspace with no .synthesisignore yet
+        InitCommand cmd = new InitCommand();
+        java.lang.reflect.Field niField = InitCommand.class.getDeclaredField("noInteractive");
+        niField.setAccessible(true);
+        niField.setBoolean(cmd, true);
+
+        // When: proposeSynthesisIgnore runs in non-interactive mode
+        cmd.proposeSynthesisIgnore(tempDir);
+
+        // Then: the created file excludes common agent-harness worktree dirs
+        Path ignoreFile = tempDir.resolve(".synthesisignore");
+        assertTrue(Files.exists(ignoreFile), ".synthesisignore should be auto-created");
+        String content = Files.readString(ignoreFile);
+        assertTrue(content.contains(".claude/worktrees/"), "Should exclude .claude/worktrees/");
+        assertTrue(content.contains(".pi/worktrees/"), "Should exclude .pi/worktrees/");
+        assertTrue(content.contains(".git/worktrees/"), "Should exclude .git/worktrees/");
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
