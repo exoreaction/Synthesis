@@ -35,8 +35,11 @@ class GitIntegrationTest {
         Path initialFile = tempDir.resolve("initial.txt");
         Files.writeString(initialFile, "initial content");
         git.add().addFilepattern("initial.txt").call();
+        // setSign(false): the host's git config may set commit.gpgsign=true with
+        // gpg.format=ssh, which JGit cannot honour (UnsupportedSigningFormatException)
         git.commit().setMessage("Initial commit")
                 .setAuthor("Test", "test@test.com")
+                .setSign(false)
                 .call();
 
         integration = new GitIntegration(tempDir);
@@ -121,6 +124,7 @@ class GitIntegrationTest {
         var firstCommit = git.log().setMaxCount(1).call().iterator().next();
         git.commit().setMessage("Second commit")
                 .setAuthor("Test", "test@test.com")
+                .setSign(false)
                 .call();
 
         // Diff between first and second commits
@@ -156,6 +160,7 @@ class GitIntegrationTest {
         git.add().addFilepattern("recent.txt").call();
         git.commit().setMessage("Recent commit")
                 .setAuthor("Test", "test@test.com")
+                .setSign(false)
                 .call();
 
         // Get changes since yesterday
@@ -193,6 +198,7 @@ class GitIntegrationTest {
             git.add().addFilepattern("file" + i + ".txt").call();
             git.commit().setMessage("Commit " + i)
                     .setAuthor("Test", "test@test.com")
+                    .setSign(false)
                     .call();
         }
 
