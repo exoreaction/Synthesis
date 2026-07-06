@@ -1,0 +1,78 @@
+name: KCP export conformance
+
+# Validates that `synthesis export --format kcp` produces a manifest the
+# reference KCP consumer accepts (issue #354). The kcp-agent version is
+# pinned — bump it deliberately so upstream spec drift is caught, not
+# absorbed silently.
+
+on:
+  pull_request:
+    paths:
+      - 'src/main/java/io/exoreaction/synthesis/cli/ExportCommand.java'
+      - 'src/main/java/io/exoreaction/synthesis/analyzer/YamlAnalyzer.java'
+      - 'src/main/java/io/exoreaction/synthesis/kcp/**'
+      - '.github/workflows/kcp-conformance.yml'
+  workflow_dispatch:
+
+env:
+  KCP_AGENT_VERSION: '0.6.0'
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build synthesis jar
+        run: mvn -B -q package -DskipTests
+
+      - name: Create fixture workspace
+        run: |
+          mkdir -p /tmp/fixture/docs
+          cat > /tmp/fixture/README.md <<'EOF'
+          # Fixture Project
+
+          A small fixture workspace used to validate KCP export conformance.
+
+          ## Getting Started
+
+          Read the docs.
+          EOF
+          cat > /tmp/fixture/docs/api.md <<'EOF'
+          # API Reference
+
+          ## Endpoints
+
+          ## Authentication
+          EOF
+          cat > /tmp/fixture/SECURITY.md <<'EOF'
+          # Security Policy
+
+          Report vulnerabilities responsibly.
+          EOF
+          git -C /tmp/fixture init -q
+          git -C /tmp/fixture add -A
+          git -C /tmp/fixture -c user.email=ci@example.com -c user.name=ci commit -qm fixture
+
+      - name: Generate KCP manifest
+        run: |
+          JAR=$(ls "$GITHUB_WORKSPACE"/target/synthesis-*.jar | grep -v sources | head -1)
+          cd /tmp/fixture
+          java -jar "$JAR" init --yes
+          java -jar "$JAR" scan
+          java -jar "$JAR" export --format kcp --output knowledge.yaml
+          echo "--- generated manifest ---"
+          cat knowledge.yaml
+
+      - name: Validate with kcp-agent (pinned)
+        run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml

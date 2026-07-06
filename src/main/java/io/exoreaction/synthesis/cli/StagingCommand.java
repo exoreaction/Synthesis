@@ -348,7 +348,9 @@ public class StagingCommand implements Callable<Integer> {
      * Companion {@code .synthesis.md} files are moved alongside the main file
      * when {@code routing.copyCompanions: true} (default).
      */
-    @Command(name = "route", description = "Route staged files to permanent destinations using config rules",
+    @Command(name = "route",
+            description = {"Route staged files to permanent destinations.",
+                    "Cascade: config rules, then directory identity, then AI classification (optionally preceded by --enrich-first)."},
             mixinStandardHelpOptions = true)
     static class RouteSub implements Callable<Integer> {
 

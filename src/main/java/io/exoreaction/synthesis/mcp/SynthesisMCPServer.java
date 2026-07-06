@@ -363,7 +363,8 @@ public class SynthesisMCPServer {
         // Tool: graph
         toolsArray.add(createToolDefinition(
                 "graph",
-                "Generate architecture graph showing modules, dependencies, and cross-repo relationships. " +
+                "Generate architecture graph showing modules, dependencies, and cross-repo relationships, " +
+                        "including doc/filename co-mentions, not just code imports. " +
                         "Returns Mermaid, DOT, or structured JSON. " +
                         "Use for understanding system architecture at a glance.",
                 createGraphSchema()
@@ -483,7 +484,7 @@ public class SynthesisMCPServer {
         // Tool: insights
         toolsArray.add(createToolDefinition(
                 "insights",
-                "Generate AI-powered codebase insights: patterns, anomalies, improvement suggestions. " +
+                "Generate codebase insights: patterns, anomalies, improvement suggestions. " +
                         "Higher-level than analyze — focuses on actionable observations.",
                 createWorkspaceOnlySchema()
         ));
@@ -491,8 +492,9 @@ public class SynthesisMCPServer {
         // Tool: perspectives
         toolsArray.add(createToolDefinition(
                 "perspectives",
-                "Answer a question about the codebase from multiple role perspectives " +
-                        "(architect, security, devops, product). Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
+                "Answer a question about the codebase from multiple generic perspectives " +
+                        "(feasibility, impact, risk, etc.) — for named role perspectives, use 'summary'. " +
+                        "Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createPerspectivesSchema()
         ));
 
@@ -507,8 +509,8 @@ public class SynthesisMCPServer {
         // Tool: architecture
         toolsArray.add(createToolDefinition(
                 "architecture",
-                "Generate an architecture overview of the workspace: layers, modules, " +
-                        "key abstractions, and cross-cutting concerns.",
+                "Architecture intelligence: detect anti-patterns, coupling issues, dead code, " +
+                        "missing docs, and test-coverage gaps.",
                 createWorkspaceOnlySchema()
         ));
 
@@ -530,8 +532,9 @@ public class SynthesisMCPServer {
         // Tool: describe
         toolsArray.add(createToolDefinition(
                 "describe",
-                "Describe a file or directory within the workspace. Without a path, describes " +
-                        "the workspace root. Returns purpose, contents, and key observations.",
+                "Describe a directory within the workspace — file paths are not supported and " +
+                        "will error. Without a path, describes the workspace root. " +
+                        "Returns purpose, contents, and key observations.",
                 createDescribeSchema()
         ));
 
@@ -546,40 +549,41 @@ public class SynthesisMCPServer {
         // Tool: structure
         toolsArray.add(createToolDefinition(
                 "structure",
-                "Show workspace directory structure with annotations: purpose of each directory, " +
-                        "file counts, and notable patterns. A smart tree view.",
+                "Knowledge-graph structural report: orphaned files, fragmentation, and coverage " +
+                        "gaps — not a directory tree view.",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: evolution
         toolsArray.add(createToolDefinition(
                 "evolution",
-                "Analyze how the workspace has evolved over time: growth trends, churn hotspots, " +
-                        "and maturity assessment by module.",
+                "Classify directories by their current .synthesis.md snapshot (Growing/Starving/" +
+                        "Bootstrapping/Drifting/Satisfied) — a point-in-time heuristic, not a " +
+                        "trend/churn report (see 'hotspots' for churn).",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: scatter
         toolsArray.add(createToolDefinition(
                 "scatter",
-                "Detect scattered concerns: logic spread across many files that should be consolidated. " +
-                        "Identifies code duplication patterns and cohesion issues.",
+                "Detect the same client/product/entity name scattered across multiple directories " +
+                        "— business-entity fragmentation, not code duplication.",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: naming
         toolsArray.add(createToolDefinition(
                 "naming",
-                "Analyze naming conventions across the codebase. Detects inconsistencies, " +
-                        "suggests improvements, and checks adherence to project naming patterns.",
+                "Analyze directory-naming conventions across the workspace (not source-code " +
+                        "identifiers). Detects inconsistencies and suggests improvements.",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: upcoming
         toolsArray.add(createToolDefinition(
                 "upcoming",
-                "Show upcoming tasks, TODOs, FIXMEs, and deadlines found in the codebase. " +
-                        "Extracts actionable items from comments and documentation.",
+                "Show upcoming tasks and deadlines from a user-maintained UPCOMING.md plus " +
+                        "auto-scanned 'next actions' in indexed docs. Does not scan code comments.",
                 createWorkspaceOnlySchema()
         ));
 
@@ -594,8 +598,9 @@ public class SynthesisMCPServer {
         // Tool: mcp-stats
         toolsArray.add(createToolDefinition(
                 "mcp-stats",
-                "Show MCP server usage statistics: tool invocation counts, response times, " +
-                        "error rates, and popular queries. Reads the global MCP query log.",
+                "Show 'search'-tool usage statistics: query count, zero-result rate, and latency. " +
+                        "Other MCP tools are not logged; no error-rate metric exists. " +
+                        "Reads the global MCP query log.",
                 createMcpStatsSchema()
         ));
 
@@ -614,8 +619,9 @@ public class SynthesisMCPServer {
         // Tool: changed
         toolsArray.add(createToolDefinition(
                 "changed",
-                "List files changed since a date or duration (e.g. '2026-02-20' or '7d'). " +
-                        "Groups by change type: added, modified, deleted.",
+                "List files changed since a date or duration (e.g. '2026-02-20' or '7d') — " +
+                        "a flat list, not grouped by change type. The type filter selects file " +
+                        "category (code/doc), not git change type.",
                 createChangedSchema()
         ));
 
@@ -623,7 +629,7 @@ public class SynthesisMCPServer {
         toolsArray.add(createToolDefinition(
                 "track",
                 "Track file movements using hash-based detection. Shows files that were moved " +
-                        "or renamed, with confidence scores and audit trail.",
+                        "or renamed, with an audit trail.",
                 createWorkspaceOnlySchema()
         ));
 
@@ -634,32 +640,32 @@ public class SynthesisMCPServer {
         // Tool: which
         toolsArray.add(createToolDefinition(
                 "which",
-                "Find which file(s) match a pattern or contain a symbol. Like 'which' for your codebase: " +
-                        "resolves class names, function names, or path patterns to actual files.",
+                "Find which file(s) match a pattern, by filename — searches every discovered " +
+                        "workspace on the system, not just the current one. Not a symbol resolver.",
                 createWhichSchema()
         ));
 
         // Tool: discover
         toolsArray.add(createToolDefinition(
                 "discover",
-                "Discover interesting patterns, hidden dependencies, and non-obvious relationships " +
-                        "in the workspace. Surfaces things you did not know to look for.",
+                "Scan for unindexed git repositories in configured search paths and suggest " +
+                        "workspaces to initialize.",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: validate
         toolsArray.add(createToolDefinition(
                 "validate",
-                "Validate workspace integrity: broken links, missing references, orphaned files, " +
-                        "and configuration issues. Returns pass/fail with actionable fixes.",
+                "Skill/doc-vs-code drift detection: stale references, coverage gaps, false claims, " +
+                        "untested code — not a filesystem/link/config integrity check.",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: metrics
         toolsArray.add(createToolDefinition(
                 "metrics",
-                "Compute codebase metrics: lines of code, complexity, test coverage estimates, " +
-                        "documentation ratio, and dependency counts.",
+                "MCP tool-usage telemetry: invocation counts, latency, success rate, and search " +
+                        "performance — not codebase quality metrics.",
                 createWorkspaceOnlySchema()
         ));
 
@@ -677,15 +683,16 @@ public class SynthesisMCPServer {
         toolsArray.add(createToolDefinition(
                 "cross-repo-deps",
                 "Analyze cross-repository dependencies across all repos in the workspace. " +
-                        "Shows which repos depend on which, with version and artifact details.",
+                        "Shows which repos reference which, via file/import/link matching " +
+                        "(no version or artifact parsing).",
                 createWorkspaceOnlySchema()
         ));
 
         // Tool: learn
         toolsArray.add(createToolDefinition(
                 "learn",
-                "Generate a learning guide for the codebase: key concepts, entry points, " +
-                        "recommended reading order, and architectural patterns to understand first.",
+                "Generate business/organizational-context skill files (clients, products, pipeline) " +
+                        "from .synthesis/organizations.json — requires 'org scan' first.",
                 createWorkspaceOnlySchema()
         ));
 
@@ -745,8 +752,9 @@ public class SynthesisMCPServer {
         toolsArray.add(createToolDefinition(
                 "match_skills",
                 "Find Claude Code skills relevant to a task description. " +
-                        "Scans ~/.claude/skills/ and ranks skills by relevance using trigger phrases, " +
-                        "name/description, and instruction keyword overlap. " +
+                        "Scans flat *.yaml/*.yml files directly in ~/.claude/skills/ (does not read " +
+                        "<skill>/SKILL.md subdirectories, the standard format) and ranks skills by " +
+                        "relevance using trigger phrases, name/description, and instruction keyword overlap. " +
                         "Use this BEFORE starting a task to discover which skills to load. " +
                         "Returns top-N skills with scores and matched terms.",
                 createMatchSkillsSchema()
@@ -756,7 +764,8 @@ public class SynthesisMCPServer {
                 "Plan an agent dispatch: given a task description, returns skills to load, " +
                         "files to pre-read, team conflict check, and token estimate. " +
                         "Use before spawning an agent to skip blind retrieval. " +
-                        "Composes SkillMatcher + index search + team conflict check in one call.",
+                        "Composes SkillMatcher + index search + team conflict check in one call. " +
+                        "Skill matching has the same flat-YAML-only limit as 'match_skills'.",
                 createDispatchSchema()
         ));
         toolsArray.add(createToolDefinition(
@@ -775,6 +784,7 @@ public class SynthesisMCPServer {
                         "reading hints into one call. Use this at session start instead of manually composing " +
                         "session_context + match_skills + KCP lookup. " +
                         "Read-only: does not write hooks, skills, or instruction files. " +
+                        "Skill matching has the same flat-YAML-only limit as 'match_skills'. " +
                         "Works with Claude Code, pi.dev, Cursor, Codex, and any other MCP-capable harness.",
                 createBootstrapContextSchema()
         ));

@@ -1,16 +1,25 @@
 package io.exoreaction.synthesis.cli;
 
+import io.exoreaction.synthesis.analyzer.AnalysisResult;
+import io.exoreaction.synthesis.analyzer.YamlAnalyzer;
+import io.exoreaction.synthesis.core.FileMetadata;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.kcp.KcpUnit;
+import io.exoreaction.synthesis.util.FileUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for {@code synthesis export --format kcp} — KCP v0.5 output conformance.
+ * Tests for {@code synthesis export --format kcp} — KCP v0.25 output conformance.
  *
  * <p>Uses the package-private helper methods on {@link ExportCommand} directly
  * rather than driving the full CLI, so no real workspace or database is needed.
@@ -25,17 +34,17 @@ class ExportCommandKcpTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void headerContainsKcpVersion05() {
+    void headerContainsKcpVersion025() {
         String output = export(List.of(md("README.md", "Project overview.")));
-        assertTrue(output.contains("kcp_version: \"0.5\""),
+        assertTrue(output.contains("kcp_version: \"0.25\""),
                 "Must emit kcp_version field: " + firstLines(output));
     }
 
     @Test
-    void headerContainsV05InComment() {
+    void headerContainsV025InComment() {
         String output = export(List.of(md("README.md", "Project overview.")));
-        assertTrue(output.contains("KCP) v0.5"),
-                "Comment must say v0.5: " + firstLines(output));
+        assertTrue(output.contains("KCP) v0.25"),
+                "Comment must say v0.25: " + firstLines(output));
     }
 
     @Test
@@ -205,6 +214,136 @@ class ExportCommandKcpTest {
         assertNull(cmd.toKcpKind("docs/overview.md"));
         assertNull(cmd.toKcpKind("README.md"));
         assertNull(cmd.toKcpKind("src/Main.java"));
+    }
+
+    // -----------------------------------------------------------------------
+    // v0.25 fields: content_structure, content_hash, temporal, discovery
+    // -----------------------------------------------------------------------
+
+    @Test
+    void unitEmitsContentStructureProseForMarkdown() {
+        String output = export(List.of(md("docs/guide.md", "A guide.")));
+        assertTrue(output.contains("content_structure:"), "Must emit content_structure block");
+        assertTrue(output.contains("primary: prose"), "Markdown primary modality is prose: " + output);
+        assertTrue(output.contains("contains: [prose]"), "contains must list the primary modality");
+    }
+
+    @Test
+    void contentStructurePrimaryVocabulary() {
+        // Default export is MARKDOWN-only (CODE flows through with --type CODE);
+        // the CODE→code mapping is covered here at the helper level.
+        ExportCommand cmd = new ExportCommand();
+        assertEquals("code", cmd.toKcpContentStructurePrimary("CODE"));
+        assertEquals("reference", cmd.toKcpContentStructurePrimary("YAML"));
+        assertEquals("reference", cmd.toKcpContentStructurePrimary("JSON"));
+        assertEquals("prose", cmd.toKcpContentStructurePrimary("MARKDOWN"));
+        assertEquals("prose", cmd.toKcpContentStructurePrimary(null));
+    }
+
+    @Test
+    void unitEmitsContentHashMatchingFileBytes() throws Exception {
+        Files.createDirectories(tempDir.resolve("docs"));
+        Files.writeString(tempDir.resolve("docs/hashed.md"), "# Hashed\ncontent to digest\n");
+        String output = export(List.of(md("docs/hashed.md", "Hashed doc.")));
+
+        assertTrue(output.contains("content_hash:"), "Must emit content_hash block: " + output);
+        assertTrue(output.contains("algorithm: sha256"), "Algorithm must be sha256");
+
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] raw = digest.digest(Files.readAllBytes(tempDir.resolve("docs/hashed.md")));
+        StringBuilder expected = new StringBuilder();
+        for (byte b : raw) expected.append(String.format("%02x", b));
+        assertTrue(output.contains("value: \"" + expected + "\""),
+                "Hash must match recomputed sha256 of the file: " + output);
+    }
+
+    @Test
+    void unitOmitsContentHashWhenFileUnreadable() {
+        // makeResult() does not create the file on disk
+        String output = export(List.of(md("docs/missing.md", "Not on disk.")));
+        assertFalse(output.contains("content_hash:"),
+                "Unreadable files must omit content_hash, not fail: " + output);
+    }
+
+    @Test
+    void unitEmitsDiscoveryDeclared() {
+        // v0.16 epistemic ordering: rumored < declared < observed < verified.
+        // A generated manifest is first-party self-description → declared.
+        String output = export(List.of(md("README.md", "Overview.")));
+        assertTrue(output.contains("discovery:"), "Must emit discovery block");
+        assertTrue(output.contains("verification_status: declared"),
+                "Generated units are self-described → declared: " + output);
+        assertTrue(output.contains("source: synthesis"), "Discovery source is synthesis");
+    }
+
+    @Test
+    void noTemporalBlockWhenWorkspaceIsNotGitRepo() {
+        String output = export(List.of(md("README.md", "Overview.")));
+        assertFalse(output.contains("temporal:"),
+                "recorded_at is git-derived; non-git workspaces omit temporal: " + output);
+    }
+
+    @Test
+    void collectGitCommitDatesEmptyForNonGitDirectory() {
+        assertTrue(ExportCommand.collectGitCommitDates(tempDir).isEmpty(),
+                "Non-git directory must yield no commit dates");
+        assertTrue(ExportCommand.collectGitCommitDates(null).isEmpty(),
+                "Null workspace root must yield no commit dates");
+    }
+
+    @Test
+    void interopNoAccessOrPaymentEmitted() {
+        // v0.25.1 interop: `access` declares the authentication gate only and payment
+        // uses the `payment` block. A local export has neither — both must be absent.
+        String output = export(List.of(md("README.md", "Overview.")));
+        assertFalse(output.contains("access:"), "Must not emit access without an auth gate");
+        assertFalse(output.contains("payment:"), "Must not emit payment blocks");
+        assertFalse(output.contains("rate_limits:"), "Must not emit rate_limits blocks");
+    }
+
+    // -----------------------------------------------------------------------
+    // Round-trip: export → YamlAnalyzer detection → KcpUnit extraction
+    // -----------------------------------------------------------------------
+
+    @Test
+    void exportRoundTripsThroughYamlAnalyzer() throws IOException {
+        Files.createDirectories(tempDir.resolve("docs"));
+        Files.writeString(tempDir.resolve("README.md"), "# Readme\n");
+        Files.writeString(tempDir.resolve("docs/api.md"), "# API\n");
+        String output = export(List.of(
+                md("README.md", "Project overview."),
+                makeResult("docs/api.md", "MARKDOWN", "API reference.", "Endpoints\nAuth")
+        ));
+
+        Path manifest = tempDir.resolve("knowledge.yaml");
+        Files.writeString(manifest, output);
+        FileMetadata metadata = new FileMetadata(
+                manifest, "knowledge.yaml", "knowledge.yaml",
+                ".yaml", FileUtils.FileType.YAML, null,
+                Files.size(manifest), Instant.now(), null);
+
+        YamlAnalyzer analyzer = new YamlAnalyzer();
+        assertTrue(analyzer.canAnalyze(metadata));
+        AnalysisResult result = analyzer.analyze(metadata);
+
+        assertEquals("kcp-manifest", result.metrics().get("yamlType"),
+                "Own export must be detected as a KCP manifest");
+        assertEquals("0.25", result.metrics().get("kcpVersion"),
+                "Parsed version must round-trip");
+        assertEquals(2, result.metrics().get("unitCount"), "Both units must be extracted");
+
+        @SuppressWarnings("unchecked")
+        List<KcpUnit> units = (List<KcpUnit>) result.metrics().get("kcpUnits");
+        KcpUnit readme = units.stream()
+                .filter(u -> "README.md".equals(u.path()))
+                .findFirst().orElseThrow();
+        assertEquals("sha256", readme.contentHashAlgorithm(),
+                "content_hash.algorithm must survive the round-trip");
+        assertNotNull(readme.contentHashValue(), "content_hash.value must survive");
+        assertEquals("declared", readme.verificationStatus(),
+                "discovery.verification_status must survive");
+        assertEquals("prose", readme.contentStructurePrimary(),
+                "content_structure.primary must survive");
     }
 
     // -----------------------------------------------------------------------

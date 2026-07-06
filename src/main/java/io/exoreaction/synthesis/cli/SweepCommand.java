@@ -51,7 +51,8 @@ import java.util.stream.Stream;
  */
 @Command(
         name = "sweep",
-        description = "Identify and archive stale root-level files (scripts, ephemeral docs, artifacts)",
+        description = {"Identify stale root-level files and route them to matching directories.",
+                "Falls back to archiving only files matching no config rule or directory identity."},
         mixinStandardHelpOptions = true
 )
 public class SweepCommand implements Callable<Integer> {

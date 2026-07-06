@@ -114,6 +114,32 @@ class KcpV021IntegrationTest {
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN not_for_json TEXT");
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_primary TEXT");
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_density TEXT");
+
+            // Apply V23 migration (v0.25 federation + forward-compat extensions)
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN root_extensions_json TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN extensions_json TEXT");
+            st.execute("""
+                    CREATE TABLE kcp_federation (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        workspace_path TEXT NOT NULL,
+                        manifest_file TEXT NOT NULL,
+                        entry_id TEXT,
+                        url TEXT,
+                        label TEXT,
+                        relationship TEXT,
+                        update_frequency TEXT,
+                        local_mirror TEXT,
+                        context TEXT,
+                        version_pin TEXT,
+                        version_policy TEXT,
+                        valid_from TEXT,
+                        valid_until TEXT,
+                        superseded_by TEXT,
+                        agent_identity_json TEXT,
+                        extensions_json TEXT,
+                        last_computed INTEGER NOT NULL,
+                        UNIQUE(workspace_path, manifest_file, entry_id, url)
+                    )""");
         }
         repo = new KcpRepository();
     }

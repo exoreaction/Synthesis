@@ -85,11 +85,20 @@ public record KcpUnit(
         String verifiedBy,
 
         /** URL or path to the verification artifact. May be null. */
-        String evidence
+        String evidence,
+
+        // --- Forward-compatible extensions (KCP v0.22+, issue #355) ---
+
+        /**
+         * Unmapped unit-level blocks (auth, payment, rate_limits, visibility,
+         * authority, delegation, compliance, ...) preserved as a raw JSON object
+         * so newer spec waves are ingested losslessly. May be null.
+         */
+        String extensionsJson
 ) {
     /**
      * Backward-compatible constructor with only the original 7 fields.
-     * All v0.21 fields default to null/empty/false/-1.
+     * All v0.21+ fields default to null/empty/false/-1.
      */
     public KcpUnit(String unitId, String path, String intent, String scope,
                    List<String> audience, List<String> triggers, Map<String, Object> hints) {
@@ -98,6 +107,7 @@ public record KcpUnit(
                 null, null,
                 null, false,
                 null, null,
-                null, -1.0, null, null);
+                null, -1.0, null, null,
+                null);
     }
 }

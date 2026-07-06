@@ -5,6 +5,8 @@ import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CrossWorkspaceResolver;
+import io.exoreaction.synthesis.kcp.KcpFederationEntry;
+import io.exoreaction.synthesis.kcp.KcpHealthChecks;
 import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.org.*;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -652,6 +654,8 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         if (!kcpUnits.isEmpty()) {
             sb.append(renderKcpAsciiSection(kcpUnits, kcpEdges));
         }
+        sb.append(renderKcpFederationSection(collectKcpFederation(workspaceRoot)));
+        sb.append(renderKcpHealthSection(collectKcpHealth(workspaceRoot)));
 
         // Cross-workspace links section — one line per unique src target (shortest docs path)
         Map<String, String> srcTargetToDocsPath = new java.util.TreeMap<>();
@@ -958,7 +962,11 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             sb.append("      \"path\": \"").append(escapeJson(unit.path() != null ? unit.path() : "")).append("\",\n");
             sb.append("      \"intent\": \"").append(escapeJson(unit.intent() != null ? unit.intent() : "")).append("\",\n");
             sb.append("      \"scope\": \"").append(escapeJson(unit.scope() != null ? unit.scope() : "")).append("\",\n");
-            sb.append("      \"triggers\": ").append(jsonArray(unit.triggers())).append("\n");
+            sb.append("      \"triggers\": ").append(jsonArray(unit.triggers())).append(",\n");
+            sb.append("      \"validUntil\": \"").append(escapeJson(unit.validUntil() != null ? unit.validUntil() : "")).append("\",\n");
+            sb.append("      \"supersededBy\": \"").append(escapeJson(unit.supersededBy() != null ? unit.supersededBy() : "")).append("\",\n");
+            sb.append("      \"verificationStatus\": \"").append(escapeJson(unit.verificationStatus() != null ? unit.verificationStatus() : "")).append("\",\n");
+            sb.append("      \"expired\": ").append(unit.isExpired(java.time.LocalDate.now().toString())).append("\n");
             sb.append("    }");
             if (i < kcpUnits.size() - 1) sb.append(",");
             sb.append("\n");
@@ -976,6 +984,41 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             sb.append("      \"manifestFile\": \"").append(escapeJson(rel.manifestFile())).append("\"\n");
             sb.append("    }");
             if (i < kcpEdges.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("  ],\n");
+
+        // KCP federation entries (root manifests[] blocks, issue #355)
+        List<KcpFederationRow> federation = collectKcpFederation(workspaceRoot);
+        sb.append("  \"kcpFederation\": [\n");
+        for (int i = 0; i < federation.size(); i++) {
+            KcpFederationRow row = federation.get(i);
+            KcpFederationEntry e = row.entry();
+            sb.append("    {\n");
+            sb.append("      \"manifestFile\": \"").append(escapeJson(row.manifestFile())).append("\",\n");
+            sb.append("      \"entryId\": \"").append(escapeJson(e.entryId() != null ? e.entryId() : "")).append("\",\n");
+            sb.append("      \"url\": \"").append(escapeJson(e.url() != null ? e.url() : "")).append("\",\n");
+            sb.append("      \"relationship\": \"").append(escapeJson(e.relationship() != null ? e.relationship() : "")).append("\",\n");
+            sb.append("      \"context\": \"").append(escapeJson(e.context() != null ? e.context() : "")).append("\",\n");
+            sb.append("      \"localMirror\": \"").append(escapeJson(e.localMirror() != null ? e.localMirror() : "")).append("\"\n");
+            sb.append("    }");
+            if (i < federation.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("  ],\n");
+
+        // K-series KCP health signals (issue #355)
+        List<KcpHealthChecks.Signal> health = collectKcpHealth(workspaceRoot);
+        sb.append("  \"kcpHealth\": [\n");
+        for (int i = 0; i < health.size(); i++) {
+            KcpHealthChecks.Signal signal = health.get(i);
+            sb.append("    {\n");
+            sb.append("      \"code\": \"").append(escapeJson(signal.code())).append("\",\n");
+            sb.append("      \"severity\": \"").append(escapeJson(signal.severity())).append("\",\n");
+            sb.append("      \"manifestFile\": \"").append(escapeJson(signal.manifestFile())).append("\",\n");
+            sb.append("      \"detail\": \"").append(escapeJson(signal.detail())).append("\"\n");
+            sb.append("    }");
+            if (i < health.size() - 1) sb.append(",");
             sb.append("\n");
         }
         sb.append("  ]\n");
@@ -1022,7 +1065,8 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
         try (SynthesisDatabase db = new SynthesisDatabase(dbPath)) {
             java.sql.Connection conn = db.getConnection();
             String sql = "SELECT u.unit_id, u.manifest_file, m.project, u.path, "
-                    + "u.intent, u.scope, u.triggers_json "
+                    + "u.intent, u.scope, u.triggers_json, "
+                    + "u.valid_until, u.superseded_by, u.verification_status "
                     + "FROM kcp_units u "
                     + "JOIN kcp_manifests m ON m.workspace_path = u.workspace_path "
                     + "  AND m.file_path = u.manifest_file "
@@ -1044,7 +1088,10 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
                                 rs.getString("path"),
                                 rs.getString("intent"),
                                 rs.getString("scope"),
-                                parseTriggers(rs.getString("triggers_json"))));
+                                parseTriggers(rs.getString("triggers_json")),
+                                rs.getString("valid_until"),
+                                rs.getString("superseded_by"),
+                                rs.getString("verification_status")));
                     }
                 }
             }
@@ -1115,10 +1162,19 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
 
         for (Map.Entry<String, List<KcpUnitNode>> entry : byProject.entrySet()) {
             sb.append("  [").append(entry.getKey()).append("]\n");
+            String today = java.time.LocalDate.now().toString();
             for (KcpUnitNode unit : entry.getValue()) {
                 String intent = unit.intent() != null ? unit.intent() : "(no intent)";
                 if (intent.length() > 60) intent = intent.substring(0, 60) + "\u2026";
-                sb.append(String.format("    \u2022 %s: %s%n", unit.unitId(), intent));
+                StringBuilder badges = new StringBuilder();
+                if (unit.isExpired(today)) badges.append("  [EXPIRED]");
+                if (unit.supersededBy() != null) {
+                    badges.append("  [SUPERSEDED by ").append(unit.supersededBy()).append("]");
+                }
+                if (unit.verificationStatus() != null) {
+                    badges.append("  (").append(unit.verificationStatus()).append(")");
+                }
+                sb.append(String.format("    \u2022 %s: %s%s%n", unit.unitId(), intent, badges));
                 if (unit.path() != null) {
                     sb.append(String.format("      \u2192 %s  [scope: %s]%n",
                             unit.path(), unit.scope() != null ? unit.scope() : "?"));
@@ -1139,6 +1195,93 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             }
         }
 
+        return sb.toString();
+    }
+
+    /** A federation entry paired with the manifest that declares it. */
+    record KcpFederationRow(String manifestFile, KcpFederationEntry entry) {}
+
+    /**
+     * Collects federation entries (root manifests[] blocks) for all manifests
+     * in this workspace. Empty when the database or tables are absent.
+     */
+    List<KcpFederationRow> collectKcpFederation(Path workspaceRoot) {
+        List<KcpFederationRow> result = new ArrayList<>();
+        Path dbPath = workspaceRoot.resolve(".synthesis/synthesis.db");
+        if (!Files.exists(dbPath)) return result;
+        try (SynthesisDatabase db = new SynthesisDatabase(dbPath)) {
+            java.sql.Connection conn = db.getConnection();
+            KcpRepository repo = new KcpRepository();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspaceRoot.toString())) {
+                for (KcpFederationEntry e : repo.getFederationForManifest(
+                        conn, workspaceRoot.toString(), m.filePath())) {
+                    result.add(new KcpFederationRow(m.filePath(), e));
+                }
+            }
+        } catch (SQLException e) {
+            // Return empty list silently (tables may not exist yet)
+        }
+        return result;
+    }
+
+    /**
+     * Computes K-series health signals (K001/K002/K004 from persisted rows,
+     * K003 from git-ignore state) for all manifests in this workspace.
+     */
+    List<KcpHealthChecks.Signal> collectKcpHealth(Path workspaceRoot) {
+        List<KcpHealthChecks.Signal> signals = new ArrayList<>();
+        Path dbPath = workspaceRoot.resolve(".synthesis/synthesis.db");
+        if (!Files.exists(dbPath)) return signals;
+        String today = java.time.LocalDate.now().toString();
+        try (SynthesisDatabase db = new SynthesisDatabase(dbPath)) {
+            java.sql.Connection conn = db.getConnection();
+            KcpRepository repo = new KcpRepository();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspaceRoot.toString())) {
+                signals.addAll(KcpHealthChecks.checkManifest(m,
+                        repo.getUnitsForManifest(conn, workspaceRoot.toString(), m.filePath()),
+                        repo.getRelationshipsForManifest(conn, workspaceRoot.toString(), m.filePath()),
+                        today));
+                signals.addAll(KcpHealthChecks.checkGitignored(workspaceRoot, m.filePath()));
+            }
+        } catch (SQLException e) {
+            // Return empty list silently
+        }
+        return signals;
+    }
+
+    /** Renders the "KCP Federation" text section, or nothing when empty. */
+    private String renderKcpFederationSection(List<KcpFederationRow> federation) {
+        if (federation.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("\nKCP Federation:\n");
+        sb.append("-".repeat(40)).append("\n");
+        for (KcpFederationRow row : federation) {
+            KcpFederationEntry e = row.entry();
+            String id = e.entryId() != null ? e.entryId() : (e.url() != null ? e.url() : "?");
+            sb.append("  → ").append(id);
+            if (e.relationship() != null) sb.append("  [").append(e.relationship()).append("]");
+            if (e.context() != null) sb.append("  (").append(e.context()).append(")");
+            sb.append("\n");
+            if (e.url() != null && e.entryId() != null) {
+                sb.append("      url: ").append(e.url()).append("\n");
+            }
+            if (e.localMirror() != null) {
+                sb.append("      mirror: ").append(e.localMirror()).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Renders the "KCP Health" text section, or nothing when no signals fire. */
+    private String renderKcpHealthSection(List<KcpHealthChecks.Signal> signals) {
+        if (signals.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("\nKCP Health:\n");
+        sb.append("-".repeat(40)).append("\n");
+        for (KcpHealthChecks.Signal signal : signals) {
+            sb.append(String.format("  %s [%s] %s%n",
+                    signal.code(), signal.severity(), signal.detail()));
+        }
         return sb.toString();
     }
 
@@ -1204,8 +1347,24 @@ public class KnowledgeGraphCommand implements Callable<Integer> {
             String path,
             String intent,
             String scope,
-            List<String> triggers
-    ) {}
+            List<String> triggers,
+            // v0.25 temporal + discovery surfacing (issue #355)
+            String validUntil,
+            String supersededBy,
+            String verificationStatus
+    ) {
+        /** Backward-compatible constructor without temporal/discovery fields. */
+        KcpUnitNode(String unitId, String manifestFile, String project, String path,
+                    String intent, String scope, List<String> triggers) {
+            this(unitId, manifestFile, project, path, intent, scope, triggers,
+                    null, null, null);
+        }
+
+        /** True when valid_until has passed (inclusive bounds per KCP v0.25.1). */
+        boolean isExpired(String today) {
+            return validUntil != null && validUntil.compareTo(today) < 0;
+        }
+    }
 
     record KcpUnitEdge(
             String fromUnit,

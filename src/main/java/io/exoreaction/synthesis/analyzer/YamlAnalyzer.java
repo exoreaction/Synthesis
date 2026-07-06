@@ -1,6 +1,8 @@
 package io.exoreaction.synthesis.analyzer;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.kcp.KcpFederationEntry;
 import io.exoreaction.synthesis.kcp.KcpRelationship;
 import io.exoreaction.synthesis.kcp.KcpUnit;
 import io.exoreaction.synthesis.util.FileUtils;
@@ -26,6 +28,33 @@ import java.util.*;
 public class YamlAnalyzer implements FileAnalyzer {
 
     private static final int CONTENT_PREVIEW_LIMIT = 10240;
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /**
+     * Root-level keys the KCP extraction maps into structured fields.
+     * Everything else (trust, auth, payment, rate_limits, freshness_policy,
+     * composition, visibility, authority, external_relationships, ...) is
+     * preserved verbatim in {@code rootExtensionsJson} — forward-compatible
+     * lossless ingestion (issue #355). {@code trust} stays in extensions even
+     * though its signing sub-fields are also extracted separately.
+     */
+    private static final Set<String> KCP_ROOT_STRUCTURED_KEYS = Set.of(
+            "kcp_version", "project", "id", "version", "updated", "language",
+            "license", "indexing", "hints", "units", "relationships",
+            "temporal", "not_for", "content_structure", "discovery", "manifests");
+
+    /** Unit-level keys mapped into {@link KcpUnit} fields; the rest go to extensionsJson. */
+    private static final Set<String> KCP_UNIT_STRUCTURED_KEYS = Set.of(
+            "id", "path", "intent", "scope", "audience", "triggers", "hints",
+            "temporal", "content_hash", "not_for", "not_for_strict",
+            "content_structure", "discovery");
+
+    /** manifests[] entry keys mapped into {@link KcpFederationEntry} fields. */
+    private static final Set<String> KCP_FEDERATION_STRUCTURED_KEYS = Set.of(
+            "id", "url", "label", "relationship", "update_frequency",
+            "local_mirror", "context", "version_pin", "version_policy",
+            "temporal", "agent_identity");
 
     @Override
     public boolean canAnalyze(FileMetadata metadata) {
@@ -243,6 +272,40 @@ public class YamlAnalyzer implements FileAnalyzer {
             }
         }
 
+        // --- Root-level manifests[] federation entries (v0.9/v0.21/v0.24, issue #355) ---
+        List<KcpFederationEntry> federation = new ArrayList<>();
+        Object manifestsObj = data.get("manifests");
+        if (manifestsObj instanceof List<?> manifestsList) {
+            for (Object m : manifestsList) {
+                if (!(m instanceof Map<?, ?> rawEntry)) continue;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> entry = (Map<String, Object>) rawEntry;
+                String fedValidFrom = null, fedValidUntil = null, fedSupersededBy = null;
+                Object fedTemporalObj = entry.get("temporal");
+                if (fedTemporalObj instanceof Map<?, ?> fedTemporal) {
+                    fedValidFrom = getNestedString(fedTemporal, "valid_from");
+                    fedValidUntil = getNestedString(fedTemporal, "valid_until");
+                    fedSupersededBy = getNestedString(fedTemporal, "superseded_by");
+                }
+                federation.add(new KcpFederationEntry(
+                        getNestedString(entry, "id"),
+                        getNestedString(entry, "url"),
+                        getNestedString(entry, "label"),
+                        getNestedString(entry, "relationship"),
+                        getNestedString(entry, "update_frequency"),
+                        getNestedString(entry, "local_mirror"),
+                        getNestedString(entry, "context"),
+                        getNestedString(entry, "version_pin"),
+                        getNestedString(entry, "version_policy"),
+                        fedValidFrom, fedValidUntil, fedSupersededBy,
+                        toJsonOrNull(entry.get("agent_identity")),
+                        extractUnmappedBlocks(entry, KCP_FEDERATION_STRUCTURED_KEYS)));
+            }
+        }
+
+        // --- Root-level forward-compatible extensions (issue #355) ---
+        String rootExtensionsJson = extractUnmappedBlocks(data, KCP_ROOT_STRUCTURED_KEYS);
+
         Object unitsObj = data.get("units");
         if (unitsObj instanceof List<?> unitsList) {
             for (Object u : unitsList) {
@@ -370,6 +433,9 @@ public class YamlAnalyzer implements FileAnalyzer {
                     if (ev != null) unitEvidence = ev;
                 }
 
+                // --- Forward-compatible unit extensions (issue #355) ---
+                String unitExtensionsJson = extractUnmappedBlocks(unit, KCP_UNIT_STRUCTURED_KEYS);
+
                 units.add(new KcpUnit(unitId, unitPath, intentStr, scope,
                         List.copyOf(audienceList), List.copyOf(triggerList),
                         hints != null ? Map.copyOf(hints) : Map.of(),
@@ -377,7 +443,8 @@ public class YamlAnalyzer implements FileAnalyzer {
                         contentHashAlgorithm, contentHashValue,
                         unitNotFor, unitNotForStrict,
                         unitCsPrimary, unitCsDensity,
-                        unitVerificationStatus, unitConfidence, unitVerifiedBy, unitEvidence));
+                        unitVerificationStatus, unitConfidence, unitVerifiedBy, unitEvidence,
+                        unitExtensionsJson));
             }
         }
 
@@ -432,6 +499,11 @@ public class YamlAnalyzer implements FileAnalyzer {
         putIfNonNull(metrics, "rootNotFor", rootNotFor);
         putIfNonNull(metrics, "rootContentStructurePrimary", rootContentStructurePrimary);
         putIfNonNull(metrics, "rootContentStructureDensity", rootContentStructureDensity);
+        putIfNonNull(metrics, "rootExtensionsJson", rootExtensionsJson);
+        if (!federation.isEmpty()) {
+            metrics.put("kcpFederation", List.copyOf(federation));
+            metrics.put("federationCount", federation.size());
+        }
 
         return new KcpExtraction(summary, kcpVersion, unitIds, dedupedKeywords, metrics,
                 List.copyOf(units), List.copyOf(relationships));
@@ -460,6 +532,32 @@ public class YamlAnalyzer implements FileAnalyzer {
         if (value != null) {
             map.put(key, value);
         }
+    }
+
+    /** Serialises any YAML-parsed value to a JSON string; null on null input or failure. */
+    private static String toJsonOrNull(Object value) {
+        if (value == null) return null;
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Collects every key of {@code data} NOT in {@code structuredKeys} into a JSON
+     * object string — the forward-compatible extension capture for issue #355.
+     * Returns null when all keys are structured.
+     */
+    private static String extractUnmappedBlocks(Map<?, ?> data, Set<String> structuredKeys) {
+        Map<String, Object> extensions = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : data.entrySet()) {
+            String key = String.valueOf(e.getKey());
+            if (!structuredKeys.contains(key)) {
+                extensions.put(key, e.getValue());
+            }
+        }
+        return extensions.isEmpty() ? null : toJsonOrNull(extensions);
     }
 
     private String extractClaudeSkillInfo(Map<String, Object> data) {

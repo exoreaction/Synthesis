@@ -33,7 +33,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP v0.5 support (Phases 2-5, PRs #284-#287).
+**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP support (v0.25 export; Phases 2-5, PRs #284-#287).
 
 ---
 
@@ -43,7 +43,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V20; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange).
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V24; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange); V21: Notion workspace source; V22: KCP v0.21 fields; V23: KCP v0.25 federation + extensions; V24: KCP verification results.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
 - **Package root:** `io.exoreaction.synthesis.*` (31 packages, new `kcp` package)
@@ -166,10 +166,13 @@ synthesis claude-md refresh                # Update Synthesis Stats section in C
 synthesis claude-md refresh --dry-run      # Print result without modifying
 synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
 
-# KCP (Knowledge Context Protocol) v0.5
-synthesis export --format kcp                        # Generate KCP v0.5 manifest from index
+# KCP (Knowledge Context Protocol) v0.25
+synthesis export --format kcp                        # Generate KCP v0.25 manifest from index
 synthesis export --format knowledge-context-protocol # Alias
 synthesis export --format kcp -o knowledge.yaml      # Write to file
+synthesis kcp verify                                 # Verify manifest declarations against evidence (V001-V006 + K-signals; exit 1 on HIGH)
+synthesis kcp verify --manifest path --format json   # One manifest, machine-readable (CI gate)
+synthesis kcp gaps                                   # Hot files (git churn) with no KCP unit coverage
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
@@ -345,24 +348,33 @@ Parallel system for source code repos. All metadata in SQLite only — no `.synt
 
 ---
 
-## KCP (Knowledge Context Protocol) v0.5
+## KCP (Knowledge Context Protocol) v0.25
 
 KCP is a structured YAML manifest format (`knowledge.yaml`) that tells AI agents which files
 matter, what each is for, and the recommended read order. Spec: github.com/cantara/knowledge-context-protocol.
-Synthesis provides full-stack v0.5 support across four capabilities.
+Synthesis provides full-stack support across four capabilities: v0.25-conformant export
+(validated against kcp-agent in CI), parsing through v0.21 fields, persistence, and visualisation.
 
 **Detection:** `YamlAnalyzer` identifies `knowledge.yaml` as KCP when ALL THREE hold:
 filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists.
 Extracts `KcpUnit` + `KcpRelationship` records with full field data.
 
-**Persistence (V17):** Three SQLite tables — `kcp_manifests`, `kcp_units`, `kcp_relationships`.
+**Persistence (V17, extended V22–V23):** Four SQLite tables — `kcp_manifests`, `kcp_units`,
+`kcp_relationships`, `kcp_federation` (root `manifests[]` entries incl. v0.24 context/agent_identity).
+Unmapped root/unit blocks (auth, payment, rate_limits, freshness_policy, ...) are preserved as raw
+JSON in `root_extensions_json`/`extensions_json` — forward-compatible lossless ingestion.
 `KcpRepository` provides idempotent upsert/delete. `ScanCommand` and `MaintainCommand` auto-persist
-on detection and clean up on deletion.
+on detection and clean up on deletion. `synthesis kg` badges expired/superseded units and surfaces
+K-series health signals (K001 expired-referenced, K002 supersession cycle, K003 gitignored manifest,
+K004 freshness_policy violation — `KcpHealthChecks`).
 
-**Export:** `synthesis export --format kcp` generates a v0.5 conformant YAML from the Lucene index.
+**Export:** `synthesis export --format kcp` generates a v0.25 conformant YAML from the Lucene index
+(validated by `kcp-agent validate`, pinned in `.github/workflows/kcp-conformance.yml`).
 Header: `kcp_version`, `language`, `indexing`, `hints.unit_count`. Per-unit fields inferred:
 `format` (from extension), `kind` (policy/schema/omit), `triggers` (up to 8 headings),
-`validated`/`updated` (quoted ISO dates).
+`validated`/`updated` (quoted ISO dates), `content_structure` (modality from file type),
+`content_hash` (sha256), `temporal.recorded_at` (last git commit), `discovery`
+(`verification_status: declared`, `source: synthesis`).
 
 **Knowledge graph:** `synthesis kg` surfaces KCP units as first-class nodes. ASCII groups by project.
 Mermaid adds pill nodes + `kcp-unit` edges. JSON adds `kcpUnits` + `kcpRelationships` arrays.
@@ -501,7 +513,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
 | `synthesis-knowledge-graph` | `synthesis knowledge-graph`, `describe`, `feedback`, `structure`, `evolution` | Document knowledge graph: centroid, wants, health, bidding, archetypes |
 | `synthesis-code-graph` | `synthesis code-graph extract`, `cg` | Code dependency persistence, fast relate/impact |
-| `synthesis-kcp` | `synthesis export --format kcp`, `synthesis kg` | KCP v0.5 support |
+| `synthesis-kcp` | `synthesis export --format kcp`, `synthesis kg` | KCP v0.25 support |
 
 **Start here for new work:** `synthesis-development` -- covers architecture decisions, patterns, and how to navigate the codebase.
 
@@ -525,7 +537,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V20.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V24.
 - **V20**: `git_file_metrics` + `git_cochange` tables. Populated by `synthesis hotspots --refresh` via `GitMetricsComputer`. Both are reconstructible caches — losing them loses no information.
 - **KCP detection heuristic**: `knowledge.yaml` files are detected as KCP manifests when ALL THREE hold: filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists. Files failing any condition are indexed as generic YAML.
 - **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:

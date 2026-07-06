@@ -48,7 +48,8 @@ import java.util.stream.*;
  */
 @Command(
         name = "skills-graph",
-        description = "Generate interactive graph visualization of Claude Code skills",
+        description = {"Generate interactive graph of Claude Code skills (default).",
+                "--mode workspace/modules generates a code-dependency graph instead, unrelated to skills."},
         mixinStandardHelpOptions = true
 )
 public class SkillsGraphCommand implements Callable<Integer> {
