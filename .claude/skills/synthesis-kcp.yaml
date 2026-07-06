@@ -348,6 +348,28 @@ instructions: |
   Ranks by hotspot score, annotates module fan-in when the code graph knows it, and
   filters Synthesis internals/VCS metadata.
 
+  ## Sign & govern (synthesis kcp sign + G-series)
+
+  Two trust layers, both surfaced through `kcp verify`:
+
+  ```bash
+  synthesis kcp sign knowledge.yaml            # Ed25519 detached signature → knowledge.yaml.sig
+  synthesis kcp sign knowledge.yaml --verify   # trust tier: TRUSTED/KNOWN/UNSIGNED/FAILED
+  synthesis kcp init --sign                    # sign at generation time
+  ```
+
+  - **Tamper-evidence**: Ed25519 keys live in `~/.synthesis/kcp-keys/` (`<kid>.pub` allowlist,
+    `<kid>.key` private, `0600`, never written into a manifest/log/export). Any edit after
+    signing flips the tier to FAILED; `kcp verify` fires **K005** on a failed signature.
+  - **Governance cross-check** (the differentiator — Synthesis holds both the manifest and a
+    CKG-5 security scan over the same files): `kcp verify` folds in **G001** (`sensitivity: public`
+    on a file with a HIGH security finding), **G002** (`authority.share_externally` under a
+    `compliance.data_residency` restriction), **G003** (`visibility` scope unknown to the org
+    registry).
+
+  The full trustworthy-context story = **verify (evidence-backed) + sign (tamper-evident) +
+  govern (declarations match reality)**. Run `synthesis kcp verify` after `sign` for all three.
+
   ## Use cases
 
   1. **Bootstrap agent navigation** — generate `knowledge.yaml` in a new repo so agents know

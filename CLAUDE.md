@@ -180,6 +180,9 @@ synthesis kcp gaps                                   # Hot files (git churn) wit
 synthesis kcp catalog [dir] -o catalog.yaml          # Emit catalog.yaml (catalog spec v0.1) for a repo estate
 synthesis kcp federate [dir] --write                 # Emit root knowledge.yaml federating every repo manifest (>50 repos → sharded)
 synthesis kcp plan "task" --budget N --format json   # Ordered read plan over indexed units (RFC-0007 scoring; also plan_context MCP tool)
+synthesis kcp sign [manifest]                        # Ed25519-sign a manifest (detached knowledge.yaml.sig; keys in ~/.synthesis/kcp-keys/)
+synthesis kcp sign [manifest] --verify               # Print trust tier (TRUSTED/KNOWN/UNSIGNED/FAILED)
+synthesis kcp init --sign                            # Sign each generated manifest at scaffold time
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
@@ -373,7 +376,15 @@ JSON in `root_extensions_json`/`extensions_json` — forward-compatible lossless
 `KcpRepository` provides idempotent upsert/delete. `ScanCommand` and `MaintainCommand` auto-persist
 on detection and clean up on deletion. `synthesis kg` badges expired/superseded units and surfaces
 K-series health signals (K001 expired-referenced, K002 supersession cycle, K003 gitignored manifest,
-K004 freshness_policy violation — `KcpHealthChecks`).
+K004 freshness_policy violation — `KcpHealthChecks`; K005 invalid signature — `KcpSigner`).
+
+**Trust & governance (Phase 7):** `synthesis kcp sign` Ed25519-signs a manifest (detached
+`knowledge.yaml.sig`, keys in `~/.synthesis/kcp-keys/`, private keys never emitted); `KcpSigner`
+assigns trust tiers (`trusted`/`known`/`unsigned`/`failed`) and `kcp verify` fires K005 when a
+signed manifest is tampered. The G-series governance cross-check (`KcpGovernanceChecks`, folded
+into `kcp verify`) catches declarations reality contradicts: G001 `sensitivity: public` on a file
+with a HIGH CKG-5 security finding, G002 `authority.share_externally` under a `data_residency`
+restriction, G003 `visibility` scopes unknown to the org registry.
 
 **Export:** `synthesis export --format kcp` generates a v0.25 conformant YAML from the Lucene index
 (validated by `kcp-agent validate`, pinned in `.github/workflows/kcp-conformance.yml`).

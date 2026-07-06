@@ -81,6 +81,24 @@ public final class KcpVerifier {
                                         Map<String, String> gitDates,
                                         Path workspaceRoot,
                                         String today) {
+        return verifyManifest(manifest, units, relationships, gitDates, workspaceRoot, today,
+                Map.of(), Set.of());
+    }
+
+    /**
+     * Full verification including the G-series governance cross-check (issue #360).
+     *
+     * @param highFindingsByPath repo-relative path → HIGH security signal ids on that file
+     * @param knownEnvironments  environments/roles the org registry recognises
+     */
+    public static Result verifyManifest(KcpRepository.KcpManifestRow manifest,
+                                        List<KcpRepository.KcpUnitRow> units,
+                                        List<KcpRelationship> relationships,
+                                        Map<String, String> gitDates,
+                                        Path workspaceRoot,
+                                        String today,
+                                        Map<String, List<String>> highFindingsByPath,
+                                        Set<String> knownEnvironments) {
         List<Finding> findings = new ArrayList<>();
         String manifestFile = manifest.filePath();
         Path manifestDir = Path.of(manifestFile).getParent();
@@ -189,6 +207,12 @@ public final class KcpVerifier {
                 manifest, units, relationships, today)) {
             findings.add(new Finding(signal.code(), signal.severity(), null,
                     signal.manifestFile(), signal.detail()));
+        }
+
+        // Fold in G-series governance cross-check (issue #360)
+        for (KcpGovernanceChecks.Finding g : KcpGovernanceChecks.check(
+                units, manifest.rootExtensionsJson(), highFindingsByPath, knownEnvironments)) {
+            findings.add(new Finding(g.checkId(), g.severity(), g.unitId(), manifestFile, g.detail()));
         }
 
         // Per-unit verdicts

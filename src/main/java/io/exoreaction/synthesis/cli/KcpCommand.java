@@ -49,7 +49,7 @@ import java.util.concurrent.Callable;
         subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
                 KcpCommand.VerifySub.class, KcpCommand.GapsSub.class,
                 KcpCommand.CatalogSub.class, KcpCommand.FederateSub.class,
-                KcpCommand.PlanSub.class}
+                KcpCommand.PlanSub.class, KcpCommand.SignSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -58,9 +58,67 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate|plan> "
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate|plan|sign> "
                 + "— see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp sign
+    // -----------------------------------------------------------------------
+
+    @Command(name = "sign",
+            description = {"Ed25519-sign a knowledge.yaml, or --verify its trust tier against the key store.",
+                    "Writes a detached knowledge.yaml.sig; keys live in ~/.synthesis/kcp-keys/ and are "
+                            + "never written into the manifest. Tampering flips the tier to FAILED."},
+            mixinStandardHelpOptions = true)
+    static class SignSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Manifest file or repo directory (default: workspace-root/knowledge.yaml)")
+        private Path target;
+
+        @Option(names = {"--key-id"}, description = "Signing key id (default: synthesis-local)",
+                defaultValue = "synthesis-local")
+        private String keyId;
+
+        @Option(names = {"--verify"}, description = "Verify instead of sign; print the trust tier")
+        private boolean verify;
+
+        @Override
+        public Integer call() throws Exception {
+            Path manifest = resolveManifest(target != null ? target
+                    : kcpParent.parent.getWorkspaceRoot());
+            if (!java.nio.file.Files.isRegularFile(manifest)) {
+                AnsiOutput.printError("No knowledge.yaml at " + manifest);
+                return 2;
+            }
+            Path sig = manifest.resolveSibling(manifest.getFileName() + ".sig");
+            var store = io.exoreaction.synthesis.kcp.KcpTrustStore.defaultStore();
+
+            if (verify) {
+                String detached = java.nio.file.Files.exists(sig)
+                        ? java.nio.file.Files.readString(sig) : null;
+                var tier = io.exoreaction.synthesis.kcp.KcpSigner.verify(
+                        java.nio.file.Files.readAllBytes(manifest), detached, store.loadAllowlist());
+                System.out.println("Trust tier: " + tier + "  (" + manifest + ")");
+                return tier == io.exoreaction.synthesis.kcp.KcpSigner.TrustTier.FAILED ? 1 : 0;
+            }
+
+            var kp = store.loadOrCreateSigningKey(keyId);
+            String detached = io.exoreaction.synthesis.kcp.KcpSigner.sign(
+                    java.nio.file.Files.readAllBytes(manifest), kp.getPrivate(), keyId);
+            java.nio.file.Files.writeString(sig, detached);
+            System.out.println("  [OK] signed → " + sig + "  (key: " + keyId + ")");
+            return 0;
+        }
+
+        private static Path resolveManifest(Path target) {
+            return java.nio.file.Files.isDirectory(target) ? target.resolve("knowledge.yaml") : target;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -406,6 +464,9 @@ public class KcpCommand implements Callable<Integer> {
         @Option(names = {"--dry-run"}, description = "Print the manifest(s) without writing")
         private boolean dryRun;
 
+        @Option(names = {"--sign"}, description = "Ed25519-sign each generated manifest (key: synthesis-local)")
+        private boolean sign;
+
         @Override
         public Integer call() {
             String version = Version.getVersion();
@@ -472,6 +533,18 @@ public class KcpCommand implements Callable<Integer> {
                 AnsiOutput.printWarning("  " + io.exoreaction.synthesis.kcp.KcpManifestChecks
                         .warningFor("knowledge.yaml"));
             }
+            if (sign) {
+                try {
+                    var kp = io.exoreaction.synthesis.kcp.KcpTrustStore.defaultStore()
+                            .loadOrCreateSigningKey("synthesis-local");
+                    String detached = io.exoreaction.synthesis.kcp.KcpSigner.sign(
+                            Files.readAllBytes(manifest), kp.getPrivate(), "synthesis-local");
+                    Files.writeString(manifest.resolveSibling("knowledge.yaml.sig"), detached);
+                    System.out.println("  [OK] signed → " + manifest + ".sig");
+                } catch (Exception e) {
+                    AnsiOutput.printError("  signing failed: " + e.getMessage());
+                }
+            }
             return ScaffoldOutcome.WRITTEN;
         }
     }
@@ -511,6 +584,22 @@ public class KcpCommand implements Callable<Integer> {
             // Shared default instance (~/.synthesis/synthesis.db) — not closed here
             Connection conn = SynthesisDatabase.getDefault().getConnection();
             KcpRepository repo = new KcpRepository();
+
+            // Governance cross-check inputs (issue #360): HIGH security findings per file
+            Map<String, java.util.List<String>> highFindingsByPath = new java.util.HashMap<>();
+            try {
+                var securityRepo = new io.exoreaction.synthesis.graph.SecurityRepository();
+                for (var f : securityRepo.getFindingsBySeverity(conn, workspaceRoot.toString(), "HIGH")) {
+                    if (f.filePath() != null) {
+                        highFindingsByPath.computeIfAbsent(f.filePath().replace('\\', '/'),
+                                k -> new ArrayList<>()).add(f.signalId());
+                    }
+                }
+            } catch (Exception e) {
+                // security table absent or unscanned — governance G001 simply won't fire
+            }
+            java.util.Set<String> knownEnvironments =
+                    java.util.Set.of("dev", "test", "staging", "prod", "production", "development");
             List<KcpRepository.KcpManifestRow> manifests =
                     repo.getManifests(conn, workspaceRoot.toString());
             if (manifestFilter != null) {
@@ -531,7 +620,16 @@ public class KcpCommand implements Callable<Integer> {
                 KcpVerifier.Result result = KcpVerifier.verifyManifest(
                         m, units,
                         repo.getRelationshipsForManifest(conn, workspaceRoot.toString(), m.filePath()),
-                        gitDates, workspaceRoot, today);
+                        gitDates, workspaceRoot, today, highFindingsByPath, knownEnvironments);
+
+                // K005 — signature present but invalid (tamper/stale key), issue #360
+                KcpVerifier.Finding k005 = checkSignature(m.filePath());
+                if (k005 != null) {
+                    List<KcpVerifier.Finding> merged = new ArrayList<>(result.findings());
+                    merged.add(k005);
+                    result = new KcpVerifier.Result(result.manifestFile(),
+                            List.copyOf(merged), result.unitVerdicts());
+                }
                 results.add(result);
 
                 // Persist verdicts beside the declarations (kcp_verification, V24)
@@ -553,6 +651,29 @@ public class KcpCommand implements Callable<Integer> {
                 printText(results);
             }
             return contradicted ? 1 : 0;
+        }
+
+        /**
+         * K005: when a manifest has a sibling {@code .sig}, verify it against the
+         * trust store and return a HIGH finding if the tier is FAILED. Null otherwise.
+         */
+        static KcpVerifier.Finding checkSignature(String manifestFile) {
+            try {
+                Path manifest = Path.of(manifestFile);
+                Path sig = manifest.resolveSibling(manifest.getFileName() + ".sig");
+                if (!Files.exists(sig)) return null;
+                var tier = io.exoreaction.synthesis.kcp.KcpSigner.verify(
+                        Files.readAllBytes(manifest), Files.readString(sig),
+                        io.exoreaction.synthesis.kcp.KcpTrustStore.defaultStore().loadAllowlist());
+                if (tier == io.exoreaction.synthesis.kcp.KcpSigner.TrustTier.FAILED) {
+                    return new KcpVerifier.Finding("K005", "HIGH", null, manifestFile,
+                            "signature present but invalid — manifest was modified after signing, "
+                                    + "or the signing key is stale/untrusted");
+                }
+            } catch (Exception ignored) {
+                // treat unreadable signature as no signal
+            }
+            return null;
         }
 
         private void printText(List<KcpVerifier.Result> results) {
