@@ -77,6 +77,7 @@ public class KcpRepository {
         String rootNotForJson = toJson(metrics.get("rootNotFor"));
         String rootCsPrimary = getString(metrics, "rootContentStructurePrimary");
         String rootCsDensity = getString(metrics, "rootContentStructureDensity");
+        String rootExtensionsJson = getString(metrics, "rootExtensionsJson");
 
         // 1. Upsert manifest row
         upsertManifest(conn, workspacePath, filePath, project, kcpVersion,
@@ -84,11 +85,12 @@ public class KcpRepository {
                 signingAlgorithm, signingKeyId, signatureFile,
                 rootVerificationStatus, rootConfidence, rootVerifiedBy, rootVerifiedAt,
                 rootValidFrom, rootValidUntil, rootNotForJson,
-                rootCsPrimary, rootCsDensity);
+                rootCsPrimary, rootCsDensity, rootExtensionsJson);
 
-        // 2. Delete existing units + relationships for this manifest (fresh write)
+        // 2. Delete existing units + relationships + federation entries (fresh write)
         deleteUnitsForManifest(conn, workspacePath, filePath);
         deleteRelationshipsForManifest(conn, workspacePath, filePath);
+        deleteFederationForManifest(conn, workspacePath, filePath);
 
         // 3. Insert units
         @SuppressWarnings("unchecked")
@@ -107,6 +109,15 @@ public class KcpRepository {
                 insertRelationship(conn, workspacePath, filePath, rel, now);
             }
         }
+
+        // 5. Insert federation entries (root manifests[] block, issue #355)
+        @SuppressWarnings("unchecked")
+        List<KcpFederationEntry> federation = (List<KcpFederationEntry>) metrics.get("kcpFederation");
+        if (federation != null) {
+            for (KcpFederationEntry entry : federation) {
+                insertFederationEntry(conn, workspacePath, filePath, entry, now);
+            }
+        }
     }
 
     /**
@@ -117,6 +128,7 @@ public class KcpRepository {
             throws SQLException {
         deleteRelationshipsForManifest(conn, workspacePath, filePath);
         deleteUnitsForManifest(conn, workspacePath, filePath);
+        deleteFederationForManifest(conn, workspacePath, filePath);
         try (PreparedStatement ps = conn.prepareStatement(
                 "DELETE FROM kcp_manifests WHERE workspace_path = ? AND file_path = ?")) {
             ps.setString(1, workspacePath);
@@ -129,7 +141,7 @@ public class KcpRepository {
      * Deletes all KCP records for an entire workspace. Used before a full re-scan.
      */
     public void deleteAllForWorkspace(Connection conn, String workspacePath) throws SQLException {
-        for (String table : List.of("kcp_relationships", "kcp_units", "kcp_manifests")) {
+        for (String table : List.of("kcp_relationships", "kcp_units", "kcp_federation", "kcp_manifests")) {
             try (PreparedStatement ps = conn.prepareStatement(
                     "DELETE FROM " + table + " WHERE workspace_path = ?")) {
                 ps.setString(1, workspacePath);
@@ -150,7 +162,8 @@ public class KcpRepository {
                        signing_algorithm, signing_key_id, signature_file,
                        verification_status, confidence, verified_by, verified_at,
                        valid_from, valid_until, not_for_json,
-                       content_structure_primary, content_structure_density
+                       content_structure_primary, content_structure_density,
+                       root_extensions_json
                 FROM kcp_manifests
                 WHERE workspace_path = ?
                 ORDER BY project, file_path
@@ -178,7 +191,49 @@ public class KcpRepository {
                             rs.getString("valid_until"),
                             rs.getString("not_for_json"),
                             rs.getString("content_structure_primary"),
-                            rs.getString("content_structure_density")));
+                            rs.getString("content_structure_density"),
+                            rs.getString("root_extensions_json")));
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Returns the federation entries (root manifests[] block) declared by a manifest. */
+    public List<KcpFederationEntry> getFederationForManifest(Connection conn,
+                                                              String workspacePath,
+                                                              String manifestFile)
+            throws SQLException {
+        String sql = """
+                SELECT entry_id, url, label, relationship, update_frequency, local_mirror,
+                       context, version_pin, version_policy,
+                       valid_from, valid_until, superseded_by,
+                       agent_identity_json, extensions_json
+                FROM kcp_federation
+                WHERE workspace_path = ? AND manifest_file = ?
+                ORDER BY id
+                """;
+        List<KcpFederationEntry> result = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, manifestFile);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new KcpFederationEntry(
+                            rs.getString("entry_id"),
+                            rs.getString("url"),
+                            rs.getString("label"),
+                            rs.getString("relationship"),
+                            rs.getString("update_frequency"),
+                            rs.getString("local_mirror"),
+                            rs.getString("context"),
+                            rs.getString("version_pin"),
+                            rs.getString("version_policy"),
+                            rs.getString("valid_from"),
+                            rs.getString("valid_until"),
+                            rs.getString("superseded_by"),
+                            rs.getString("agent_identity_json"),
+                            rs.getString("extensions_json")));
                 }
             }
         }
@@ -195,7 +250,8 @@ public class KcpRepository {
                        content_hash_algorithm, content_hash_value,
                        not_for_json, not_for_strict,
                        content_structure_primary, content_structure_density,
-                       verification_status, confidence, verified_by, evidence
+                       verification_status, confidence, verified_by, evidence,
+                       extensions_json
                 FROM kcp_units
                 WHERE workspace_path = ? AND manifest_file = ?
                 ORDER BY id
@@ -227,7 +283,8 @@ public class KcpRepository {
                             rs.getString("verification_status"),
                             getDoubleOrNeg1(rs, "confidence"),
                             rs.getString("verified_by"),
-                            rs.getString("evidence")));
+                            rs.getString("evidence"),
+                            rs.getString("extensions_json")));
                 }
             }
         }
@@ -251,7 +308,8 @@ public class KcpRepository {
                        content_hash_algorithm, content_hash_value,
                        not_for_json, not_for_strict,
                        content_structure_primary, content_structure_density,
-                       verification_status, confidence, verified_by, evidence
+                       verification_status, confidence, verified_by, evidence,
+                       extensions_json
                 FROM kcp_units
                 WHERE workspace_path = ? AND manifest_file = ?
                   AND (valid_from IS NULL OR valid_from <= ?)
@@ -287,7 +345,8 @@ public class KcpRepository {
                             rs.getString("verification_status"),
                             getDoubleOrNeg1(rs, "confidence"),
                             rs.getString("verified_by"),
-                            rs.getString("evidence")));
+                            rs.getString("evidence"),
+                            rs.getString("extensions_json")));
                 }
             }
         }
@@ -438,13 +497,15 @@ public class KcpRepository {
             String validUntil,
             String notForJson,
             String contentStructurePrimary,
-            String contentStructureDensity) {
+            String contentStructureDensity,
+            // v0.25 forward-compatible extensions (issue #355)
+            String rootExtensionsJson) {
 
         /** Backward-compatible constructor (6 fields). */
         public KcpManifestRow(String filePath, String project, String kcpVersion,
                               int unitCount, int relationshipCount, long lastComputed) {
             this(filePath, project, kcpVersion, unitCount, relationshipCount, lastComputed,
-                    null, null, null, null, -1.0, null, null, null, null, null, null, null);
+                    null, null, null, null, -1.0, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -474,14 +535,16 @@ public class KcpRepository {
             String verificationStatus,
             double confidence,
             String verifiedBy,
-            String evidence) {
+            String evidence,
+            // v0.25 forward-compatible extensions (issue #355)
+            String extensionsJson) {
 
         /** Backward-compatible constructor (7 fields). */
         public KcpUnitRow(String unitId, String path, String intent, String scope,
                           String audienceJson, String triggersJson, String hintsJson) {
             this(unitId, path, intent, scope, audienceJson, triggersJson, hintsJson,
                     null, null, null, null, null, null, null, false, null, null,
-                    null, -1.0, null, null);
+                    null, -1.0, null, null, null);
         }
     }
 
@@ -496,7 +559,8 @@ public class KcpRepository {
                                  String verificationStatus, double confidence,
                                  String verifiedBy, String verifiedAt,
                                  String validFrom, String validUntil, String notForJson,
-                                 String csPrimary, String csDensity) throws SQLException {
+                                 String csPrimary, String csDensity,
+                                 String rootExtensionsJson) throws SQLException {
         String sql = """
                 INSERT OR REPLACE INTO kcp_manifests
                     (workspace_path, file_path, project, kcp_version,
@@ -504,8 +568,9 @@ public class KcpRepository {
                      signing_algorithm, signing_key_id, signature_file,
                      verification_status, confidence, verified_by, verified_at,
                      valid_from, valid_until, not_for_json,
-                     content_structure_primary, content_structure_density)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     content_structure_primary, content_structure_density,
+                     root_extensions_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
@@ -531,6 +596,49 @@ public class KcpRepository {
             ps.setString(17, notForJson);
             ps.setString(18, csPrimary);
             ps.setString(19, csDensity);
+            ps.setString(20, rootExtensionsJson);
+            ps.executeUpdate();
+        }
+    }
+
+    private void insertFederationEntry(Connection conn, String workspacePath, String manifestFile,
+                                        KcpFederationEntry entry, long now) throws SQLException {
+        String sql = """
+                INSERT OR REPLACE INTO kcp_federation
+                    (workspace_path, manifest_file, entry_id, url, label, relationship,
+                     update_frequency, local_mirror, context, version_pin, version_policy,
+                     valid_from, valid_until, superseded_by,
+                     agent_identity_json, extensions_json, last_computed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, manifestFile);
+            ps.setString(3, entry.entryId());
+            ps.setString(4, entry.url());
+            ps.setString(5, entry.label());
+            ps.setString(6, entry.relationship());
+            ps.setString(7, entry.updateFrequency());
+            ps.setString(8, entry.localMirror());
+            ps.setString(9, entry.context());
+            ps.setString(10, entry.versionPin());
+            ps.setString(11, entry.versionPolicy());
+            ps.setString(12, entry.validFrom());
+            ps.setString(13, entry.validUntil());
+            ps.setString(14, entry.supersededBy());
+            ps.setString(15, entry.agentIdentityJson());
+            ps.setString(16, entry.extensionsJson());
+            ps.setLong(17, now);
+            ps.executeUpdate();
+        }
+    }
+
+    private void deleteFederationForManifest(Connection conn, String workspacePath,
+                                              String manifestFile) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "DELETE FROM kcp_federation WHERE workspace_path = ? AND manifest_file = ?")) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, manifestFile);
             ps.executeUpdate();
         }
     }
@@ -545,8 +653,9 @@ public class KcpRepository {
                      content_hash_algorithm, content_hash_value,
                      not_for_json, not_for_strict,
                      content_structure_primary, content_structure_density,
-                     verification_status, confidence, verified_by, evidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     verification_status, confidence, verified_by, evidence,
+                     extensions_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
@@ -583,6 +692,8 @@ public class KcpRepository {
             }
             ps.setString(23, unit.verifiedBy());
             ps.setString(24, unit.evidence());
+            // Forward-compatible extensions
+            ps.setString(25, unit.extensionsJson());
             ps.executeUpdate();
         }
     }

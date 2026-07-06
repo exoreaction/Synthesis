@@ -108,6 +108,32 @@ class KcpRepositoryTest {
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN not_for_json TEXT");
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_primary TEXT");
             st.execute("ALTER TABLE kcp_manifests ADD COLUMN content_structure_density TEXT");
+
+            // Apply V23 migration (v0.25 federation + forward-compat extensions)
+            st.execute("ALTER TABLE kcp_manifests ADD COLUMN root_extensions_json TEXT");
+            st.execute("ALTER TABLE kcp_units ADD COLUMN extensions_json TEXT");
+            st.execute("""
+                    CREATE TABLE kcp_federation (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        workspace_path TEXT NOT NULL,
+                        manifest_file TEXT NOT NULL,
+                        entry_id TEXT,
+                        url TEXT,
+                        label TEXT,
+                        relationship TEXT,
+                        update_frequency TEXT,
+                        local_mirror TEXT,
+                        context TEXT,
+                        version_pin TEXT,
+                        version_policy TEXT,
+                        valid_from TEXT,
+                        valid_until TEXT,
+                        superseded_by TEXT,
+                        agent_identity_json TEXT,
+                        extensions_json TEXT,
+                        last_computed INTEGER NOT NULL,
+                        UNIQUE(workspace_path, manifest_file, entry_id, url)
+                    )""");
         }
         repo = new KcpRepository();
     }
@@ -339,6 +365,142 @@ class KcpRepositoryTest {
         // This test just confirms it doesn't throw.
         assertDoesNotThrow(() ->
                 repo.upsertFromAnalysis(conn, tempDir.toString(), metadata(yaml), analysis));
+    }
+
+    // -----------------------------------------------------------------------
+    // v0.25 ingestion: federation + forward-compatible extensions (issue #355)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void testUpsertV025ManifestWithFederationAndExtensions() throws Exception {
+        Path yaml = writeYaml("knowledge.yaml", """
+                kcp_version: "0.25"
+                project: org-root
+                payment:
+                  methods:
+                    - type: free
+                rate_limits:
+                  authenticated:
+                    requests_per_hour: 1000
+                trust:
+                  agent_requirements:
+                    require_attestation: true
+                freshness_policy:
+                  max_age_days: 90
+                  on_stale: warn
+                some_future_v99_block:
+                  anything: goes
+                manifests:
+                  - id: billing-service
+                    url: https://example.com/billing/knowledge.yaml
+                    relationship: governs
+                    context: prod
+                    local_mirror: repos/billing/knowledge.yaml
+                    temporal:
+                      valid_from: "2026-01-01"
+                    agent_identity:
+                      required: true
+                      credential_hint: spiffe
+                  - id: docs-portal
+                    url: https://example.com/docs/knowledge.yaml
+                    relationship: extends
+                units:
+                  - id: overview
+                    path: README.md
+                    intent: "What is this org?"
+                    scope: global
+                    audience: [agent]
+                    auth:
+                      methods:
+                        - type: oauth2
+                    payment:
+                      methods:
+                        - type: meter
+                """);
+
+        AnalysisResult analysis = analyzer.analyze(metadata(yaml));
+        assertEquals("kcp-manifest", analysis.metrics().get("yamlType"));
+        repo.upsertFromAnalysis(conn, tempDir.toString(), metadata(yaml), analysis);
+
+        // Federation entries persisted with structured fields
+        List<KcpFederationEntry> federation =
+                repo.getFederationForManifest(conn, tempDir.toString(), yaml.toString());
+        assertEquals(2, federation.size());
+        KcpFederationEntry billing = federation.get(0);
+        assertEquals("billing-service", billing.entryId());
+        assertEquals("governs", billing.relationship());
+        assertEquals("prod", billing.context());
+        assertEquals("repos/billing/knowledge.yaml", billing.localMirror());
+        assertEquals("2026-01-01", billing.validFrom());
+        assertNotNull(billing.agentIdentityJson(), "v0.24 agent_identity must be preserved");
+        assertTrue(billing.agentIdentityJson().contains("spiffe"));
+
+        // Root extension blocks preserved losslessly
+        List<KcpRepository.KcpManifestRow> manifests = repo.getManifests(conn, tempDir.toString());
+        String rootExt = manifests.get(0).rootExtensionsJson();
+        assertNotNull(rootExt, "Unmapped root blocks must be captured");
+        assertTrue(rootExt.contains("payment"), "payment block must survive: " + rootExt);
+        assertTrue(rootExt.contains("rate_limits"), "rate_limits must survive");
+        assertTrue(rootExt.contains("require_attestation"), "trust.agent_requirements must survive");
+        assertTrue(rootExt.contains("freshness_policy"), "freshness_policy must survive");
+        assertTrue(rootExt.contains("some_future_v99_block"),
+                "unknown future blocks must be captured, not dropped");
+
+        // Unit extension blocks preserved losslessly
+        List<KcpRepository.KcpUnitRow> units =
+                repo.getUnitsForManifest(conn, tempDir.toString(), yaml.toString());
+        String unitExt = units.get(0).extensionsJson();
+        assertNotNull(unitExt, "Unmapped unit blocks must be captured");
+        assertTrue(unitExt.contains("oauth2"), "per-unit auth override must survive: " + unitExt);
+        assertTrue(unitExt.contains("meter"), "per-unit payment override must survive");
+    }
+
+    @Test
+    void testDeleteForManifestClearsFederation() throws Exception {
+        Path yaml = writeYaml("knowledge.yaml", """
+                kcp_version: "0.25"
+                project: fed-project
+                manifests:
+                  - id: child
+                    url: https://example.com/child/knowledge.yaml
+                units:
+                  - id: overview
+                    path: README.md
+                    intent: "Overview?"
+                    scope: global
+                    audience: [agent]
+                """);
+
+        AnalysisResult analysis = analyzer.analyze(metadata(yaml));
+        repo.upsertFromAnalysis(conn, tempDir.toString(), metadata(yaml), analysis);
+        assertEquals(1, repo.getFederationForManifest(conn, tempDir.toString(), yaml.toString()).size());
+
+        repo.deleteForManifest(conn, tempDir.toString(), yaml.toString());
+        assertTrue(repo.getFederationForManifest(conn, tempDir.toString(), yaml.toString()).isEmpty(),
+                "Federation rows must be removed with the manifest");
+    }
+
+    @Test
+    void testManifestWithoutExtensionsHasNullJson() throws Exception {
+        Path yaml = writeYaml("knowledge.yaml", """
+                kcp_version: "0.25"
+                project: plain
+                units:
+                  - id: overview
+                    path: README.md
+                    intent: "Overview?"
+                    scope: global
+                    audience: [agent]
+                """);
+
+        AnalysisResult analysis = analyzer.analyze(metadata(yaml));
+        repo.upsertFromAnalysis(conn, tempDir.toString(), metadata(yaml), analysis);
+
+        assertNull(repo.getManifests(conn, tempDir.toString()).get(0).rootExtensionsJson(),
+                "Fully-structured manifests must not fabricate extensions");
+        assertNull(repo.getUnitsForManifest(conn, tempDir.toString(), yaml.toString())
+                        .get(0).extensionsJson(),
+                "Fully-structured units must not fabricate extensions");
     }
 
     // -----------------------------------------------------------------------

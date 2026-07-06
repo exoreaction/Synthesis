@@ -146,15 +146,25 @@ instructions: |
 
   ---
 
-  ## Database persistence (V17 tables)
+  ## Database persistence (V17 tables, extended V22–V23)
 
-  Three SQLite tables (Flyway V17):
+  Four SQLite tables (Flyway V17 + V22 v0.21 fields + V23 v0.25 federation/extensions):
 
   | Table | Purpose |
   |-------|---------|
-  | `kcp_manifests` | One row per `knowledge.yaml` file (project, kcp_version, unit_count, relationship_count) |
-  | `kcp_units` | One row per unit (intent, scope, audience_json, triggers_json, hints_json) |
+  | `kcp_manifests` | One row per `knowledge.yaml` (project, kcp_version, counts, signing, discovery, `root_extensions_json`) |
+  | `kcp_units` | One row per unit (intent, scope, temporal, content_hash, discovery, `extensions_json`) |
   | `kcp_relationships` | One row per relationship (from_unit, to_unit, type) |
+  | `kcp_federation` | One row per root `manifests[]` entry (url, relationship, context, version pin, temporal, agent_identity) |
+
+  Unmapped root/unit blocks (auth, payment, rate_limits, freshness_policy, composition,
+  visibility, authority, ...) are preserved losslessly as raw JSON in the `*_extensions_json`
+  columns, so future spec waves degrade gracefully instead of being dropped.
+
+  `synthesis kg` badges `[EXPIRED]`/`[SUPERSEDED by x]` units, shows `verification_status`,
+  lists federation entries, and reports K-series health signals (`KcpHealthChecks`):
+  K001 expired-unit-referenced, K002 supersession cycle (HIGH), K003 gitignored manifest (HIGH),
+  K004 freshness_policy violation (severity from `on_stale`).
 
   Managed by `KcpRepository` (in `io.exoreaction.synthesis.kcp`):
   - `upsertFromAnalysis(conn, workspacePath, metadata, analysis)` — idempotent upsert

@@ -69,6 +69,15 @@ public final class KcpManifestChecks {
         }
     }
 
+    /**
+     * Returns true if {@code relativePath} is gitignored in {@code workspaceRoot}.
+     * Returns false when the workspace is not a git repository. Public so K003
+     * health checks (issue #355) can test a single manifest path.
+     */
+    public static boolean isManifestGitIgnored(Path workspaceRoot, String relativePath) {
+        return isRealGitRepo(workspaceRoot) && isGitIgnored(workspaceRoot, relativePath);
+    }
+
     private static boolean isGitIgnored(Path workspaceRoot, String relativePath) {
         try {
             ProcessBuilder pb = new ProcessBuilder("git", "check-ignore", "-q", "--", relativePath);
