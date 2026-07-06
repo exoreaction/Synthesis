@@ -242,6 +242,42 @@ instructions: |
 
   ---
 
+  ## Scaffold manifests from repo structure (synthesis kcp init)
+
+  Works on any repository directory — no index required (unlike `export --format kcp`):
+
+  ```bash
+  synthesis kcp init [dir]              # scaffold knowledge.yaml (default: workspace root)
+  synthesis kcp init --batch /src/org   # every direct child git repo missing a manifest
+  synthesis kcp init --dry-run          # print without writing
+  ```
+
+  Detects README/docs/policy markdown (intent from first heading, triggers from
+  headings), Maven `<modules>` (comments stripped), `.github/workflows` (ci unit),
+  and `src/test` (tests unit). Emits the same v0.25 evidence fields as the exporter
+  (content_hash, content_structure, temporal.recorded_at from git, discovery:
+  declared). Output validates against kcp-agent with 0 warnings.
+
+  **Never overwrites** an existing knowledge.yaml. Generated manifests carry
+  `hints.generated_by: synthesis@<version>` — the marker that authorises future
+  automated refresh; hand-authored manifests lack it and are left alone. Warns
+  when the written manifest would be gitignored (#309).
+
+  ## Keep generated manifests fresh (synthesis kcp refresh)
+
+  ```bash
+  synthesis kcp refresh [dir]            # refresh one repo's generated manifest
+  synthesis kcp refresh --batch /src/org # all child git repos
+  synthesis kcp refresh --dry-run        # report only
+  ```
+
+  Rewrites ONLY manifests carrying the `generated_by: synthesis@…` marker, and only
+  when nothing but volatile fields (dates, content hashes, git timestamps) changed —
+  detected by comparing the volatile-normalized existing manifest against a fresh
+  scaffold. Three protections: hand-authored manifests (no marker) are never touched;
+  structurally hand-edited generated manifests are reported and left alone; drift on
+  protected manifests is managed by `kcp verify` instead.
+
   ## Verify declarations against evidence (synthesis kcp verify)
 
   KCP fields are declarations; `synthesis kcp verify` checks them deterministically

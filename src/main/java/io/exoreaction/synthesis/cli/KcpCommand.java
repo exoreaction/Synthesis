@@ -11,6 +11,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -42,10 +43,11 @@ import java.util.concurrent.Callable;
  */
 @Command(
         name = "kcp",
-        description = {"KCP manifest tools: verify declarations against evidence; find coverage gaps.",
-                "Requires manifests to be indexed first (synthesis scan)."},
+        description = {"KCP manifest tools: scaffold manifests, verify declarations against evidence, find coverage gaps.",
+                "verify/gaps require manifests to be indexed first (synthesis scan); init works on any repo directory."},
         mixinStandardHelpOptions = true,
-        subcommands = {KcpCommand.VerifySub.class, KcpCommand.GapsSub.class}
+        subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
+                KcpCommand.VerifySub.class, KcpCommand.GapsSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -54,8 +56,210 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <verify|gaps> — see 'synthesis kcp --help'");
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps> — see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp refresh
+    // -----------------------------------------------------------------------
+
+    @Command(name = "refresh",
+            description = {"Refresh volatile fields (dates, content hashes, git timestamps) of "
+                    + "Synthesis-generated manifests.",
+                    "Only touches manifests carrying hints.generated_by: synthesis@…, and only when "
+                            + "nothing but volatile fields changed — structural hand-edits are "
+                            + "reported and left alone (use 'kcp verify' to manage their drift)."},
+            mixinStandardHelpOptions = true)
+    static class RefreshSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Repository directory (default: the workspace root)")
+        private Path targetDir;
+
+        @Option(names = {"--batch"}, description = "Refresh every direct child git repository under this directory")
+        private Path batchRoot;
+
+        @Option(names = {"--dry-run"}, description = "Report what would change without writing")
+        private boolean dryRun;
+
+        @Override
+        public Integer call() {
+            String version = Version.getVersion();
+            List<Path> targets = new ArrayList<>();
+            if (batchRoot != null) {
+                if (!Files.isDirectory(batchRoot)) {
+                    AnsiOutput.printError("Not a directory: " + batchRoot);
+                    return 2;
+                }
+                try (var children = Files.list(batchRoot)) {
+                    children.filter(Files::isDirectory)
+                            .filter(c -> Files.exists(c.resolve(".git")))
+                            .sorted()
+                            .forEach(targets::add);
+                } catch (Exception e) {
+                    AnsiOutput.printError("Batch refresh failed: " + e.getMessage());
+                    return 2;
+                }
+            } else {
+                targets.add(targetDir != null ? targetDir : kcpParent.parent.getWorkspaceRoot());
+            }
+
+            int refreshed = 0, upToDate = 0, handAuthored = 0, structural = 0;
+            for (Path repoDir : targets) {
+                Path manifest = repoDir.resolve("knowledge.yaml");
+                if (!Files.isRegularFile(manifest)) continue;
+                String existing;
+                try {
+                    existing = Files.readString(manifest);
+                } catch (Exception e) {
+                    AnsiOutput.printError(manifest + ": unreadable — " + e.getMessage());
+                    continue;
+                }
+                if (!io.exoreaction.synthesis.kcp.KcpScaffolder.isSynthesisGenerated(existing)) {
+                    System.out.println("  [hand-authored] " + manifest + " — left alone");
+                    handAuthored++;
+                    continue;
+                }
+                Map<String, String> gitDates = ExportCommand.collectGitCommitDates(repoDir);
+                String fresh = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .scaffold(repoDir, version, gitDates);
+                if (fresh == null) {
+                    AnsiOutput.printWarning(manifest + ": repo no longer yields units — left alone.");
+                    structural++;
+                    continue;
+                }
+                String normalizedExisting = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .normalizeVolatile(existing);
+                String normalizedFresh = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .normalizeVolatile(fresh);
+                if (!normalizedExisting.equals(normalizedFresh)) {
+                    System.out.println("  [modified] " + manifest
+                            + " — structure differs from a fresh scaffold (hand-edited or repo "
+                            + "changed shape); not touched. Drift is managed by 'kcp verify'.");
+                    structural++;
+                    continue;
+                }
+                if (existing.equals(fresh)) {
+                    upToDate++;
+                    continue;
+                }
+                if (dryRun) {
+                    System.out.println("  [would refresh] " + manifest);
+                    refreshed++;
+                    continue;
+                }
+                try {
+                    Files.writeString(manifest, fresh);
+                    System.out.println("  [refreshed] " + manifest);
+                    refreshed++;
+                } catch (Exception e) {
+                    AnsiOutput.printError(manifest + ": failed to write — " + e.getMessage());
+                }
+            }
+            System.out.printf("%nRefresh complete: %d refreshed, %d up to date, %d hand-authored, "
+                    + "%d structurally modified (untouched).%n",
+                    refreshed, upToDate, handAuthored, structural);
+            return 0;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp init
+    // -----------------------------------------------------------------------
+
+    @Command(name = "init",
+            description = {"Scaffold a KCP v0.25 knowledge.yaml from repository structure (issue #310).",
+                    "Detects README/docs/policy markdown, Maven modules, CI workflows, and test roots. "
+                            + "Never overwrites an existing knowledge.yaml. Generated manifests carry "
+                            + "hints.generated_by so automated refresh can tell them from hand-authored ones."},
+            mixinStandardHelpOptions = true)
+    static class InitSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Repository directory to scaffold (default: the workspace root)")
+        private Path targetDir;
+
+        @Option(names = {"--batch"}, description = "Scaffold every direct child git repository under this directory")
+        private Path batchRoot;
+
+        @Option(names = {"--dry-run"}, description = "Print the manifest(s) without writing")
+        private boolean dryRun;
+
+        @Override
+        public Integer call() {
+            String version = Version.getVersion();
+            if (batchRoot != null) {
+                if (!Files.isDirectory(batchRoot)) {
+                    AnsiOutput.printError("Not a directory: " + batchRoot);
+                    return 2;
+                }
+                int written = 0, skipped = 0, empty = 0;
+                try (var children = Files.list(batchRoot)) {
+                    for (Path child : children.filter(Files::isDirectory).sorted().toList()) {
+                        if (!Files.exists(child.resolve(".git"))) continue;
+                        switch (scaffoldOne(child, version)) {
+                            case WRITTEN -> written++;
+                            case SKIPPED -> skipped++;
+                            case EMPTY -> empty++;
+                        }
+                    }
+                } catch (Exception e) {
+                    AnsiOutput.printError("Batch scaffold failed: " + e.getMessage());
+                    return 2;
+                }
+                System.out.printf("%nBatch complete: %d written, %d skipped (existing manifest), %d empty.%n",
+                        written, skipped, empty);
+                return 0;
+            }
+
+            Path target = targetDir != null ? targetDir : kcpParent.parent.getWorkspaceRoot();
+            if (!Files.isDirectory(target)) {
+                AnsiOutput.printError("Not a directory: " + target);
+                return 2;
+            }
+            return scaffoldOne(target, version) == ScaffoldOutcome.WRITTEN || dryRun ? 0 : 1;
+        }
+
+        private enum ScaffoldOutcome { WRITTEN, SKIPPED, EMPTY }
+
+        private ScaffoldOutcome scaffoldOne(Path repoDir, String version) {
+            Path manifest = repoDir.resolve("knowledge.yaml");
+            if (Files.exists(manifest)) {
+                AnsiOutput.printWarning(repoDir + ": knowledge.yaml already exists — not overwriting "
+                        + "(hand-authored manifests are never replaced).");
+                return ScaffoldOutcome.SKIPPED;
+            }
+            Map<String, String> gitDates = ExportCommand.collectGitCommitDates(repoDir);
+            String yaml = io.exoreaction.synthesis.kcp.KcpScaffolder.scaffold(repoDir, version, gitDates);
+            if (yaml == null) {
+                AnsiOutput.printWarning(repoDir + ": nothing recognisable to scaffold — no manifest written.");
+                return ScaffoldOutcome.EMPTY;
+            }
+            if (dryRun) {
+                System.out.println("# --- " + manifest + " (dry-run, not written) ---");
+                System.out.println(yaml);
+                return ScaffoldOutcome.WRITTEN;
+            }
+            try {
+                Files.writeString(manifest, yaml);
+            } catch (Exception e) {
+                AnsiOutput.printError(repoDir + ": failed to write manifest: " + e.getMessage());
+                return ScaffoldOutcome.EMPTY;
+            }
+            System.out.println("  [OK] " + manifest);
+            if (io.exoreaction.synthesis.kcp.KcpManifestChecks.isManifestGitIgnored(repoDir, "knowledge.yaml")) {
+                AnsiOutput.printWarning("  " + io.exoreaction.synthesis.kcp.KcpManifestChecks
+                        .warningFor("knowledge.yaml"));
+            }
+            return ScaffoldOutcome.WRITTEN;
+        }
     }
 
     // -----------------------------------------------------------------------
