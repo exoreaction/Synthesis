@@ -43,7 +43,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V23; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange); V21: Notion workspace source; V22: KCP v0.21 fields; V23: KCP v0.25 federation + extensions.
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V24; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange); V21: Notion workspace source; V22: KCP v0.21 fields; V23: KCP v0.25 federation + extensions; V24: KCP verification results.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
 - **Package root:** `io.exoreaction.synthesis.*` (31 packages, new `kcp` package)
@@ -170,6 +170,9 @@ synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
 synthesis export --format kcp                        # Generate KCP v0.25 manifest from index
 synthesis export --format knowledge-context-protocol # Alias
 synthesis export --format kcp -o knowledge.yaml      # Write to file
+synthesis kcp verify                                 # Verify manifest declarations against evidence (V001-V006 + K-signals; exit 1 on HIGH)
+synthesis kcp verify --manifest path --format json   # One manifest, machine-readable (CI gate)
+synthesis kcp gaps                                   # Hot files (git churn) with no KCP unit coverage
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
@@ -534,7 +537,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V23.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V24.
 - **V20**: `git_file_metrics` + `git_cochange` tables. Populated by `synthesis hotspots --refresh` via `GitMetricsComputer`. Both are reconstructible caches — losing them loses no information.
 - **KCP detection heuristic**: `knowledge.yaml` files are detected as KCP manifests when ALL THREE hold: filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists. Files failing any condition are indexed as generic YAML.
 - **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:

@@ -242,6 +242,40 @@ instructions: |
 
   ---
 
+  ## Verify declarations against evidence (synthesis kcp verify)
+
+  KCP fields are declarations; `synthesis kcp verify` checks them deterministically
+  (no model) against filesystem, content, and git history — the epistemic upgrade
+  path `declared → observed`:
+
+  ```bash
+  synthesis kcp verify                    # all indexed manifests (scan first)
+  synthesis kcp verify --manifest path    # suffix match
+  synthesis kcp verify --format json      # machine-readable; exit 1 on HIGH findings → CI gate
+  ```
+
+  | Check | Severity | Meaning |
+  |-------|----------|---------|
+  | V001 MISSING_PATH | HIGH | unit path does not exist on disk |
+  | V002 HASH_MISMATCH | HIGH | content_hash ≠ recomputed sha256 (file changed after declaration) |
+  | V003 STALE_DECLARATION | MEDIUM | source has git commits after declared updated/validated |
+  | V004 DEAD_TRIGGER | LOW | trigger matches neither headings nor content (markdown) |
+  | V005 DANGLING_REFERENCE | HIGH | relationship/supersession/depends_on target missing |
+  | V006 TEMPORAL_INVALID | HIGH | valid_from after valid_until |
+  | K001/K002/K004 | — | K-series health signals folded in |
+
+  Per-unit verdicts (observed/stale/contradicted) are persisted to `kcp_verification`
+  (V24) BESIDE the manifest's declared verification_status — re-scans never clobber them.
+
+  ## Find coverage gaps (synthesis kcp gaps)
+
+  ```bash
+  synthesis kcp gaps --limit 25   # hot files (git churn) with no KCP unit; requires hotspots --refresh
+  ```
+
+  Ranks by hotspot score, annotates module fan-in when the code graph knows it, and
+  filters Synthesis internals/VCS metadata.
+
   ## Use cases
 
   1. **Bootstrap agent navigation** — generate `knowledge.yaml` in a new repo so agents know

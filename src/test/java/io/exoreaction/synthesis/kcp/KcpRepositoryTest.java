@@ -134,6 +134,20 @@ class KcpRepositoryTest {
                         last_computed INTEGER NOT NULL,
                         UNIQUE(workspace_path, manifest_file, entry_id, url)
                     )""");
+
+            // Apply V24 migration (kcp verify results, issue #356)
+            st.execute("""
+                    CREATE TABLE kcp_verification (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        workspace_path TEXT NOT NULL,
+                        manifest_file TEXT NOT NULL,
+                        unit_id TEXT NOT NULL,
+                        verdict TEXT NOT NULL,
+                        findings_json TEXT,
+                        verified_at INTEGER NOT NULL,
+                        synthesis_version TEXT,
+                        UNIQUE(workspace_path, manifest_file, unit_id)
+                    )""");
         }
         repo = new KcpRepository();
     }
@@ -501,6 +515,27 @@ class KcpRepositoryTest {
         assertNull(repo.getUnitsForManifest(conn, tempDir.toString(), yaml.toString())
                         .get(0).extensionsJson(),
                 "Fully-structured units must not fabricate extensions");
+    }
+
+    // -----------------------------------------------------------------------
+    // Verification persistence (issue #356)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void testVerificationUpsertAndReadIsIdempotent() throws Exception {
+        String ws = tempDir.toString();
+        repo.upsertVerification(conn, ws, "/ws/knowledge.yaml", "overview",
+                "observed", null, "1.38.0", 1000L);
+        repo.upsertVerification(conn, ws, "/ws/knowledge.yaml", "api-ref",
+                "contradicted", "[{\"checkId\":\"V002\"}]", "1.38.0", 1000L);
+        // Re-run flips a verdict — same key must replace, not duplicate
+        repo.upsertVerification(conn, ws, "/ws/knowledge.yaml", "api-ref",
+                "observed", null, "1.38.0", 2000L);
+
+        var verdicts = repo.getVerificationVerdicts(conn, ws, "/ws/knowledge.yaml");
+        assertEquals(2, verdicts.size());
+        assertEquals("observed", verdicts.get("overview"));
+        assertEquals("observed", verdicts.get("api-ref"), "Second run must replace the verdict");
     }
 
     // -----------------------------------------------------------------------

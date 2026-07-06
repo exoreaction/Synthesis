@@ -452,6 +452,51 @@ public class KcpRepository {
         return result;
     }
 
+    /**
+     * Records the verdict of a {@code synthesis kcp verify} run for one unit
+     * (issue #356). Idempotent per (workspace, manifest, unit).
+     */
+    public void upsertVerification(Connection conn, String workspacePath, String manifestFile,
+                                    String unitId, String verdict, String findingsJson,
+                                    String synthesisVersion, long verifiedAt) throws SQLException {
+        String sql = """
+                INSERT OR REPLACE INTO kcp_verification
+                    (workspace_path, manifest_file, unit_id, verdict, findings_json,
+                     verified_at, synthesis_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, manifestFile);
+            ps.setString(3, unitId);
+            ps.setString(4, verdict);
+            ps.setString(5, findingsJson);
+            ps.setLong(6, verifiedAt);
+            ps.setString(7, synthesisVersion);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Returns unit_id → verdict from the most recent verify run for a manifest. */
+    public Map<String, String> getVerificationVerdicts(Connection conn, String workspacePath,
+                                                       String manifestFile) throws SQLException {
+        String sql = """
+                SELECT unit_id, verdict FROM kcp_verification
+                WHERE workspace_path = ? AND manifest_file = ?
+                """;
+        Map<String, String> result = new java.util.LinkedHashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, manifestFile);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.put(rs.getString("unit_id"), rs.getString("verdict"));
+                }
+            }
+        }
+        return result;
+    }
+
     /** Returns the number of indexed manifests for the workspace. */
     public int countManifests(Connection conn, String workspacePath) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
