@@ -48,7 +48,8 @@ import java.util.concurrent.Callable;
         mixinStandardHelpOptions = true,
         subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
                 KcpCommand.VerifySub.class, KcpCommand.GapsSub.class,
-                KcpCommand.CatalogSub.class, KcpCommand.FederateSub.class}
+                KcpCommand.CatalogSub.class, KcpCommand.FederateSub.class,
+                KcpCommand.PlanSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -57,9 +58,82 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate> "
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate|plan> "
                 + "— see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp plan
+    // -----------------------------------------------------------------------
+
+    @Command(name = "plan",
+            description = {"Produce an ordered read plan for a task from indexed KCP units (RFC-0007 scoring).",
+                    "Deterministic, no model: trigger match 5pts, intent 3pts, id/path 1pt. Expired and "
+                            + "superseded units are skipped; --budget caps total token estimate."},
+            mixinStandardHelpOptions = true)
+    static class PlanSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", description = "Task or question to plan a read order for")
+        private String task;
+
+        @Option(names = {"--budget"}, description = "Max total token estimate to admit (0 = unlimited)",
+                defaultValue = "0")
+        private int budget;
+
+        @Option(names = {"--format", "-f"}, description = "Output format: text (default) or json",
+                defaultValue = "text")
+        private String format;
+
+        private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+                new com.fasterxml.jackson.databind.ObjectMapper();
+
+        @Override
+        public Integer call() throws Exception {
+            Path workspaceRoot = kcpParent.parent.getWorkspaceRoot();
+            var plan = io.exoreaction.synthesis.kcp.KcpPlanner.plan(
+                    task, collectCandidates(workspaceRoot), LocalDate.now().toString(), budget);
+
+            if ("json".equalsIgnoreCase(format)) {
+                System.out.println(JSON.writerWithDefaultPrettyPrinter().writeValueAsString(plan));
+                return plan.units().isEmpty() ? 1 : 0;
+            }
+
+            if (plan.units().isEmpty()) {
+                System.out.println("No KCP units matched '" + task + "'. "
+                        + "Ensure manifests are indexed (synthesis scan).");
+                return 1;
+            }
+            System.out.println(AnsiOutput.bold("Read plan for: " + task));
+            System.out.printf("  %d unit(s), ~%d tokens%n", plan.units().size(), plan.totalTokenEstimate());
+            int n = 1;
+            for (var u : plan.units()) {
+                System.out.printf("  %d. %s  (score %d, ~%d tok) — %s%n",
+                        n++, u.path() != null ? u.path() : u.unitId(), u.score(),
+                        u.tokenEstimate(), u.matchReason());
+                if (u.intent() != null) System.out.println("       ↳ " + u.intent());
+            }
+            return 0;
+        }
+
+        /** Aggregates every indexed unit across all manifests into planner candidates. */
+        static List<io.exoreaction.synthesis.kcp.KcpPlanner.Candidate> collectCandidates(Path workspaceRoot)
+                throws Exception {
+            List<io.exoreaction.synthesis.kcp.KcpPlanner.Candidate> candidates = new ArrayList<>();
+            Connection conn = SynthesisDatabase.getDefault().getConnection();
+            KcpRepository repo = new KcpRepository();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspaceRoot.toString())) {
+                for (KcpRepository.KcpUnitRow u :
+                        repo.getUnitsForManifest(conn, workspaceRoot.toString(), m.filePath())) {
+                    candidates.add(new io.exoreaction.synthesis.kcp.KcpPlanner.Candidate(
+                            u, m.filePath(), workspaceRoot));
+                }
+            }
+            return candidates;
+        }
     }
 
     // -----------------------------------------------------------------------

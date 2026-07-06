@@ -76,3 +76,17 @@ jobs:
 
       - name: Validate with kcp-agent (pinned)
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml
+
+      - name: Plan over the generated manifest (pinned)
+        run: |
+          # The reference planner must produce a non-empty load plan for a
+          # task the fixture's units cover ("endpoints" is an api.md trigger).
+          npx --yes "kcp-agent@${KCP_AGENT_VERSION}" plan "what endpoints exist" \
+            --manifest /tmp/fixture/knowledge.yaml
+          npx --yes "kcp-agent@${KCP_AGENT_VERSION}" plan "what endpoints exist" \
+            --manifest /tmp/fixture/knowledge.yaml --json > /tmp/plan.json
+          # Non-empty plan: at least one selected unit
+          node -e "const p=require('/tmp/plan.json'); const n=(p.units||p.plan||p.selected||[]).length; if(!JSON.stringify(p).includes('docs-api')){console.error('plan did not select docs-api');process.exit(1)} console.log('plan ok')"
+
+      - name: Replay the saved plan (drift re-verification)
+        run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" replay /tmp/plan.json

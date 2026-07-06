@@ -301,6 +301,19 @@ instructions: |
   sharded into `knowledge.shard-N.yaml` files referenced from the top root, so no
   manifest exceeds the follower's 50-manifest ceiling.
 
+  ## Plan a read order for a task (synthesis kcp plan / plan_context MCP)
+
+  ```bash
+  synthesis kcp plan "how does authentication work" --budget 4000 --format json
+  ```
+
+  Deterministic RFC-0007 scoring over indexed units — no model, no Node: trigger match
+  5pts, intent 3pts, id/path 1pt. Returns an ordered plan (unit, match reason, token
+  estimate) with expired/superseded units skipped and an optional token budget. The
+  same engine backs the `plan_context` MCP tool, which returns an ordered read plan
+  instead of flat search hits. kcp-agent's own `plan`/`replay` run over
+  Synthesis-generated manifests in CI (`kcp-conformance.yml`).
+
   ## Verify declarations against evidence (synthesis kcp verify)
 
   KCP fields are declarations; `synthesis kcp verify` checks them deterministically
