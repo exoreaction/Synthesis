@@ -46,7 +46,8 @@ import java.util.concurrent.Callable;
         description = {"KCP manifest tools: scaffold manifests, verify declarations against evidence, find coverage gaps.",
                 "verify/gaps require manifests to be indexed first (synthesis scan); init works on any repo directory."},
         mixinStandardHelpOptions = true,
-        subcommands = {KcpCommand.InitSub.class, KcpCommand.VerifySub.class, KcpCommand.GapsSub.class}
+        subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
+                KcpCommand.VerifySub.class, KcpCommand.GapsSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -55,8 +56,115 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <init|verify|gaps> — see 'synthesis kcp --help'");
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps> — see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp refresh
+    // -----------------------------------------------------------------------
+
+    @Command(name = "refresh",
+            description = {"Refresh volatile fields (dates, content hashes, git timestamps) of "
+                    + "Synthesis-generated manifests.",
+                    "Only touches manifests carrying hints.generated_by: synthesis@…, and only when "
+                            + "nothing but volatile fields changed — structural hand-edits are "
+                            + "reported and left alone (use 'kcp verify' to manage their drift)."},
+            mixinStandardHelpOptions = true)
+    static class RefreshSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Repository directory (default: the workspace root)")
+        private Path targetDir;
+
+        @Option(names = {"--batch"}, description = "Refresh every direct child git repository under this directory")
+        private Path batchRoot;
+
+        @Option(names = {"--dry-run"}, description = "Report what would change without writing")
+        private boolean dryRun;
+
+        @Override
+        public Integer call() {
+            String version = Version.getVersion();
+            List<Path> targets = new ArrayList<>();
+            if (batchRoot != null) {
+                if (!Files.isDirectory(batchRoot)) {
+                    AnsiOutput.printError("Not a directory: " + batchRoot);
+                    return 2;
+                }
+                try (var children = Files.list(batchRoot)) {
+                    children.filter(Files::isDirectory)
+                            .filter(c -> Files.exists(c.resolve(".git")))
+                            .sorted()
+                            .forEach(targets::add);
+                } catch (Exception e) {
+                    AnsiOutput.printError("Batch refresh failed: " + e.getMessage());
+                    return 2;
+                }
+            } else {
+                targets.add(targetDir != null ? targetDir : kcpParent.parent.getWorkspaceRoot());
+            }
+
+            int refreshed = 0, upToDate = 0, handAuthored = 0, structural = 0;
+            for (Path repoDir : targets) {
+                Path manifest = repoDir.resolve("knowledge.yaml");
+                if (!Files.isRegularFile(manifest)) continue;
+                String existing;
+                try {
+                    existing = Files.readString(manifest);
+                } catch (Exception e) {
+                    AnsiOutput.printError(manifest + ": unreadable — " + e.getMessage());
+                    continue;
+                }
+                if (!io.exoreaction.synthesis.kcp.KcpScaffolder.isSynthesisGenerated(existing)) {
+                    System.out.println("  [hand-authored] " + manifest + " — left alone");
+                    handAuthored++;
+                    continue;
+                }
+                Map<String, String> gitDates = ExportCommand.collectGitCommitDates(repoDir);
+                String fresh = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .scaffold(repoDir, version, gitDates);
+                if (fresh == null) {
+                    AnsiOutput.printWarning(manifest + ": repo no longer yields units — left alone.");
+                    structural++;
+                    continue;
+                }
+                String normalizedExisting = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .normalizeVolatile(existing);
+                String normalizedFresh = io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .normalizeVolatile(fresh);
+                if (!normalizedExisting.equals(normalizedFresh)) {
+                    System.out.println("  [modified] " + manifest
+                            + " — structure differs from a fresh scaffold (hand-edited or repo "
+                            + "changed shape); not touched. Drift is managed by 'kcp verify'.");
+                    structural++;
+                    continue;
+                }
+                if (existing.equals(fresh)) {
+                    upToDate++;
+                    continue;
+                }
+                if (dryRun) {
+                    System.out.println("  [would refresh] " + manifest);
+                    refreshed++;
+                    continue;
+                }
+                try {
+                    Files.writeString(manifest, fresh);
+                    System.out.println("  [refreshed] " + manifest);
+                    refreshed++;
+                } catch (Exception e) {
+                    AnsiOutput.printError(manifest + ": failed to write — " + e.getMessage());
+                }
+            }
+            System.out.printf("%nRefresh complete: %d refreshed, %d up to date, %d hand-authored, "
+                    + "%d structurally modified (untouched).%n",
+                    refreshed, upToDate, handAuthored, structural);
+            return 0;
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -118,6 +118,45 @@ class KcpScaffolderTest {
         assertNotNull(readme.extensionsJson(), "generated hints/format land in extensions");
     }
 
+    // -----------------------------------------------------------------------
+    // Refresh support: generation marker + volatile normalization
+    // -----------------------------------------------------------------------
+
+    @Test
+    void generationMarkerDetection() {
+        assertTrue(KcpScaffolder.isSynthesisGenerated("hints:\n  generated_by: synthesis@1.38.0\n"));
+        assertFalse(KcpScaffolder.isSynthesisGenerated("kcp_version: \"0.25\"\nproject: x\n"));
+        assertFalse(KcpScaffolder.isSynthesisGenerated(null));
+    }
+
+    @Test
+    void normalizeVolatileMakesRegeneratedScaffoldsEqual() throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "# Same\n\n## Structure\n");
+        String first = KcpScaffolder.scaffold(tempDir, "1.38.0",
+                Map.of("README.md", "2026-01-01T00:00:00+00:00"));
+        // Different generator version, different git date, changed file bytes
+        Files.writeString(tempDir.resolve("README.md"), "# Same\n\n## Structure\n\nmore prose\n");
+        String second = KcpScaffolder.scaffold(tempDir, "9.9.9",
+                Map.of("README.md", "2026-06-30T00:00:00+00:00"));
+
+        assertNotEquals(first, second, "Raw scaffolds differ in volatile fields");
+        assertEquals(KcpScaffolder.normalizeVolatile(first),
+                KcpScaffolder.normalizeVolatile(second),
+                "Normalized scaffolds of the same structure must be equal");
+    }
+
+    @Test
+    void normalizeVolatileDetectsStructuralEdits() throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "# Base\n");
+        String generated = KcpScaffolder.scaffold(tempDir, "1.38.0", Map.of());
+        String handEdited = generated.replace("intent: \"Base\"",
+                "intent: \"A human rewrote this intent\"");
+
+        assertNotEquals(KcpScaffolder.normalizeVolatile(generated),
+                KcpScaffolder.normalizeVolatile(handEdited),
+                "Intent edits are structural — refresh must not clobber them");
+    }
+
     @Test
     void mavenModuleParserStripsComments() throws Exception {
         Path pom = tempDir.resolve("pom.xml");
