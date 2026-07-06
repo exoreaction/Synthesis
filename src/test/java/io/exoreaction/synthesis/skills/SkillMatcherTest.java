@@ -161,4 +161,50 @@ class SkillMatcherTest {
         assertFalse(skills.get(0).skillName().isBlank());
         assertFalse(skills.get(0).firstLine().isBlank());
     }
+
+    @Test
+    void testCountSubdirectorySkillsDetectsSkillMdDirs() throws Exception {
+        Path skillDir = tempDir.resolve("deployment");
+        Files.createDirectory(skillDir);
+        Files.writeString(skillDir.resolve("SKILL.md"), "---\nname: deployment\n---\nBody.");
+
+        assertEquals(1, SkillMatcher.countSubdirectorySkills(tempDir));
+    }
+
+    @Test
+    void testCountSubdirectorySkillsIgnoresDirsWithoutSkillMd() throws Exception {
+        Path notASkill = tempDir.resolve("scratch");
+        Files.createDirectory(notASkill);
+        Files.writeString(notASkill.resolve("notes.txt"), "irrelevant");
+
+        assertEquals(0, SkillMatcher.countSubdirectorySkills(tempDir));
+    }
+
+    @Test
+    void testCountSubdirectorySkillsZeroForFlatYamlOnly() throws Exception {
+        writeSkill("flat.yaml", "flat-skill", "Flat description",
+                "  - \"flat trigger\"\n", "Flat instructions.");
+
+        assertEquals(0, SkillMatcher.countSubdirectorySkills(tempDir));
+    }
+
+    @Test
+    void testCountSubdirectorySkillsZeroForMissingDir() {
+        Path nonExistent = tempDir.resolve("does-not-exist");
+        assertEquals(0, SkillMatcher.countSubdirectorySkills(nonExistent));
+    }
+
+    @Test
+    void testMatchStillReturnsEmptyForSubdirectoryOnlySkills() throws Exception {
+        // Documents current match()/list() scope: subdirectory-format skills are
+        // not indexed (Option A fix from issue #340 is a warning, not format support).
+        Path skillDir = tempDir.resolve("deployment");
+        Files.createDirectory(skillDir);
+        Files.writeString(skillDir.resolve("SKILL.md"), "---\nname: deployment\n---\nBody.");
+
+        assertTrue(SkillMatcher.match(tempDir, "deploy", 5).isEmpty());
+        assertTrue(SkillMatcher.list(tempDir).isEmpty());
+        assertEquals(1, SkillMatcher.countSubdirectorySkills(tempDir),
+                "warning signal should fire even though match/list stay empty");
+    }
 }

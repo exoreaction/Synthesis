@@ -83,6 +83,8 @@ public class SkillsCommand implements Callable<Integer> {
                 return 1;
             }
 
+            warnIfSubdirectorySkillsIgnored(dir, compact);
+
             List<SkillMatch> matches = SkillMatcher.match(dir, query, top);
 
             if (matches.isEmpty()) {
@@ -145,6 +147,8 @@ public class SkillsCommand implements Callable<Integer> {
                 return 1;
             }
 
+            warnIfSubdirectorySkillsIgnored(dir, compact);
+
             List<SkillMatch> skills = SkillMatcher.list(dir);
 
             if (skills.isEmpty()) {
@@ -180,5 +184,14 @@ public class SkillsCommand implements Callable<Integer> {
     static Path resolveSkillsDir(Path override) {
         if (override != null) return override.toAbsolutePath().normalize();
         return Path.of(System.getProperty("user.home"), ".claude", "skills");
+    }
+
+    static void warnIfSubdirectorySkillsIgnored(Path dir, boolean compact) {
+        if (compact) return;
+        int count = SkillMatcher.countSubdirectorySkills(dir);
+        if (count > 0) {
+            AnsiOutput.printWarning(count + " skill(s) found in subdirectory format (name/SKILL.md) in "
+                    + dir + " -- these are not indexed. Migrate to flat YAML to enable discovery.");
+        }
     }
 }
