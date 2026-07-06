@@ -358,9 +358,15 @@ instructions: |
   synthesis kcp init --sign                    # sign at generation time
   ```
 
-  - **Tamper-evidence**: Ed25519 keys live in `~/.synthesis/kcp-keys/` (`<kid>.pub` allowlist,
-    `<kid>.key` private, `0600`, never written into a manifest/log/export). Any edit after
-    signing flips the tier to FAILED; `kcp verify` fires **K005** on a failed signature.
+  - **Tamper-evidence (kcp-agent-interoperable)**: `kcp sign` writes a raw-Ed25519 signature over
+    the exact manifest bytes — a top-level `signing:` block (`scheme`/`key_id`/`public_key`/
+    `signature`) in the manifest plus a detached `knowledge.yaml.sig` holding the Cantara envelope
+    `{algorithm, key_id, public_key, signature}`. kcp-agent verifies it directly
+    (`plan --require-signature` → "ed25519 signature verified (declared key)"), and CI proves both
+    directions (accepts a Synthesis signature, rejects a tampered one). Keys live in
+    `~/.synthesis/kcp-keys/` (`<kid>.pub` allowlist, `<kid>.key` private, `0600`, never written into
+    a manifest/log/export). Any edit after signing flips the tier to FAILED; `kcp verify` fires
+    **K005** on a failed signature.
   - **Governance cross-check** (the differentiator — Synthesis holds both the manifest and a
     CKG-5 security scan over the same files): `kcp verify` folds in **G001** (`sensitivity: public`
     on a file with a HIGH security finding), **G002** (`authority.share_externally` under a

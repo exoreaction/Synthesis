@@ -109,9 +109,7 @@ public class KcpCommand implements Callable<Integer> {
             }
 
             var kp = store.loadOrCreateSigningKey(keyId);
-            String detached = io.exoreaction.synthesis.kcp.KcpSigner.sign(
-                    java.nio.file.Files.readAllBytes(manifest), kp.getPrivate(), keyId);
-            java.nio.file.Files.writeString(sig, detached);
+            io.exoreaction.synthesis.kcp.KcpSigner.signManifest(manifest, kp, keyId);
             System.out.println("  [OK] signed → " + sig + "  (key: " + keyId + ")");
             return 0;
         }
@@ -537,9 +535,7 @@ public class KcpCommand implements Callable<Integer> {
                 try {
                     var kp = io.exoreaction.synthesis.kcp.KcpTrustStore.defaultStore()
                             .loadOrCreateSigningKey("synthesis-local");
-                    String detached = io.exoreaction.synthesis.kcp.KcpSigner.sign(
-                            Files.readAllBytes(manifest), kp.getPrivate(), "synthesis-local");
-                    Files.writeString(manifest.resolveSibling("knowledge.yaml.sig"), detached);
+                    io.exoreaction.synthesis.kcp.KcpSigner.signManifest(manifest, kp, "synthesis-local");
                     System.out.println("  [OK] signed → " + manifest + ".sig");
                 } catch (Exception e) {
                     AnsiOutput.printError("  signing failed: " + e.getMessage());

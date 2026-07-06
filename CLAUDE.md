@@ -378,8 +378,12 @@ on detection and clean up on deletion. `synthesis kg` badges expired/superseded 
 K-series health signals (K001 expired-referenced, K002 supersession cycle, K003 gitignored manifest,
 K004 freshness_policy violation — `KcpHealthChecks`; K005 invalid signature — `KcpSigner`).
 
-**Trust & governance (Phase 7):** `synthesis kcp sign` Ed25519-signs a manifest (detached
-`knowledge.yaml.sig`, keys in `~/.synthesis/kcp-keys/`, private keys never emitted); `KcpSigner`
+**Trust & governance (Phase 7):** `synthesis kcp sign` Ed25519-signs a manifest — raw signature
+over the exact bytes with an in-manifest top-level `signing:` block + a detached
+`knowledge.yaml.sig` Cantara envelope `{algorithm, key_id, public_key, signature}`. This is
+**kcp-agent-interoperable**: `kcp-agent plan --require-signature` verifies a Synthesis-signed
+manifest ("ed25519 signature verified") and rejects a tampered one — both proven in
+`kcp-conformance.yml`. Keys in `~/.synthesis/kcp-keys/`, private keys never emitted. `KcpSigner`
 assigns trust tiers (`trusted`/`known`/`unsigned`/`failed`) and `kcp verify` fires K005 when a
 signed manifest is tampered. The G-series governance cross-check (`KcpGovernanceChecks`, folded
 into `kcp verify`) catches declarations reality contradicts: G001 `sensitivity: public` on a file
