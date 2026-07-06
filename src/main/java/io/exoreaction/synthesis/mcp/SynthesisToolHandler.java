@@ -21,6 +21,8 @@ import io.exoreaction.synthesis.graph.GraphBuilder;
 import io.exoreaction.synthesis.graph.GraphBuilder.FileGraph;
 import io.exoreaction.synthesis.graph.GraphRenderer;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.kcp.KcpPlanner;
+import io.exoreaction.synthesis.kcp.KcpRepository;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsCollector;
@@ -3178,6 +3180,65 @@ public class SynthesisToolHandler {
      * @return JSON object with: workspace, freshness, session_summary, warnings,
      *         recommended_skills, kcp_units, suggested_tools, compact
      */
+    /**
+     * plan_context — an ordered KCP read plan for a task (issue #359).
+     * Deterministic RFC-0007 scoring over persisted units; no model.
+     */
+    public ObjectNode handlePlanContext(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("task") || params.get("task").asText().isBlank()) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS, "Missing required parameter: task");
+        }
+        Path workspacePath = resolveWorkspace(params);
+        String task = params.get("task").asText();
+        int budget = params.has("budget") && !params.get("budget").isNull()
+                ? params.get("budget").asInt(0) : 0;
+        String today = java.time.LocalDate.now().toString();
+
+        try {
+            java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
+            KcpRepository repo = new KcpRepository();
+            List<KcpPlanner.Candidate> candidates = new java.util.ArrayList<>();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspacePath.toString())) {
+                for (KcpRepository.KcpUnitRow u :
+                        repo.getUnitsForManifest(conn, workspacePath.toString(), m.filePath())) {
+                    candidates.add(new KcpPlanner.Candidate(u, m.filePath(), workspacePath));
+                }
+            }
+            KcpPlanner.Plan plan = KcpPlanner.plan(task, candidates, today, budget);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("task", plan.task());
+            response.put("workspace", workspacePath.toString());
+            response.put("totalTokenEstimate", plan.totalTokenEstimate());
+            ArrayNode units = mapper.createArrayNode();
+            for (KcpPlanner.Planned p : plan.units()) {
+                ObjectNode u = mapper.createObjectNode();
+                u.put("unitId", p.unitId());
+                u.put("path", p.path());
+                u.put("manifestFile", p.manifestFile());
+                u.put("score", p.score());
+                u.put("matchReason", p.matchReason());
+                u.put("tokenEstimate", p.tokenEstimate());
+                if (p.intent() != null) u.put("intent", p.intent());
+                units.add(u);
+            }
+            response.set("units", units);
+            ArrayNode skipped = mapper.createArrayNode();
+            for (KcpPlanner.Skipped s : plan.skipped()) {
+                ObjectNode sk = mapper.createObjectNode();
+                sk.put("unitId", s.unitId());
+                sk.put("path", s.path());
+                sk.put("reason", s.reason());
+                skipped.add(sk);
+            }
+            response.set("skipped", skipped);
+            return response;
+        } catch (Exception e) {
+            LOG.warning("plan_context failed: " + e.getMessage());
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "plan_context failed: " + e.getMessage());
+        }
+    }
+
     public ObjectNode handleBootstrapContext(JsonNode params) throws McpToolException {
         Path workspacePath = resolveWorkspace(params);
 

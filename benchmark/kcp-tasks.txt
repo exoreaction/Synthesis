@@ -1,0 +1,10 @@
+# KCP manifest benchmark task set (issue #359). One task per line; keep stable
+# across arms and re-runs. Chosen to span an estate's typical knowledge units.
+What endpoints does the API expose and how are they authenticated?
+How is this project built and released?
+Where is the main business logic and what are its entry points?
+What is the security posture — how are secrets and auth handled?
+What does the data model look like and where is it defined?
+How do I get started as a new contributor?
+What configuration does this service require to run?
+Which modules depend on which, and where are the seams?

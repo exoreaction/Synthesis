@@ -776,6 +776,17 @@ public class SynthesisMCPServer {
                 createReflectSchema()
         ));
 
+        // Tool: plan_context (KCP plan-shaped retrieval)
+        toolsArray.add(createToolDefinition(
+                "plan_context",
+                "Return an ORDERED READ PLAN for a task from the workspace's KCP knowledge units, " +
+                        "instead of flat search hits. Deterministic RFC-0007 scoring (trigger match 5, " +
+                        "intent 3, id/path 1); each planned unit carries a match reason and token estimate, " +
+                        "expired/superseded units are skipped with a reason, and an optional token budget " +
+                        "greedily caps the plan. Requires indexed knowledge.yaml manifests (synthesis scan).",
+                createPlanContextSchema()
+        ));
+
         // Tool: bootstrap_context (harness-neutral startup surface)
         toolsArray.add(createToolDefinition(
                 "bootstrap_context",
@@ -860,6 +871,7 @@ public class SynthesisMCPServer {
                 case "sessions" -> toolHandler.handleSessions(toolArgs);
                 // Group 7: Agent awareness
                 case "team_context" -> toolHandler.handleTeamContext(toolArgs);
+                case "plan_context" -> toolHandler.handlePlanContext(toolArgs);
                 case "match_skills" -> toolHandler.handleMatchSkills(toolArgs);
                 case "dispatch" -> toolHandler.handleDispatch(toolArgs);
                 case "reflect" -> toolHandler.handleReflect(toolArgs);
@@ -1017,6 +1029,37 @@ public class SynthesisMCPServer {
 
         ArrayNode required = mapper.createArrayNode();
         required.add("filePath");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createPlanContextSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "The task or question to plan a read order for");
+        properties.set("task", task);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace path or registered workspace name. " +
+                "Defaults to the server's primary configured workspace.");
+        properties.set("workspace", workspace);
+
+        ObjectNode budget = mapper.createObjectNode();
+        budget.put("type", "integer");
+        budget.put("description", "Optional max total token estimate to admit (0 or omitted = unlimited)");
+        properties.set("budget", budget);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("task");
         schema.set("required", required);
 
         return schema;

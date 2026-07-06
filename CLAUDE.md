@@ -179,6 +179,7 @@ synthesis kcp verify --manifest path --format json   # One manifest, machine-rea
 synthesis kcp gaps                                   # Hot files (git churn) with no KCP unit coverage
 synthesis kcp catalog [dir] -o catalog.yaml          # Emit catalog.yaml (catalog spec v0.1) for a repo estate
 synthesis kcp federate [dir] --write                 # Emit root knowledge.yaml federating every repo manifest (>50 repos → sharded)
+synthesis kcp plan "task" --budget N --format json   # Ordered read plan over indexed units (RFC-0007 scoring; also plan_context MCP tool)
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
