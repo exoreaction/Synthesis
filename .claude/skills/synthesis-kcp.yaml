@@ -278,6 +278,29 @@ instructions: |
   structurally hand-edited generated manifests are reported and left alone; drift on
   protected manifests is managed by `kcp verify` instead.
 
+  ## Federate an estate (synthesis kcp catalog / federate)
+
+  Turn a directory of repos-with-manifests into standard distribution artifacts any
+  KCP consumer (incl. kcp-agent) can navigate:
+
+  ```bash
+  synthesis kcp catalog /src/org -o catalog.yaml   # catalog.yaml (catalog spec v0.1)
+  synthesis kcp federate /src/org --write          # root knowledge.yaml with manifests[]
+  ```
+
+  - **catalog**: one cartridge per child repo carrying knowledge.yaml — `name`, git
+    `source` (`git+https://…//knowledge.yaml@<tag|sha>`), `version` (git tag or manifest
+    version), `source_commit`, and `depends_on` from cross-repo edges.
+  - **federate**: root `knowledge.yaml` whose `manifests[]` lists each repo (TLS `url`,
+    `relationship`, `local_mirror`, `context` from the org registry) with
+    `external_relationships` from the dependency edges. Validates with kcp-agent.
+
+  Cross-repo `depends_on`/`external_relationships` are derived deterministically from
+  Maven `<dependency>` artifactIds + each manifest's own `manifests[]` declarations.
+  Cycles are detected and dropped (reported, never emitted). Estates over 50 repos are
+  sharded into `knowledge.shard-N.yaml` files referenced from the top root, so no
+  manifest exceeds the follower's 50-manifest ceiling.
+
   ## Verify declarations against evidence (synthesis kcp verify)
 
   KCP fields are declarations; `synthesis kcp verify` checks them deterministically

@@ -177,6 +177,8 @@ synthesis kcp refresh [--batch dir] [--dry-run]      # Refresh volatile fields o
 synthesis kcp verify                                 # Verify manifest declarations against evidence (V001-V006 + K-signals; exit 1 on HIGH)
 synthesis kcp verify --manifest path --format json   # One manifest, machine-readable (CI gate)
 synthesis kcp gaps                                   # Hot files (git churn) with no KCP unit coverage
+synthesis kcp catalog [dir] -o catalog.yaml          # Emit catalog.yaml (catalog spec v0.1) for a repo estate
+synthesis kcp federate [dir] --write                 # Emit root knowledge.yaml federating every repo manifest (>50 repos → sharded)
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file
