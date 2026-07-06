@@ -239,7 +239,7 @@ public final class KcpScaffolder {
         return triggers;
     }
 
-    static String slug(String text) {
+    public static String slug(String text) {
         return text.toLowerCase()
                 .replaceAll("[/\\\\\\s]+", "-")
                 .replaceAll("[^a-z0-9\\-.]", "-")

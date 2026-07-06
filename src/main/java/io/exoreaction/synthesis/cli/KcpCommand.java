@@ -47,7 +47,8 @@ import java.util.concurrent.Callable;
                 "verify/gaps require manifests to be indexed first (synthesis scan); init works on any repo directory."},
         mixinStandardHelpOptions = true,
         subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
-                KcpCommand.VerifySub.class, KcpCommand.GapsSub.class}
+                KcpCommand.VerifySub.class, KcpCommand.GapsSub.class,
+                KcpCommand.CatalogSub.class, KcpCommand.FederateSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -56,8 +57,147 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps> — see 'synthesis kcp --help'");
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate> "
+                + "— see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Estate scan shared by catalog + federate
+    // -----------------------------------------------------------------------
+
+    private static List<io.exoreaction.synthesis.kcp.KcpFederationBuilder.RepoEntry>
+            scanEstate(KcpCommand kcpParent, Path estateRoot) {
+        io.exoreaction.synthesis.org.OrganizationRegistry registry;
+        try {
+            registry = new io.exoreaction.synthesis.org.OrganizationRegistry(
+                    kcpParent.parent.getWorkspaceRoot());
+            registry.load();
+        } catch (Exception e) {
+            registry = null;
+        }
+        final var reg = registry != null && registry.hasOrganizations() ? registry : null;
+        java.util.function.Function<Path, String> orgResolver = reg == null ? null
+                : dir -> {
+                    try {
+                        return reg.resolveOrganization(dir);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                };
+        return io.exoreaction.synthesis.kcp.KcpFederationBuilder.scanEstate(
+                estateRoot, orgResolver, LocalDate.now().toString());
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp catalog
+    // -----------------------------------------------------------------------
+
+    @Command(name = "catalog",
+            description = {"Emit a catalog.yaml (catalog spec v0.1) for an estate of repos with manifests.",
+                    "One cartridge per child repo carrying knowledge.yaml: git source, version, commit, "
+                            + "and cycle-safe depends_on from cross-repo dependency edges."},
+            mixinStandardHelpOptions = true)
+    static class CatalogSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Estate root directory (default: the workspace root)")
+        private Path estateDir;
+
+        @Option(names = {"-o", "--output"}, description = "Write to file (default: stdout)")
+        private Path output;
+
+        @Option(names = {"--name"}, description = "Catalog name (default: estate directory name)")
+        private String catalogName;
+
+        @Override
+        public Integer call() throws Exception {
+            Path estate = estateDir != null ? estateDir : kcpParent.parent.getWorkspaceRoot();
+            if (!Files.isDirectory(estate)) {
+                AnsiOutput.printError("Not a directory: " + estate);
+                return 2;
+            }
+            var entries = scanEstate(kcpParent, estate);
+            if (entries.isEmpty()) {
+                AnsiOutput.printWarning("No child repositories with a knowledge.yaml under " + estate
+                        + " — run 'synthesis kcp init --batch' first.");
+                return 2;
+            }
+            String name = catalogName != null ? catalogName
+                    : io.exoreaction.synthesis.kcp.KcpScaffolder.slug(estate.getFileName().toString());
+            String yaml = io.exoreaction.synthesis.kcp.KcpFederationBuilder.toCatalogYaml(
+                    entries, name, null);
+            if (output != null) {
+                Files.writeString(output, yaml);
+                System.out.println("  [OK] " + output + " (" + entries.size() + " entries)");
+            } else {
+                System.out.print(yaml);
+            }
+            return 0;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp federate
+    // -----------------------------------------------------------------------
+
+    @Command(name = "federate",
+            description = {"Emit a root knowledge.yaml federating every repo manifest in an estate.",
+                    "manifests[] entries carry relationship/local_mirror/context; external_relationships "
+                            + "come from cross-repo dependency edges. Estates over 50 repos are sharded."},
+            mixinStandardHelpOptions = true)
+    static class FederateSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Estate root directory (default: the workspace root)")
+        private Path estateDir;
+
+        @Option(names = {"--project"}, description = "Root manifest project id (default: estate directory name)")
+        private String project;
+
+        @Option(names = {"--write"}, description = "Write manifest file(s) into the estate root (default: print)")
+        private boolean write;
+
+        @Override
+        public Integer call() throws Exception {
+            Path estate = estateDir != null ? estateDir : kcpParent.parent.getWorkspaceRoot();
+            if (!Files.isDirectory(estate)) {
+                AnsiOutput.printError("Not a directory: " + estate);
+                return 2;
+            }
+            var entries = scanEstate(kcpParent, estate);
+            if (entries.isEmpty()) {
+                AnsiOutput.printWarning("No child repositories with a knowledge.yaml under " + estate
+                        + " — run 'synthesis kcp init --batch' first.");
+                return 2;
+            }
+            String proj = project != null ? project
+                    : io.exoreaction.synthesis.kcp.KcpScaffolder.slug(estate.getFileName().toString());
+            var files = io.exoreaction.synthesis.kcp.KcpFederationBuilder.toFederationManifests(
+                    entries, proj, LocalDate.now().toString());
+            if (files.size() > 1) {
+                System.out.println("  Estate exceeds " + io.exoreaction.synthesis.kcp
+                        .KcpFederationBuilder.MAX_MANIFESTS_PER_ROOT
+                        + " repos — sharded into " + (files.size() - 1) + " sub-manifest file(s).");
+            }
+            for (var file : files) {
+                if (write) {
+                    Files.writeString(estate.resolve(file.relativePath()), file.yaml());
+                    System.out.println("  [OK] " + estate.resolve(file.relativePath()));
+                } else {
+                    System.out.println("# --- " + file.relativePath() + " ---");
+                    System.out.print(file.yaml());
+                    System.out.println();
+                }
+            }
+            return 0;
+        }
     }
 
     // -----------------------------------------------------------------------
