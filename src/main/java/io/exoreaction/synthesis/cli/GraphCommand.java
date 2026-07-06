@@ -39,7 +39,8 @@ import java.util.concurrent.Callable;
  */
 @Command(
         name = "graph",
-        description = "Generate visual knowledge graph",
+        description = {"Generate architecture graph (modules, dependencies, cross-repo).",
+                "--co-change and --violations produce text reports, not a graph."},
         mixinStandardHelpOptions = true
 )
 public class GraphCommand implements Callable<Integer> {

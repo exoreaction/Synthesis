@@ -18,7 +18,10 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
-@Command(name = "validate", description = "Detect drift", mixinStandardHelpOptions = true)
+@Command(name = "validate",
+        description = {"Validation suite: skill/doc drift (default), coverage gaps, false claims, untested code.",
+                "Flags: --gaps, --integrity, --untested, --all."},
+        mixinStandardHelpOptions = true)
 public class ValidateCommand implements Callable<Integer> {
     @ParentCommand private SynthesisApp parent;
     @Option(names = {"--skills"}, description = "Check skills") private boolean skills;

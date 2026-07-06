@@ -54,7 +54,8 @@ import java.util.stream.Collectors;
  */
 @Command(
         name = "export",
-        description = "Export workspace index as JSON or Markdown",
+        description = {"Export workspace index as JSON, Markdown, AI docs, or a KCP manifest.",
+                "Formats: json, markdown, architecture-doc, onboarding-guide, kcp/knowledge-context-protocol."},
         mixinStandardHelpOptions = true
 )
 public class ExportCommand implements Callable<Integer> {

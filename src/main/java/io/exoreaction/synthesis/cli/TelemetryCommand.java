@@ -31,7 +31,8 @@ import java.util.concurrent.Callable;
  */
 @Command(
         name = "telemetry",
-        description = "View pilot telemetry and approval status",
+        description = {"View pilot telemetry and approval status.",
+                "--reset-uuid deletes and regenerates the persistent client UUID (mutating)."},
         mixinStandardHelpOptions = true
 )
 public class TelemetryCommand implements Callable<Integer> {

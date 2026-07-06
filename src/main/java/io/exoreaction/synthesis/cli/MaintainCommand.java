@@ -68,7 +68,8 @@ import java.util.stream.Stream;
  */
 @Command(
         name = "maintain",
-        description = "Detect changes and update the search index incrementally",
+        description = {"Run the full maintenance pipeline (ingest, route, sync, sweep, rebalance, index, track, prune).",
+                "Use --report for a lightweight change-detection-only summary instead."},
         mixinStandardHelpOptions = true
 )
 public class MaintainCommand implements Callable<Integer> {
