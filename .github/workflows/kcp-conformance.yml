@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.6.0'
+  KCP_AGENT_VERSION: '0.9.0'
 
 jobs:
   conformance:
@@ -90,3 +90,20 @@ jobs:
 
       - name: Replay the saved plan (drift re-verification)
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" replay /tmp/plan.json
+
+      - name: Sign the manifest and have kcp-agent verify it (interop)
+        run: |
+          JAR=$(ls "$GITHUB_WORKSPACE"/target/synthesis-*.jar | grep -v sources | head -1)
+          # Synthesis signs (Ed25519, in-manifest signing block + Cantara envelope .sig)
+          java -jar "$JAR" kcp sign /tmp/fixture/knowledge.yaml
+          # The reference consumer must verify the Synthesis signature (fail-closed).
+          npx --yes "kcp-agent@${KCP_AGENT_VERSION}" plan "what endpoints exist" \
+            --manifest /tmp/fixture/knowledge.yaml --require-signature
+          # And it must REJECT a tampered manifest.
+          sed -i 's/project: fixture/project: EVIL/' /tmp/fixture/knowledge.yaml
+          if npx --yes "kcp-agent@${KCP_AGENT_VERSION}" plan "endpoints" \
+               --manifest /tmp/fixture/knowledge.yaml --require-signature; then
+            echo "FAIL: kcp-agent accepted a tampered manifest"; exit 1
+          else
+            echo "ok: tampered manifest rejected by kcp-agent"
+          fi
