@@ -170,6 +170,9 @@ synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
 synthesis export --format kcp                        # Generate KCP v0.25 manifest from index
 synthesis export --format knowledge-context-protocol # Alias
 synthesis export --format kcp -o knowledge.yaml      # Write to file
+synthesis kcp init [dir]                             # Scaffold knowledge.yaml from repo structure (never overwrites)
+synthesis kcp init --batch /src/cantara              # Scaffold every child git repo missing a manifest
+synthesis kcp init --dry-run                         # Print without writing
 synthesis kcp verify                                 # Verify manifest declarations against evidence (V001-V006 + K-signals; exit 1 on HIGH)
 synthesis kcp verify --manifest path --format json   # One manifest, machine-readable (CI gate)
 synthesis kcp gaps                                   # Hot files (git churn) with no KCP unit coverage
