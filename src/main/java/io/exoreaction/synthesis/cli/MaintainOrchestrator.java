@@ -13,6 +13,7 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.kcp.KcpManifestChecks;
 import io.exoreaction.synthesis.notion.NotionPageMapper;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
@@ -156,7 +157,13 @@ public class MaintainOrchestrator {
         // Phase 12: Notion
         results.add(runPhase(12, "Notion", this::runNotion));
 
-        return new MaintainResult(results, System.currentTimeMillis() - start);
+        // Manifest coverage check (issue #309) — runs every invocation, independent of
+        // whether phase 7 (Index) detected any changes, since this is the cron-driven path.
+        List<String> gitignoredManifests = freshScan != null
+                ? KcpManifestChecks.findGitignoredManifests(workspaceRoot, freshScan.files())
+                : List.of();
+
+        return new MaintainResult(results, System.currentTimeMillis() - start, gitignoredManifests);
     }
 
     // =========================================================================

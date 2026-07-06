@@ -492,7 +492,7 @@ class MaintainOrchestratorTest {
                 PhaseResult.success(2, "B", 0, "no items", List.of()),
                 PhaseResult.success(3, "C", 5, "5 items", List.of()));
 
-        MaintainResult result = new MaintainResult(phases, 100);
+        MaintainResult result = new MaintainResult(phases, 100, List.of());
 
         assertEquals(8, result.totalChanges());
     }
@@ -504,7 +504,7 @@ class MaintainOrchestratorTest {
                 PhaseResult.failed(2, "B", "boom"),
                 PhaseResult.success(3, "C", 0, "ok", List.of()));
 
-        MaintainResult result = new MaintainResult(phases, 100);
+        MaintainResult result = new MaintainResult(phases, 100, List.of());
 
         assertFalse(result.allSucceeded());
     }
@@ -516,7 +516,7 @@ class MaintainOrchestratorTest {
                 PhaseResult.skipped(2, "B", "reason"),
                 PhaseResult.success(3, "C", 0, "ok", List.of()));
 
-        MaintainResult result = new MaintainResult(phases, 100);
+        MaintainResult result = new MaintainResult(phases, 100, List.of());
 
         assertTrue(result.allSucceeded());
     }

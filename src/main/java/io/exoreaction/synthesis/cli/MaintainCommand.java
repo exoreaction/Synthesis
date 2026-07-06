@@ -482,6 +482,12 @@ public class MaintainCommand implements Callable<Integer> {
                 System.out.println();
             }
 
+            // Manifest coverage issues (issue #309) — printed every run, not gated on changes
+            if (!quiet && !json && !result.gitignoredManifests().isEmpty()) {
+                io.exoreaction.synthesis.kcp.KcpManifestChecks.printWarnings(result.gitignoredManifests());
+                System.out.println();
+            }
+
             return exitCode;
         } catch (Exception e) {
             AnsiOutput.printError("Maintain failed: " + e.getMessage());
@@ -508,7 +514,7 @@ public class MaintainCommand implements Callable<Integer> {
      *
      * <p>When {@code --quiet} is set, prints exactly one line:
      * <pre>
-     *   2026-02-20T14:32:01Z  OK  12 phases, 17 changes, 4.2s  health=-1
+     *   2026-02-20T14:32:01Z  OK  12 phases, 17 changes, 4.2s  health=-1  manifest-warnings=0
      * </pre>
      *
      * <p>When {@code --json} is set, prints a single JSON object to stdout.
@@ -583,10 +589,11 @@ public class MaintainCommand implements Callable<Integer> {
      */
     private int printQuietResult(MaintainResult result) {
         String status = result.allSucceeded() ? "OK" : "ERROR";
-        String summary = String.format("%d phases, %d changes, %.1fs  health=-1",
+        String summary = String.format("%d phases, %d changes, %.1fs  health=-1  manifest-warnings=%d",
                 result.phases().size(),
                 result.totalChanges(),
-                result.elapsedMs() / 1000.0);
+                result.elapsedMs() / 1000.0,
+                result.gitignoredManifests().size());
         System.out.println(Instant.now().toString() + "  " + status + "  " + summary);
         return dryRun ? 0 : (result.allSucceeded() ? 0 : 1);
     }
@@ -619,6 +626,7 @@ public class MaintainCommand implements Callable<Integer> {
             }
             output.put("phases", phases);
             output.put("pending", 0);
+            output.put("manifestWarnings", result.gitignoredManifests());
 
             System.out.println(mapper.writeValueAsString(output));
         } catch (Exception e) {
