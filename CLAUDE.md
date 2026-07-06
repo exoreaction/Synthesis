@@ -33,7 +33,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP v0.5 support (Phases 2-5, PRs #284-#287).
+**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP support (v0.25 export; Phases 2-5, PRs #284-#287).
 
 ---
 
@@ -166,8 +166,8 @@ synthesis claude-md refresh                # Update Synthesis Stats section in C
 synthesis claude-md refresh --dry-run      # Print result without modifying
 synthesis claude-md refresh -f /path/CLAUDE.md  # Specific file
 
-# KCP (Knowledge Context Protocol) v0.5
-synthesis export --format kcp                        # Generate KCP v0.5 manifest from index
+# KCP (Knowledge Context Protocol) v0.25
+synthesis export --format kcp                        # Generate KCP v0.25 manifest from index
 synthesis export --format knowledge-context-protocol # Alias
 synthesis export --format kcp -o knowledge.yaml      # Write to file
 
@@ -345,11 +345,12 @@ Parallel system for source code repos. All metadata in SQLite only — no `.synt
 
 ---
 
-## KCP (Knowledge Context Protocol) v0.5
+## KCP (Knowledge Context Protocol) v0.25
 
 KCP is a structured YAML manifest format (`knowledge.yaml`) that tells AI agents which files
 matter, what each is for, and the recommended read order. Spec: github.com/cantara/knowledge-context-protocol.
-Synthesis provides full-stack v0.5 support across four capabilities.
+Synthesis provides full-stack support across four capabilities: v0.25-conformant export
+(validated against kcp-agent in CI), parsing through v0.21 fields, persistence, and visualisation.
 
 **Detection:** `YamlAnalyzer` identifies `knowledge.yaml` as KCP when ALL THREE hold:
 filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists.
@@ -359,10 +360,13 @@ Extracts `KcpUnit` + `KcpRelationship` records with full field data.
 `KcpRepository` provides idempotent upsert/delete. `ScanCommand` and `MaintainCommand` auto-persist
 on detection and clean up on deletion.
 
-**Export:** `synthesis export --format kcp` generates a v0.5 conformant YAML from the Lucene index.
+**Export:** `synthesis export --format kcp` generates a v0.25 conformant YAML from the Lucene index
+(validated by `kcp-agent validate`, pinned in `.github/workflows/kcp-conformance.yml`).
 Header: `kcp_version`, `language`, `indexing`, `hints.unit_count`. Per-unit fields inferred:
 `format` (from extension), `kind` (policy/schema/omit), `triggers` (up to 8 headings),
-`validated`/`updated` (quoted ISO dates).
+`validated`/`updated` (quoted ISO dates), `content_structure` (modality from file type),
+`content_hash` (sha256), `temporal.recorded_at` (last git commit), `discovery`
+(`verification_status: declared`, `source: synthesis`).
 
 **Knowledge graph:** `synthesis kg` surfaces KCP units as first-class nodes. ASCII groups by project.
 Mermaid adds pill nodes + `kcp-unit` edges. JSON adds `kcpUnits` + `kcpRelationships` arrays.
@@ -501,7 +505,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
 | `synthesis-knowledge-graph` | `synthesis knowledge-graph`, `describe`, `feedback`, `structure`, `evolution` | Document knowledge graph: centroid, wants, health, bidding, archetypes |
 | `synthesis-code-graph` | `synthesis code-graph extract`, `cg` | Code dependency persistence, fast relate/impact |
-| `synthesis-kcp` | `synthesis export --format kcp`, `synthesis kg` | KCP v0.5 support |
+| `synthesis-kcp` | `synthesis export --format kcp`, `synthesis kg` | KCP v0.25 support |
 
 **Start here for new work:** `synthesis-development` -- covers architecture decisions, patterns, and how to navigate the codebase.
 

@@ -1,7 +1,7 @@
 name: synthesis-kcp
 version: 1.0.0
 description: |
-  KCP (Knowledge Context Protocol) v0.5 support in Synthesis.
+  KCP (Knowledge Context Protocol) v0.25 support in Synthesis.
   Generate, parse, store, and visualise knowledge.yaml manifests.
 
 trigger_phrases:
@@ -11,26 +11,27 @@ trigger_phrases:
   - "synthesis kcp"
   - "export kcp"
   - "kcp units"
-  - "kcp v0.5"
+  - "kcp v0.25"
 
 instructions: |
-  # KCP (Knowledge Context Protocol) v0.5 — Synthesis Integration
+  # KCP (Knowledge Context Protocol) v0.25 — Synthesis Integration
 
   KCP is a structured YAML manifest format (`knowledge.yaml`) that tells AI agents
   which files matter, in what order to read them, and what each file is for.
-  Synthesis provides full-stack KCP v0.5 support: detection, parsing, SQLite persistence,
-  manifest generation, and knowledge-graph visualisation.
+  Synthesis provides full-stack KCP support: detection, parsing (through v0.21 fields),
+  SQLite persistence, v0.25-conformant manifest generation (validated against kcp-agent),
+  and knowledge-graph visualisation.
 
   **Spec repository:** https://github.com/cantara/knowledge-context-protocol
   **Synthesis PR series:** #284 (Phase 2) · #285 (Phase 3) · #286 (Phase 4) · #287 (Phase 5)
 
   ---
 
-  ## knowledge.yaml Format (v0.5)
+  ## knowledge.yaml Format (v0.25)
 
   ```yaml
-  # Knowledge Context Protocol (KCP) v0.5
-  kcp_version: "0.5"
+  # Knowledge Context Protocol (KCP) v0.25
+  kcp_version: "0.25"
   project: my-project
   language: en
   indexing: open
@@ -48,6 +49,17 @@ instructions: |
       triggers: [overview, introduction, getting-started]
       validated: "2026-03-01"
       updated: "2026-03-01"
+      content_structure:          # §4.19 (v0.17+): dominant modality
+        primary: prose
+        contains: [prose]
+      content_hash:               # §4.21 (v0.18+): drift detection
+        algorithm: sha256
+        value: "…hex digest…"
+      temporal:                   # §4.22 (v0.19+): from last git commit
+        recorded_at: "2026-03-01T12:00:00+00:00"
+      discovery:                  # §4.18 (v0.12+): epistemic status
+        verification_status: declared
+        source: synthesis
 
     - id: api-ref
       path: docs/api.md
@@ -69,7 +81,7 @@ instructions: |
 
   | Field | Required | Values / Notes |
   |-------|----------|----------------|
-  | `kcp_version` | Yes | Always `"0.5"` (quoted) |
+  | `kcp_version` | Yes | Always `"0.25"` (quoted) |
   | `project` / `id` | Yes (one of) | Manifest identifier |
   | `language` | Recommended | ISO 639-1 code (`en`) |
   | `indexing` | Recommended | `open` = agent may index freely |
@@ -114,6 +126,10 @@ instructions: |
   | `triggers` | Top-8 heading words slugified (stop-words removed) |
   | `validated` | Last-modified timestamp of the file (quoted ISO date) |
   | `updated` | Same as validated |
+  | `content_structure` | `primary`/`contains` modality: CODE → `code`, YAML/JSON/CONFIG → `reference`, else `prose` |
+  | `content_hash` | `sha256` hex digest of the file bytes; omitted when the file is unreadable |
+  | `temporal.recorded_at` | ISO timestamp of the file's most recent git commit (one-pass `git log`, capped at 5000 commits); omitted outside git repos |
+  | `discovery` | `verification_status: declared`, `source: synthesis` (first-party self-description; v0.16 epistemic ordering) |
 
   ---
 
@@ -200,11 +216,19 @@ instructions: |
 
   ## Validate a manifest
 
-  After generation, validate with the KCP Python reference parser:
+  After generation, validate with the reference consumer (pinned version — same as CI):
+  ```bash
+  npx --yes kcp-agent@0.6.0 validate knowledge.yaml
+  ```
+
+  Or with the KCP Python reference parser:
   ```bash
   pip install kcp
   python3 -m kcp knowledge.yaml
   ```
+
+  CI runs the kcp-agent validation automatically for export-related changes
+  (`.github/workflows/kcp-conformance.yml`).
 
   ---
 
@@ -229,4 +253,4 @@ instructions: |
 
   ---
 
-  **Last updated:** March 1, 2026
+  **Last updated:** July 6, 2026

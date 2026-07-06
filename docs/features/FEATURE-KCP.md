@@ -1,6 +1,6 @@
-# Feature: KCP (Knowledge Context Protocol) v0.5
+# Feature: KCP (Knowledge Context Protocol)
 
-**Available since:** v1.19.0 (March 2026)
+**Available since:** v1.19.0 (March 2026); v0.25-conformant export since July 2026
 **Spec:** https://github.com/cantara/knowledge-context-protocol
 
 ---
@@ -12,8 +12,9 @@ sits in a repository and tells AI agents which files matter, what each one is fo
 order to read them. Without a manifest, an agent must scan the entire codebase to understand it.
 With one, the agent reads the manifest first and immediately knows where to focus.
 
-Synthesis provides full-stack v0.5 support: detection and parsing during indexing, SQLite
-persistence, manifest generation from the index, and first-class knowledge graph visualisation.
+Synthesis provides full-stack support: detection and parsing during indexing (through v0.21
+fields), SQLite persistence, v0.25-conformant manifest generation from the index (validated
+against `kcp-agent validate` in CI), and first-class knowledge graph visualisation.
 
 ---
 
@@ -25,7 +26,7 @@ synthesis -d /path/to/your-repo export --format kcp -o knowledge.yaml
 
 # Step 2: Review and commit the manifest
 git add knowledge.yaml
-git commit -m "docs: add KCP v0.5 manifest"
+git commit -m "docs: add KCP manifest"
 
 # Step 3: Let Synthesis index it (automatic during scan/maintain)
 synthesis -d /path/to/your-repo scan
@@ -40,11 +41,17 @@ and the `knowledge-graph` MCP tool — no extra steps needed.
 
 ---
 
-## 3. Format Reference (v0.5)
+## 3. Format Reference
+
+The v0.5 baseline fields below are still the core of every manifest. Since July 2026 the
+exporter emits `kcp_version: "0.25"` and additionally infers `content_structure`,
+`content_hash` (sha256), `temporal.recorded_at` (last git commit), and
+`discovery.verification_status: declared` per unit — see the `synthesis-kcp` skill for
+the full field reference.
 
 ```yaml
-# Knowledge Context Protocol (KCP) v0.5
-kcp_version: "0.5"
+# Knowledge Context Protocol (KCP)
+kcp_version: "0.25"
 project: my-service          # OR id: my-service
 language: en
 indexing: open

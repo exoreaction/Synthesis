@@ -552,10 +552,11 @@ synthesis health --fix-config     # Auto-fix config issues
 
 ---
 
-## KCP v0.5 Support
+## KCP v0.25 Support
 
-Synthesis provides full-stack KCP (Knowledge Context Protocol) v0.5 support — detection,
-persistence, generation, and visualisation. No configuration needed; it is active automatically.
+Synthesis provides full-stack KCP (Knowledge Context Protocol) support — detection,
+persistence, v0.25-conformant generation (validated against kcp-agent in CI), and
+visualisation. No configuration needed; it is active automatically.
 
 ### Generate a manifest
 
