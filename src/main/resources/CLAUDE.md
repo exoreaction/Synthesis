@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.11.1, Feb 2026)
+**Status:** Production-ready (v1.38.0, July 2026)
 
 ---
 
@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 3,086 tests passing, 92-95% reduction in retrieval time.
+**Validated:** 36,342 files indexed, 4,605 tests passing, 92-95% reduction in retrieval time. Includes the document knowledge graph, DirectoryClassifier, the Code Knowledge Graph (CKG-1 through CKG-5), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern), validated against kcp-agent in CI.
 
 ---
 
@@ -29,10 +29,10 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 14 tables, managed by Flyway (V1-V6, V8, V9; V7 intentionally reserved)
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V24; V7 intentionally reserved). Highlights: V10-V13 knowledge graph, V14 repo isolation, V15 security analysis, V17/V23/V24 KCP, V20 git metrics.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
-- **Package root:** `io.exoreaction.synthesis.*` (30 packages)
+- **Package root:** `io.exoreaction.synthesis.*` (31 packages, incl. `kcp`)
 - **Fat JARs:** 3 -- synthesis.jar (CLI), synthesis-mcp-server.jar, synthesis-lsp-server.jar
 
 ---
@@ -49,8 +49,10 @@ mvn test
 # Run with local JAR
 java -jar target/synthesis-*.jar <command>
 
-# Install globally (symlink in ~/bin)
-# synthesis is already on PATH at /home/totto/bin/synthesis
+# Install globally (CRITICAL: copy to the correct location!)
+# The synthesis launcher uses ~/.synthesis/lib/current.jar (symlink)
+cp target/synthesis-*.jar ~/.synthesis/lib/synthesis-<version>.jar
+ln -sf ~/.synthesis/lib/synthesis-<version>.jar ~/.synthesis/lib/current.jar
 ```
 
 ### Environment Setup (Critical for Agents/Subprocesses)
@@ -116,6 +118,36 @@ synthesis graph --modules               # Architecture graph (Mermaid)
 synthesis cross-repo-deps               # Cross-repository dependency analysis
 synthesis architecture                  # Architecture health monitoring
 
+# Code graph (source code workspaces) — CKG-1 through CKG-5
+synthesis code-graph extract            # Build/rebuild persistent code dependency graph (alias: cg)
+synthesis code-graph describe           # Module profiles: fan-in, fan-out, instability
+synthesis code-graph health             # Health signals C001-C021
+synthesis code-graph gaps               # Quality gaps: missing tests, interfaces, docs
+synthesis code-graph                    # Package DAG grouped by architectural layer
+synthesis code-graph security           # Security analysis: 21 signals (traditional + agentic)
+
+# Knowledge graph (document workspaces)
+synthesis knowledge-graph               # Full knowledge graph view (alias: kg)
+synthesis describe                      # Show knowledge profiles for all directories
+synthesis structure                     # Structural analysis of workspace
+synthesis evolution                     # Long-term evolution report (alias: evo)
+
+# KCP (Knowledge Context Protocol) v0.25
+synthesis export --format kcp           # Generate a v0.25-conformant knowledge.yaml from the index
+synthesis kcp init [dir] [--sign]       # Scaffold knowledge.yaml from repo structure (never overwrites)
+synthesis kcp refresh [--batch dir]     # Refresh volatile fields of generated manifests (hand-edits protected)
+synthesis kcp verify                    # Verify manifest declarations against evidence (V001-V006 + K/G signals)
+synthesis kcp gaps                      # Hot files (git churn) with no KCP unit coverage
+synthesis kcp catalog [dir]             # Emit catalog.yaml (catalog spec v0.1) for a repo estate
+synthesis kcp federate [dir] --write    # Emit root knowledge.yaml federating every repo manifest
+synthesis kcp plan "task" --budget N    # Ordered read plan over indexed units (also plan_context MCP tool)
+synthesis kcp sign [manifest]           # Ed25519-sign a manifest (kcp-agent-interoperable; --verify prints tier)
+
+# Session lifecycle (Claude Code integration)
+synthesis session-context               # Codebase freshness snapshot for session injection
+synthesis hooks generate                # Generate Claude Code hook config
+synthesis claude-md refresh             # Update Synthesis Stats section in CLAUDE.md
+
 # Change tracking
 synthesis track                         # Track file movements
 synthesis changelog --since 7d          # Cross-workspace change report
@@ -166,7 +198,7 @@ synthesis credentials                   # Manage credentials
 
 ---
 
-## Directory Identity System (v1.11.1)
+## Directory Identity System (v1.12.0)
 
 Per-directory `.synthesis.md` files declare what each directory accepts. This enables intelligent file routing without centralized rules.
 
@@ -196,13 +228,14 @@ Parsed by `DirectoryIdentityParser`. Written by `SyncCommand`.
 
 ```
 src/main/java/io/exoreaction/synthesis/
-+-- SynthesisApp.java              # Main entry point (picocli root, 51 subcommands)
++-- SynthesisApp.java              # Main entry point (picocli root, 76 subcommands)
 +-- cli/                           # All CLI subcommands
 +-- config/                        # Configuration management
 +-- core/                          # Core utilities
 +-- index/                         # File indexing pipeline
 +-- search/                        # Lucene search engine
-+-- graph/                         # Dependency graph engine
++-- graph/                         # Dependency graph engine (incl. Code Knowledge Graph, security)
++-- kcp/                           # Knowledge Context Protocol: generate/verify/sign/federate/plan
 +-- mcp/                           # MCP server implementation
 +-- lsp/                           # LSP server implementation
 +-- enrichment/                    # AI enrichment (media, docs)
@@ -226,7 +259,7 @@ src/main/java/io/exoreaction/synthesis/
 
 ## Skills Navigation
 
-**Skills directory:** `.claude/skills/` (32 skills)
+**Skills directory:** `.claude/skills/` (38 skills)
 
 ### Using Synthesis as a Tool (also available globally)
 
@@ -279,8 +312,35 @@ src/main/java/io/exoreaction/synthesis/
 | `synthesis-workspace-management` | Workspace lifecycle (init, scan, maintain) |
 | `synthesis-track-movements` | File movement tracking implementation |
 | `synthesis-architecture-monitoring` | Architecture health monitoring |
+| `synthesis-knowledge-graph` | Document knowledge graph: centroid, wants, health, bidding, archetypes |
+| `synthesis-code-graph` | Code dependency persistence, fast relate/impact, health/gaps/security |
+| `synthesis-kcp` | KCP v0.25: generate, ingest, plan, verify, sign, federate, govern |
 
 **Start here for new work:** `synthesis-development` -- covers architecture decisions, patterns, and how to navigate the codebase.
+
+---
+
+## Major Systems (added since v1.12)
+
+**Code Knowledge Graph (CKG-1..5)** -- persists Java dependency edges to SQLite (V13) so
+`synthesis relate`/`impact` are instant. `code-graph describe` (fan-in/out, instability),
+`health` (C001-C021), `gaps` (missing tests/interfaces/docs), the layered package DAG, and
+`security` (21 signals across traditional + agentic surfaces). All metadata is DB-only -- no
+`.synthesis.md` inside source trees; `DirectoryClassifier` gates document-graph features out of
+code directories.
+
+**KCP (Knowledge Context Protocol) v0.25** -- structured `knowledge.yaml` manifests telling agents
+which files matter and in what order. Synthesis provides the full producer/consumer stack:
+- **generate:** `export --format kcp`, `kcp init` (scaffold from repo structure), `kcp refresh`
+- **federate:** `kcp catalog` (catalog.yaml) and `kcp federate` (root manifest) from the cross-repo graph
+- **ingest:** `YamlAnalyzer` detects manifests; V17/V23/V24 tables persist units, federation, and
+  verification; unmapped blocks preserved losslessly as JSON
+- **plan:** `kcp plan` / the `plan_context` MCP tool -- deterministic RFC-0007 read plans
+- **verify/sign/govern:** `kcp verify` (V001-V006 + K/G signals), `kcp sign`
+  (kcp-agent-interoperable Ed25519), and the sensitivity-vs-CKG-5 governance cross-check
+- CI (`kcp-conformance.yml`) runs a pinned kcp-agent through validate/plan/replay + signature interop.
+
+Details: `synthesis-kcp`, `synthesis-code-graph`, and `synthesis-knowledge-graph` skills.
 
 ---
 
