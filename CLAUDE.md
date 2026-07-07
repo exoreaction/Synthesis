@@ -4,7 +4,7 @@ Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** MIT
-**Status:** Production-ready (v1.28.0, April 2026)
+**Status:** Production-ready (v1.38.0, July 2026)
 
 ---
 
@@ -33,7 +33,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,153 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and KCP support (v0.25 export; Phases 2-5, PRs #284-#287).
+**Validated:** 36,342 files indexed, 4,605 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern — epic #361, all 7 phases, kcp-agent-validated in CI; originally shipped v0.5 in PRs #284-#287).
 
 ---
 
@@ -444,7 +444,7 @@ directory named `node_modules` at any depth.
 ```
 /src/exoreaction/Synthesis/
 +-- src/main/java/io/exoreaction/synthesis/
-|   +-- SynthesisApp.java              # Main entry point (picocli root, 51 subcommands)
+|   +-- SynthesisApp.java              # Main entry point (picocli root, 76 subcommands)
 |   +-- cli/                           # All CLI subcommands
 |   +-- config/                        # Configuration management
 |   +-- core/                          # Core utilities
@@ -478,7 +478,7 @@ directory named `node_modules` at any depth.
 
 ## Skills Navigation
 
-**Skills directory:** `.claude/skills/` (33 skills)
+**Skills directory:** `.claude/skills/` (38 skills)
 
 ### Using Synthesis as a Tool (also available globally)
 
