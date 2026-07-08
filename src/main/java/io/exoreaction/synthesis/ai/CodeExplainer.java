@@ -152,6 +152,16 @@ public class CodeExplainer {
                         f.relativePath().startsWith(relativePath + "\\"))
                 .toList();
 
+        // Guard: no indexed files in this module — return early without calling AI
+        if (moduleFiles.isEmpty()) {
+            long duration = System.currentTimeMillis() - startTime;
+            return new ExplanationResult(relativePath, "module",
+                    "No matching content found for module '" + relativePath
+                            + "'. The directory may be empty, not yet indexed, or excluded from scanning."
+                            + " Run 'synthesis scan' to update the index.",
+                    0, duration);
+        }
+
         // 2. Build file listing
         StringBuilder fileList = new StringBuilder();
         for (SearchResult f : moduleFiles) {
@@ -212,6 +222,15 @@ public class CodeExplainer {
 
         // Search for files related to the pattern
         List<SearchResult> results = index.search(pattern, 15);
+
+        // Guard: no matching files — return early without calling AI
+        if (results.isEmpty()) {
+            long duration = System.currentTimeMillis() - startTime;
+            return new ExplanationResult(pattern, "pattern",
+                    "No matching content found for pattern '" + pattern
+                            + "'. Try a different search term or run 'synthesis scan' to update the index.",
+                    0, duration);
+        }
 
         // Build context from matching files
         StringBuilder context = new StringBuilder();

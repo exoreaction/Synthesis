@@ -1415,6 +1415,11 @@ public class SynthesisToolHandler {
                 CodeExplainer.ExplanationResult result;
 
                 // Determine mode: file, module, or pattern
+                // Mirrors ExplainCommand.resolveFilePath() resolution order:
+                //   1. Absolute path on disk
+                //   2. Workspace-relative path on disk
+                //   3. Filename search in the index (Issue #373)
+                //   4. Fall through to pattern mode
                 Path targetPath = Path.of(target);
                 if (!targetPath.isAbsolute()) {
                     targetPath = workspacePath.resolve(target);
@@ -1425,8 +1430,16 @@ public class SynthesisToolHandler {
                 } else if (Files.isDirectory(targetPath)) {
                     result = explainer.explainModule(targetPath, index, workspacePath, depth);
                 } else {
-                    // Treat as pattern/concept
-                    result = explainer.explainPattern(target, index, workspacePath, depth);
+                    // Try index-based filename resolution before falling to pattern mode
+                    Path resolved = resolveExplainTarget(target, workspacePath, index);
+                    if (resolved != null && Files.isRegularFile(resolved)) {
+                        result = explainer.explainFile(resolved, index, workspacePath, depth);
+                    } else if (resolved != null && Files.isDirectory(resolved)) {
+                        result = explainer.explainModule(resolved, index, workspacePath, depth);
+                    } else {
+                        // Treat as pattern/concept
+                        result = explainer.explainPattern(target, index, workspacePath, depth);
+                    }
                 }
 
                 ObjectNode response = mapper.createObjectNode();
@@ -1444,6 +1457,57 @@ public class SynthesisToolHandler {
             LOG.warning("Explain failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Explain failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Resolves an explain target to a filesystem path using index-based filename search.
+     *
+     * <p>Mirrors the resolution logic from {@code ExplainCommand.resolveFilePath()}:
+     * <ol>
+     *   <li>Absolute path that exists on disk</li>
+     *   <li>Path relative to workspace root</li>
+     *   <li>Filename search in the Synthesis index</li>
+     * </ol>
+     *
+     * @param target        the user-provided target string
+     * @param workspacePath the workspace root
+     * @param index         the open search index
+     * @return resolved path, or {@code null} if no match found (caller should treat as pattern)
+     */
+    static Path resolveExplainTarget(String target, Path workspacePath, SearchIndex index) {
+        Path targetPath = Path.of(target);
+
+        // 1. Absolute path that exists
+        if (targetPath.isAbsolute() && Files.exists(targetPath)) {
+            return targetPath;
+        }
+
+        // 2. Workspace-relative path
+        Path resolved = workspacePath.resolve(targetPath);
+        if (Files.exists(resolved)) {
+            return resolved;
+        }
+
+        // 3. Filename search in the index
+        String query = targetPath.getFileName().toString();
+        try {
+            List<SearchResult> results = index.search(query, 10);
+            // Prefer exact path or filename match; fall back to top scored result
+            for (SearchResult r : results) {
+                if (r.relativePath().equals(query)
+                        || r.relativePath().endsWith("/" + query)
+                        || r.fileName().equals(query)) {
+                    return r.path();
+                }
+            }
+            if (!results.isEmpty()) {
+                return results.get(0).path();
+            }
+        } catch (Exception ignored) {
+            // Index search failure — fall through to null (pattern mode)
+        }
+
+        return null;
     }
 
     // -----------------------------------------------------------------------
