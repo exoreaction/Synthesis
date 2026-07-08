@@ -781,9 +781,11 @@ public class SynthesisMCPServer {
                 "plan_context",
                 "Return an ORDERED READ PLAN for a task from the workspace's KCP knowledge units, " +
                         "instead of flat search hits. Deterministic RFC-0007 scoring (trigger match 5, " +
-                        "intent 3, id/path 1); each planned unit carries a match reason and token estimate, " +
-                        "expired/superseded units are skipped with a reason, and an optional token budget " +
-                        "greedily caps the plan. Requires indexed knowledge.yaml manifests (synthesis scan).",
+                        "intent 3, id/path 1); each planned unit carries a match reason, token estimate, " +
+                        "and sha256 hash. Expired/superseded units are skipped with a reason, and an optional " +
+                        "token budget greedily caps the plan. Supports SESSION DEDUP via 'known' parameter: " +
+                        "pass [{id, sha256}] of units you already hold and unchanged units are returned as " +
+                        "compact stubs instead of full entries. Requires indexed knowledge.yaml manifests.",
                 createPlanContextSchema()
         ));
 
@@ -1055,6 +1057,36 @@ public class SynthesisMCPServer {
         budget.put("type", "integer");
         budget.put("description", "Optional max total token estimate to admit (0 or omitted = unlimited)");
         properties.set("budget", budget);
+
+        // Session dedup: caller declares units it already holds (id→sha256)
+        ObjectNode known = mapper.createObjectNode();
+        known.put("description", "Units the caller already holds for session dedup. " +
+                "Units with matching sha256 are returned as compact 'unchanged' stubs " +
+                "instead of full plan entries. Accepts array [{id, sha256}] or object {id: sha256}.");
+        // oneOf: array or object
+        ArrayNode oneOf = mapper.createArrayNode();
+        ObjectNode arrayForm = mapper.createObjectNode();
+        arrayForm.put("type", "array");
+        ObjectNode itemSchema = mapper.createObjectNode();
+        itemSchema.put("type", "object");
+        ObjectNode itemProps = mapper.createObjectNode();
+        ObjectNode idProp = mapper.createObjectNode();
+        idProp.put("type", "string");
+        itemProps.set("id", idProp);
+        ObjectNode shaProp = mapper.createObjectNode();
+        shaProp.put("type", "string");
+        itemProps.set("sha256", shaProp);
+        itemSchema.set("properties", itemProps);
+        arrayForm.set("items", itemSchema);
+        oneOf.add(arrayForm);
+        ObjectNode objectForm = mapper.createObjectNode();
+        objectForm.put("type", "object");
+        ObjectNode addProps = mapper.createObjectNode();
+        addProps.put("type", "string");
+        objectForm.set("additionalProperties", addProps);
+        oneOf.add(objectForm);
+        known.set("oneOf", oneOf);
+        properties.set("known", known);
 
         schema.set("properties", properties);
 

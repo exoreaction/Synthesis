@@ -3302,6 +3302,9 @@ public class SynthesisToolHandler {
     /**
      * plan_context — an ordered KCP read plan for a task (issue #359).
      * Deterministic RFC-0007 scoring over persisted units; no model.
+     * Supports session dedup via {@code known} parameter (issue #371):
+     * callers declare units they already hold (id→sha256) and unchanged
+     * units are returned as compact stubs instead of full plan entries.
      */
     public ObjectNode handlePlanContext(JsonNode params) throws McpToolException {
         if (params == null || !params.has("task") || params.get("task").asText().isBlank()) {
@@ -3312,6 +3315,9 @@ public class SynthesisToolHandler {
         int budget = params.has("budget") && !params.get("budget").isNull()
                 ? params.get("budget").asInt(0) : 0;
         String today = java.time.LocalDate.now().toString();
+
+        // Parse known parameter: array of {id, sha256} or object {id: sha256}
+        java.util.Map<String, String> known = parseKnown(params);
 
         try {
             java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
@@ -3324,13 +3330,14 @@ public class SynthesisToolHandler {
                 }
             }
             KcpPlanner.Plan plan = KcpPlanner.plan(task, candidates, today, budget);
+            KcpPlanner.DedupResult result = KcpPlanner.dedup(plan, known);
 
             ObjectNode response = mapper.createObjectNode();
-            response.put("task", plan.task());
+            response.put("task", result.task());
             response.put("workspace", workspacePath.toString());
-            response.put("totalTokenEstimate", plan.totalTokenEstimate());
+            response.put("totalTokenEstimate", result.totalTokenEstimate());
             ArrayNode units = mapper.createArrayNode();
-            for (KcpPlanner.Planned p : plan.units()) {
+            for (KcpPlanner.Planned p : result.units()) {
                 ObjectNode u = mapper.createObjectNode();
                 u.put("unitId", p.unitId());
                 u.put("path", p.path());
@@ -3339,11 +3346,26 @@ public class SynthesisToolHandler {
                 u.put("matchReason", p.matchReason());
                 u.put("tokenEstimate", p.tokenEstimate());
                 if (p.intent() != null) u.put("intent", p.intent());
+                if (p.sha256() != null) u.put("sha256", p.sha256());
                 units.add(u);
             }
             response.set("units", units);
+            if (!result.unchanged().isEmpty()) {
+                ArrayNode unchangedArr = mapper.createArrayNode();
+                for (KcpPlanner.Unchanged uc : result.unchanged()) {
+                    ObjectNode ucNode = mapper.createObjectNode();
+                    ucNode.put("unitId", uc.unitId());
+                    ucNode.put("path", uc.path());
+                    ucNode.put("sha256", uc.sha256());
+                    ucNode.put("unchanged", true);
+                    ucNode.put("note", uc.note());
+                    unchangedArr.add(ucNode);
+                }
+                response.set("unchanged", unchangedArr);
+                response.put("tokensSaved", result.tokensSaved());
+            }
             ArrayNode skipped = mapper.createArrayNode();
-            for (KcpPlanner.Skipped s : plan.skipped()) {
+            for (KcpPlanner.Skipped s : result.skipped()) {
                 ObjectNode sk = mapper.createObjectNode();
                 sk.put("unitId", s.unitId());
                 sk.put("path", s.path());
@@ -3356,6 +3378,38 @@ public class SynthesisToolHandler {
             LOG.warning("plan_context failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "plan_context failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Parses the {@code known} parameter from plan_context params.
+     * Accepts both formats (matching kcp-agent's interface):
+     * <ul>
+     *   <li>Array: {@code [{"id": "unit-1", "sha256": "abc..."}, ...]}</li>
+     *   <li>Object: {@code {"unit-1": "abc...", "unit-2": "def..."}}</li>
+     * </ul>
+     */
+    private java.util.Map<String, String> parseKnown(JsonNode params) {
+        if (params == null || !params.has("known") || params.get("known").isNull()) {
+            return null;
+        }
+        JsonNode knownNode = params.get("known");
+        java.util.Map<String, String> known = new java.util.LinkedHashMap<>();
+        if (knownNode.isArray()) {
+            for (JsonNode entry : knownNode) {
+                String id = entry.has("id") ? entry.get("id").asText() : null;
+                String sha = entry.has("sha256") ? entry.get("sha256").asText() : null;
+                if (id != null && sha != null) {
+                    known.put(id, sha);
+                }
+            }
+        } else if (knownNode.isObject()) {
+            var it = knownNode.fields();
+            while (it.hasNext()) {
+                var field = it.next();
+                known.put(field.getKey(), field.getValue().asText());
+            }
+        }
+        return known.isEmpty() ? null : known;
     }
 
     public ObjectNode handleBootstrapContext(JsonNode params) throws McpToolException {

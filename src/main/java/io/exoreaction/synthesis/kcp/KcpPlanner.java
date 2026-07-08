@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -40,7 +41,8 @@ public final class KcpPlanner {
 
     /** A unit admitted to the plan. */
     public record Planned(String unitId, String path, String manifestFile, int score,
-                          String matchReason, int tokenEstimate, String intent) {}
+                          String matchReason, int tokenEstimate, String intent,
+                          String sha256) {}
 
     /** A unit considered but excluded, with the reason. */
     public record Skipped(String unitId, String path, String reason) {}
@@ -48,6 +50,14 @@ public final class KcpPlanner {
     /** The full plan: ordered units to read, skipped units, and the total token estimate. */
     public record Plan(String task, List<Planned> units, List<Skipped> skipped,
                        int totalTokenEstimate) {}
+
+    /** A unit the caller already holds unchanged — compact stub, no content re-served. */
+    public record Unchanged(String unitId, String path, String sha256, String note) {}
+
+    /** Result of session dedup: changed units served in full, unchanged as stubs. */
+    public record DedupResult(String task, List<Planned> units, List<Unchanged> unchanged,
+                              List<Skipped> skipped, int totalTokenEstimate,
+                              int tokensSaved) {}
 
     /** A unit to be scored, paired with the manifest that declares it and its workspace root. */
     public record Candidate(KcpRepository.KcpUnitRow unit, String manifestFile, Path workspaceRoot) {}
@@ -106,10 +116,45 @@ public final class KcpPlanner {
             spent += s.tokenEstimate;
             planned.add(new Planned(s.candidate.unit().unitId(), s.candidate.unit().path(),
                     s.candidate.manifestFile(), s.score, s.matchReason, s.tokenEstimate,
-                    s.candidate.unit().intent()));
+                    s.candidate.unit().intent(), s.candidate.unit().contentHashValue()));
         }
 
         return new Plan(task, planned, skipped, spent);
+    }
+
+    /**
+     * Session dedup: partitions planned units into changed (full) and unchanged (stub)
+     * based on caller-declared {@code known} id→sha256 map. Exact sha256 match →
+     * unchanged stub; sha drift, unknown id, or no hash → full entry.
+     *
+     * @param plan  the scored plan from {@link #plan}
+     * @param known id→sha256 map of units the caller already holds, or null
+     * @return dedup result with units, unchanged stubs, skipped, and token savings
+     */
+    public static DedupResult dedup(Plan plan, Map<String, String> known) {
+        if (known == null || known.isEmpty()) {
+            return new DedupResult(plan.task(), plan.units(), List.of(),
+                    plan.skipped(), plan.totalTokenEstimate(), 0);
+        }
+
+        List<Planned> served = new ArrayList<>();
+        List<Unchanged> unchanged = new ArrayList<>();
+        int tokensSaved = 0;
+
+        for (Planned p : plan.units()) {
+            String knownSha = known.get(p.unitId());
+            if (knownSha != null && p.sha256() != null && knownSha.equals(p.sha256())) {
+                unchanged.add(new Unchanged(p.unitId(), p.path(), p.sha256(),
+                        "unchanged since your copy (sha " + p.sha256().substring(0,
+                                Math.min(12, p.sha256().length())) + "…) — not re-served"));
+                tokensSaved += p.tokenEstimate();
+            } else {
+                served.add(p);
+            }
+        }
+
+        return new DedupResult(plan.task(), served, unchanged,
+                plan.skipped(), plan.totalTokenEstimate(), tokensSaved);
     }
 
     // -----------------------------------------------------------------------
