@@ -454,9 +454,7 @@ public class SearchCommand implements Callable<Integer> {
                 try {
                     if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
 
-                    // Build file representation for embedding
-                    String fileText = file.summary() + " " + file.headings() + " " + file.fileName();
-                    if (!file.structure().isEmpty()) fileText += " " + file.structure();
+                    String fileText = buildEmbeddingText(file);
 
                     float[] fileEmbedding = embeddingService.embed(fileText);
                     float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
@@ -513,6 +511,53 @@ public class SearchCommand implements Callable<Integer> {
             AnsiOutput.printError("Semantic search failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /** Maximum content characters to include in the embedding input. */
+    private static final int MAX_EMBEDDING_CONTENT_CHARS = 32_000;
+
+    /**
+     * Builds the text to embed for a file in semantic search.
+     *
+     * <p>Reads actual file content from disk (up to {@link #MAX_EMBEDDING_CONTENT_CHARS}
+     * characters) and prepends metadata (filename, summary, structure) as context.
+     * Falls back to metadata-only when the file is missing, unreadable, or binary.
+     *
+     * <p>This replaces the previous summary-only embedding (#375) which missed files
+     * whose body discussed the searched concept but whose heuristic summary didn't
+     * mention it.
+     *
+     * @param file the search result with path and metadata
+     * @return text suitable for embedding
+     */
+    static String buildEmbeddingText(SearchResult file) {
+        StringBuilder sb = new StringBuilder();
+
+        // Always include metadata as context
+        sb.append(file.fileName());
+        if (!file.summary().isEmpty()) {
+            sb.append('\n').append(file.summary());
+        }
+        if (!file.headings().isEmpty()) {
+            sb.append('\n').append(file.headings());
+        }
+        if (!file.structure().isEmpty()) {
+            sb.append('\n').append(file.structure());
+        }
+
+        // Read actual file content if available
+        if (Files.exists(file.path()) && Files.isReadable(file.path())) {
+            try {
+                String content = FileUtils.readPreview(file.path(), MAX_EMBEDDING_CONTENT_CHARS);
+                if (!content.isBlank()) {
+                    sb.append('\n').append(content);
+                }
+            } catch (Exception e) {
+                // Fall back to metadata-only embedding
+            }
+        }
+
+        return sb.toString();
     }
 
     /**
