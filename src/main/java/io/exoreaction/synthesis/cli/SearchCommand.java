@@ -440,39 +440,54 @@ public class SearchCommand implements Callable<Integer> {
             // Generate query embedding
             float[] queryEmbedding = embeddingService.embed(query);
 
-            // Get all files and compute similarity
-            List<SearchResult> allFiles;
-            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                allFiles = index.listAll(fileType, limit * 5);
-            }
-
-            // Score each file by embedding similarity
+            // Try HNSW search first if index has persisted vectors
             record ScoredResult(SearchResult result, float similarity) {}
             List<ScoredResult> scored = new ArrayList<>();
 
-            for (SearchResult file : allFiles) {
-                try {
-                    if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
-
-                    String fileText = buildEmbeddingText(file);
-
-                    float[] fileEmbedding = embeddingService.embed(fileText);
-                    float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
-
-                    if (similarity >= similarityThreshold) {
-                        scored.add(new ScoredResult(file, similarity));
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                if (index.hasVectors()) {
+                    // O(log N) HNSW search on persisted embeddings
+                    AnsiOutput.printInfo("Using persisted embeddings (HNSW)");
+                    List<SearchResult> results = index.searchByVector(queryEmbedding, limit);
+                    for (SearchResult r : results) {
+                        if (r.score() >= similarityThreshold) {
+                            scored.add(new ScoredResult(r, r.score()));
+                        }
                     }
-                } catch (Exception e) {
-                    // Skip files that fail
                 }
             }
 
-            // Sort by similarity (descending)
-            scored.sort((a, b) -> Float.compare(b.similarity(), a.similarity()));
+            // Fall back to brute-force if no persisted vectors or no results
+            if (scored.isEmpty()) {
+                List<SearchResult> allFiles;
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                    allFiles = index.listAll(fileType, limit * 5);
+                }
 
-            // Limit results
-            if (scored.size() > limit) {
-                scored = scored.subList(0, limit);
+                for (SearchResult file : allFiles) {
+                    try {
+                        if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
+
+                        String fileText = buildEmbeddingText(file);
+
+                        float[] fileEmbedding = embeddingService.embed(fileText);
+                        float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
+
+                        if (similarity >= similarityThreshold) {
+                            scored.add(new ScoredResult(file, similarity));
+                        }
+                    } catch (Exception e) {
+                        // Skip files that fail
+                    }
+                }
+
+                // Sort by similarity (descending)
+                scored.sort((a, b) -> Float.compare(b.similarity(), a.similarity()));
+
+                // Limit results
+                if (scored.size() > limit) {
+                    scored = scored.subList(0, limit);
+                }
             }
 
             if (scored.isEmpty()) {
