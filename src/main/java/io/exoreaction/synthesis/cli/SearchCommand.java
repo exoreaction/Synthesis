@@ -2,6 +2,8 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.EmbeddingService;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
@@ -430,7 +432,8 @@ public class SearchCommand implements Callable<Integer> {
      */
     private int performSemanticSearch(WorkspaceManager workspace) {
         try {
-            EmbeddingService embeddingService = EmbeddingService.create();
+            SynthesisConfig config = ConfigLoader.load(parent.getWorkspaceRoot());
+            EmbeddingService embeddingService = EmbeddingService.create(config.getAi());
             AnsiOutput.printInfo("Semantic search using " + embeddingService.getProvider() + " embeddings");
             System.out.println();
 

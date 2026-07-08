@@ -1,5 +1,6 @@
 package io.exoreaction.synthesis.ai;
 
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.util.FileUtils;
 
 import java.io.IOException;
@@ -54,6 +55,7 @@ public class EmbeddingService {
     private final String provider;  // "openai", "local"
     private final String apiKey;
     private final String model;
+    private final String endpoint;
     private final HttpClient httpClient;
     private final Map<String, float[]> cache;
 
@@ -65,9 +67,22 @@ public class EmbeddingService {
      * @param model    model name (e.g., "text-embedding-3-small")
      */
     public EmbeddingService(String provider, String apiKey, String model) {
+        this(provider, apiKey, model, null);
+    }
+
+    /**
+     * Creates an embedding service with a custom endpoint.
+     *
+     * @param provider "openai" or "local"
+     * @param apiKey   API key (required for openai, ignored for local)
+     * @param model    model name (e.g., "text-embedding-3-small")
+     * @param endpoint API endpoint URL (null = provider default)
+     */
+    public EmbeddingService(String provider, String apiKey, String model, String endpoint) {
         this.provider = provider != null ? provider : "local";
         this.apiKey = apiKey;
         this.model = model != null ? model : "text-embedding-3-small";
+        this.endpoint = endpoint;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
@@ -82,7 +97,32 @@ public class EmbeddingService {
     public static EmbeddingService create() {
         String openAiKey = System.getenv("OPENAI_API_KEY");
         if (openAiKey != null && !openAiKey.isBlank()) {
-            return new EmbeddingService("openai", openAiKey, "text-embedding-3-small");
+            return new EmbeddingService("openai", openAiKey, "text-embedding-3-small",
+                    "https://api.openai.com/v1");
+        }
+        return new EmbeddingService("local", null, null);
+    }
+
+    /**
+     * Creates a service configured from {@link SynthesisConfig.AiConfig}.
+     * Mirrors the {@code resolveEndpoint()} pattern from {@link OpenAiClient}:
+     * uses {@code ai.endpoint} from config if set, otherwise falls back to the
+     * provider's default endpoint. This enables local/custom embedding backends
+     * (e.g., Ollama) without code changes.
+     *
+     * @param config AI configuration from synthesis-config.yaml
+     * @return configured service, falling back to local if no API key
+     */
+    public static EmbeddingService create(SynthesisConfig.AiConfig config) {
+        AiProvider provider = AiProvider.fromId(config.getProvider());
+        Optional<String> apiKey = provider.resolveApiKey();
+
+        if (apiKey.isPresent()) {
+            String resolvedEndpoint = Optional.ofNullable(config.getEndpoint())
+                    .filter(ep -> !ep.isBlank())
+                    .orElse(provider.defaultEndpoint());
+            return new EmbeddingService(provider.id(), apiKey.get(),
+                    "text-embedding-3-small", resolvedEndpoint);
         }
         return new EmbeddingService("local", null, null);
     }
@@ -194,6 +234,13 @@ public class EmbeddingService {
     }
 
     /**
+     * Returns the configured endpoint (may be null for local provider).
+     */
+    public String getEndpoint() {
+        return endpoint;
+    }
+
+    /**
      * Returns the embedding dimensions.
      */
     public int getDimensions() {
@@ -229,8 +276,10 @@ public class EmbeddingService {
                     escapeJson(text),
                     EMBEDDING_DIMENSIONS);
 
+            String embeddingEndpoint = (endpoint != null ? endpoint : "https://api.openai.com/v1")
+                    + "/embeddings";
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.openai.com/v1/embeddings"))
+                    .uri(URI.create(embeddingEndpoint))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(30))
