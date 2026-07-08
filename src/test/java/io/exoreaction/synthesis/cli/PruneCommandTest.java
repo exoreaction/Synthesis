@@ -170,6 +170,94 @@ class PruneCommandTest {
     }
 
     // -------------------------------------------------------------------------
+    // Issue #329: dot-ancestor paths must be excluded
+    // -------------------------------------------------------------------------
+
+    @Test
+    void findPruneable_skipsNestedDotDirSubtrees() throws IOException {
+        // Repro from issue #329: .claude/worktrees/agent-x/.claude/worktrees/agent-y
+        // The leaf "agent-y" does NOT start with '.', but it lives under a dotdir
+        // ancestor. findPruneable must skip it entirely.
+        Files.createDirectories(workspace.resolve(
+                ".claude/worktrees/agent-x/.claude/worktrees/agent-y"));
+
+        List<Path> result = PruneCommand.findPruneable(workspace, workspace, Set.of());
+
+        // None of these should appear: worktrees, agent-x, agent-y, etc.
+        for (Path p : result) {
+            String rel = workspace.relativize(p).toString();
+            assertFalse(rel.startsWith("."),
+                    "Dotdir subtree path should not be pruneable: " + rel);
+            assertFalse(rel.contains("/."),
+                    "Path with dotdir ancestor should not be pruneable: " + rel);
+        }
+        assertTrue(result.isEmpty(),
+                "No directories should be pruneable when all are under dotdir ancestors");
+    }
+
+    @Test
+    void findPruneable_skipsNonLeafDotdirChildren() throws IOException {
+        // A regular dir name nested under a dotdir ancestor should not be pruneable.
+        // e.g., .hidden/visible/deep — "visible" and "deep" don't start with '.' but
+        // .hidden is a dotdir ancestor.
+        Files.createDirectories(workspace.resolve(".hidden/visible/deep"));
+
+        List<Path> result = PruneCommand.findPruneable(workspace, workspace, Set.of());
+        assertTrue(result.isEmpty(),
+                "Children of dotdirs should not be pruneable even if their own name is not dotted");
+    }
+
+    @Test
+    void findPruneable_normalDirNextToDotdirIsStillPruned() throws IOException {
+        // A normal empty dir that is a sibling of a dotdir should still be prunable.
+        Files.createDirectories(workspace.resolve(".hidden/stuff"));
+        Files.createDirectories(workspace.resolve("normal-empty"));
+
+        List<Path> result = PruneCommand.findPruneable(workspace, workspace, Set.of());
+        assertEquals(1, result.size(), "Only the normal dir should be pruneable");
+        assertEquals("normal-empty",
+                workspace.relativize(result.get(0)).toString());
+    }
+
+    @Test
+    void findPruneable_dirContainingOnlyEmptyDotdirsIsNotPruneable() throws IOException {
+        // Issue #329 secondary case: a regular dir that contains ONLY dotdir
+        // children. isEmptyTree sees "no regular files" and marks it empty, but
+        // rmdir fails because the dotdir children are still there.
+        // The parent "scaffold" must NOT appear in pruneable results because
+        // it is not truly empty on disk.
+        Path scaffold = Files.createDirectories(workspace.resolve("scaffold"));
+        Files.createDirectories(scaffold.resolve(".claude"));
+        Files.createDirectories(scaffold.resolve(".git"));
+
+        List<Path> result = PruneCommand.findPruneable(workspace, workspace, Set.of());
+        assertFalse(result.contains(scaffold),
+                "Dir containing only dotdir children should not be pruneable (rmdir would fail)");
+    }
+
+    @Test
+    void isEmptyTree_falseWhenOnlyDotdirChildrenExist() throws IOException {
+        // A dir that contains only dotdirs is NOT empty from rmdir's perspective.
+        // isEmptyTree should return false in this case.
+        Path dir = Files.createDirectories(workspace.resolve("has-dotdirs"));
+        Files.createDirectories(dir.resolve(".claude"));
+        Files.createDirectories(dir.resolve(".git"));
+
+        assertFalse(PruneCommand.isEmptyTree(dir),
+                "Dir containing only dotdir children is not empty (rmdir would fail)");
+    }
+
+    @Test
+    void isEmptyTree_falseWhenNestedDotdirExists() throws IOException {
+        // Even a deeply nested dotdir child makes the parent not truly empty.
+        Path dir = Files.createDirectories(workspace.resolve("parent"));
+        Files.createDirectories(dir.resolve("child/.hidden-deep"));
+
+        assertFalse(PruneCommand.isEmptyTree(dir),
+                "Dir with nested dotdir descendants is not truly empty for rmdir");
+    }
+
+    // -------------------------------------------------------------------------
     // pruneDirectories
     // -------------------------------------------------------------------------
 
