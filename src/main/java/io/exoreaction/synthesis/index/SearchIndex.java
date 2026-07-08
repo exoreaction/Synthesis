@@ -778,6 +778,55 @@ public class SearchIndex implements Closeable {
         return counts;
     }
 
+    /**
+     * Searches the index using approximate nearest neighbor (HNSW) on
+     * persisted embedding vectors.
+     *
+     * <p>Uses Lucene's {@link KnnFloatVectorQuery} for O(log N) search
+     * instead of brute-force re-embedding every document.
+     *
+     * @param queryVector the query embedding vector
+     * @param maxResults  maximum number of results to return
+     * @return list of search results ranked by vector similarity
+     */
+    public List<SearchResult> searchByVector(float[] queryVector, int maxResults) throws IOException {
+        if (indexEmpty || queryVector == null || queryVector.length == 0) return List.of();
+
+        List<SearchResult> results = new ArrayList<>();
+        try (DirectoryReader reader = openReader()) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+            KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(
+                    DocumentFields.EMBEDDING, queryVector, maxResults);
+            TopDocs topDocs = searcher.search(vectorQuery, maxResults);
+
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.storedFields().document(scoreDoc.doc);
+                results.add(toSearchResult(doc, scoreDoc.score));
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Returns whether the index contains any persisted embedding vectors.
+     *
+     * @return true if at least one document has an embedding field
+     */
+    public boolean hasVectors() throws IOException {
+        if (indexEmpty) return false;
+        try (DirectoryReader reader = openReader()) {
+            for (LeafReaderContext ctx : reader.leaves()) {
+                FieldInfos fieldInfos = ctx.reader().getFieldInfos();
+                FieldInfo embeddingField = fieldInfos.fieldInfo(DocumentFields.EMBEDDING);
+                if (embeddingField != null
+                        && embeddingField.getVectorDimension() > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @Override
     public void close() throws IOException {
         if (writer != null) {
