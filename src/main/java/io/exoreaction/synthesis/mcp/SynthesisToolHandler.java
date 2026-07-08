@@ -44,6 +44,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
@@ -59,6 +61,10 @@ import java.util.logging.Logger;
 public class SynthesisToolHandler {
 
     private static final Logger LOG = Logger.getLogger(SynthesisToolHandler.class.getName());
+
+    /** Default timeout for CLI subprocess execution (5 minutes). */
+    static final int DEFAULT_CLI_TIMEOUT_SECONDS = 300;
+
     private final ObjectMapper mapper;
     private final Path defaultWorkspace;
     private final List<Path> allWorkspaces;
@@ -2842,7 +2848,7 @@ public class SynthesisToolHandler {
      * @param args          command arguments (e.g., ["changelog", "--since=24h"])
      * @param workspacePath workspace directory to pass via -d flag
      * @return the stdout output as a string
-     * @throws McpToolException if the process exits with a non-zero code
+     * @throws McpToolException if the process exits with a non-zero code or times out
      */
     private String runSynthesisCli(java.util.List<String> args, Path workspacePath) throws Exception {
         String synthesisBin = System.getProperty("user.home") + "/.synthesis/bin/synthesis";
@@ -2852,22 +2858,71 @@ public class SynthesisToolHandler {
         cmd.add("-d");
         cmd.add(workspacePath.toString());
         ProcessBuilder pb = new ProcessBuilder(cmd);
+        return runProcess(pb, DEFAULT_CLI_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Runs a process with a timeout, draining stdout and stderr concurrently
+     * to prevent pipe-buffer deadlocks.
+     *
+     * <p>Fixes two problems in the previous implementation:
+     * <ol>
+     *   <li><b>No timeout</b> — {@code Process.waitFor()} blocked indefinitely,
+     *       causing HTTP clients to disconnect on long-running commands (#325).</li>
+     *   <li><b>Stderr deadlock</b> — stderr was only drained <em>after</em>
+     *       {@code waitFor()}, so a child writing &gt;64 KB to stderr would block
+     *       on the pipe write while the parent was blocked reading stdout.</li>
+     * </ol>
+     *
+     * @param pb             configured ProcessBuilder (stderr must NOT be redirected)
+     * @param timeoutSeconds maximum seconds to wait for the process
+     * @return the captured stdout (with stderr appended on non-zero exit)
+     * @throws McpToolException if the process times out or fails with no stdout
+     */
+    String runProcess(ProcessBuilder pb, long timeoutSeconds) throws Exception {
         pb.redirectErrorStream(false);
         Process p = pb.start();
-        String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        int exitCode = p.waitFor();
+
+        // Drain stdout and stderr concurrently to prevent pipe-buffer deadlock
+        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return new String(p.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return new String(p.getErrorStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+
+        boolean completed = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!completed) {
+            p.destroyForcibly();
+            p.waitFor(5, TimeUnit.SECONDS); // brief grace for cleanup
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Process timed out after " + timeoutSeconds
+                            + "s. Run from the CLI directly for long operations.");
+        }
+
+        String output = stdoutFuture.join();
+        String err = stderrFuture.join();
+        int exitCode = p.exitValue();
+
         if (exitCode != 0) {
             // Some subcommands (e.g. architecture, validate) use a nonzero exit code
             // to signal severity (warnings/errors/issues found), not failure -- they
             // still print a full report to stdout, and genuine failures write to
             // stderr. Only treat nonzero exit as a real failure when there's no
             // output to show for it; otherwise surface any stderr alongside the
-            // report instead of silently dropping it (e.g. a command that failed
-            // partway through printing).
-            String err = new String(p.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            // report instead of silently dropping it.
             if (output.isBlank()) {
-                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
-                        "synthesis " + args.get(0) + " failed: " + err.trim());
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, err.trim());
             }
             if (!err.isBlank()) {
                 output = output + "\n[stderr] " + err.trim();
