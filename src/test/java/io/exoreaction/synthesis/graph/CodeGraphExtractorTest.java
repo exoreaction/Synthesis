@@ -92,6 +92,175 @@ class CodeGraphExtractorTest {
     }
 
     // -----------------------------------------------------------------------
+    // Kotlin support (spike)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractKotlinImports_handles_semicolon_optional_alias_and_wildcard() {
+        String content = """
+                package no.tvimenning.samtygd.config
+
+                import org.springframework.context.annotation.Bean
+                import com.example.Foo as Bar
+                import kotlin.collections.*
+                import java.util.List;
+
+                class Foo
+                """;
+        List<String> imports = extractor.extractKotlinImports(content);
+        assertTrue(imports.contains("org.springframework.context.annotation.Bean"));
+        assertTrue(imports.contains("com.example.Foo"), "alias should be dropped, FQN kept");
+        assertTrue(imports.contains("java.util.List"), "trailing ; is optional, not required");
+        assertFalse(imports.stream().anyMatch(i -> i.contains("*")), "wildcard imports are dropped");
+    }
+
+    @Test
+    void extractKotlinPackage_semicolon_optional() {
+        assertEquals("no.tvimenning.samtygd.config",
+                extractor.extractKotlinPackage("package no.tvimenning.samtygd.config\n\nclass Foo"));
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_single_class_no_supertype() {
+        // Real shape: tvimenning-template SecurityConfig.kt (api-internal)
+        String content = """
+                package no.tvimenning.samtygd.config
+
+                import org.springframework.context.annotation.Configuration
+
+                @Configuration
+                @EnableWebSecurity
+                class SecurityConfig {
+                    fun securityFilterChain() {}
+                }
+                """;
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(1, decls.size());
+        assertEquals("SecurityConfig", decls.get(0).name());
+        assertTrue(decls.get(0).supertypes().isEmpty());
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_single_supertype_with_constructor_call() {
+        // Real shape: tvimenning-template GdprMaskingConverter.kt
+        String content = "class GdprMaskingConverter : ClassicConverter() {\n}\n";
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(1, decls.size());
+        assertEquals("GdprMaskingConverter", decls.get(0).name());
+        assertEquals(List.of("ClassicConverter"), decls.get(0).supertypes());
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_interface_supertype_no_parens() {
+        // Real shape: tvimenning-template WebMvcConfig.kt
+        String content = "class WebMvcConfig : WebMvcConfigurer {\n}\n";
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(1, decls.size());
+        assertEquals(List.of("WebMvcConfigurer"), decls.get(0).supertypes());
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_ignores_nested_indented_class() {
+        // Real shape: tvimenning-template WebMvcConfig.kt has a nested `private class
+        // TraceIdInterceptor : HandlerInterceptor` inside the outer class body -- only the
+        // outer, column-0 declaration should be picked up as a top-level entity.
+        String content = """
+                class WebMvcConfig : WebMvcConfigurer {
+
+                    private class TraceIdInterceptor : HandlerInterceptor {
+                        override fun preHandle(): Boolean { return true }
+                    }
+                }
+                """;
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(1, decls.size(), "nested indented class must not be picked up as top-level");
+        assertEquals("WebMvcConfig", decls.get(0).name());
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_multiple_top_level_declarations_in_one_file() {
+        String content = """
+                package com.example
+
+                sealed class Result
+
+                data class Ok(val value: String) : Result()
+
+                class Err(val message: String) : Result()
+
+                object Empty : Result()
+                """;
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(4, decls.size());
+        assertEquals(List.of("Result", "Ok", "Err", "Empty"),
+                decls.stream().map(CodeGraphExtractor.KotlinDecl::name).toList());
+        assertEquals(List.of("Result"), decls.get(1).supertypes());
+        assertEquals(List.of("Result"), decls.get(3).supertypes());
+    }
+
+    @Test
+    void findKotlinTopLevelDecls_empty_for_extension_function_only_file() {
+        String content = """
+                package com.example
+
+                fun String.truncate(n: Int): String = take(n)
+                fun String.isBlankOrNull(): Boolean = this.isBlank()
+                """;
+        assertTrue(extractor.findKotlinTopLevelDecls(content).isEmpty());
+    }
+
+    @Test
+    void extractKotlinFileClassName_strips_kt_extension() {
+        assertEquals("StringExt", extractor.extractKotlinFileClassName(Path.of("util/StringExt.kt")));
+    }
+
+    @Test
+    void splitKotlinSupertypes_strips_generics_and_multiple_supertypes() {
+        List<String> names = extractor.splitKotlinSupertypes("Bar<String>(), Baz, com.example.Qux");
+        assertEquals(List.of("Bar", "Baz", "Qux"), names);
+    }
+
+    @Test
+    void buildKotlinClassToFileMap_registers_every_top_level_declaration() throws IOException {
+        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example");
+        Files.createDirectories(pkgDir);
+        Files.writeString(pkgDir.resolve("Result.kt"), """
+                package com.example
+
+                sealed class Result
+                data class Ok(val value: String) : Result()
+                class Err(val message: String) : Result()
+                """);
+
+        Map<String, String> map = extractor.buildKotlinClassToFileMap(
+                List.of(pkgDir.resolve("Result.kt")), tempDir);
+
+        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Result"));
+        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Ok"));
+        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Err"));
+    }
+
+    @Test
+    void extractAndPersist_resolves_kotlin_supertype_edge_as_internal() throws SQLException, IOException {
+        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example");
+        Files.createDirectories(pkgDir);
+        Files.writeString(pkgDir.resolve("Base.kt"), "package com.example\n\nopen class Base\n");
+        Files.writeString(pkgDir.resolve("Foo.kt"), "package com.example\n\nclass Foo : Base()\n");
+
+        extractor.extractAndPersist(tempDir, conn);
+
+        List<CodeDependency> deps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, tempDir.toString(), "src/main/kotlin/com/example/Foo.kt");
+        CodeDependency supertypeDep = deps.stream()
+                .filter(d -> "supertype".equals(d.dependencyType()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a supertype edge from Foo.kt"));
+        assertEquals("Base", supertypeDep.targetClass());
+        assertFalse(supertypeDep.isExternal(), "Base is in-workspace, should resolve internal");
+        assertEquals("src/main/kotlin/com/example/Base.kt", supertypeDep.targetFile());
+    }
+
+    // -----------------------------------------------------------------------
     // Full extraction with temp workspace
     // -----------------------------------------------------------------------
 
