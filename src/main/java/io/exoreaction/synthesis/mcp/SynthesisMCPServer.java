@@ -1012,6 +1012,14 @@ public class SynthesisMCPServer {
                 "regardless of validity window. Mutually exclusive with as_of.");
         properties.set("include_all_temporal", includeAllTemporal);
 
+        ObjectNode kcpBoost = mapper.createObjectNode();
+        kcpBoost.put("type", "boolean");
+        kcpBoost.put("default", true);
+        kcpBoost.put("description", "When true (default), boost search results whose paths match KCP " +
+                "knowledge units with query-matching triggers. Response includes kcpRouting diagnostics " +
+                "showing which results were boosted and why. Set false to disable KCP routing.");
+        properties.set("kcp_boost", kcpBoost);
+
         schema.set("properties", properties);
 
         ArrayNode required = mapper.createArrayNode();
@@ -1206,6 +1214,13 @@ public class SynthesisMCPServer {
                 "context files (fail-closed grounding). Returns a 'grounding' object with per-claim " +
                 "verdicts, sha256-pinned citations, and explicit gaps.");
         properties.set("ground", ground);
+
+        ObjectNode kcpBoost = mapper.createObjectNode();
+        kcpBoost.put("type", "boolean");
+        kcpBoost.put("default", true);
+        kcpBoost.put("description", "When true (default), boost context file selection using KCP " +
+                "knowledge unit triggers. Response includes kcpRouting diagnostics when active.");
+        properties.set("kcp_boost", kcpBoost);
 
         schema.set("properties", properties);
 

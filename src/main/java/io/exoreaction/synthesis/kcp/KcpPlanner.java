@@ -161,8 +161,16 @@ public final class KcpPlanner {
     }
 
     // -----------------------------------------------------------------------
-    // Search result boosting (#371 item 5)
+    // Search result boosting (#371 items 2 & 5)
     // -----------------------------------------------------------------------
+
+    /** Detailed trigger boost for a single path: score + human-readable reason. */
+    public record TriggerBoost(String path, int score, String reason) {}
+
+    /** Result of boosting: re-ranked results + per-path diagnostics. */
+    public record BoostReport(List<SearchResult> results, List<TriggerBoost> boosts) {
+        public int boostedCount() { return boosts.size(); }
+    }
 
     /**
      * Builds a path→score map from KCP units whose triggers or intent overlap
@@ -195,6 +203,33 @@ public final class KcpPlanner {
     }
 
     /**
+     * Builds detailed trigger matches with per-path reasons. Like
+     * {@link #buildTriggerScores} but returns diagnostics for measured routing.
+     */
+    public static Map<String, TriggerBoost> buildTriggerMatches(String query,
+                                                                  List<KcpRepository.KcpUnitRow> units) {
+        Set<String> terms = tokenize(query);
+        Map<String, TriggerBoost> matches = new HashMap<>();
+        if (units == null) return matches;
+
+        for (KcpRepository.KcpUnitRow u : units) {
+            if (u.path() == null) continue;
+            int triggerHits = countHits(terms, tokenize(u.triggersJson()));
+            int intentHits = countHits(terms, tokenize(u.intent()));
+            int idPathHits = countHits(terms, tokenize(
+                    (u.unitId() == null ? "" : u.unitId()) + " " + u.path()));
+            int score = triggerHits * TRIGGER_WEIGHT + intentHits * INTENT_WEIGHT
+                    + idPathHits * ID_PATH_WEIGHT;
+            if (score > 0) {
+                String reason = matchReason(triggerHits, intentHits, idPathHits);
+                matches.merge(u.path(), new TriggerBoost(u.path(), score, reason),
+                        (a, b) -> a.score >= b.score ? a : b);
+            }
+        }
+        return matches;
+    }
+
+    /**
      * Re-ranks search results by adding KCP trigger scores to Lucene scores.
      * Returns a new sorted list; the original list is not modified.
      *
@@ -218,6 +253,39 @@ public final class KcpPlanner {
         }
         boosted.sort((a, b) -> Float.compare(b.score(), a.score()));
         return boosted;
+    }
+
+    /**
+     * Boost search results with full diagnostics (measured routing, #371 item 2).
+     * Combines {@link #buildTriggerMatches} + re-ranking in one call, returning
+     * both the re-ranked results and per-path boost reasons.
+     *
+     * @param results search results from Lucene
+     * @param query   the original search query
+     * @param units   KCP units to score against
+     * @return boost report with re-ranked results and diagnostics
+     */
+    public static BoostReport boostWithReport(List<SearchResult> results, String query,
+                                                List<KcpRepository.KcpUnitRow> units) {
+        if (results == null || results.isEmpty()) return new BoostReport(List.of(), List.of());
+        if (units == null || units.isEmpty()) return new BoostReport(List.copyOf(results), List.of());
+
+        Map<String, TriggerBoost> matches = buildTriggerMatches(query, units);
+        if (matches.isEmpty()) return new BoostReport(List.copyOf(results), List.of());
+
+        List<SearchResult> boosted = new ArrayList<>(results.size());
+        List<TriggerBoost> appliedBoosts = new ArrayList<>();
+        for (SearchResult r : results) {
+            TriggerBoost boost = matches.get(r.relativePath());
+            if (boost != null) {
+                boosted.add(r.withScore(r.score() + boost.score));
+                appliedBoosts.add(boost);
+            } else {
+                boosted.add(r);
+            }
+        }
+        boosted.sort((a, b) -> Float.compare(b.score(), a.score()));
+        return new BoostReport(boosted, appliedBoosts);
     }
 
     // -----------------------------------------------------------------------

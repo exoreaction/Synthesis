@@ -140,6 +140,13 @@ public class SearchCommand implements Callable<Integer> {
     private boolean includeAllTemporal;
 
     @Option(
+            names = {"--no-kcp-boost"},
+            description = "Disable KCP trigger-based result boosting",
+            defaultValue = "false"
+    )
+    private boolean noKcpBoost;
+
+    @Option(
             names = {"-v", "--verbose"},
             description = "Show detailed result information",
             defaultValue = "false"
@@ -206,8 +213,21 @@ public class SearchCommand implements Callable<Integer> {
                     results = filterByKcpTemporal(results, workspaceRoot.toString(), effectiveAsOf);
                 }
 
-                // Boost results whose paths match KCP units with query-matching triggers
-                results = boostByKcpTriggers(results, query, workspaceRoot.toString());
+                // Boost results by KCP trigger match (flag-gated, #371 item 2)
+                if (!noKcpBoost) {
+                    var boostReport = boostByKcpTriggersWithReport(results, query,
+                            workspaceRoot.toString());
+                    results = boostReport.results();
+                    if (verbose && boostReport.boostedCount() > 0) {
+                        System.out.println();
+                        AnsiOutput.printInfo("KCP routing: " + boostReport.boostedCount()
+                                + " result(s) boosted by knowledge triggers");
+                        for (var tb : boostReport.boosts()) {
+                            System.out.println("    " + AnsiOutput.cyan(tb.path())
+                                    + " +" + tb.score() + " (" + tb.reason() + ")");
+                        }
+                    }
+                }
 
                 if (results.isEmpty()) {
                     System.out.println();
@@ -667,29 +687,25 @@ public class SearchCommand implements Callable<Integer> {
         }
     }
 
-    private List<SearchResult> boostByKcpTriggers(List<SearchResult> results,
-                                                     String query, String workspacePath) {
+    private io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport boostByKcpTriggersWithReport(
+            List<SearchResult> results, String query, String workspacePath) {
         try {
             io.exoreaction.synthesis.db.SynthesisDatabase db =
                     io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
-            try (java.sql.Connection conn = db.getConnection()) {
-                io.exoreaction.synthesis.kcp.KcpRepository repo =
-                        new io.exoreaction.synthesis.kcp.KcpRepository();
-                List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
-                        new java.util.ArrayList<>();
-                for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
-                        repo.getManifests(conn, workspacePath)) {
-                    allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
-                }
-                if (allUnits.isEmpty()) return results;
-                var triggerScores = io.exoreaction.synthesis.kcp.KcpPlanner
-                        .buildTriggerScores(query, allUnits);
-                if (triggerScores.isEmpty()) return results;
-                return io.exoreaction.synthesis.kcp.KcpPlanner
-                        .boostResults(results, triggerScores);
+            java.sql.Connection conn = db.getConnection();
+            io.exoreaction.synthesis.kcp.KcpRepository repo =
+                    new io.exoreaction.synthesis.kcp.KcpRepository();
+            List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
+                    new java.util.ArrayList<>();
+            for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
+                    repo.getManifests(conn, workspacePath)) {
+                allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
             }
+            return io.exoreaction.synthesis.kcp.KcpPlanner
+                    .boostWithReport(results, query, allUnits);
         } catch (Exception e) {
-            return results; // best-effort: don't break search if KCP DB unavailable
+            return new io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport(
+                    java.util.List.copyOf(results), java.util.List.of());
         }
     }
 
