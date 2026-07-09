@@ -10,12 +10,15 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for KCP trigger-based search result boosting (#371 item 5).
+ * Tests for KCP trigger-based search result boosting (#371 items 2 &amp; 5).
  *
  * <p>When a workspace has indexed knowledge.yaml manifests, search results
  * whose paths match KCP units with query-matching triggers should be
  * boosted in rank. This applies the RFC-0007 trigger scoring to post-search
  * re-ranking without modifying the Lucene index schema.
+ *
+ * <p>Item 2 adds measured routing: {@link KcpPlanner.BoostReport} returns
+ * per-path diagnostics alongside the re-ranked results.
  */
 class KcpSearchBoostTest {
 
@@ -138,6 +141,87 @@ class KcpSearchBoostTest {
         assertEquals("docs/a.md", original.get(0).relativePath());
         // Boosted list has different order
         assertEquals("docs/b.md", boosted.get(0).relativePath());
+    }
+
+    // --- buildTriggerMatches (measured routing, #371 item 2) ---
+
+    @Test
+    void buildTriggerMatches_returnsScoreAndReason() {
+        var unit = unit("auth-guide", "docs/auth.md", "[\"authentication\", \"oauth\", \"security\"]");
+        var matches = KcpPlanner.buildTriggerMatches("authentication security", List.of(unit));
+
+        assertTrue(matches.containsKey("docs/auth.md"));
+        var boost = matches.get("docs/auth.md");
+        assertEquals(10, boost.score());
+        assertTrue(boost.reason().contains("trigger"), "Reason should mention trigger matches");
+        assertEquals("docs/auth.md", boost.path());
+    }
+
+    @Test
+    void buildTriggerMatches_noMatchReturnsEmpty() {
+        var unit = unit("api-ref", "docs/api.md", "[\"api\", \"rest\"]");
+        var matches = KcpPlanner.buildTriggerMatches("authentication security", List.of(unit));
+        assertTrue(matches.isEmpty());
+    }
+
+    @Test
+    void buildTriggerMatches_intentReasonIncluded() {
+        var unit = unit("guide", "docs/guide.md", "[\"onboarding\"]",
+                "How to set up authentication");
+        var matches = KcpPlanner.buildTriggerMatches("authentication", List.of(unit));
+
+        assertTrue(matches.containsKey("docs/guide.md"));
+        assertTrue(matches.get("docs/guide.md").reason().contains("intent"));
+    }
+
+    // --- boostWithReport (measured routing, #371 item 2) ---
+
+    @Test
+    void boostWithReport_reranksAndReturnsDiagnostics() {
+        var result1 = result("docs/unrelated.md", 5.0f);
+        var result2 = result("docs/auth.md", 3.0f);
+        var unit = unit("auth-guide", "docs/auth.md", "[\"authentication\", \"security\"]");
+
+        var report = KcpPlanner.boostWithReport(
+                List.of(result1, result2), "authentication security", List.of(unit));
+
+        // auth.md should be first after boost
+        assertEquals("docs/auth.md", report.results().get(0).relativePath());
+        // Should have one boost entry
+        assertEquals(1, report.boostedCount());
+        assertEquals("docs/auth.md", report.boosts().get(0).path());
+        assertTrue(report.boosts().get(0).score() > 0);
+    }
+
+    @Test
+    void boostWithReport_noUnitsReturnsCopy() {
+        var result = result("docs/a.md", 5.0f);
+        var report = KcpPlanner.boostWithReport(List.of(result), "query", List.of());
+
+        assertEquals(1, report.results().size());
+        assertEquals(0, report.boostedCount());
+    }
+
+    @Test
+    void boostWithReport_emptyResultsReturnsEmpty() {
+        var unit = unit("u", "docs/a.md", "[\"x\"]");
+        var report = KcpPlanner.boostWithReport(List.of(), "x", List.of(unit));
+
+        assertTrue(report.results().isEmpty());
+        assertEquals(0, report.boostedCount());
+    }
+
+    @Test
+    void boostWithReport_noTriggerOverlapReturnsOriginalOrder() {
+        var result1 = result("docs/a.md", 5.0f);
+        var result2 = result("docs/b.md", 3.0f);
+        var unit = unit("u", "docs/c.md", "[\"unrelated\"]");
+
+        var report = KcpPlanner.boostWithReport(
+                List.of(result1, result2), "authentication", List.of(unit));
+
+        assertEquals("docs/a.md", report.results().get(0).relativePath());
+        assertEquals(0, report.boostedCount());
     }
 
     // --- withScore helper ---

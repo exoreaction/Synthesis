@@ -250,6 +250,9 @@ public class SynthesisToolHandler {
         String effectiveAsOf = asOf != null ? asOf
                 : (!includeAllTemporal ? java.time.LocalDate.now().toString() : null);
 
+        // KCP boost flag (default: true)
+        boolean kcpBoost = !params.has("kcp_boost") || params.get("kcp_boost").asBoolean(true);
+
         // Multi-workspace search
         if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
             return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, previewLength, startTime);
@@ -267,8 +270,13 @@ public class SynthesisToolHandler {
             } else {
                 results = index.search(query, fileType, limit);
             }
-            // Boost results by KCP trigger match
-            results = boostByKcpTriggers(results, query, workspacePath.toString());
+
+            // Boost results by KCP trigger match (flag-gated, #371 item 2)
+            KcpPlanner.BoostReport boostReport = null;
+            if (kcpBoost) {
+                boostReport = boostByKcpTriggersWithReport(results, query, workspacePath.toString());
+                results = boostReport.results();
+            }
 
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
@@ -279,6 +287,23 @@ public class SynthesisToolHandler {
 
             ObjectNode response = buildSearchResponse(results, elapsedMs, workspacePath.toString(),
                     query, previewLength);
+
+            // Add routing diagnostics (#371 item 2)
+            if (boostReport != null && boostReport.boostedCount() > 0) {
+                ObjectNode routing = mapper.createObjectNode();
+                routing.put("boosted", boostReport.boostedCount());
+                routing.put("total", results.size());
+                ArrayNode hints = mapper.createArrayNode();
+                for (KcpPlanner.TriggerBoost tb : boostReport.boosts()) {
+                    ObjectNode hint = mapper.createObjectNode();
+                    hint.put("path", tb.path());
+                    hint.put("boost", tb.score());
+                    hint.put("reason", tb.reason());
+                    hints.add(hint);
+                }
+                routing.set("hints", hints);
+                response.set("kcpRouting", routing);
+            }
 
             // Enrich with KCP temporal metadata
             if (effectiveAsOf != null || includeAllTemporal) {
@@ -1138,12 +1163,19 @@ public class SynthesisToolHandler {
 
             DirectedSynthesisEngine engine = new DirectedSynthesisEngine(clientOpt.get(), config.getAi().getMaxTokens());
 
+            // KCP boost flag (default: true)
+            boolean kcpBoost = !params.has("kcp_boost") || params.get("kcp_boost").asBoolean(true);
+
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 // Search for relevant files
                 List<SearchResult> results = index.search(query, 10);
 
-                // Boost results by KCP trigger match
-                results = boostByKcpTriggers(results, query, workspacePath.toString());
+                // Boost results by KCP trigger match (flag-gated, #371 item 2)
+                KcpPlanner.BoostReport boostReport = null;
+                if (kcpBoost) {
+                    boostReport = boostByKcpTriggersWithReport(results, query, workspacePath.toString());
+                    results = boostReport.results();
+                }
 
                 // Build context from results + collect file units for grounding
                 StringBuilder context = new StringBuilder();
@@ -1193,6 +1225,22 @@ public class SynthesisToolHandler {
                 response.set("citations", citationsArray);
                 response.put("contextFiles", results.size());
                 response.put("workspace", workspacePath.toString());
+
+                // Add routing diagnostics (#371 item 2)
+                if (boostReport != null && boostReport.boostedCount() > 0) {
+                    ObjectNode routing = mapper.createObjectNode();
+                    routing.put("boosted", boostReport.boostedCount());
+                    ArrayNode hints = mapper.createArrayNode();
+                    for (KcpPlanner.TriggerBoost tb : boostReport.boosts()) {
+                        ObjectNode hint = mapper.createObjectNode();
+                        hint.put("path", tb.path());
+                        hint.put("boost", tb.score());
+                        hint.put("reason", tb.reason());
+                        hints.add(hint);
+                    }
+                    routing.set("hints", hints);
+                    response.set("kcpRouting", routing);
+                }
 
                 // Grounding: verify answer claims against loaded context
                 boolean doGround = params.has("ground") && params.get("ground").asBoolean(false);
@@ -3435,11 +3483,11 @@ public class SynthesisToolHandler {
      * </ul>
      */
     /**
-     * Boost search results whose paths match KCP units with query-matching triggers.
-     * Best-effort: returns original results if KCP DB is unavailable.
+     * Boost search results with diagnostics (#371 item 2 — measured routing).
+     * Best-effort: returns unboosted report if KCP DB is unavailable.
      */
-    private List<SearchResult> boostByKcpTriggers(List<SearchResult> results,
-                                                   String query, String workspacePath) {
+    private KcpPlanner.BoostReport boostByKcpTriggersWithReport(List<SearchResult> results,
+                                                                  String query, String workspacePath) {
         try {
             java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
             KcpRepository repo = new KcpRepository();
@@ -3447,12 +3495,9 @@ public class SynthesisToolHandler {
             for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspacePath)) {
                 allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
             }
-            if (allUnits.isEmpty()) return results;
-            var triggerScores = KcpPlanner.buildTriggerScores(query, allUnits);
-            if (triggerScores.isEmpty()) return results;
-            return KcpPlanner.boostResults(results, triggerScores);
+            return KcpPlanner.boostWithReport(results, query, allUnits);
         } catch (Exception e) {
-            return results;
+            return new KcpPlanner.BoostReport(List.copyOf(results), List.of());
         }
     }
 
