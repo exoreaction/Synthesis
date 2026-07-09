@@ -740,6 +740,24 @@ public class SynthesisMCPServer {
                 createSessionsSchema()
         ));
 
+        // Episodic memory tools (#371 item 3)
+        toolsArray.add(createToolDefinition(
+                "remember",
+                "Record a hash-pinned episodic memory — a plan or grounded-answer artifact " +
+                        "that can be recalled and re-verified later. Content-stripped: never caches " +
+                        "unit bytes. Hash-addressed: recording the same artifact twice is idempotent. " +
+                        "Use after completing a plan or grounded ask to persist the decision trace.",
+                createRememberSchema()
+        ));
+
+        toolsArray.add(createToolDefinition(
+                "recall",
+                "Recall episodic memories by task overlap. Returns hash-pinned artifacts from " +
+                        "past plans and grounded answers. Fail-closed: tampered entries are silently " +
+                        "dropped. Use before planning to check if a similar task was already resolved.",
+                createRecallSchema()
+        ));
+
         // Group 7: Agent awareness tools
         toolsArray.add(createToolDefinition(
                 "team_context",
@@ -872,6 +890,9 @@ public class SynthesisMCPServer {
                 case "session_context" -> toolHandler.handleSessionContext(toolArgs);
                 case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
                 case "sessions" -> toolHandler.handleSessions(toolArgs);
+                // Episodic memory
+                case "remember" -> toolHandler.handleRemember(toolArgs);
+                case "recall" -> toolHandler.handleRecall(toolArgs);
                 // Group 7: Agent awareness
                 case "team_context" -> toolHandler.handleTeamContext(toolArgs);
                 case "plan_context" -> toolHandler.handlePlanContext(toolArgs);
@@ -1644,6 +1665,79 @@ public class SynthesisMCPServer {
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
+        return schema;
+    }
+
+    private ObjectNode createRememberSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "The task this artifact answered or planned for — the recall matching key");
+        properties.set("task", task);
+
+        ObjectNode artifact = mapper.createObjectNode();
+        artifact.put("description", "The content-stripped artifact (plan or grounded-answer JSON)");
+        properties.set("artifact", artifact);
+
+        ObjectNode kind = mapper.createObjectNode();
+        kind.put("type", "string");
+        ArrayNode kindEnum = mapper.createArrayNode();
+        kindEnum.add("plan");
+        kindEnum.add("grounded-answer");
+        kind.set("enum", kindEnum);
+        kind.put("description", "Memory kind: plan or grounded-answer (default: plan)");
+        properties.set("kind", kind);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace scope (optional)");
+        properties.set("workspace", workspace);
+
+        ObjectNode manifestSource = mapper.createObjectNode();
+        manifestSource.put("type", "string");
+        manifestSource.put("description", "Manifest file path for provenance (optional)");
+        properties.set("manifestSource", manifestSource);
+
+        ObjectNode manifestSha = mapper.createObjectNode();
+        manifestSha.put("type", "string");
+        manifestSha.put("description", "Manifest sha256 for provenance (optional)");
+        properties.set("manifestSha", manifestSha);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("task");
+        required.add("artifact");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createRecallSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "The task to recall past episodes for (matched by lexical overlap)");
+        properties.set("task", task);
+
+        ObjectNode limit = mapper.createObjectNode();
+        limit.put("type", "integer");
+        limit.put("default", 5);
+        limit.put("description", "Maximum number of memories to return (default 5)");
+        properties.set("limit", limit);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("task");
+        schema.set("required", required);
+
         return schema;
     }
 
