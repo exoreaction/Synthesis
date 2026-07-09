@@ -138,6 +138,9 @@ public class AskCommand implements Callable<Integer> {
                 results = index.search(question, contextFiles);
             }
 
+            // Boost results whose paths match KCP units with query-matching triggers
+            results = boostByKcpTriggers(results, question, workspaceRoot.toString());
+
             if (results.isEmpty()) {
                 AnsiOutput.printWarning("No relevant files found in the index.");
                 AnsiOutput.printInfo("Try running 'synthesis scan' first, or rephrase your question.");
@@ -250,6 +253,32 @@ public class AskCommand implements Callable<Integer> {
      * Builds a context string from search results by reading file content.
      * Includes file path, language, and a preview of the content with line numbers.
      */
+    private List<SearchResult> boostByKcpTriggers(List<SearchResult> results,
+                                                     String query, String workspacePath) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            try (java.sql.Connection conn = db.getConnection()) {
+                io.exoreaction.synthesis.kcp.KcpRepository repo =
+                        new io.exoreaction.synthesis.kcp.KcpRepository();
+                List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
+                        new java.util.ArrayList<>();
+                for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
+                        repo.getManifests(conn, workspacePath)) {
+                    allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+                }
+                if (allUnits.isEmpty()) return results;
+                var triggerScores = io.exoreaction.synthesis.kcp.KcpPlanner
+                        .buildTriggerScores(query, allUnits);
+                if (triggerScores.isEmpty()) return results;
+                return io.exoreaction.synthesis.kcp.KcpPlanner
+                        .boostResults(results, triggerScores);
+            }
+        } catch (Exception e) {
+            return results;
+        }
+    }
+
     String buildContext(List<SearchResult> results, Path workspaceRoot) {
         StringBuilder context = new StringBuilder();
         int maxBytesPerFile = 4096;

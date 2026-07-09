@@ -1,8 +1,11 @@
 package io.exoreaction.synthesis.kcp;
 
+import io.exoreaction.synthesis.index.SearchResult;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +158,66 @@ public final class KcpPlanner {
 
         return new DedupResult(plan.task(), served, unchanged,
                 plan.skipped(), plan.totalTokenEstimate(), tokensSaved);
+    }
+
+    // -----------------------------------------------------------------------
+    // Search result boosting (#371 item 5)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Builds a path→score map from KCP units whose triggers or intent overlap
+     * with the query. Uses RFC-0007 weights: trigger 5, intent 3, id/path 1.
+     * When multiple units map to the same path, the highest score wins.
+     *
+     * @param query the search query
+     * @param units KCP units to score against
+     * @return map of relative file path → trigger boost score
+     */
+    public static Map<String, Integer> buildTriggerScores(String query,
+                                                           List<KcpRepository.KcpUnitRow> units) {
+        Set<String> terms = tokenize(query);
+        Map<String, Integer> scores = new HashMap<>();
+        if (units == null) return scores;
+
+        for (KcpRepository.KcpUnitRow u : units) {
+            if (u.path() == null) continue;
+            int triggerHits = countHits(terms, tokenize(u.triggersJson()));
+            int intentHits = countHits(terms, tokenize(u.intent()));
+            int idPathHits = countHits(terms, tokenize(
+                    (u.unitId() == null ? "" : u.unitId()) + " " + u.path()));
+            int score = triggerHits * TRIGGER_WEIGHT + intentHits * INTENT_WEIGHT
+                    + idPathHits * ID_PATH_WEIGHT;
+            if (score > 0) {
+                scores.merge(u.path(), score, Math::max);
+            }
+        }
+        return scores;
+    }
+
+    /**
+     * Re-ranks search results by adding KCP trigger scores to Lucene scores.
+     * Returns a new sorted list; the original list is not modified.
+     *
+     * @param results       search results from Lucene
+     * @param triggerScores path→score map from {@link #buildTriggerScores}
+     * @return re-ranked results (highest combined score first)
+     */
+    public static List<SearchResult> boostResults(List<SearchResult> results,
+                                                   Map<String, Integer> triggerScores) {
+        if (results == null || results.isEmpty()) return List.of();
+        if (triggerScores == null || triggerScores.isEmpty()) return List.copyOf(results);
+
+        List<SearchResult> boosted = new ArrayList<>(results.size());
+        for (SearchResult r : results) {
+            Integer boost = triggerScores.get(r.relativePath());
+            if (boost != null) {
+                boosted.add(r.withScore(r.score() + boost));
+            } else {
+                boosted.add(r);
+            }
+        }
+        boosted.sort((a, b) -> Float.compare(b.score(), a.score()));
+        return boosted;
     }
 
     // -----------------------------------------------------------------------

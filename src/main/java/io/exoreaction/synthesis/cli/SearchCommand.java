@@ -206,6 +206,9 @@ public class SearchCommand implements Callable<Integer> {
                     results = filterByKcpTemporal(results, workspaceRoot.toString(), effectiveAsOf);
                 }
 
+                // Boost results whose paths match KCP units with query-matching triggers
+                results = boostByKcpTriggers(results, query, workspaceRoot.toString());
+
                 if (results.isEmpty()) {
                     System.out.println();
                     System.out.println("  No results found for: " + AnsiOutput.bold(query));
@@ -658,6 +661,32 @@ public class SearchCommand implements Callable<Integer> {
                                         || r.relativePath().endsWith("/" + ip)
                                         || ip.endsWith("/" + r.relativePath())))
                         .toList();
+            }
+        } catch (Exception e) {
+            return results; // best-effort: don't break search if KCP DB unavailable
+        }
+    }
+
+    private List<SearchResult> boostByKcpTriggers(List<SearchResult> results,
+                                                     String query, String workspacePath) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            try (java.sql.Connection conn = db.getConnection()) {
+                io.exoreaction.synthesis.kcp.KcpRepository repo =
+                        new io.exoreaction.synthesis.kcp.KcpRepository();
+                List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
+                        new java.util.ArrayList<>();
+                for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
+                        repo.getManifests(conn, workspacePath)) {
+                    allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+                }
+                if (allUnits.isEmpty()) return results;
+                var triggerScores = io.exoreaction.synthesis.kcp.KcpPlanner
+                        .buildTriggerScores(query, allUnits);
+                if (triggerScores.isEmpty()) return results;
+                return io.exoreaction.synthesis.kcp.KcpPlanner
+                        .boostResults(results, triggerScores);
             }
         } catch (Exception e) {
             return results; // best-effort: don't break search if KCP DB unavailable

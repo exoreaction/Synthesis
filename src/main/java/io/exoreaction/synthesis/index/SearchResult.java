@@ -51,4 +51,10 @@ public record SearchResult(
         this(path, relativePath, score, fileName, fileType, language,
              summary, headings, structure, sizeBytes, repository, null);
     }
+
+    /** Return a copy with a different score (for re-ranking). */
+    public SearchResult withScore(float newScore) {
+        return new SearchResult(path, relativePath, newScore, fileName, fileType, language,
+                summary, headings, structure, sizeBytes, repository, subWorkspace);
+    }
 }

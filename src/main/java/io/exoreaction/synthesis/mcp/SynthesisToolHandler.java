@@ -267,6 +267,9 @@ public class SynthesisToolHandler {
             } else {
                 results = index.search(query, fileType, limit);
             }
+            // Boost results by KCP trigger match
+            results = boostByKcpTriggers(results, query, workspacePath.toString());
+
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
             // Record metrics and query log
@@ -1138,6 +1141,9 @@ public class SynthesisToolHandler {
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 // Search for relevant files
                 List<SearchResult> results = index.search(query, 10);
+
+                // Boost results by KCP trigger match
+                results = boostByKcpTriggers(results, query, workspacePath.toString());
 
                 // Build context from results
                 StringBuilder context = new StringBuilder();
@@ -3388,6 +3394,28 @@ public class SynthesisToolHandler {
      *   <li>Object: {@code {"unit-1": "abc...", "unit-2": "def..."}}</li>
      * </ul>
      */
+    /**
+     * Boost search results whose paths match KCP units with query-matching triggers.
+     * Best-effort: returns original results if KCP DB is unavailable.
+     */
+    private List<SearchResult> boostByKcpTriggers(List<SearchResult> results,
+                                                   String query, String workspacePath) {
+        try {
+            java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
+            KcpRepository repo = new KcpRepository();
+            List<KcpRepository.KcpUnitRow> allUnits = new java.util.ArrayList<>();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspacePath)) {
+                allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+            }
+            if (allUnits.isEmpty()) return results;
+            var triggerScores = KcpPlanner.buildTriggerScores(query, allUnits);
+            if (triggerScores.isEmpty()) return results;
+            return KcpPlanner.boostResults(results, triggerScores);
+        } catch (Exception e) {
+            return results;
+        }
+    }
+
     private java.util.Map<String, String> parseKnown(JsonNode params) {
         if (params == null || !params.has("known") || params.get("known").isNull()) {
             return null;
