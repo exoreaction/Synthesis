@@ -968,6 +968,28 @@ public class CodeGraphExtractor {
     }
 
     /**
+     * Picks which of a Kotlin file's top-level declarations owns the file's import edges.
+     *
+     * <p>Unlike Java (compiler-enforced: the one public top-level type must match the
+     * filename), Kotlin allows several public top-level declarations per file in any order,
+     * so "first declared" is an arbitrary tie-break with no correctness guarantee -- e.g. a
+     * {@code data class} response type declared above the file's actual primary class would
+     * silently steal all of that class's import edges. Prefer the declaration whose name
+     * matches the filename (Kotlin's own strong convention, same one
+     * {@link #extractKotlinFileClassName} assumes); fall back to the first declaration only
+     * when nothing matches.
+     */
+    String choosePrimaryClass(List<KotlinDecl> decls, Path ktFile) {
+        String fileBasedName = extractKotlinFileClassName(ktFile);
+        if (decls.isEmpty()) return fileBasedName;
+        return decls.stream()
+                .filter(d -> d.name().equals(fileBasedName))
+                .findFirst()
+                .map(KotlinDecl::name)
+                .orElse(decls.get(0).name());
+    }
+
+    /**
      * Finds every top-level type declaration in a Kotlin file. Unlike Java, one file may
      * declare zero (a pure extension-function/utility file), one, or several top-level
      * classes/interfaces/objects -- the filename-equals-classname convention
@@ -1082,7 +1104,7 @@ public class CodeGraphExtractor {
         String packageName = extractKotlinPackage(content);
         if (packageName != null) packages.add(packageName);
         List<KotlinDecl> decls = findKotlinTopLevelDecls(content);
-        String primaryClass = decls.isEmpty() ? extractKotlinFileClassName(ktFile) : decls.get(0).name();
+        String primaryClass = choosePrimaryClass(decls, ktFile);
 
         for (String imp : extractKotlinImports(content)) {
             String targetClass = getSimpleClassName(imp);

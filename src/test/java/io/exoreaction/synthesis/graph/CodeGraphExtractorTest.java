@@ -151,6 +151,25 @@ class CodeGraphExtractorTest {
     }
 
     @Test
+    void findKotlinTopLevelDecls_known_limitation_constructor_default_value_call() {
+        // Documents the known, non-regression limitation noted on KOTLIN_TOPLEVEL_DECL's
+        // javadoc: constructor-arg parens are matched non-greedily and assumed non-nested, so
+        // a default-value call like `= bar()` inside the primary constructor breaks the
+        // optional constructor-params group, which in turn stops the trailing `: Base()`
+        // supertype from being captured on this declaration. The declaration's own name is
+        // still found correctly (no crash, no misattribution of the file's identity) -- only
+        // this specific declaration's supertype edge is missed. Same naiveté level as the
+        // pre-existing JAVA_IMPLEMENTS comma-split; pin the current behavior so a future
+        // change to this regex is a deliberate choice, not a silent drift.
+        String content = "class Foo(x: Int = bar()) : Base()\n";
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(1, decls.size());
+        assertEquals("Foo", decls.get(0).name());
+        assertEquals(List.of(), decls.get(0).supertypes(),
+                "known limitation: default-value call in constructor args truncates supertype capture");
+    }
+
+    @Test
     void findKotlinTopLevelDecls_interface_supertype_no_parens() {
         // Real shape: tvimenning-template WebMvcConfig.kt
         String content = "class WebMvcConfig : WebMvcConfigurer {\n}\n";
@@ -215,6 +234,34 @@ class CodeGraphExtractorTest {
     }
 
     @Test
+    void choosePrimaryClass_prefers_filename_match_over_first_declared() {
+        // Real shape: tvimenning-template HelloController.kt -- HelloResponse (a data class)
+        // is declared before HelloController itself. "First declared" would misattribute
+        // every import edge in the file to HelloResponse instead of the file's real class.
+        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
+                new CodeGraphExtractor.KotlinDecl("HelloResponse", List.of()),
+                new CodeGraphExtractor.KotlinDecl("HelloController", List.of()));
+        assertEquals("HelloController",
+                extractor.choosePrimaryClass(decls, Path.of("web/HelloController.kt")));
+    }
+
+    @Test
+    void choosePrimaryClass_falls_back_to_first_declared_when_no_filename_match() {
+        // No declaration matches the filename at all (e.g. a poorly-named file) -- fall back
+        // to today's behavior rather than silently dropping the file's identity.
+        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
+                new CodeGraphExtractor.KotlinDecl("Ok", List.of()),
+                new CodeGraphExtractor.KotlinDecl("Err", List.of()));
+        assertEquals("Ok", extractor.choosePrimaryClass(decls, Path.of("Result.kt")));
+    }
+
+    @Test
+    void choosePrimaryClass_uses_filename_when_no_declarations_found() {
+        assertEquals("StringExt",
+                extractor.choosePrimaryClass(List.of(), Path.of("util/StringExt.kt")));
+    }
+
+    @Test
     void splitKotlinSupertypes_strips_generics_and_multiple_supertypes() {
         List<String> names = extractor.splitKotlinSupertypes("Bar<String>(), Baz, com.example.Qux");
         assertEquals(List.of("Bar", "Baz", "Qux"), names);
@@ -258,6 +305,36 @@ class CodeGraphExtractorTest {
         assertEquals("Base", supertypeDep.targetClass());
         assertFalse(supertypeDep.isExternal(), "Base is in-workspace, should resolve internal");
         assertEquals("src/main/kotlin/com/example/Base.kt", supertypeDep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_attributes_kotlin_edges_to_filename_matching_class_not_first_declared()
+            throws SQLException, IOException {
+        // Regression test for the HelloController.kt shape found in tvimenning-template:
+        // HelloResponse (a data class) is declared before the file's real primary class,
+        // HelloController. Before the choosePrimaryClass fix, every import edge in the file
+        // was misattributed to HelloResponse -- querying by the file's actual public,
+        // externally-referenceable class name (HelloController) returned nothing.
+        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example");
+        Files.createDirectories(pkgDir);
+        Files.writeString(pkgDir.resolve("Greeter.kt"), "package com.example.service\n\nclass Greeter\n");
+        Files.writeString(pkgDir.resolve("HelloController.kt"), """
+                package com.example
+
+                import com.example.service.Greeter
+
+                data class HelloResponse(val message: String)
+
+                class HelloController(private val greeter: Greeter)
+                """);
+
+        extractor.extractAndPersist(tempDir, conn);
+
+        List<CodeDependency> fromHelloController = new CodeGraphRepository()
+                .getDependenciesFrom(conn, tempDir.toString(), "src/main/kotlin/com/example/HelloController.kt");
+        assertFalse(fromHelloController.isEmpty(), "expected edges attributed to the file");
+        assertTrue(fromHelloController.stream().allMatch(d -> "HelloController".equals(d.sourceClass())),
+                "all edges from this file should be attributed to HelloController, not HelloResponse");
     }
 
     // -----------------------------------------------------------------------
