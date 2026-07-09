@@ -13,6 +13,7 @@ TASKS="${2:?usage: run-kcp-plan-arm.sh <workspace> <tasks-file>}"
 
 while IFS= read -r task; do
   [ -z "$task" ] && continue
+  [[ "$task" =~ ^# ]] && continue   # skip comment lines
   # --format json emits {task, units:[...], skipped:[...], totalTokenEstimate}
   synthesis -d "$WORKSPACE" kcp plan "$task" --format json 2>/dev/null \
     | tr -d '\n' | sed 's/  */ /g'
