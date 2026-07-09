@@ -30,7 +30,7 @@
         <picocli.version>4.7.7</picocli.version>
         <lucene.version>10.1.0</lucene.version>
         <snakeyaml.version>2.2</snakeyaml.version>
-        <pdfbox.version>3.0.4</pdfbox.version>
+        <pdfbox.version>3.0.7</pdfbox.version>
         <junit.version>5.11.4</junit.version>
         <lsp4j.version>0.23.1</lsp4j.version>
     </properties>
