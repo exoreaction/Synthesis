@@ -3633,4 +3633,100 @@ public class SynthesisToolHandler {
             return code;
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Episodic memory (remember / recall) — #371 item 3
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleRemember(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("task") || !params.has("artifact")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "Missing required parameters: task, artifact");
+        }
+
+        String task = params.get("task").asText();
+        String kind = params.has("kind") ? params.get("kind").asText("plan") : "plan";
+        String workspace = params.has("workspace") ? params.get("workspace").asText(null) : null;
+
+        try {
+            String artifactJson;
+            JsonNode artifactNode = params.get("artifact");
+            if (artifactNode.isTextual()) {
+                artifactJson = artifactNode.asText();
+            } else {
+                artifactJson = mapper.writeValueAsString(artifactNode);
+            }
+
+            String manifestSource = params.has("manifestSource")
+                    ? params.get("manifestSource").asText(null) : null;
+            String manifestSha = params.has("manifestSha")
+                    ? params.get("manifestSha").asText(null) : null;
+
+            String now = java.time.Instant.now().toString();
+            io.exoreaction.synthesis.memory.MemoryEntry entry =
+                    io.exoreaction.synthesis.memory.MemoryEntry.ofFull(
+                            kind, task, artifactJson, now, workspace,
+                            manifestSource, manifestSha, null);
+
+            io.exoreaction.synthesis.memory.MemoryStore store =
+                    new io.exoreaction.synthesis.memory.MemoryStore(SynthesisDatabase.getDefault());
+            store.append(entry);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("memoryId", entry.memoryId());
+            response.put("kind", kind);
+            response.put("task", task);
+            response.put("recordedAt", now);
+            response.put("status", "recorded");
+            return response;
+        } catch (Exception e) {
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Remember failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleRecall(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("task")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "Missing required parameter: task");
+        }
+
+        String task = params.get("task").asText();
+        int limit = params.has("limit") ? params.get("limit").asInt(5) : 5;
+
+        try {
+            io.exoreaction.synthesis.memory.MemoryStore store =
+                    new io.exoreaction.synthesis.memory.MemoryStore(SynthesisDatabase.getDefault());
+            var hits = store.recall(task, limit);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("task", task);
+            response.put("hits", hits.size());
+
+            ArrayNode memoriesArray = mapper.createArrayNode();
+            for (var entry : hits) {
+                ObjectNode mn = mapper.createObjectNode();
+                mn.put("memoryId", entry.memoryId());
+                mn.put("kind", entry.kind());
+                mn.put("task", entry.task());
+                mn.put("recordedAt", entry.recordedAt());
+                if (entry.manifestSource() != null) mn.put("manifestSource", entry.manifestSource());
+                if (entry.manifestSha() != null) mn.put("manifestSha", entry.manifestSha());
+                if (entry.workspace() != null) mn.put("workspace", entry.workspace());
+                // Parse artifact JSON back to a node for structured output
+                try {
+                    mn.set("artifact", mapper.readTree(entry.artifactJson()));
+                } catch (Exception e) {
+                    mn.put("artifact", entry.artifactJson());
+                }
+                memoriesArray.add(mn);
+            }
+            response.set("memories", memoriesArray);
+
+            return response;
+        } catch (Exception e) {
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Recall failed: " + e.getMessage());
+        }
+    }
 }
