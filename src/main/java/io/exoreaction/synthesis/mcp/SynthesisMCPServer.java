@@ -383,6 +383,7 @@ public class SynthesisMCPServer {
                 "ask",
                 "Ask questions about the codebase using AI. Searches the Synthesis index for " +
                         "relevant files, builds context, and generates an answer with file citations. " +
+                        "Set ground=true to verify each claim against loaded context (fail-closed grounding). " +
                         "Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createAskSchema()
         ));
@@ -1177,6 +1178,13 @@ public class SynthesisMCPServer {
                 "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
                 "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
+
+        ObjectNode ground = mapper.createObjectNode();
+        ground.put("type", "boolean");
+        ground.put("description", "When true, verify each claim in the answer against the loaded " +
+                "context files (fail-closed grounding). Returns a 'grounding' object with per-claim " +
+                "verdicts, sha256-pinned citations, and explicit gaps.");
+        properties.set("ground", ground);
 
         schema.set("properties", properties);
 

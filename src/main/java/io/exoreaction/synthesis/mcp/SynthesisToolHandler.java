@@ -1145,9 +1145,11 @@ public class SynthesisToolHandler {
                 // Boost results by KCP trigger match
                 results = boostByKcpTriggers(results, query, workspacePath.toString());
 
-                // Build context from results
+                // Build context from results + collect file units for grounding
                 StringBuilder context = new StringBuilder();
                 List<String> citations = new ArrayList<>();
+                Map<String, io.exoreaction.synthesis.ai.Grounder.FileUnit> fileUnits =
+                        new java.util.LinkedHashMap<>();
 
                 for (SearchResult result : results) {
                     if (Files.exists(result.path()) && Files.isReadable(result.path())) {
@@ -1162,6 +1164,9 @@ public class SynthesisToolHandler {
                             }
 
                             citations.add(result.relativePath());
+                            fileUnits.put(result.relativePath(),
+                                    io.exoreaction.synthesis.ai.Grounder.FileUnit.of(
+                                            result.relativePath(), fileContent));
                         } catch (Exception e) {
                             // Skip unreadable files
                         }
@@ -1188,6 +1193,41 @@ public class SynthesisToolHandler {
                 response.set("citations", citationsArray);
                 response.put("contextFiles", results.size());
                 response.put("workspace", workspacePath.toString());
+
+                // Grounding: verify answer claims against loaded context
+                boolean doGround = params.has("ground") && params.get("ground").asBoolean(false);
+                if (doGround && !fileUnits.isEmpty()) {
+                    io.exoreaction.synthesis.ai.Grounder.GroundedAnswer grounded =
+                            io.exoreaction.synthesis.ai.Grounder.groundAnswer(
+                                    answer, fileUnits, clientOpt.get());
+
+                    ObjectNode groundingNode = mapper.createObjectNode();
+                    groundingNode.put("status", grounded.status());
+                    groundingNode.put("totalClaims", grounded.claims().size());
+                    groundingNode.put("groundedCount", grounded.grounded().size());
+                    groundingNode.put("gapCount", grounded.gaps().size());
+
+                    ArrayNode groundedArray = mapper.createArrayNode();
+                    for (var v : grounded.grounded()) {
+                        ObjectNode vn = mapper.createObjectNode();
+                        vn.put("claim", v.claim());
+                        vn.put("unitId", v.unitId());
+                        vn.put("sha256", v.sha256());
+                        groundedArray.add(vn);
+                    }
+                    groundingNode.set("grounded", groundedArray);
+
+                    ArrayNode gapsArray = mapper.createArrayNode();
+                    for (var v : grounded.gaps()) {
+                        ObjectNode vn = mapper.createObjectNode();
+                        vn.put("claim", v.claim());
+                        vn.put("reason", v.reason());
+                        gapsArray.add(vn);
+                    }
+                    groundingNode.set("gaps", gapsArray);
+
+                    response.set("grounding", groundingNode);
+                }
 
                 return response;
             }
