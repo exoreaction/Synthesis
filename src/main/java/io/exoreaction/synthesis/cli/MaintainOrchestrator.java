@@ -928,8 +928,11 @@ public class MaintainOrchestrator {
 
     private PhaseResult runPrune() throws Exception {
         Set<String> protectedPaths = PruneCommand.buildProtectedPaths(workspaceRoot, config);
+        List<String> excludePatterns = config.getScan() != null
+                ? config.getScan().getEffectiveExcludePatterns(workspaceRoot)
+                : List.of();
         List<Path> pruneable = PruneCommand.findPruneable(
-                workspaceRoot, workspaceRoot, protectedPaths);
+                workspaceRoot, workspaceRoot, protectedPaths, excludePatterns);
 
         if (pruneable.isEmpty()) {
             return PhaseResult.success(9, "Prune", 0,

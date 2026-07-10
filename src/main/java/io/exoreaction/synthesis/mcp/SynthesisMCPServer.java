@@ -383,6 +383,7 @@ public class SynthesisMCPServer {
                 "ask",
                 "Ask questions about the codebase using AI. Searches the Synthesis index for " +
                         "relevant files, builds context, and generates an answer with file citations. " +
+                        "Set ground=true to verify each claim against loaded context (fail-closed grounding). " +
                         "Requires an AI provider API key (e.g. ANTHROPIC_API_KEY or DEEPSEEK_API_KEY).",
                 createAskSchema()
         ));
@@ -739,6 +740,24 @@ public class SynthesisMCPServer {
                 createSessionsSchema()
         ));
 
+        // Episodic memory tools (#371 item 3)
+        toolsArray.add(createToolDefinition(
+                "remember",
+                "Record a hash-pinned episodic memory — a plan or grounded-answer artifact " +
+                        "that can be recalled and re-verified later. Content-stripped: never caches " +
+                        "unit bytes. Hash-addressed: recording the same artifact twice is idempotent. " +
+                        "Use after completing a plan or grounded ask to persist the decision trace.",
+                createRememberSchema()
+        ));
+
+        toolsArray.add(createToolDefinition(
+                "recall",
+                "Recall episodic memories by task overlap. Returns hash-pinned artifacts from " +
+                        "past plans and grounded answers. Fail-closed: tampered entries are silently " +
+                        "dropped. Use before planning to check if a similar task was already resolved.",
+                createRecallSchema()
+        ));
+
         // Group 7: Agent awareness tools
         toolsArray.add(createToolDefinition(
                 "team_context",
@@ -781,9 +800,11 @@ public class SynthesisMCPServer {
                 "plan_context",
                 "Return an ORDERED READ PLAN for a task from the workspace's KCP knowledge units, " +
                         "instead of flat search hits. Deterministic RFC-0007 scoring (trigger match 5, " +
-                        "intent 3, id/path 1); each planned unit carries a match reason and token estimate, " +
-                        "expired/superseded units are skipped with a reason, and an optional token budget " +
-                        "greedily caps the plan. Requires indexed knowledge.yaml manifests (synthesis scan).",
+                        "intent 3, id/path 1); each planned unit carries a match reason, token estimate, " +
+                        "and sha256 hash. Expired/superseded units are skipped with a reason, and an optional " +
+                        "token budget greedily caps the plan. Supports SESSION DEDUP via 'known' parameter: " +
+                        "pass [{id, sha256}] of units you already hold and unchanged units are returned as " +
+                        "compact stubs instead of full entries. Requires indexed knowledge.yaml manifests.",
                 createPlanContextSchema()
         ));
 
@@ -869,6 +890,9 @@ public class SynthesisMCPServer {
                 case "session_context" -> toolHandler.handleSessionContext(toolArgs);
                 case "hooks_generate" -> toolHandler.handleHooksGenerate(toolArgs);
                 case "sessions" -> toolHandler.handleSessions(toolArgs);
+                // Episodic memory
+                case "remember" -> toolHandler.handleRemember(toolArgs);
+                case "recall" -> toolHandler.handleRecall(toolArgs);
                 // Group 7: Agent awareness
                 case "team_context" -> toolHandler.handleTeamContext(toolArgs);
                 case "plan_context" -> toolHandler.handlePlanContext(toolArgs);
@@ -988,6 +1012,14 @@ public class SynthesisMCPServer {
                 "regardless of validity window. Mutually exclusive with as_of.");
         properties.set("include_all_temporal", includeAllTemporal);
 
+        ObjectNode kcpBoost = mapper.createObjectNode();
+        kcpBoost.put("type", "boolean");
+        kcpBoost.put("default", true);
+        kcpBoost.put("description", "When true (default), boost search results whose paths match KCP " +
+                "knowledge units with query-matching triggers. Response includes kcpRouting diagnostics " +
+                "showing which results were boosted and why. Set false to disable KCP routing.");
+        properties.set("kcp_boost", kcpBoost);
+
         schema.set("properties", properties);
 
         ArrayNode required = mapper.createArrayNode();
@@ -1055,6 +1087,36 @@ public class SynthesisMCPServer {
         budget.put("type", "integer");
         budget.put("description", "Optional max total token estimate to admit (0 or omitted = unlimited)");
         properties.set("budget", budget);
+
+        // Session dedup: caller declares units it already holds (id→sha256)
+        ObjectNode known = mapper.createObjectNode();
+        known.put("description", "Units the caller already holds for session dedup. " +
+                "Units with matching sha256 are returned as compact 'unchanged' stubs " +
+                "instead of full plan entries. Accepts array [{id, sha256}] or object {id: sha256}.");
+        // oneOf: array or object
+        ArrayNode oneOf = mapper.createArrayNode();
+        ObjectNode arrayForm = mapper.createObjectNode();
+        arrayForm.put("type", "array");
+        ObjectNode itemSchema = mapper.createObjectNode();
+        itemSchema.put("type", "object");
+        ObjectNode itemProps = mapper.createObjectNode();
+        ObjectNode idProp = mapper.createObjectNode();
+        idProp.put("type", "string");
+        itemProps.set("id", idProp);
+        ObjectNode shaProp = mapper.createObjectNode();
+        shaProp.put("type", "string");
+        itemProps.set("sha256", shaProp);
+        itemSchema.set("properties", itemProps);
+        arrayForm.set("items", itemSchema);
+        oneOf.add(arrayForm);
+        ObjectNode objectForm = mapper.createObjectNode();
+        objectForm.put("type", "object");
+        ObjectNode addProps = mapper.createObjectNode();
+        addProps.put("type", "string");
+        objectForm.set("additionalProperties", addProps);
+        oneOf.add(objectForm);
+        known.set("oneOf", oneOf);
+        properties.set("known", known);
 
         schema.set("properties", properties);
 
@@ -1145,6 +1207,20 @@ public class SynthesisMCPServer {
                 "Accepts an absolute path, a directory basename, or a workspace name from .synthesis/config.yaml. " +
                 "Defaults to the server's primary configured workspace.");
         properties.set("workspace", workspace);
+
+        ObjectNode ground = mapper.createObjectNode();
+        ground.put("type", "boolean");
+        ground.put("description", "When true, verify each claim in the answer against the loaded " +
+                "context files (fail-closed grounding). Returns a 'grounding' object with per-claim " +
+                "verdicts, sha256-pinned citations, and explicit gaps.");
+        properties.set("ground", ground);
+
+        ObjectNode kcpBoost = mapper.createObjectNode();
+        kcpBoost.put("type", "boolean");
+        kcpBoost.put("default", true);
+        kcpBoost.put("description", "When true (default), boost context file selection using KCP " +
+                "knowledge unit triggers. Response includes kcpRouting diagnostics when active.");
+        properties.set("kcp_boost", kcpBoost);
 
         schema.set("properties", properties);
 
@@ -1604,6 +1680,79 @@ public class SynthesisMCPServer {
         properties.set("workspace", workspace);
 
         schema.set("properties", properties);
+        return schema;
+    }
+
+    private ObjectNode createRememberSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "The task this artifact answered or planned for — the recall matching key");
+        properties.set("task", task);
+
+        ObjectNode artifact = mapper.createObjectNode();
+        artifact.put("description", "The content-stripped artifact (plan or grounded-answer JSON)");
+        properties.set("artifact", artifact);
+
+        ObjectNode kind = mapper.createObjectNode();
+        kind.put("type", "string");
+        ArrayNode kindEnum = mapper.createArrayNode();
+        kindEnum.add("plan");
+        kindEnum.add("grounded-answer");
+        kind.set("enum", kindEnum);
+        kind.put("description", "Memory kind: plan or grounded-answer (default: plan)");
+        properties.set("kind", kind);
+
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace scope (optional)");
+        properties.set("workspace", workspace);
+
+        ObjectNode manifestSource = mapper.createObjectNode();
+        manifestSource.put("type", "string");
+        manifestSource.put("description", "Manifest file path for provenance (optional)");
+        properties.set("manifestSource", manifestSource);
+
+        ObjectNode manifestSha = mapper.createObjectNode();
+        manifestSha.put("type", "string");
+        manifestSha.put("description", "Manifest sha256 for provenance (optional)");
+        properties.set("manifestSha", manifestSha);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("task");
+        required.add("artifact");
+        schema.set("required", required);
+
+        return schema;
+    }
+
+    private ObjectNode createRecallSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+
+        ObjectNode task = mapper.createObjectNode();
+        task.put("type", "string");
+        task.put("description", "The task to recall past episodes for (matched by lexical overlap)");
+        properties.set("task", task);
+
+        ObjectNode limit = mapper.createObjectNode();
+        limit.put("type", "integer");
+        limit.put("default", 5);
+        limit.put("description", "Maximum number of memories to return (default 5)");
+        properties.set("limit", limit);
+
+        schema.set("properties", properties);
+
+        ArrayNode required = mapper.createArrayNode();
+        required.add("task");
+        schema.set("required", required);
+
         return schema;
     }
 

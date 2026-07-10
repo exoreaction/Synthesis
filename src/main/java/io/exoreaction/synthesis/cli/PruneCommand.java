@@ -4,14 +4,17 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
+import io.exoreaction.synthesis.core.DirectoryScanner;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,7 +30,8 @@ import java.util.stream.Stream;
  * <ul>
  *   <li>Directories containing any file (including README.md)
  *   <li>Directories referenced as sub-workspace paths in config
- *   <li>Directories starting with {@code .} (hidden / dotdirs)
+ *   <li>Any directory beneath a dot-directory ({@code .git}, {@code .synthesis}, {@code .claude}, …)
+ *   <li>Directories matching {@code scan.excludePatterns}
  *   <li>The workspace root itself
  * </ul>
  *
@@ -82,7 +86,10 @@ public class PruneCommand implements Callable<Integer> {
         }
 
         Set<String> protectedPaths = buildProtectedPaths(workspaceRoot, config);
-        List<Path> empty = findPruneable(scanRoot, workspaceRoot, protectedPaths);
+        List<String> excludePatterns = config.getScan() != null
+                ? config.getScan().getEffectiveExcludePatterns(workspaceRoot)
+                : List.of();
+        List<Path> empty = findPruneable(scanRoot, workspaceRoot, protectedPaths, excludePatterns);
 
         System.out.println();
         AnsiOutput.printHeader("Empty Directory Report");
@@ -156,19 +163,42 @@ public class PruneCommand implements Callable<Integer> {
      *
      * <p>A directory is eligible when it contains no regular files anywhere
      * in its subtree, is not hidden (dotdir), and is not in the protected set.
+     *
+     * <p><strong>Issue #329 fix:</strong> any path that has a dot-prefixed component
+     * anywhere in its workspace-relative path is skipped — not just paths whose leaf
+     * filename starts with {@code .}. This prevents {@code rmdir} failures on
+     * directories whose subtree contains only dotdir children.
      */
     static List<Path> findPruneable(Path scanRoot, Path workspaceRoot,
                                     Set<String> protectedPaths) throws IOException {
+        return findPruneable(scanRoot, workspaceRoot, protectedPaths, List.of());
+    }
+
+    /**
+     * Finds directories eligible for pruning, additionally honouring the configured
+     * {@code scan.excludePatterns}.
+     *
+     * <p>A subtree the user excluded from indexing (e.g. {@code build/**}, {@code node_modules/})
+     * must also be left alone by prune, even when it is an empty tree — otherwise prune would
+     * churn directories the workspace has deliberately opted out of. Exclusion glob semantics are
+     * shared with the indexer via {@link DirectoryScanner#matchesExcludeGlob} so the two cannot drift.
+     */
+    static List<Path> findPruneable(Path scanRoot, Path workspaceRoot,
+                                    Set<String> protectedPaths,
+                                    List<String> excludePatterns) throws IOException {
         List<Path> result = new ArrayList<>();
+        List<PathMatcher> excludeMatchers = compileExcludeMatchers(excludePatterns);
 
         try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
             stream.filter(Files::isDirectory)
                   .filter(p -> !p.equals(scanRoot))
                   .filter(p -> !Files.isSymbolicLink(p))   // never prune symlinks
-                  .filter(p -> !p.getFileName().toString().startsWith("."))
+                  .filter(p -> !hasDotAncestor(workspaceRoot, p))
                   .filter(p -> !p.toString().contains("/.synthesis/"))
                   .filter(p -> !protectedPaths.contains(
                           workspaceRoot.relativize(p).toString()))
+                  .filter(p -> !DirectoryScanner.matchesExcludeGlob(
+                          workspaceRoot.relativize(p), excludeMatchers))
                   .filter(p -> isEmptyTree(p))
                   .forEach(result::add);
         }
@@ -178,12 +208,48 @@ public class PruneCommand implements Callable<Integer> {
         return result;
     }
 
-    /** Returns true if {@code dir} contains no regular files anywhere in its subtree.
-     *  Symlinks are never considered empty — they are user-managed and must not be pruned. */
+    /** Compiles {@code scan.excludePatterns} into glob matchers, matching {@code DirectoryScanner}'s semantics. */
+    private static List<PathMatcher> compileExcludeMatchers(List<String> excludePatterns) {
+        return excludePatterns.stream()
+                .map(pattern -> FileSystems.getDefault().getPathMatcher("glob:" + pattern))
+                .toList();
+    }
+
+    /**
+     * Returns {@code true} if any component of {@code path}'s workspace-relative
+     * representation starts with {@code .} (i.e. the path is inside a dotdir subtree).
+     */
+    static boolean hasDotAncestor(Path workspaceRoot, Path path) {
+        Path rel = workspaceRoot.relativize(path);
+        for (int i = 0; i < rel.getNameCount(); i++) {
+            if (rel.getName(i).toString().startsWith(".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if {@code dir} contains no regular files and no hidden (dot-prefixed)
+     * subdirectories anywhere in its subtree.
+     *
+     * <p>Symlinks are never considered empty — they are user-managed and must not be pruned.
+     *
+     * <p><strong>Issue #329 fix:</strong> a directory that contains only dotdir children
+     * (e.g. {@code .claude/}, {@code .git/}) is NOT considered empty, because POSIX
+     * {@code rmdir} will fail on it — the dotdir children are still on disk. Previously
+     * this method only checked for regular files, causing such directories to be
+     * incorrectly marked as empty and then failing at removal time with
+     * "Could not remove" warnings.
+     */
     static boolean isEmptyTree(Path dir) {
         if (Files.isSymbolicLink(dir)) return false;
         try (Stream<Path> stream = Files.walk(dir)) {
-            return stream.filter(Files::isRegularFile).findFirst().isEmpty();
+            return stream
+                    .filter(p -> !p.equals(dir))
+                    .noneMatch(p ->
+                            Files.isRegularFile(p)
+                            || (Files.isDirectory(p) && p.getFileName().toString().startsWith(".")));
         } catch (IOException e) {
             return false;
         }
@@ -211,7 +277,7 @@ public class PruneCommand implements Callable<Integer> {
             return stream.filter(Files::isDirectory)
                          .filter(p -> !p.equals(scanRoot))
                          .filter(p -> !Files.isSymbolicLink(p))
-                         .filter(p -> !p.getFileName().toString().startsWith("."))
+                         .filter(p -> !hasDotAncestor(workspaceRoot, p))
                          .filter(p -> !p.toString().contains("/.synthesis/"))
                          .filter(p -> {
                              // Only count dirs that would have been pruned but are protected

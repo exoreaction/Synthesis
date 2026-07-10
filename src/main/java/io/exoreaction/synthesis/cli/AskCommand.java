@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.AiClient;
 import io.exoreaction.synthesis.ai.AiProvider;
 import io.exoreaction.synthesis.ai.DirectedSynthesisEngine;
+import io.exoreaction.synthesis.ai.Grounder;
 import io.exoreaction.synthesis.ai.PromptTemplates;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
@@ -78,6 +79,20 @@ public class AskCommand implements Callable<Integer> {
     private int maxTokens;
 
     @Option(
+            names = {"--ground"},
+            description = "Verify answer claims against loaded context (fail-closed grounding)",
+            defaultValue = "false"
+    )
+    private boolean ground;
+
+    @Option(
+            names = {"--no-kcp-boost"},
+            description = "Disable KCP trigger-based context boosting",
+            defaultValue = "false"
+    )
+    private boolean noKcpBoost;
+
+    @Option(
             names = {"-i", "--interactive"},
             description = "Start interactive conversation mode",
             defaultValue = "false"
@@ -138,6 +153,22 @@ public class AskCommand implements Callable<Integer> {
                 results = index.search(question, contextFiles);
             }
 
+            // Boost results by KCP trigger match (flag-gated, #371 item 2)
+            if (!noKcpBoost) {
+                var boostReport = boostByKcpTriggersWithReport(results, question,
+                        workspaceRoot.toString());
+                results = boostReport.results();
+                if (verbose && boostReport.boostedCount() > 0) {
+                    AnsiOutput.printInfo("KCP routing: " + boostReport.boostedCount()
+                            + " file(s) boosted by knowledge triggers");
+                    for (var tb : boostReport.boosts()) {
+                        System.out.printf("    %s +%d (%s)%n",
+                                AnsiOutput.cyan(tb.path()), tb.score(), tb.reason());
+                    }
+                    System.out.println();
+                }
+            }
+
             if (results.isEmpty()) {
                 AnsiOutput.printWarning("No relevant files found in the index.");
                 AnsiOutput.printInfo("Try running 'synthesis scan' first, or rephrase your question.");
@@ -183,6 +214,19 @@ public class AskCommand implements Callable<Integer> {
                 System.out.println("  " + line);
             }
             System.out.println();
+
+            // Grounding: verify claims against loaded context
+            if (ground) {
+                Map<String, Grounder.FileUnit> loadedUnits = buildFileUnits(results, workspaceRoot);
+                if (!loadedUnits.isEmpty()) {
+                    if (verbose) {
+                        AnsiOutput.printInfo("Grounding answer against " + loadedUnits.size() + " loaded units...");
+                    }
+                    Grounder.GroundedAnswer grounded = Grounder.groundAnswer(
+                            answer, loadedUnits, client);
+                    printGroundingReport(grounded);
+                }
+            }
 
             // Suggest perspectives command for complex/ambiguous questions
             if (DirectedSynthesisEngine.isPerspectivesCandidate(question)) {
@@ -250,6 +294,28 @@ public class AskCommand implements Callable<Integer> {
      * Builds a context string from search results by reading file content.
      * Includes file path, language, and a preview of the content with line numbers.
      */
+    private io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport boostByKcpTriggersWithReport(
+            List<SearchResult> results, String query, String workspacePath) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            java.sql.Connection conn = db.getConnection();
+            io.exoreaction.synthesis.kcp.KcpRepository repo =
+                    new io.exoreaction.synthesis.kcp.KcpRepository();
+            List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
+                    new java.util.ArrayList<>();
+            for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
+                    repo.getManifests(conn, workspacePath)) {
+                allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+            }
+            return io.exoreaction.synthesis.kcp.KcpPlanner
+                    .boostWithReport(results, query, allUnits);
+        } catch (Exception e) {
+            return new io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport(
+                    java.util.List.copyOf(results), java.util.List.of());
+        }
+    }
+
     String buildContext(List<SearchResult> results, Path workspaceRoot) {
         StringBuilder context = new StringBuilder();
         int maxBytesPerFile = 4096;
@@ -285,6 +351,58 @@ public class AskCommand implements Callable<Integer> {
         }
 
         return context.toString();
+    }
+
+    /**
+     * Build FileUnit map from search results for grounding.
+     */
+    private Map<String, Grounder.FileUnit> buildFileUnits(List<SearchResult> results, Path workspaceRoot) {
+        Map<String, Grounder.FileUnit> units = new LinkedHashMap<>();
+        int maxBytes = 4096;
+        for (SearchResult r : results) {
+            try {
+                if (Files.exists(r.path()) && Files.isReadable(r.path())) {
+                    String content = FileUtils.readPreview(r.path(), maxBytes);
+                    if (!content.isEmpty()) {
+                        units.put(r.relativePath(), Grounder.FileUnit.of(r.relativePath(), content));
+                    }
+                }
+            } catch (IOException ignored) {
+                // skip unreadable files
+            }
+        }
+        return units;
+    }
+
+    /**
+     * Print grounding report to the CLI.
+     */
+    private void printGroundingReport(Grounder.GroundedAnswer result) {
+        System.out.println(AnsiOutput.bold("  Grounding: " + result.status()));
+        System.out.printf("  %d/%d claims grounded%n",
+                result.grounded().size(), result.claims().size());
+
+        if (!result.grounded().isEmpty()) {
+            for (Grounder.ClaimVerdict v : result.grounded()) {
+                String sha = v.sha256() != null && v.sha256().length() >= 12
+                        ? v.sha256().substring(0, 12) : "";
+                System.out.println(AnsiOutput.green("    + " + truncateClaim(v.claim())
+                        + " [" + v.unitId() + " " + sha + "]"));
+            }
+        }
+        if (!result.gaps().isEmpty()) {
+            System.out.println(AnsiOutput.bold("  Gaps:"));
+            for (Grounder.ClaimVerdict v : result.gaps()) {
+                System.out.println(AnsiOutput.warning("    - " + truncateClaim(v.claim())
+                        + " (" + v.reason() + ")"));
+            }
+        }
+        System.out.println();
+    }
+
+    private static String truncateClaim(String claim) {
+        if (claim.length() <= 80) return claim;
+        return claim.substring(0, 77) + "...";
     }
 
     private Integer runInteractive() {

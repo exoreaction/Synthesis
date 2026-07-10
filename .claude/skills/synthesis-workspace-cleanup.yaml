@@ -93,7 +93,8 @@ synthesis prune --yes       # prune without prompting
 synthesis prune --path reports/  # limit to a sub-path
 
 # Safety exclusions (always skipped):
-# - Dot-directories (.git, .synthesis, etc.)
+# - Hidden subtrees — any directory beneath a dot-directory (.git, .synthesis, .claude, etc.)
+# - Directories matching scan.excludePatterns (e.g. node_modules/, target/)
 # - Directories containing a README.md
 # - Paths referenced in config sub-workspaces
 ```

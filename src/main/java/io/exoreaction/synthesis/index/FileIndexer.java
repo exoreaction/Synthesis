@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.index;
 import io.exoreaction.synthesis.analyzer.AnalysisResult;
 import io.exoreaction.synthesis.core.FileMetadata;
 import org.apache.lucene.document.*;
+import org.apache.lucene.index.VectorSimilarityFunction;
 
 import java.time.Instant;
 
@@ -204,5 +205,24 @@ public class FileIndexer {
         doc.add(new StoredField(DocumentFields.LAST_MODIFIED, Long.toString(lastModifiedMs)));
 
         return doc;
+    }
+
+    /**
+     * Adds an embedding vector and model identifier to an existing document.
+     *
+     * <p>Uses Lucene's {@link KnnFloatVectorField} for HNSW-based approximate
+     * nearest neighbor search. No-op if the embedding is null or empty.
+     *
+     * @param doc       the document to augment
+     * @param embedding the embedding vector (must match index dimensions)
+     * @param model     the model that produced the embedding (e.g., "text-embedding-3-small")
+     */
+    public static void addEmbedding(Document doc, float[] embedding, String model) {
+        if (embedding == null || embedding.length == 0) return;
+        doc.add(new KnnFloatVectorField(DocumentFields.EMBEDDING, embedding,
+                VectorSimilarityFunction.COSINE));
+        if (model != null) {
+            doc.add(new StringField(DocumentFields.EMBEDDING_MODEL, model, Field.Store.YES));
+        }
     }
 }

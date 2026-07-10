@@ -44,6 +44,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 /**
@@ -59,6 +61,10 @@ import java.util.logging.Logger;
 public class SynthesisToolHandler {
 
     private static final Logger LOG = Logger.getLogger(SynthesisToolHandler.class.getName());
+
+    /** Default timeout for CLI subprocess execution (5 minutes). */
+    static final int DEFAULT_CLI_TIMEOUT_SECONDS = 300;
+
     private final ObjectMapper mapper;
     private final Path defaultWorkspace;
     private final List<Path> allWorkspaces;
@@ -244,6 +250,9 @@ public class SynthesisToolHandler {
         String effectiveAsOf = asOf != null ? asOf
                 : (!includeAllTemporal ? java.time.LocalDate.now().toString() : null);
 
+        // KCP boost flag (default: true)
+        boolean kcpBoost = !params.has("kcp_boost") || params.get("kcp_boost").asBoolean(true);
+
         // Multi-workspace search
         if (multiWorkspaceMode && !hasExplicitWorkspace(params)) {
             return handleMultiWorkspaceSearch(query, fileType, subWorkspace, limit, previewLength, startTime);
@@ -261,6 +270,14 @@ public class SynthesisToolHandler {
             } else {
                 results = index.search(query, fileType, limit);
             }
+
+            // Boost results by KCP trigger match (flag-gated, #371 item 2)
+            KcpPlanner.BoostReport boostReport = null;
+            if (kcpBoost) {
+                boostReport = boostByKcpTriggersWithReport(results, query, workspacePath.toString());
+                results = boostReport.results();
+            }
+
             long elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
 
             // Record metrics and query log
@@ -270,6 +287,23 @@ public class SynthesisToolHandler {
 
             ObjectNode response = buildSearchResponse(results, elapsedMs, workspacePath.toString(),
                     query, previewLength);
+
+            // Add routing diagnostics (#371 item 2)
+            if (boostReport != null && boostReport.boostedCount() > 0) {
+                ObjectNode routing = mapper.createObjectNode();
+                routing.put("boosted", boostReport.boostedCount());
+                routing.put("total", results.size());
+                ArrayNode hints = mapper.createArrayNode();
+                for (KcpPlanner.TriggerBoost tb : boostReport.boosts()) {
+                    ObjectNode hint = mapper.createObjectNode();
+                    hint.put("path", tb.path());
+                    hint.put("boost", tb.score());
+                    hint.put("reason", tb.reason());
+                    hints.add(hint);
+                }
+                routing.set("hints", hints);
+                response.set("kcpRouting", routing);
+            }
 
             // Enrich with KCP temporal metadata
             if (effectiveAsOf != null || includeAllTemporal) {
@@ -1129,13 +1163,25 @@ public class SynthesisToolHandler {
 
             DirectedSynthesisEngine engine = new DirectedSynthesisEngine(clientOpt.get(), config.getAi().getMaxTokens());
 
+            // KCP boost flag (default: true)
+            boolean kcpBoost = !params.has("kcp_boost") || params.get("kcp_boost").asBoolean(true);
+
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
                 // Search for relevant files
                 List<SearchResult> results = index.search(query, 10);
 
-                // Build context from results
+                // Boost results by KCP trigger match (flag-gated, #371 item 2)
+                KcpPlanner.BoostReport boostReport = null;
+                if (kcpBoost) {
+                    boostReport = boostByKcpTriggersWithReport(results, query, workspacePath.toString());
+                    results = boostReport.results();
+                }
+
+                // Build context from results + collect file units for grounding
                 StringBuilder context = new StringBuilder();
                 List<String> citations = new ArrayList<>();
+                Map<String, io.exoreaction.synthesis.ai.Grounder.FileUnit> fileUnits =
+                        new java.util.LinkedHashMap<>();
 
                 for (SearchResult result : results) {
                     if (Files.exists(result.path()) && Files.isReadable(result.path())) {
@@ -1150,6 +1196,9 @@ public class SynthesisToolHandler {
                             }
 
                             citations.add(result.relativePath());
+                            fileUnits.put(result.relativePath(),
+                                    io.exoreaction.synthesis.ai.Grounder.FileUnit.of(
+                                            result.relativePath(), fileContent));
                         } catch (Exception e) {
                             // Skip unreadable files
                         }
@@ -1176,6 +1225,57 @@ public class SynthesisToolHandler {
                 response.set("citations", citationsArray);
                 response.put("contextFiles", results.size());
                 response.put("workspace", workspacePath.toString());
+
+                // Add routing diagnostics (#371 item 2)
+                if (boostReport != null && boostReport.boostedCount() > 0) {
+                    ObjectNode routing = mapper.createObjectNode();
+                    routing.put("boosted", boostReport.boostedCount());
+                    ArrayNode hints = mapper.createArrayNode();
+                    for (KcpPlanner.TriggerBoost tb : boostReport.boosts()) {
+                        ObjectNode hint = mapper.createObjectNode();
+                        hint.put("path", tb.path());
+                        hint.put("boost", tb.score());
+                        hint.put("reason", tb.reason());
+                        hints.add(hint);
+                    }
+                    routing.set("hints", hints);
+                    response.set("kcpRouting", routing);
+                }
+
+                // Grounding: verify answer claims against loaded context
+                boolean doGround = params.has("ground") && params.get("ground").asBoolean(false);
+                if (doGround && !fileUnits.isEmpty()) {
+                    io.exoreaction.synthesis.ai.Grounder.GroundedAnswer grounded =
+                            io.exoreaction.synthesis.ai.Grounder.groundAnswer(
+                                    answer, fileUnits, clientOpt.get());
+
+                    ObjectNode groundingNode = mapper.createObjectNode();
+                    groundingNode.put("status", grounded.status());
+                    groundingNode.put("totalClaims", grounded.claims().size());
+                    groundingNode.put("groundedCount", grounded.grounded().size());
+                    groundingNode.put("gapCount", grounded.gaps().size());
+
+                    ArrayNode groundedArray = mapper.createArrayNode();
+                    for (var v : grounded.grounded()) {
+                        ObjectNode vn = mapper.createObjectNode();
+                        vn.put("claim", v.claim());
+                        vn.put("unitId", v.unitId());
+                        vn.put("sha256", v.sha256());
+                        groundedArray.add(vn);
+                    }
+                    groundingNode.set("grounded", groundedArray);
+
+                    ArrayNode gapsArray = mapper.createArrayNode();
+                    for (var v : grounded.gaps()) {
+                        ObjectNode vn = mapper.createObjectNode();
+                        vn.put("claim", v.claim());
+                        vn.put("reason", v.reason());
+                        gapsArray.add(vn);
+                    }
+                    groundingNode.set("gaps", gapsArray);
+
+                    response.set("grounding", groundingNode);
+                }
 
                 return response;
             }
@@ -1415,6 +1515,11 @@ public class SynthesisToolHandler {
                 CodeExplainer.ExplanationResult result;
 
                 // Determine mode: file, module, or pattern
+                // Mirrors ExplainCommand.resolveFilePath() resolution order:
+                //   1. Absolute path on disk
+                //   2. Workspace-relative path on disk
+                //   3. Filename search in the index (Issue #373)
+                //   4. Fall through to pattern mode
                 Path targetPath = Path.of(target);
                 if (!targetPath.isAbsolute()) {
                     targetPath = workspacePath.resolve(target);
@@ -1425,8 +1530,16 @@ public class SynthesisToolHandler {
                 } else if (Files.isDirectory(targetPath)) {
                     result = explainer.explainModule(targetPath, index, workspacePath, depth);
                 } else {
-                    // Treat as pattern/concept
-                    result = explainer.explainPattern(target, index, workspacePath, depth);
+                    // Try index-based filename resolution before falling to pattern mode
+                    Path resolved = resolveExplainTarget(target, workspacePath, index);
+                    if (resolved != null && Files.isRegularFile(resolved)) {
+                        result = explainer.explainFile(resolved, index, workspacePath, depth);
+                    } else if (resolved != null && Files.isDirectory(resolved)) {
+                        result = explainer.explainModule(resolved, index, workspacePath, depth);
+                    } else {
+                        // Treat as pattern/concept
+                        result = explainer.explainPattern(target, index, workspacePath, depth);
+                    }
                 }
 
                 ObjectNode response = mapper.createObjectNode();
@@ -1444,6 +1557,57 @@ public class SynthesisToolHandler {
             LOG.warning("Explain failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "Explain failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Resolves an explain target to a filesystem path using index-based filename search.
+     *
+     * <p>Mirrors the resolution logic from {@code ExplainCommand.resolveFilePath()}:
+     * <ol>
+     *   <li>Absolute path that exists on disk</li>
+     *   <li>Path relative to workspace root</li>
+     *   <li>Filename search in the Synthesis index</li>
+     * </ol>
+     *
+     * @param target        the user-provided target string
+     * @param workspacePath the workspace root
+     * @param index         the open search index
+     * @return resolved path, or {@code null} if no match found (caller should treat as pattern)
+     */
+    static Path resolveExplainTarget(String target, Path workspacePath, SearchIndex index) {
+        Path targetPath = Path.of(target);
+
+        // 1. Absolute path that exists
+        if (targetPath.isAbsolute() && Files.exists(targetPath)) {
+            return targetPath;
+        }
+
+        // 2. Workspace-relative path
+        Path resolved = workspacePath.resolve(targetPath);
+        if (Files.exists(resolved)) {
+            return resolved;
+        }
+
+        // 3. Filename search in the index
+        String query = targetPath.getFileName().toString();
+        try {
+            List<SearchResult> results = index.search(query, 10);
+            // Prefer exact path or filename match; fall back to top scored result
+            for (SearchResult r : results) {
+                if (r.relativePath().equals(query)
+                        || r.relativePath().endsWith("/" + query)
+                        || r.fileName().equals(query)) {
+                    return r.path();
+                }
+            }
+            if (!results.isEmpty()) {
+                return results.get(0).path();
+            }
+        } catch (Exception ignored) {
+            // Index search failure — fall through to null (pattern mode)
+        }
+
+        return null;
     }
 
     // -----------------------------------------------------------------------
@@ -2778,7 +2942,7 @@ public class SynthesisToolHandler {
      * @param args          command arguments (e.g., ["changelog", "--since=24h"])
      * @param workspacePath workspace directory to pass via -d flag
      * @return the stdout output as a string
-     * @throws McpToolException if the process exits with a non-zero code
+     * @throws McpToolException if the process exits with a non-zero code or times out
      */
     private String runSynthesisCli(java.util.List<String> args, Path workspacePath) throws Exception {
         String synthesisBin = System.getProperty("user.home") + "/.synthesis/bin/synthesis";
@@ -2788,22 +2952,71 @@ public class SynthesisToolHandler {
         cmd.add("-d");
         cmd.add(workspacePath.toString());
         ProcessBuilder pb = new ProcessBuilder(cmd);
+        return runProcess(pb, DEFAULT_CLI_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Runs a process with a timeout, draining stdout and stderr concurrently
+     * to prevent pipe-buffer deadlocks.
+     *
+     * <p>Fixes two problems in the previous implementation:
+     * <ol>
+     *   <li><b>No timeout</b> — {@code Process.waitFor()} blocked indefinitely,
+     *       causing HTTP clients to disconnect on long-running commands (#325).</li>
+     *   <li><b>Stderr deadlock</b> — stderr was only drained <em>after</em>
+     *       {@code waitFor()}, so a child writing &gt;64 KB to stderr would block
+     *       on the pipe write while the parent was blocked reading stdout.</li>
+     * </ol>
+     *
+     * @param pb             configured ProcessBuilder (stderr must NOT be redirected)
+     * @param timeoutSeconds maximum seconds to wait for the process
+     * @return the captured stdout (with stderr appended on non-zero exit)
+     * @throws McpToolException if the process times out or fails with no stdout
+     */
+    String runProcess(ProcessBuilder pb, long timeoutSeconds) throws Exception {
         pb.redirectErrorStream(false);
         Process p = pb.start();
-        String output = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        int exitCode = p.waitFor();
+
+        // Drain stdout and stderr concurrently to prevent pipe-buffer deadlock
+        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return new String(p.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                return new String(p.getErrorStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+
+        boolean completed = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!completed) {
+            p.destroyForcibly();
+            p.waitFor(5, TimeUnit.SECONDS); // brief grace for cleanup
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Process timed out after " + timeoutSeconds
+                            + "s. Run from the CLI directly for long operations.");
+        }
+
+        String output = stdoutFuture.join();
+        String err = stderrFuture.join();
+        int exitCode = p.exitValue();
+
         if (exitCode != 0) {
             // Some subcommands (e.g. architecture, validate) use a nonzero exit code
             // to signal severity (warnings/errors/issues found), not failure -- they
             // still print a full report to stdout, and genuine failures write to
             // stderr. Only treat nonzero exit as a real failure when there's no
             // output to show for it; otherwise surface any stderr alongside the
-            // report instead of silently dropping it (e.g. a command that failed
-            // partway through printing).
-            String err = new String(p.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            // report instead of silently dropping it.
             if (output.isBlank()) {
-                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
-                        "synthesis " + args.get(0) + " failed: " + err.trim());
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, err.trim());
             }
             if (!err.isBlank()) {
                 output = output + "\n[stderr] " + err.trim();
@@ -3183,6 +3396,9 @@ public class SynthesisToolHandler {
     /**
      * plan_context — an ordered KCP read plan for a task (issue #359).
      * Deterministic RFC-0007 scoring over persisted units; no model.
+     * Supports session dedup via {@code known} parameter (issue #371):
+     * callers declare units they already hold (id→sha256) and unchanged
+     * units are returned as compact stubs instead of full plan entries.
      */
     public ObjectNode handlePlanContext(JsonNode params) throws McpToolException {
         if (params == null || !params.has("task") || params.get("task").asText().isBlank()) {
@@ -3193,6 +3409,9 @@ public class SynthesisToolHandler {
         int budget = params.has("budget") && !params.get("budget").isNull()
                 ? params.get("budget").asInt(0) : 0;
         String today = java.time.LocalDate.now().toString();
+
+        // Parse known parameter: array of {id, sha256} or object {id: sha256}
+        java.util.Map<String, String> known = parseKnown(params);
 
         try {
             java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
@@ -3205,13 +3424,14 @@ public class SynthesisToolHandler {
                 }
             }
             KcpPlanner.Plan plan = KcpPlanner.plan(task, candidates, today, budget);
+            KcpPlanner.DedupResult result = KcpPlanner.dedup(plan, known);
 
             ObjectNode response = mapper.createObjectNode();
-            response.put("task", plan.task());
+            response.put("task", result.task());
             response.put("workspace", workspacePath.toString());
-            response.put("totalTokenEstimate", plan.totalTokenEstimate());
+            response.put("totalTokenEstimate", result.totalTokenEstimate());
             ArrayNode units = mapper.createArrayNode();
-            for (KcpPlanner.Planned p : plan.units()) {
+            for (KcpPlanner.Planned p : result.units()) {
                 ObjectNode u = mapper.createObjectNode();
                 u.put("unitId", p.unitId());
                 u.put("path", p.path());
@@ -3220,11 +3440,26 @@ public class SynthesisToolHandler {
                 u.put("matchReason", p.matchReason());
                 u.put("tokenEstimate", p.tokenEstimate());
                 if (p.intent() != null) u.put("intent", p.intent());
+                if (p.sha256() != null) u.put("sha256", p.sha256());
                 units.add(u);
             }
             response.set("units", units);
+            if (!result.unchanged().isEmpty()) {
+                ArrayNode unchangedArr = mapper.createArrayNode();
+                for (KcpPlanner.Unchanged uc : result.unchanged()) {
+                    ObjectNode ucNode = mapper.createObjectNode();
+                    ucNode.put("unitId", uc.unitId());
+                    ucNode.put("path", uc.path());
+                    ucNode.put("sha256", uc.sha256());
+                    ucNode.put("unchanged", true);
+                    ucNode.put("note", uc.note());
+                    unchangedArr.add(ucNode);
+                }
+                response.set("unchanged", unchangedArr);
+                response.put("tokensSaved", result.tokensSaved());
+            }
             ArrayNode skipped = mapper.createArrayNode();
-            for (KcpPlanner.Skipped s : plan.skipped()) {
+            for (KcpPlanner.Skipped s : result.skipped()) {
                 ObjectNode sk = mapper.createObjectNode();
                 sk.put("unitId", s.unitId());
                 sk.put("path", s.path());
@@ -3237,6 +3472,57 @@ public class SynthesisToolHandler {
             LOG.warning("plan_context failed: " + e.getMessage());
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, "plan_context failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Parses the {@code known} parameter from plan_context params.
+     * Accepts both formats (matching kcp-agent's interface):
+     * <ul>
+     *   <li>Array: {@code [{"id": "unit-1", "sha256": "abc..."}, ...]}</li>
+     *   <li>Object: {@code {"unit-1": "abc...", "unit-2": "def..."}}</li>
+     * </ul>
+     */
+    /**
+     * Boost search results with diagnostics (#371 item 2 — measured routing).
+     * Best-effort: returns unboosted report if KCP DB is unavailable.
+     */
+    private KcpPlanner.BoostReport boostByKcpTriggersWithReport(List<SearchResult> results,
+                                                                  String query, String workspacePath) {
+        try {
+            java.sql.Connection conn = SynthesisDatabase.getDefault().getConnection();
+            KcpRepository repo = new KcpRepository();
+            List<KcpRepository.KcpUnitRow> allUnits = new java.util.ArrayList<>();
+            for (KcpRepository.KcpManifestRow m : repo.getManifests(conn, workspacePath)) {
+                allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+            }
+            return KcpPlanner.boostWithReport(results, query, allUnits);
+        } catch (Exception e) {
+            return new KcpPlanner.BoostReport(List.copyOf(results), List.of());
+        }
+    }
+
+    private java.util.Map<String, String> parseKnown(JsonNode params) {
+        if (params == null || !params.has("known") || params.get("known").isNull()) {
+            return null;
+        }
+        JsonNode knownNode = params.get("known");
+        java.util.Map<String, String> known = new java.util.LinkedHashMap<>();
+        if (knownNode.isArray()) {
+            for (JsonNode entry : knownNode) {
+                String id = entry.has("id") ? entry.get("id").asText() : null;
+                String sha = entry.has("sha256") ? entry.get("sha256").asText() : null;
+                if (id != null && sha != null) {
+                    known.put(id, sha);
+                }
+            }
+        } else if (knownNode.isObject()) {
+            var it = knownNode.fields();
+            while (it.hasNext()) {
+                var field = it.next();
+                known.put(field.getKey(), field.getValue().asText());
+            }
+        }
+        return known.isEmpty() ? null : known;
     }
 
     public ObjectNode handleBootstrapContext(JsonNode params) throws McpToolException {
@@ -3390,6 +3676,102 @@ public class SynthesisToolHandler {
 
         public int getCode() {
             return code;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Episodic memory (remember / recall) — #371 item 3
+    // -----------------------------------------------------------------------
+
+    public ObjectNode handleRemember(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("task") || !params.has("artifact")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "Missing required parameters: task, artifact");
+        }
+
+        String task = params.get("task").asText();
+        String kind = params.has("kind") ? params.get("kind").asText("plan") : "plan";
+        String workspace = params.has("workspace") ? params.get("workspace").asText(null) : null;
+
+        try {
+            String artifactJson;
+            JsonNode artifactNode = params.get("artifact");
+            if (artifactNode.isTextual()) {
+                artifactJson = artifactNode.asText();
+            } else {
+                artifactJson = mapper.writeValueAsString(artifactNode);
+            }
+
+            String manifestSource = params.has("manifestSource")
+                    ? params.get("manifestSource").asText(null) : null;
+            String manifestSha = params.has("manifestSha")
+                    ? params.get("manifestSha").asText(null) : null;
+
+            String now = java.time.Instant.now().toString();
+            io.exoreaction.synthesis.memory.MemoryEntry entry =
+                    io.exoreaction.synthesis.memory.MemoryEntry.ofFull(
+                            kind, task, artifactJson, now, workspace,
+                            manifestSource, manifestSha, null);
+
+            io.exoreaction.synthesis.memory.MemoryStore store =
+                    new io.exoreaction.synthesis.memory.MemoryStore(SynthesisDatabase.getDefault());
+            store.append(entry);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("memoryId", entry.memoryId());
+            response.put("kind", kind);
+            response.put("task", task);
+            response.put("recordedAt", now);
+            response.put("status", "recorded");
+            return response;
+        } catch (Exception e) {
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Remember failed: " + e.getMessage());
+        }
+    }
+
+    public ObjectNode handleRecall(JsonNode params) throws McpToolException {
+        if (params == null || !params.has("task")) {
+            throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
+                    "Missing required parameter: task");
+        }
+
+        String task = params.get("task").asText();
+        int limit = params.has("limit") ? params.get("limit").asInt(5) : 5;
+
+        try {
+            io.exoreaction.synthesis.memory.MemoryStore store =
+                    new io.exoreaction.synthesis.memory.MemoryStore(SynthesisDatabase.getDefault());
+            var hits = store.recall(task, limit);
+
+            ObjectNode response = mapper.createObjectNode();
+            response.put("task", task);
+            response.put("hits", hits.size());
+
+            ArrayNode memoriesArray = mapper.createArrayNode();
+            for (var entry : hits) {
+                ObjectNode mn = mapper.createObjectNode();
+                mn.put("memoryId", entry.memoryId());
+                mn.put("kind", entry.kind());
+                mn.put("task", entry.task());
+                mn.put("recordedAt", entry.recordedAt());
+                if (entry.manifestSource() != null) mn.put("manifestSource", entry.manifestSource());
+                if (entry.manifestSha() != null) mn.put("manifestSha", entry.manifestSha());
+                if (entry.workspace() != null) mn.put("workspace", entry.workspace());
+                // Parse artifact JSON back to a node for structured output
+                try {
+                    mn.set("artifact", mapper.readTree(entry.artifactJson()));
+                } catch (Exception e) {
+                    mn.put("artifact", entry.artifactJson());
+                }
+                memoriesArray.add(mn);
+            }
+            response.set("memories", memoriesArray);
+
+            return response;
+        } catch (Exception e) {
+            throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
+                    "Recall failed: " + e.getMessage());
         }
     }
 }

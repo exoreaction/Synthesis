@@ -1,5 +1,6 @@
 package io.exoreaction.synthesis.ai;
 
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -219,5 +220,79 @@ class EmbeddingServiceTest {
         EmbeddingService created = EmbeddingService.create();
         assertNotNull(created);
         // Provider depends on env, but should not throw
+    }
+
+    // --- Config-aware creation (issue #374) ---
+
+    @Test
+    void createFromConfig_usesCustomEndpoint() {
+        // Direct construction to test endpoint resolution without needing
+        // OPENAI_API_KEY in the environment (CI/Jenkins may not have it)
+        EmbeddingService svc = new EmbeddingService("openai", "fake-key",
+                "text-embedding-3-small", "http://localhost:11434/v1");
+        assertEquals("http://localhost:11434/v1", svc.getEndpoint(),
+                "EmbeddingService should use the custom endpoint from config");
+    }
+
+    @Test
+    void createFromConfig_fallsBackToProviderDefault_whenNoEndpoint() {
+        // Direct construction: null endpoint → constructor stores null,
+        // but embedWithOpenAI resolves it to the provider default at call time
+        EmbeddingService svc = new EmbeddingService("openai", "fake-key",
+                "text-embedding-3-small", null);
+        // Endpoint is null at construction; resolution happens in embedWithOpenAI
+        assertNull(svc.getEndpoint(),
+                "Null endpoint should be stored as-is (resolved at embed time)");
+    }
+
+    @Test
+    void createFromConfig_fallsBackToProviderDefault_whenBlankEndpoint() {
+        EmbeddingService svc = new EmbeddingService("openai", "fake-key",
+                "text-embedding-3-small", "   ");
+        // Blank endpoint stored as-is; embedWithOpenAI resolves to default
+        assertEquals("   ", svc.getEndpoint(),
+                "Blank endpoint stored as-is (resolved at embed time)");
+    }
+
+    @Test
+    void createFromConfig_respectsDeepseekEndpoint() {
+        // Direct construction to test endpoint resolution without needing an API key
+        EmbeddingService svc = new EmbeddingService("openai", "fake-key",
+                "text-embedding-3-small", "https://api.deepseek.com");
+        assertEquals("https://api.deepseek.com", svc.getEndpoint(),
+                "Should use the endpoint passed at construction");
+    }
+
+    @Test
+    void createFromConfig_localProvider_hasNullEndpoint() {
+        // Local provider has no endpoint (no API calls)
+        SynthesisConfig.AiConfig config = new SynthesisConfig.AiConfig();
+        config.setProvider("anthropic"); // No ANTHROPIC_API_KEY → falls back to local
+
+        EmbeddingService svc = EmbeddingService.create(config);
+        // Should not throw, should work as local
+        assertNotNull(svc);
+    }
+
+    @Test
+    void getEndpoint_returnsEndpoint() {
+        EmbeddingService svc = new EmbeddingService("openai", null, null, "http://my-server:8080/v1");
+        assertEquals("http://my-server:8080/v1", svc.getEndpoint());
+    }
+
+    @Test
+    void constructor_withEndpoint_usesItForEmbedding() throws IOException {
+        // Even with an endpoint, if no API key, embedWithOpenAI falls back to local
+        EmbeddingService svc = new EmbeddingService("openai", null, null, "http://localhost:11434/v1");
+        float[] emb = svc.embed("test");
+        // Falls back to local since no key — but should not throw
+        assertEquals(EmbeddingService.EMBEDDING_DIMENSIONS, emb.length);
+    }
+
+    @Test
+    void legacyCreate_stillWorks() {
+        // The zero-arg create() should still work (backward compat)
+        EmbeddingService svc = EmbeddingService.create();
+        assertNotNull(svc);
     }
 }

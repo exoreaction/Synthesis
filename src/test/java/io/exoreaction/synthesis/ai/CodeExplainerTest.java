@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.ai;
 
 import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.graph.RelationService.RelationshipMap;
+import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -117,6 +118,46 @@ class CodeExplainerTest {
                 "Expected outgoing link to INSTALL.md");
     }
 
+    // --- Issue #373B: zero-match guard ---
+
+    @Test
+    void explainPattern_emptyResults_doesNotCallGenerate() throws IOException {
+        // Setup: index that returns nothing for any search
+        StubSearchIndex index = new StubSearchIndex(List.of());
+        RecordingAiClient client = new RecordingAiClient();
+        CodeExplainer explainer = new CodeExplainer(client, 2048);
+
+        CodeExplainer.ExplanationResult result = explainer.explainPattern(
+                "nonexistent-xyz-pattern", index, tempDir, CodeExplainer.Depth.STANDARD);
+
+        assertFalse(client.generateCalled,
+                "generate() should NOT be called when pattern search returns zero matches");
+        assertTrue(result.explanation().toLowerCase().contains("no matching"),
+                "Explanation should indicate no matching content was found, got: " + result.explanation());
+        assertEquals("pattern", result.mode());
+        assertEquals(0, result.contextDocuments());
+    }
+
+    @Test
+    void explainModule_emptyDirectory_doesNotCallGenerate() throws IOException {
+        // Setup: index that returns files, but none matching the module path
+        StubSearchIndex index = new StubSearchIndex(List.of());
+        RecordingAiClient client = new RecordingAiClient();
+        CodeExplainer explainer = new CodeExplainer(client, 2048);
+
+        Path emptyModule = Files.createDirectories(tempDir.resolve("empty-module"));
+
+        CodeExplainer.ExplanationResult result = explainer.explainModule(
+                emptyModule, index, tempDir, CodeExplainer.Depth.STANDARD);
+
+        assertFalse(client.generateCalled,
+                "generate() should NOT be called when module contains zero indexed files");
+        assertTrue(result.explanation().toLowerCase().contains("no matching"),
+                "Explanation should indicate no matching content was found, got: " + result.explanation());
+        assertEquals("module", result.mode());
+        assertEquals(0, result.contextDocuments());
+    }
+
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
@@ -127,5 +168,65 @@ class CodeExplainerTest {
         try { size = Files.size(absolutePath); } catch (IOException ignored) {}
         return new SearchResult(absolutePath, relativePath, 1.0f, fileName,
                 fileType, language, "", "", "", size);
+    }
+
+    /**
+     * AiClient that records whether generate() was called, without making real API calls.
+     */
+    static class RecordingAiClient implements AiClient {
+        boolean generateCalled = false;
+        String lastPrompt = null;
+
+        @Override
+        public String generate(String prompt, int maxTokens) {
+            generateCalled = true;
+            lastPrompt = prompt;
+            return "STUB AI RESPONSE";
+        }
+
+        @Override
+        public GenerationResult generateWithMeta(String prompt, int maxTokens, double temperature) {
+            generateCalled = true;
+            lastPrompt = prompt;
+            return new GenerationResult("STUB AI RESPONSE", false);
+        }
+
+        @Override
+        public String generateFromImage(Path imagePath, String prompt, int maxTokens) {
+            generateCalled = true;
+            return "STUB IMAGE RESPONSE";
+        }
+
+        @Override
+        public String getModel() {
+            return "stub-model";
+        }
+    }
+
+    /**
+     * Minimal SearchIndex stub that returns canned results for search() and listAll().
+     */
+    static class StubSearchIndex extends SearchIndex {
+        private final List<SearchResult> results;
+
+        StubSearchIndex(List<SearchResult> results) throws IOException {
+            super(Files.createTempDirectory("stub-index"));
+            this.results = results;
+        }
+
+        @Override
+        public List<SearchResult> search(String query, int maxResults) {
+            return results;
+        }
+
+        @Override
+        public List<SearchResult> listAll(String fileTypeFilter, int maxResults) {
+            return results;
+        }
+
+        @Override
+        public void close() {
+            // no-op
+        }
     }
 }

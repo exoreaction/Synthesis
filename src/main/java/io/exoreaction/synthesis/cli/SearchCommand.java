@@ -2,6 +2,8 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.ai.EmbeddingService;
+import io.exoreaction.synthesis.config.ConfigLoader;
+import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
@@ -138,6 +140,13 @@ public class SearchCommand implements Callable<Integer> {
     private boolean includeAllTemporal;
 
     @Option(
+            names = {"--no-kcp-boost"},
+            description = "Disable KCP trigger-based result boosting",
+            defaultValue = "false"
+    )
+    private boolean noKcpBoost;
+
+    @Option(
             names = {"-v", "--verbose"},
             description = "Show detailed result information",
             defaultValue = "false"
@@ -202,6 +211,22 @@ public class SearchCommand implements Callable<Integer> {
                 if (!includeAllTemporal) {
                     String effectiveAsOf = asOf != null ? asOf : java.time.LocalDate.now().toString();
                     results = filterByKcpTemporal(results, workspaceRoot.toString(), effectiveAsOf);
+                }
+
+                // Boost results by KCP trigger match (flag-gated, #371 item 2)
+                if (!noKcpBoost) {
+                    var boostReport = boostByKcpTriggersWithReport(results, query,
+                            workspaceRoot.toString());
+                    results = boostReport.results();
+                    if (verbose && boostReport.boostedCount() > 0) {
+                        System.out.println();
+                        AnsiOutput.printInfo("KCP routing: " + boostReport.boostedCount()
+                                + " result(s) boosted by knowledge triggers");
+                        for (var tb : boostReport.boosts()) {
+                            System.out.println("    " + AnsiOutput.cyan(tb.path())
+                                    + " +" + tb.score() + " (" + tb.reason() + ")");
+                        }
+                    }
                 }
 
                 if (results.isEmpty()) {
@@ -430,48 +455,62 @@ public class SearchCommand implements Callable<Integer> {
      */
     private int performSemanticSearch(WorkspaceManager workspace) {
         try {
-            EmbeddingService embeddingService = EmbeddingService.create();
+            SynthesisConfig config = ConfigLoader.load(parent.getWorkspaceRoot());
+            EmbeddingService embeddingService = EmbeddingService.create(config.getAi());
             AnsiOutput.printInfo("Semantic search using " + embeddingService.getProvider() + " embeddings");
             System.out.println();
 
             // Generate query embedding
             float[] queryEmbedding = embeddingService.embed(query);
 
-            // Get all files and compute similarity
-            List<SearchResult> allFiles;
-            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                allFiles = index.listAll(fileType, limit * 5);
-            }
-
-            // Score each file by embedding similarity
+            // Try HNSW search first if index has persisted vectors
             record ScoredResult(SearchResult result, float similarity) {}
             List<ScoredResult> scored = new ArrayList<>();
 
-            for (SearchResult file : allFiles) {
-                try {
-                    if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
-
-                    // Build file representation for embedding
-                    String fileText = file.summary() + " " + file.headings() + " " + file.fileName();
-                    if (!file.structure().isEmpty()) fileText += " " + file.structure();
-
-                    float[] fileEmbedding = embeddingService.embed(fileText);
-                    float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
-
-                    if (similarity >= similarityThreshold) {
-                        scored.add(new ScoredResult(file, similarity));
+            try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                if (index.hasVectors()) {
+                    // O(log N) HNSW search on persisted embeddings
+                    AnsiOutput.printInfo("Using persisted embeddings (HNSW)");
+                    List<SearchResult> results = index.searchByVector(queryEmbedding, limit);
+                    for (SearchResult r : results) {
+                        if (r.score() >= similarityThreshold) {
+                            scored.add(new ScoredResult(r, r.score()));
+                        }
                     }
-                } catch (Exception e) {
-                    // Skip files that fail
                 }
             }
 
-            // Sort by similarity (descending)
-            scored.sort((a, b) -> Float.compare(b.similarity(), a.similarity()));
+            // Fall back to brute-force if no persisted vectors or no results
+            if (scored.isEmpty()) {
+                List<SearchResult> allFiles;
+                try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
+                    allFiles = index.listAll(fileType, limit * 5);
+                }
 
-            // Limit results
-            if (scored.size() > limit) {
-                scored = scored.subList(0, limit);
+                for (SearchResult file : allFiles) {
+                    try {
+                        if (!Files.exists(file.path()) || !Files.isReadable(file.path())) continue;
+
+                        String fileText = buildEmbeddingText(file);
+
+                        float[] fileEmbedding = embeddingService.embed(fileText);
+                        float similarity = EmbeddingService.cosineSimilarity(queryEmbedding, fileEmbedding);
+
+                        if (similarity >= similarityThreshold) {
+                            scored.add(new ScoredResult(file, similarity));
+                        }
+                    } catch (Exception e) {
+                        // Skip files that fail
+                    }
+                }
+
+                // Sort by similarity (descending)
+                scored.sort((a, b) -> Float.compare(b.similarity(), a.similarity()));
+
+                // Limit results
+                if (scored.size() > limit) {
+                    scored = scored.subList(0, limit);
+                }
             }
 
             if (scored.isEmpty()) {
@@ -510,6 +549,53 @@ public class SearchCommand implements Callable<Integer> {
             AnsiOutput.printError("Semantic search failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /** Maximum content characters to include in the embedding input. */
+    private static final int MAX_EMBEDDING_CONTENT_CHARS = 32_000;
+
+    /**
+     * Builds the text to embed for a file in semantic search.
+     *
+     * <p>Reads actual file content from disk (up to {@link #MAX_EMBEDDING_CONTENT_CHARS}
+     * characters) and prepends metadata (filename, summary, structure) as context.
+     * Falls back to metadata-only when the file is missing, unreadable, or binary.
+     *
+     * <p>This replaces the previous summary-only embedding (#375) which missed files
+     * whose body discussed the searched concept but whose heuristic summary didn't
+     * mention it.
+     *
+     * @param file the search result with path and metadata
+     * @return text suitable for embedding
+     */
+    static String buildEmbeddingText(SearchResult file) {
+        StringBuilder sb = new StringBuilder();
+
+        // Always include metadata as context
+        sb.append(file.fileName());
+        if (!file.summary().isEmpty()) {
+            sb.append('\n').append(file.summary());
+        }
+        if (!file.headings().isEmpty()) {
+            sb.append('\n').append(file.headings());
+        }
+        if (!file.structure().isEmpty()) {
+            sb.append('\n').append(file.structure());
+        }
+
+        // Read actual file content if available
+        if (Files.exists(file.path()) && Files.isReadable(file.path())) {
+            try {
+                String content = FileUtils.readPreview(file.path(), MAX_EMBEDDING_CONTENT_CHARS);
+                if (!content.isBlank()) {
+                    sb.append('\n').append(content);
+                }
+            } catch (Exception e) {
+                // Fall back to metadata-only embedding
+            }
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -598,6 +684,28 @@ public class SearchCommand implements Callable<Integer> {
             }
         } catch (Exception e) {
             return results; // best-effort: don't break search if KCP DB unavailable
+        }
+    }
+
+    private io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport boostByKcpTriggersWithReport(
+            List<SearchResult> results, String query, String workspacePath) {
+        try {
+            io.exoreaction.synthesis.db.SynthesisDatabase db =
+                    io.exoreaction.synthesis.db.SynthesisDatabase.getDefault();
+            java.sql.Connection conn = db.getConnection();
+            io.exoreaction.synthesis.kcp.KcpRepository repo =
+                    new io.exoreaction.synthesis.kcp.KcpRepository();
+            List<io.exoreaction.synthesis.kcp.KcpRepository.KcpUnitRow> allUnits =
+                    new java.util.ArrayList<>();
+            for (io.exoreaction.synthesis.kcp.KcpRepository.KcpManifestRow m :
+                    repo.getManifests(conn, workspacePath)) {
+                allUnits.addAll(repo.getUnitsForManifest(conn, workspacePath, m.filePath()));
+            }
+            return io.exoreaction.synthesis.kcp.KcpPlanner
+                    .boostWithReport(results, query, allUnits);
+        } catch (Exception e) {
+            return new io.exoreaction.synthesis.kcp.KcpPlanner.BoostReport(
+                    java.util.List.copyOf(results), java.util.List.of());
         }
     }
 
