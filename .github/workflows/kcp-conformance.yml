@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.9.0'
+  KCP_AGENT_VERSION: '0.11.0'
 
 jobs:
   conformance:
