@@ -15,6 +15,7 @@ import picocli.CommandLine.Option;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -192,6 +193,16 @@ public class SynthesisApp implements Callable<Integer> {
 
         // Fall back to current directory
         return Path.of(".").toAbsolutePath().normalize();
+    }
+
+    /**
+     * Returns the -d/--directory value only if it was explicitly passed on this
+     * invocation, empty otherwise. Unlike {@link #getWorkspaceRoot()}, this does not
+     * fall through to the env var / config file / cwd defaults -- it exists so
+     * subcommands (e.g. {@code which}) can tell "user passed -d" apart from "defaulted."
+     */
+    public Optional<Path> getExplicitWorkspaceRoot() {
+        return Optional.ofNullable(workspaceRoot).map(p -> p.toAbsolutePath().normalize());
     }
 
     // ---- Metrics ----

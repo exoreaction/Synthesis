@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.SubWorkspaceResolver;
+import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch;
 import io.exoreaction.synthesis.search.MultiWorkspaceSearch.WorkspaceEntry;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -16,6 +17,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
@@ -78,24 +80,48 @@ public class WhichCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
-            // Discover all workspaces
-            List<Path> allWorkspaces = MultiWorkspaceSearch.discoverAllWorkspaces();
-
-            if (allWorkspaces.isEmpty()) {
-                AnsiOutput.printError("No Synthesis workspaces found. Run 'synthesis init' first.");
-                return 1;
+            // Discover workspaces: scope to the explicit -d value if one was passed
+            // (#404 -- -d was previously declared but never read), otherwise fall
+            // back to the existing default-roots discovery.
+            List<Path> allWorkspaces;
+            Optional<Path> explicitRoot = parent.getExplicitWorkspaceRoot();
+            if (explicitRoot.isPresent()) {
+                Path root = explicitRoot.get();
+                var validation = new WorkspaceManager(root).validate();
+                if (validation.isPresent()) {
+                    AnsiOutput.printError(validation.get());
+                    return 1;
+                }
+                allWorkspaces = List.of(root);
+            } else {
+                allWorkspaces = MultiWorkspaceSearch.discoverAllWorkspaces();
+                if (allWorkspaces.isEmpty()) {
+                    AnsiOutput.printError("No Synthesis workspaces found. Run 'synthesis init' first.");
+                    return 1;
+                }
             }
 
             // Filter by type if specified
             if (typeFilter != null) {
                 var type = io.exoreaction.synthesis.workspace.WorkspaceType.fromConfigValue(typeFilter);
-                allWorkspaces = MultiWorkspaceSearch.discoverWorkspacesByType(type);
-                if (allWorkspaces.isEmpty()) {
-                    AnsiOutput.printError("No workspaces found with type: " + typeFilter);
-                    return 1;
+                if (explicitRoot.isPresent()) {
+                    var entry = new MultiWorkspaceSearch(allWorkspaces).getWorkspaces().get(0);
+                    if (entry.type() != type) {
+                        AnsiOutput.printError("Workspace at " + allWorkspaces.get(0)
+                                + " has type " + entry.type() + ", not " + typeFilter);
+                        return 1;
+                    }
+                } else {
+                    allWorkspaces = MultiWorkspaceSearch.discoverWorkspacesByType(type);
+                    if (allWorkspaces.isEmpty()) {
+                        AnsiOutput.printError("No workspaces found with type: " + typeFilter);
+                        return 1;
+                    }
                 }
             }
 
+            // Built after the typeFilter block above so it always reflects the final,
+            // possibly-type-filtered `allWorkspaces` -- do not hoist this earlier.
             MultiWorkspaceSearch search = new MultiWorkspaceSearch(allWorkspaces);
             Map<WorkspaceEntry, List<String>> results = search.which(filename, usePattern);
 
