@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -32,6 +33,7 @@ import java.util.stream.Stream;
  *   <li>Directories referenced as sub-workspace paths in config
  *   <li>Any directory beneath a dot-directory ({@code .git}, {@code .synthesis}, {@code .claude}, …)
  *   <li>Directories matching {@code scan.excludePatterns}
+ *   <li>Directories matching the workspace's {@code .synthesisignore}
  *   <li>The workspace root itself
  * </ul>
  *
@@ -108,11 +110,11 @@ public class PruneCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        long preserved = countPreserved(scanRoot, workspaceRoot, protectedPaths);
+        long preserved = countPreserved(scanRoot, workspaceRoot, protectedPaths, excludePatterns);
         System.out.printf("Total: %d empty director%s would be removed.%n",
                 empty.size(), empty.size() == 1 ? "y" : "ies");
         if (preserved > 0) {
-            System.out.printf("Preserved: %d (contain files, dotfiles, or are config-referenced)%n",
+            System.out.printf("Preserved: %d (config-referenced, or excluded by scan.excludePatterns / .synthesisignore)%n",
                     preserved);
         }
         System.out.println();
@@ -176,31 +178,26 @@ public class PruneCommand implements Callable<Integer> {
 
     /**
      * Finds directories eligible for pruning, additionally honouring the configured
-     * {@code scan.excludePatterns}.
+     * {@code scan.excludePatterns} and the workspace's {@code .synthesisignore}.
      *
-     * <p>A subtree the user excluded from indexing (e.g. {@code build/**}, {@code node_modules/})
-     * must also be left alone by prune, even when it is an empty tree — otherwise prune would
-     * churn directories the workspace has deliberately opted out of. Exclusion glob semantics are
-     * shared with the indexer via {@link DirectoryScanner#matchesExcludeGlob} so the two cannot drift.
+     * <p>A subtree the user excluded from indexing (e.g. {@code build/**} in config, or
+     * {@code node_modules/} in {@code .synthesisignore}) must also be left alone by prune, even
+     * when it is an empty tree — otherwise prune would churn directories the workspace has
+     * deliberately opted out of. Exclusion semantics are shared with the indexer via
+     * {@link DirectoryScanner#matchesExcludeGlob} and
+     * {@link DirectoryScanner#loadSynthesisIgnoreMatchers} so the two cannot drift.
      */
     static List<Path> findPruneable(Path scanRoot, Path workspaceRoot,
                                     Set<String> protectedPaths,
                                     List<String> excludePatterns) throws IOException {
-        List<Path> result = new ArrayList<>();
-        List<PathMatcher> excludeMatchers = compileExcludeMatchers(excludePatterns);
+        Exclusions exclusions = Exclusions.compute(
+                scanRoot, workspaceRoot, protectedPaths, excludePatterns);
 
-        try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
-            stream.filter(Files::isDirectory)
-                  .filter(p -> !p.equals(scanRoot))
-                  .filter(p -> !Files.isSymbolicLink(p))   // never prune symlinks
-                  .filter(p -> !hasDotAncestor(workspaceRoot, p))
-                  .filter(p -> !p.toString().contains("/.synthesis/"))
-                  .filter(p -> !protectedPaths.contains(
-                          workspaceRoot.relativize(p).toString()))
-                  .filter(p -> !DirectoryScanner.matchesExcludeGlob(
-                          workspaceRoot.relativize(p), excludeMatchers))
-                  .filter(p -> isEmptyTree(p))
-                  .forEach(result::add);
+        List<Path> result = new ArrayList<>();
+        for (Path p : exclusions.candidates()) {
+            if (!exclusions.withheld(p) && isEmptyTree(p)) {
+                result.add(p);
+            }
         }
 
         // Sort deepest (longest path string) first so children are removed before parents
@@ -213,6 +210,53 @@ public class PruneCommand implements Callable<Integer> {
         return excludePatterns.stream()
                 .map(pattern -> FileSystems.getDefault().getPathMatcher("glob:" + pattern))
                 .toList();
+    }
+
+    /**
+     * The withholding rules shared by {@link #findPruneable} and {@link #countPreserved}:
+     * which directories under {@code scanRoot} prune must leave alone, and why.
+     *
+     * <p>A directory is withheld when it is config-protected (sub-workspace path), matches
+     * {@code scan.excludePatterns} or the workspace's {@code .synthesisignore}, or has a
+     * withheld <em>descendant</em>. The descendant rule matters: an excluded directory stays
+     * on disk, so {@code rmdir} on any of its ancestors is guaranteed to fail — pruning them
+     * would only reproduce the "Could not remove" noise of issue #329.
+     */
+    private record Exclusions(List<Path> candidates, Set<Path> withheldRoots) {
+
+        static Exclusions compute(Path scanRoot, Path workspaceRoot,
+                                  Set<String> protectedPaths,
+                                  List<String> excludePatterns) throws IOException {
+            List<PathMatcher> excludeMatchers = compileExcludeMatchers(excludePatterns);
+            List<Predicate<Path>> ignoreMatchers =
+                    DirectoryScanner.loadSynthesisIgnoreMatchers(workspaceRoot);
+
+            List<Path> candidates;
+            try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
+                candidates = stream.filter(Files::isDirectory)
+                        .filter(p -> !p.equals(scanRoot))
+                        .filter(p -> !Files.isSymbolicLink(p))   // never prune symlinks
+                        .filter(p -> !hasDotAncestor(workspaceRoot, p))
+                        .filter(p -> !p.toString().contains("/.synthesis/"))
+                        .toList();
+            }
+
+            Set<Path> withheldRoots = new HashSet<>();
+            for (Path p : candidates) {
+                Path rel = workspaceRoot.relativize(p);
+                if (protectedPaths.contains(rel.toString())
+                        || DirectoryScanner.matchesExcludeGlob(rel, excludeMatchers)
+                        || ignoreMatchers.stream().anyMatch(m -> m.test(rel))) {
+                    withheldRoots.add(p);
+                }
+            }
+            return new Exclusions(candidates, withheldRoots);
+        }
+
+        boolean withheld(Path p) {
+            return withheldRoots.contains(p)
+                    || withheldRoots.stream().anyMatch(e -> !e.equals(p) && e.startsWith(p));
+        }
     }
 
     /**
@@ -270,22 +314,25 @@ public class PruneCommand implements Callable<Integer> {
         return count;
     }
 
-    /** Counts directories that exist but are excluded from pruning (have files or are protected). */
-    private long countPreserved(Path scanRoot, Path workspaceRoot,
-                                Set<String> protectedPaths) throws IOException {
-        try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
-            return stream.filter(Files::isDirectory)
-                         .filter(p -> !p.equals(scanRoot))
-                         .filter(p -> !Files.isSymbolicLink(p))
-                         .filter(p -> !hasDotAncestor(workspaceRoot, p))
-                         .filter(p -> !p.toString().contains("/.synthesis/"))
-                         .filter(p -> {
-                             // Only count dirs that would have been pruned but are protected
-                             return protectedPaths.contains(
-                                     workspaceRoot.relativize(p).toString())
-                                     && isEmptyTree(p);
-                         })
-                         .count();
-        }
+    /**
+     * Counts empty directory trees that would have been pruned but were withheld —
+     * because they are config-referenced (sub-workspace paths), match
+     * {@code scan.excludePatterns} or the workspace's {@code .synthesisignore},
+     * or sit above a withheld directory (see {@link Exclusions#withheld}).
+     *
+     * <p><strong>Issue #419 fix:</strong> before, only config-protected empty trees were counted,
+     * so trees withheld by an exclude pattern appeared in neither the removal list nor this
+     * count — they silently vanished from the report.
+     */
+    static long countPreserved(Path scanRoot, Path workspaceRoot,
+                               Set<String> protectedPaths,
+                               List<String> excludePatterns) throws IOException {
+        Exclusions exclusions = Exclusions.compute(
+                scanRoot, workspaceRoot, protectedPaths, excludePatterns);
+
+        return exclusions.candidates().stream()
+                .filter(exclusions::withheld)
+                .filter(PruneCommand::isEmptyTree)
+                .count();
     }
 }

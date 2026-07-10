@@ -135,6 +135,96 @@ class PruneCommandTest {
     }
 
     @Test
+    void findPruneable_honorsSynthesisIgnore_bareName() throws IOException {
+        // Issue #420: a subtree excluded via .synthesisignore must be left alone by
+        // prune, exactly like scan.excludePatterns. Bare names match at any depth.
+        // The non-ignored parent (vendor/) must also be withheld: node_modules stays
+        // on disk, so rmdir(vendor) is a guaranteed "Could not remove" failure.
+        Files.createDirectories(workspace.resolve("vendor/node_modules/pkg"));
+        Files.writeString(workspace.resolve(".synthesisignore"), "node_modules/\n");
+
+        List<Path> result =
+                PruneCommand.findPruneable(workspace, workspace, Set.of(), List.of());
+        assertTrue(result.isEmpty(),
+                "Neither the ignored subtree nor its parent chain may be pruned, but got: "
+                + result);
+    }
+
+    @Test
+    void findPruneable_honorsSynthesisIgnore_globPattern() throws IOException {
+        Files.createDirectories(workspace.resolve("out/generated/stubs"));
+        Files.writeString(workspace.resolve(".synthesisignore"), "# comment\nout/**\n");
+
+        List<Path> result =
+                PruneCommand.findPruneable(workspace, workspace, Set.of(), List.of());
+        assertTrue(result.isEmpty(),
+                "Dirs under a .synthesisignore glob must not be pruned, but got: " + result);
+    }
+
+    @Test
+    void findPruneable_noSynthesisIgnoreFile_unchangedBehavior() throws IOException {
+        Files.createDirectories(workspace.resolve("empty/leaf"));
+
+        List<Path> result =
+                PruneCommand.findPruneable(workspace, workspace, Set.of(), List.of());
+        assertEquals(2, result.size(),
+                "Without a .synthesisignore file, empty trees remain pruneable");
+    }
+
+    // -------------------------------------------------------------------------
+    // countPreserved
+    // -------------------------------------------------------------------------
+
+    @Test
+    void countPreserved_countsProtectedEmptyTrees() throws IOException {
+        Files.createDirectories(workspace.resolve("clients"));
+
+        long preserved = PruneCommand.countPreserved(
+                workspace, workspace, Set.of("clients"), List.of());
+        assertEquals(1, preserved);
+    }
+
+    @Test
+    void findPruneable_withholdsParentsOfProtectedDirs() throws IOException {
+        // A protected dir stays on disk, so rmdir on its parent is a guaranteed
+        // failure — the parent must be withheld, not listed and then warned about.
+        Files.createDirectories(workspace.resolve("area/clients"));
+
+        List<Path> result = PruneCommand.findPruneable(
+                workspace, workspace, Set.of("area/clients"), List.of());
+        assertTrue(result.isEmpty(),
+                "Parents of protected dirs must not be pruned, but got: " + result);
+    }
+
+    @Test
+    void countPreserved_countsPatternExcludedEmptyTrees() throws IOException {
+        // Issue #419: empty trees withheld by scan.excludePatterns previously appeared
+        // in neither the removal list nor the preserved count — they silently vanished.
+        Files.createDirectories(workspace.resolve("build/tmp"));
+
+        long withoutExclude = PruneCommand.countPreserved(
+                workspace, workspace, Set.of(), List.of());
+        assertEquals(0, withoutExclude,
+                "Sanity: nothing is preserved when nothing protects or excludes");
+
+        long withExclude = PruneCommand.countPreserved(
+                workspace, workspace, Set.of(), List.of("build/**"));
+        assertEquals(2, withExclude,
+                "Empty trees withheld by an exclude pattern must be counted as preserved");
+    }
+
+    @Test
+    void countPreserved_countsSynthesisIgnoredEmptyTrees() throws IOException {
+        Files.createDirectories(workspace.resolve("vendor/node_modules"));
+        Files.writeString(workspace.resolve(".synthesisignore"), "node_modules/\n");
+
+        long preserved = PruneCommand.countPreserved(
+                workspace, workspace, Set.of(), List.of());
+        assertEquals(2, preserved,
+                "Both the ignored empty tree and its withheld parent must be counted as preserved");
+    }
+
+    @Test
     void findPruneable_skipsNonEmptyDirs() throws IOException {
         Path dir = Files.createDirectories(workspace.resolve("has-content"));
         Files.writeString(dir.resolve("file.txt"), "data");
