@@ -158,6 +158,8 @@ public class CodeGraphExtractor {
         // path-based resolver like the TypeScript support below).
         List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
         classToFile.putAll(buildKotlinClassToFileMap(kotlinFiles, workspaceRoot));
+        Map<String, List<String>> kotlinPackageFunctionFiles =
+                buildKotlinPackageFunctionFileIndex(kotlinFiles, workspaceRoot);
 
         // Build simple-name-to-FQN index for extends/implements/supertype resolution
         Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
@@ -213,7 +215,8 @@ public class CodeGraphExtractor {
         // Kotlin support: reuses the merged classToFile/simpleNameIndex built above, same
         // resolution machinery as Java (see extractKotlinFiles for why this differs from TS).
         KtExtractionTotals ktTotals = extractKotlinFiles(
-                workspaceRoot, conn, kotlinFiles, classToFile, simpleNameIndex, packages, now);
+                workspaceRoot, conn, kotlinFiles, classToFile, simpleNameIndex,
+                kotlinPackageFunctionFiles, packages, now);
         dependenciesFound += ktTotals.dependencies();
         externalDeps += ktTotals.external();
 
@@ -256,6 +259,8 @@ public class CodeGraphExtractor {
         // resolution is correct even when only one side of a Java<->Kotlin reference changed.
         List<Path> allKotlinFiles = findKotlinFiles(workspaceRoot);
         classToFile.putAll(buildKotlinClassToFileMap(allKotlinFiles, workspaceRoot));
+        Map<String, List<String>> kotlinPackageFunctionFiles =
+                buildKotlinPackageFunctionFileIndex(allKotlinFiles, workspaceRoot);
 
         Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
 
@@ -296,7 +301,8 @@ public class CodeGraphExtractor {
                 // Delete old edges for this Kotlin file and re-extract.
                 repository.deleteDependenciesForFile(conn, wsPath, relPath);
                 KtExtractionTotals fileTotals = extractKotlinFile(
-                        workspaceRoot, conn, fullPath, classToFile, simpleNameIndex, packages, now);
+                        workspaceRoot, conn, fullPath, classToFile, simpleNameIndex,
+                        kotlinPackageFunctionFiles, packages, now);
                 dependenciesFound += fileTotals.dependencies();
                 externalDeps += fileTotals.external();
                 continue;
@@ -1059,17 +1065,47 @@ public class CodeGraphExtractor {
         return map;
     }
 
+    /**
+     * Builds package -> [file] index for Kotlin files with zero top-level type declarations
+     * (pure top-level-function/property files, e.g. {@code Utils.kt} containing only
+     * {@code fun doThing()}). The Kotlin compiler compiles such declarations into a synthetic
+     * {@code <FileName>Kt} facade class, but source-level imports name the function directly
+     * ({@code import pkg.doThing}), never the facade ({@code import pkg.UtilsKt}) -- so
+     * {@link #buildKotlinClassToFileMap}'s FQN map can never contain a matching key for these
+     * imports. This index lets {@link #extractKotlinFile} fall back to same-package resolution:
+     * if exactly one function-only file exists in the imported symbol's package, attribute the
+     * edge to it. Ambiguous (more than one candidate) or empty stays external -- same
+     * conservative default as today, just narrowed to the genuinely unresolvable cases.
+     */
+    Map<String, List<String>> buildKotlinPackageFunctionFileIndex(List<Path> kotlinFiles, Path workspaceRoot) {
+        Map<String, List<String>> index = new HashMap<>();
+        for (Path f : kotlinFiles) {
+            try {
+                String content = FileUtils.readPreview(f, 50_000);
+                if (!findKotlinTopLevelDecls(content).isEmpty()) continue;
+                String pkg = extractKotlinPackage(content);
+                String relPath = workspaceRoot.relativize(f).toString();
+                index.computeIfAbsent(pkg != null ? pkg : "", k -> new ArrayList<>()).add(relPath);
+            } catch (IOException e) {
+                // Unreadable file -- skip, same as buildKotlinClassToFileMap's catch branch.
+            }
+        }
+        return index;
+    }
+
     private KtExtractionTotals extractKotlinFiles(Path workspaceRoot, Connection conn,
                                                    List<Path> kotlinFiles,
                                                    Map<String, String> classToFile,
                                                    Map<String, List<String>> simpleNameIndex,
+                                                   Map<String, List<String>> packageFunctionFiles,
                                                    Set<String> packages,
                                                    long now) throws SQLException {
         int deps = 0;
         int external = 0;
         for (Path ktFile : kotlinFiles) {
             KtExtractionTotals fileTotals = extractKotlinFile(
-                    workspaceRoot, conn, ktFile, classToFile, simpleNameIndex, packages, now);
+                    workspaceRoot, conn, ktFile, classToFile, simpleNameIndex,
+                    packageFunctionFiles, packages, now);
             deps += fileTotals.dependencies();
             external += fileTotals.external();
         }
@@ -1089,6 +1125,7 @@ public class CodeGraphExtractor {
                                                   Path ktFile,
                                                   Map<String, String> classToFile,
                                                   Map<String, List<String>> simpleNameIndex,
+                                                  Map<String, List<String>> packageFunctionFiles,
                                                   Set<String> packages,
                                                   long now) throws SQLException {
         int deps = 0;
@@ -1114,6 +1151,18 @@ public class CodeGraphExtractor {
             String targetClass = getSimpleClassName(imp);
             String targetPackage = getPackageFromImport(imp);
             String targetFile = classToFile.get(imp);
+
+            // Fallback for imports of top-level functions/properties: these have no
+            // classToFile entry (see buildKotlinPackageFunctionFileIndex) because the import
+            // names the symbol directly, not the compiler-synthesized <FileName>Kt facade.
+            // Only resolve when exactly one function-only file exists in the target package --
+            // ambiguous cases stay external rather than guess.
+            if (targetFile == null) {
+                List<String> candidates = packageFunctionFiles.get(targetPackage);
+                if (candidates != null && candidates.size() == 1) {
+                    targetFile = candidates.get(0);
+                }
+            }
             boolean isExternal = (targetFile == null);
 
             CodeDependency dep = new CodeDependency(
