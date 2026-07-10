@@ -32,7 +32,7 @@
         <snakeyaml.version>2.2</snakeyaml.version>
         <pdfbox.version>3.0.4</pdfbox.version>
         <junit.version>5.11.4</junit.version>
-        <lsp4j.version>0.23.1</lsp4j.version>
+        <lsp4j.version>0.24.0</lsp4j.version>
     </properties>
 
     <dependencies>
