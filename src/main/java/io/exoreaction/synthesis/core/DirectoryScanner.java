@@ -196,6 +196,19 @@ public class DirectoryScanner {
         if (synthesisIgnoreMatchers.stream().anyMatch(p -> p.test(relative))) return true;
 
         // Check against configured exclude patterns (includes smart defaults if enabled)
+        return matchesExcludeGlob(relative, excludeMatchers);
+    }
+
+    /**
+     * Returns {@code true} if a workspace-relative directory path matches any of the given
+     * exclude glob matchers, using the same three-way test the scanner applies during traversal:
+     * the path itself, the path with a trailing separator (for directory patterns like {@code logs/}),
+     * and a dummy child (for prefix patterns like {@code node_modules/**}).
+     *
+     * <p>Shared so that other commands operating on the same workspace (e.g. {@code prune}) apply
+     * identical exclusion semantics and cannot drift from indexing behaviour.
+     */
+    public static boolean matchesExcludeGlob(Path relative, List<PathMatcher> excludeMatchers) {
         for (PathMatcher matcher : excludeMatchers) {
             // Test the directory path itself
             if (matcher.matches(relative)) {

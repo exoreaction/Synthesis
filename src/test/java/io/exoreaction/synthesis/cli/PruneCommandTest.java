@@ -117,6 +117,24 @@ class PruneCommandTest {
     }
 
     @Test
+    void findPruneable_honorsExcludePatterns() throws IOException {
+        // Issue #329 (remaining half): a subtree the user excluded from indexing
+        // (scan.excludePatterns) must also be left alone by prune, even when it is
+        // an empty tree. The dot-ancestor half is covered separately (PR #379).
+        Files.createDirectories(workspace.resolve("build/tmp/cache"));
+
+        List<Path> withoutExclude =
+                PruneCommand.findPruneable(workspace, workspace, Set.of(), List.of());
+        assertFalse(withoutExclude.isEmpty(),
+                "Sanity: empty build/ subtree is pruneable when nothing excludes it");
+
+        List<Path> withExclude =
+                PruneCommand.findPruneable(workspace, workspace, Set.of(), List.of("build/**"));
+        assertTrue(withExclude.isEmpty(),
+                "Dirs under an excluded pattern must not be pruned, but got: " + withExclude);
+    }
+
+    @Test
     void findPruneable_skipsNonEmptyDirs() throws IOException {
         Path dir = Files.createDirectories(workspace.resolve("has-content"));
         Files.writeString(dir.resolve("file.txt"), "data");

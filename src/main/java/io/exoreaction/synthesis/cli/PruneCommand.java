@@ -4,14 +4,17 @@ import io.exoreaction.synthesis.SynthesisApp;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
+import io.exoreaction.synthesis.core.DirectoryScanner;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,7 +30,8 @@ import java.util.stream.Stream;
  * <ul>
  *   <li>Directories containing any file (including README.md)
  *   <li>Directories referenced as sub-workspace paths in config
- *   <li>Directories starting with {@code .} (hidden / dotdirs)
+ *   <li>Any directory beneath a dot-directory ({@code .git}, {@code .synthesis}, {@code .claude}, …)
+ *   <li>Directories matching {@code scan.excludePatterns}
  *   <li>The workspace root itself
  * </ul>
  *
@@ -82,7 +86,10 @@ public class PruneCommand implements Callable<Integer> {
         }
 
         Set<String> protectedPaths = buildProtectedPaths(workspaceRoot, config);
-        List<Path> empty = findPruneable(scanRoot, workspaceRoot, protectedPaths);
+        List<String> excludePatterns = config.getScan() != null
+                ? config.getScan().getEffectiveExcludePatterns(workspaceRoot)
+                : List.of();
+        List<Path> empty = findPruneable(scanRoot, workspaceRoot, protectedPaths, excludePatterns);
 
         System.out.println();
         AnsiOutput.printHeader("Empty Directory Report");
@@ -164,7 +171,23 @@ public class PruneCommand implements Callable<Integer> {
      */
     static List<Path> findPruneable(Path scanRoot, Path workspaceRoot,
                                     Set<String> protectedPaths) throws IOException {
+        return findPruneable(scanRoot, workspaceRoot, protectedPaths, List.of());
+    }
+
+    /**
+     * Finds directories eligible for pruning, additionally honouring the configured
+     * {@code scan.excludePatterns}.
+     *
+     * <p>A subtree the user excluded from indexing (e.g. {@code build/**}, {@code node_modules/})
+     * must also be left alone by prune, even when it is an empty tree — otherwise prune would
+     * churn directories the workspace has deliberately opted out of. Exclusion glob semantics are
+     * shared with the indexer via {@link DirectoryScanner#matchesExcludeGlob} so the two cannot drift.
+     */
+    static List<Path> findPruneable(Path scanRoot, Path workspaceRoot,
+                                    Set<String> protectedPaths,
+                                    List<String> excludePatterns) throws IOException {
         List<Path> result = new ArrayList<>();
+        List<PathMatcher> excludeMatchers = compileExcludeMatchers(excludePatterns);
 
         try (Stream<Path> stream = Files.walk(scanRoot, 10)) {
             stream.filter(Files::isDirectory)
@@ -174,6 +197,8 @@ public class PruneCommand implements Callable<Integer> {
                   .filter(p -> !p.toString().contains("/.synthesis/"))
                   .filter(p -> !protectedPaths.contains(
                           workspaceRoot.relativize(p).toString()))
+                  .filter(p -> !DirectoryScanner.matchesExcludeGlob(
+                          workspaceRoot.relativize(p), excludeMatchers))
                   .filter(p -> isEmptyTree(p))
                   .forEach(result::add);
         }
@@ -181,6 +206,13 @@ public class PruneCommand implements Callable<Integer> {
         // Sort deepest (longest path string) first so children are removed before parents
         result.sort((a, b) -> Integer.compare(b.toString().length(), a.toString().length()));
         return result;
+    }
+
+    /** Compiles {@code scan.excludePatterns} into glob matchers, matching {@code DirectoryScanner}'s semantics. */
+    private static List<PathMatcher> compileExcludeMatchers(List<String> excludePatterns) {
+        return excludePatterns.stream()
+                .map(pattern -> FileSystems.getDefault().getPathMatcher("glob:" + pattern))
+                .toList();
     }
 
     /**
