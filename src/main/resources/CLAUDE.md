@@ -4,7 +4,7 @@ Synthesis is an open-source (Apache 2.0) Java 21+ CLI tool and MCP server for kn
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** Apache 2.0
-**Status:** Production-ready (v1.38.0, July 2026)
+**Status:** Production-ready (v1.42.0, July 2026)
 
 ---
 
@@ -19,7 +19,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,605 tests passing, 92-95% reduction in retrieval time. Includes the document knowledge graph, DirectoryClassifier, the Code Knowledge Graph (CKG-1 through CKG-5), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern), validated against kcp-agent in CI.
+**Validated:** 36,342 files indexed, 4,746 tests passing, 92-95% reduction in retrieval time. Includes the document knowledge graph, DirectoryClassifier, the Code Knowledge Graph (CKG-1 through CKG-5), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern), validated against kcp-agent in CI.
 
 ---
 
@@ -29,10 +29,10 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V24; V7 intentionally reserved). Highlights: V10-V13 knowledge graph, V14 repo isolation, V15 security analysis, V17/V23/V24 KCP, V20 git metrics.
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V25; V7 intentionally reserved). Highlights: V10-V13 knowledge graph, V14 repo isolation, V15 security analysis, V17/V23/V24 KCP, V20 git metrics, V25 episodic memory.
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
-- **Package root:** `io.exoreaction.synthesis.*` (31 packages, incl. `kcp`)
+- **Package root:** `io.exoreaction.synthesis.*` (34 packages)
 - **Fat JARs:** 3 -- synthesis.jar (CLI), synthesis-mcp-server.jar, synthesis-lsp-server.jar
 
 ---

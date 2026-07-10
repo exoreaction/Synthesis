@@ -20,7 +20,7 @@ Synthesis is a CLI tool that scans, indexes, and searches workspace file systems
 - AI-enriched companion files with vision descriptions
 
 **Integrations:**
-- MCP server for Claude Code, Cursor, Aider (8 tools)
+- MCP server for Claude Code, Cursor, Aider (52 tools)
 - LSP server for IDE integration (symbols, hover, diagnostics, architecture alerts)
 - Daemon mode with real-time architecture monitoring (`synthesis watch`)
 
@@ -71,7 +71,7 @@ Synthesis exposes its capabilities through two server protocols for seamless int
 
 ### MCP Server (AI Agent Integration)
 
-Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides eight tools over JSON-RPC 2.0: `search`, `relate`, `graph`, `stats`, `sessions` (offline), plus `ask`, `enrich`, and `explain` (AI-powered).
+Connect Synthesis to Claude Code, Cursor, Aider, and other MCP-compatible AI agents. Provides 52 tools over JSON-RPC 2.0 — offline core (`search`, `relate`, `impact`, `graph`, `stats`, `sessions`, `security`, ...), AI-powered analysis (`ask`, `explain`, `perspectives`, `summary`, ...), KCP planning (`plan_context`), and episodic memory (`remember`, `recall`, `reflect`).
 
 | Document | Description | Time |
 |----------|-------------|------|
