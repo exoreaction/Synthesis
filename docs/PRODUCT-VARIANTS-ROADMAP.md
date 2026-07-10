@@ -195,7 +195,7 @@ This means daemon mode is approximately 80% implemented. The remaining 20% is li
 **Competitive advantage:**
 - **Only** knowledge infrastructure tool that ships with zero cloud dependencies
 - Sourcegraph requires server deployment; GitHub Copilot requires cloud; Cody requires API
-- Can be audited line-by-line (MIT license, single-module Java, no native code)
+- Can be audited line-by-line (Apache 2.0 license, single-module Java, no native code)
 - Works on classified networks, air-gapped SCIFs, submarine systems
 - MCP/LSP servers still function -- AI agents query the index, Synthesis itself never calls out
 

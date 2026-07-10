@@ -383,4 +383,4 @@ All features have full parity between platforms. The same acquisition strategies
 
 ---
 
-*Copyright (c) 2026 eXOReaction AS. All rights reserved.*
+*Copyright (c) 2026 eXOReaction AS. Licensed under the Apache License, Version 2.0.*

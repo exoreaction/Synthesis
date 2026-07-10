@@ -1,9 +1,9 @@
 # Claude Code Project Context: Synthesis
 
-Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge infrastructure. It indexes everything a team creates -- code, docs, videos, PDFs -- and makes it instantly searchable with relationship tracking and AI-powered analysis.
+Synthesis is an open-source (Apache 2.0) Java 21+ CLI tool and MCP server for knowledge infrastructure. It indexes everything a team creates -- code, docs, videos, PDFs -- and makes it instantly searchable with relationship tracking and AI-powered analysis.
 
 **Repository:** https://github.com/exoreaction/Synthesis
-**License:** MIT
+**License:** Apache 2.0
 **Status:** Production-ready (v1.38.0, July 2026)
 
 ---

@@ -1741,7 +1741,7 @@ The window is open. The tool is ready. The evidence is validated.
 - **Validated:** Integration test (Feb 14, 2026)
 - **Evidence:** 8,934 files indexed, 3 workspaces, all features verified
 
-**License:** MIT (open source)
+**License:** Apache 2.0 (open source)
 
 **Contact:**
 - Email: support@exoreaction.io

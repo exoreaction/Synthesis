@@ -1432,4 +1432,4 @@ io.exoreaction.synthesis/
 
 *Built with [Skill-Driven Development (SDD)](https://exoreaction.com) by eXOReaction AS.*
 *Repository: https://github.com/exoreaction/Synthesis*
-*License: MIT*
+*License: Apache 2.0*
