@@ -66,13 +66,7 @@ public class DirectoryScanner {
                 .toList();
 
         // Compile .synthesisignore into directory predicates (gitignore-style).
-        Path ignoreFile = this.workspaceRoot.resolve(".synthesisignore");
-        this.synthesisIgnoreMatchers = Files.isRegularFile(ignoreFile)
-                ? parseSynthesisIgnore(ignoreFile).stream()
-                        .map(DirectoryScanner::compileIgnorePattern)
-                        .filter(java.util.Objects::nonNull)
-                        .toList()
-                : List.of();
+        this.synthesisIgnoreMatchers = loadSynthesisIgnoreMatchers(this.workspaceRoot);
 
         // Verbose output for smart exclusions
         if (verbose && scanConfig.isUseSmartDefaults()) {
@@ -246,6 +240,25 @@ public class DirectoryScanner {
         } catch (IOException e) {
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Loads and compiles the workspace's {@code .synthesisignore} into directory predicates,
+     * exactly as the scanner applies them during traversal. Returns an empty list when the
+     * file does not exist.
+     *
+     * <p>Shared so that other commands operating on the same workspace (e.g. {@code prune})
+     * apply identical {@code .synthesisignore} semantics and cannot drift from indexing
+     * behaviour — the same reasoning as {@link #matchesExcludeGlob}.
+     */
+    public static List<java.util.function.Predicate<Path>> loadSynthesisIgnoreMatchers(Path workspaceRoot) {
+        Path ignoreFile = workspaceRoot.resolve(".synthesisignore");
+        return Files.isRegularFile(ignoreFile)
+                ? parseSynthesisIgnore(ignoreFile).stream()
+                        .map(DirectoryScanner::compileIgnorePattern)
+                        .filter(java.util.Objects::nonNull)
+                        .toList()
+                : List.of();
     }
 
     /**

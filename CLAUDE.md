@@ -1,10 +1,10 @@
 # Claude Code Project Context: Synthesis
 
-Synthesis is an open-source (MIT) Java 21+ CLI tool and MCP server for knowledge infrastructure. It indexes everything a team creates -- code, docs, videos, PDFs -- and makes it instantly searchable with relationship tracking and AI-powered analysis.
+Synthesis is an open-source (Apache 2.0) Java 21+ CLI tool and MCP server for knowledge infrastructure. It indexes everything a team creates -- code, docs, videos, PDFs -- and makes it instantly searchable with relationship tracking and AI-powered analysis.
 
 **Repository:** https://github.com/exoreaction/Synthesis
-**License:** MIT
-**Status:** Production-ready (v1.38.0, July 2026)
+**License:** Apache 2.0
+**Status:** Production-ready (v1.42.0, July 2026)
 
 ---
 
@@ -33,7 +33,7 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - Directory identity system -- per-directory `.synthesis.md` files declare what each directory accepts
 - Local-only processing -- zero cloud, privacy-first
 
-**Validated:** 36,342 files indexed, 4,605 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern — epic #361, all 7 phases, kcp-agent-validated in CI; originally shipped v0.5 in PRs #284-#287).
+**Validated:** 36,342 files indexed, 4,746 tests passing, 92-95% reduction in retrieval time. Includes document knowledge graph (Phases 1-4), DirectoryClassifier, Code Knowledge Graph (CKG-1 through CKG-5, all complete), and full-stack KCP v0.25 support (generate/refresh/federate/ingest/plan/verify/sign/govern — epic #361, all 7 phases, kcp-agent-validated in CI; originally shipped v0.5 in PRs #284-#287).
 
 ---
 
@@ -43,10 +43,10 @@ AI tools made developers 10x faster at creating code -- but comprehension speed 
 - **Build:** Maven
 - **CLI Framework:** picocli
 - **Search:** Lucene (full-text index)
-- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V24; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange); V21: Notion workspace source; V22: KCP v0.21 fields; V23: KCP v0.25 federation + extensions; V24: KCP verification results.
+- **Database:** SQLite (via JDBC) -- 20+ tables, managed by Flyway (V1-V6, V8-V25; V7 intentionally reserved). V10-V13: knowledge graph; V14: repo isolation; V15: security analysis; V16: report history; V17: KCP tables; V18: Claude sessions + FTS5; V19: subagent session linking; V20: git metrics (git_file_metrics, git_cochange); V21: Notion workspace source; V22: KCP v0.21 fields; V23: KCP v0.25 federation + extensions; V24: KCP verification results; V25: episodic memory (remember/recall).
 - **Schema Migrations:** Flyway
 - **Tests:** JUnit 5
-- **Package root:** `io.exoreaction.synthesis.*` (31 packages, new `kcp` package)
+- **Package root:** `io.exoreaction.synthesis.*` (34 packages)
 - **Fat JARs:** 3 -- synthesis.jar (CLI), synthesis-mcp-server.jar, synthesis-lsp-server.jar
 
 ---
@@ -468,10 +468,10 @@ directory named `node_modules` at any depth.
 |   +-- metrics/                       # Metrics collection
 |   +-- update/                        # Self-update mechanism
 |   +-- util/                          # Shared utilities
-+-- src/test/                          # JUnit 5 tests (4,153)
++-- src/test/                          # JUnit 5 tests (4,746)
 +-- docs/                              # Multi-perspective documentation
 |   +-- perspectives/                  # 9 role guides (Engineering, Exec, etc.)
-+-- .claude/skills/                    # 32 Claude Code skills (see below)
++-- .claude/skills/                    # 38 Claude Code skills (see below)
 ```
 
 ---
@@ -559,7 +559,7 @@ These skills describe how to USE Synthesis features -- valid both when working o
 - **`.synthesis.md` files in source repos**: `.synthesis.md` is now in `.gitignore` for the Synthesis repo. If you see stray `.synthesis.md` files in a source tree (left from before DirectoryClassifier was active), delete them — they should never be committed to source repos.
 - **DirectoryClassifier gating**: `SyncCommand.syncDirectory()` now checks `DirectoryClassifier.classify()` before computing centroid/wants/health. Directories classified as CODE skip these phases entirely. `docs/` subdirectories inside code repos are carved out as DOCUMENT.
 - **`synthesis code-graph extract` prerequisite**: Must be run before `synthesis relate --format json` can use the fast SQLite path. If graph is empty, relate falls back to live extraction (slower). Use `synthesis code-graph extract --stats` to check.
-- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V24.
+- **V7 permanently reserved**: Flyway migration V7 was deleted and the version permanently reserved. Current migrations: V1-V6, V8-V25.
 - **V20**: `git_file_metrics` + `git_cochange` tables. Populated by `synthesis hotspots --refresh` via `GitMetricsComputer`. Both are reconstructible caches — losing them loses no information.
 - **KCP detection heuristic**: `knowledge.yaml` files are detected as KCP manifests when ALL THREE hold: filename == `knowledge.yaml`, top-level `units` is a list, `project` or `id` key exists. Files failing any condition are indexed as generic YAML.
 - **Security remediations (PRs #242, #243, #245)**: Synthesis dogfooded its own CKG-5 scanner and fixed the findings:

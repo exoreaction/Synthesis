@@ -17,7 +17,7 @@ the codebase architecture, and following established patterns.
 - **Build:** Maven (`mvn clean package -DskipTests`)
 - **Version:** 1.18.2-SNAPSHOT (as of Feb 28, 2026)
 - **Tests:** 4,107 (JUnit 5)
-- **License:** MIT
+- **License:** Apache 2.0
 
 ## Environment Setup (Critical for Agents and Subprocesses)
 

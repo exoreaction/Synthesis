@@ -7,7 +7,7 @@ instructions: |
   # Synthesis: Knowledge Infrastructure for AI-Augmented Development
 
   **Official Repository:** https://github.com/exoreaction/Synthesis
-  **License:** MIT (Open Source)
+  **License:** Apache 2.0 (Open Source)
   **Local Path:** /src/exoreaction/Synthesis
   **Language:** Java 21+
   **Status:** Production-ready (v1.29.0, April 2026) — v1.29.1-SNAPSHOT installed
@@ -512,7 +512,7 @@ instructions: |
 
   **Use Synthesis as example when discussing:**
   - Knowledge infrastructure / AI output management
-  - Open source strategy (MIT license, community building)
+  - Open source strategy (Apache 2.0 license, community building)
   - Multi-perspective documentation (9 audiences, not one size fits all)
   - LinkedIn content strategy (9 perspectives = 9x reach)
   - Workshop facilitation (Item Consulting validation, 75% commitment)
