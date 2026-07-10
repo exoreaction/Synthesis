@@ -160,6 +160,9 @@ public class FileTrackingDatabase {
      * directly usable in `--audit`.
      */
     public synchronized List<FileMovementRecord> getByContentHash(String hash) throws SQLException {
+        if (hash == null) {
+            return List.of();
+        }
         String sql = "SELECT * FROM file_movements WHERE content_hash LIKE ? ORDER BY timestamp DESC";
         Connection conn = db.getConnection();
         List<FileMovementRecord> results = new ArrayList<>();

@@ -229,6 +229,13 @@ class FileTrackingDatabaseOperationsTest {
     }
 
     @Test
+    void getByContentHash_nullHash_returnsEmpty() throws SQLException {
+        trackingDb.recordMovement(detected("some_hash", "src.txt", "dst.txt"));
+
+        assertTrue(trackingDb.getByContentHash(null).isEmpty());
+    }
+
+    @Test
     void getByContentHash_prefixMustMatchStart_notMiddle() throws SQLException {
         trackingDb.recordMovement(detected("abcdef1234567890", "src.txt", "dst.txt"));
 
