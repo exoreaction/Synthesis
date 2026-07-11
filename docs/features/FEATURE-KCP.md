@@ -304,4 +304,4 @@ headings to the source file, re-scan, and re-export.
 
 ---
 
-**Related:** [KCP-RELEASE-NOTES.md](../releases/KCP-RELEASE-NOTES.md) · [synthesis-kcp.yaml](../../.claude/skills/synthesis-kcp.yaml)
+**Related:** [KCP-RELEASE-NOTES.md](../releases/KCP-RELEASE-NOTES.md) · [synthesis-kcp.yaml](https://github.com/exoreaction/Synthesis/blob/main/.claude/skills/synthesis-kcp.yaml)

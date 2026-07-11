@@ -592,4 +592,4 @@ Reply with:
 - [Developer Guide](./DEVELOPER.md) -- hand this to attendees
 - [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- for attendees' managers
 - [DevOps Guide](./DEVOPS.md) -- CI/CD integration
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

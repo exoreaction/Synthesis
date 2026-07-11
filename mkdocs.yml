@@ -1,0 +1,138 @@
+site_name: Synthesis
+site_description: >-
+  Local-first knowledge infrastructure for AI-augmented development.
+  Indexes code, docs, PDFs, and media into searchable knowledge graphs —
+  and keeps AI agents grounded in knowledge you can verify.
+site_url: https://exoreaction.github.io/Synthesis/
+repo_url: https://github.com/exoreaction/Synthesis
+repo_name: exoreaction/Synthesis
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# Curation is allowlist-by-nav plus these hard excludes. Internal working
+# papers, analysis sessions, and heavy media stay out of the published site.
+exclude_docs: |
+  visuals/**
+  analysis/**
+  oauth/**
+  features/AI-FEATURES-ANALYSIS.md
+  architecture/IMPLEMENTATION-PLAN.md
+  architecture/SYNC-ROUTING-ARCHITECTURE-REPORT.md
+  releases/PHASE2-IMPLEMENTATION-SUMMARY.md
+  releases/POST-INTEGRATION-SUMMARY.md
+  releases/POST-MERGE-SUMMARY.md
+  releases/RELEASE-NOTES-2026-02-15.md
+  AI-SCOPE-ANALYSIS.md
+  DESIGN-SUB-WORKSPACES.md
+  DIRECTED-SYNTHESIS-REPORT.md
+  DOWNLOADS-CLASSIFICATION-ANALYSIS.md
+  META-LEARNING-PROOF.md
+  ORGANIZATIONAL-ANALYSIS.md
+  ORGANIZATIONAL-MODEL-DESIGN.md
+  PRODUCT-VARIANTS-ROADMAP.md
+  PILOT-LICENSE.md
+  TESTING-WINDOWS.md
+  QUICK-START-SLACK.md
+  SLACK-SETUP.md
+  USER-GUIDE-V2.md
+  article-synthesis-origin-story.md
+  plan-issues-42-54.md
+  synthesis-architecture-security-perspectives.md
+  synthesis-architecture-security-report.md
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: guides/QUICK-START.md
+      - User Guide: guides/USER-GUIDE.md
+      - Windows Install: INSTALL-WINDOWS.md
+      - FFmpeg for Media Enrichment: FFMPEG-BINARIES.md
+  - Guides:
+      - Overview: guides/README.md
+      - Generate Docs for Your Codebase: guides/GENERATING-DOCS.md
+      - Claude Code Integration: guides/CLAUDE-CODE-INTEGRATION.md
+      - IDE Integration: guides/IDE-INTEGRATION.md
+  - Features:
+      - Semantic Search: features/FEATURE-SEMANTIC-SEARCH.md
+      - Explain: features/FEATURE-EXPLAIN.md
+      - MCP Ask: features/FEATURE-MCP-ASK.md
+      - Enrich: features/FEATURE-ENRICH.md
+      - Local Media Enrichment: features/FEATURE-LOCAL-MEDIA-ENRICHMENT.md
+      - Architecture Monitor: features/FEATURE-ARCHITECTURE-MONITOR.md
+      - Claude Sessions (Episodic Memory): features/FEATURE-CLAUDE-SESSIONS.md
+      - KCP (Knowledge Context Protocol): features/FEATURE-KCP.md
+  - AI Agents (MCP):
+      - MCP Quick Start: guides/MCP-QUICKSTART.md
+      - MCP Comprehensive Guide: guides/MCP-COMPREHENSIVE-GUIDE.md
+      - MCP Performance Benchmarks: guides/MCP-PERFORMANCE-BENCHMARKS.md
+      - MCP Protocol Reference: api/MCP-PROTOCOL-REFERENCE.md
+      - Harness Support: HARNESS-SUPPORT.md
+      - pi.dev Integration: integrations/pi-dev.md
+  - IDEs (LSP):
+      - LSP Quick Start: guides/LSP-QUICKSTART.md
+      - LSP Comprehensive Guide: guides/LSP-COMPREHENSIVE-GUIDE.md
+      - IDE Setup Guides: guides/LSP-IDE-INTEGRATION-GUIDES.md
+      - LSP Protocol Reference: api/LSP-PROTOCOL-REFERENCE.md
+  - For Your Role:
+      - Role Selector: perspectives/README.md
+      - Developer: perspectives/DEVELOPER.md
+      - AI Agent: perspectives/AI-AGENT.md
+      - Engineering Manager: perspectives/ENGINEERING-MANAGER.md
+      - Architect: perspectives/ARCHITECT.md
+      - DevOps: perspectives/DEVOPS.md
+      - Product Manager: perspectives/PRODUCT-MANAGER.md
+      - Executive: perspectives/EXECUTIVE.md
+      - Workshop Facilitator: perspectives/WORKSHOP-FACILITATOR.md
+  - Architecture:
+      - Knowledge Graph Vision: vision/KNOWLEDGE-GRAPH-VISION.md
+      - Code Knowledge Graph Design: architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md
+      - API Overview: api/README.md
+  - Releases:
+      - Release Notes (history): releases/RELEASE-NOTES.md
+      - KCP Release Notes: releases/KCP-RELEASE-NOTES.md
+      - Code Knowledge Graph Release Notes: releases/CKG-RELEASE-NOTES.md

@@ -521,4 +521,4 @@ synthesis extract-slides <pdf>                # Extract slides as PNG
 - [Executive Guide](./EXECUTIVE.md) -- for CEO-level reporting
 - [Developer Guide](./DEVELOPER.md) -- for your engineering team
 - [Workshop Facilitator Guide](./WORKSHOP-FACILITATOR.md) -- running product demos
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

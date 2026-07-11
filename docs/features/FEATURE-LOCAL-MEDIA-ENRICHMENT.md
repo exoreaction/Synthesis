@@ -441,9 +441,9 @@ Perfect for:
 
 ## Related Documentation
 
-- [PRODUCT-VARIANTS-ROADMAP.md](../../PRODUCT-VARIANTS-ROADMAP.md) - Edition comparison
-- [EnrichmentLevel.java](../../src/main/java/io/exoreaction/synthesis/enrichment/EnrichmentLevel.java) - Architecture
-- [CompanionFileGenerator.java](../../src/main/java/io/exoreaction/synthesis/enrichment/CompanionFileGenerator.java) - Integration point
+- [PRODUCT-VARIANTS-ROADMAP.md](https://github.com/exoreaction/Synthesis/blob/main/docs/PRODUCT-VARIANTS-ROADMAP.md) - Edition comparison
+- [EnrichmentLevel.java](https://github.com/exoreaction/Synthesis/blob/main/src/main/java/io/exoreaction/synthesis/enrichment/EnrichmentLevel.java) - Architecture
+- [CompanionFileGenerator.java](https://github.com/exoreaction/Synthesis/blob/main/src/main/java/io/exoreaction/synthesis/enrichment/CompanionFileGenerator.java) - Integration point
 
 ## FAQ
 

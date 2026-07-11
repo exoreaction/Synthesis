@@ -652,4 +652,4 @@ synthesis credentials status            # Check API key
 - [Architecture Guide](./ARCHITECT.md) -- deep dependency analysis
 - [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- team adoption and metrics
 - [AI Agent Guide](./AI-AGENT.md) -- MCP integration for tool builders
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

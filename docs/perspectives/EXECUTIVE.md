@@ -425,4 +425,4 @@ Run `synthesis maintain` first. The `maintain` command captures snapshots that t
 **Related guides:**
 - [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- for your technical leads
 - [Product Manager Guide](./PRODUCT-MANAGER.md) -- for product owners
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

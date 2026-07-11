@@ -948,4 +948,4 @@ synthesis credentials set KEY value         # Store API key
 - [LSP Quick Start](../guides/LSP-QUICKSTART.md) -- IDE integration
 - [LSP Protocol Reference](../api/LSP-PROTOCOL-REFERENCE.md) -- LSP protocol details
 - [Developer Guide](./DEVELOPER.md) -- Human developer workflows
-- [Full User Guide](../USER-GUIDE-V2.md) -- Complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- Complete command reference

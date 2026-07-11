@@ -5,7 +5,7 @@ Get Synthesis working with Claude Code or Cursor in under 5 minutes.
 ## Prerequisites
 
 - **Java 21+** installed (`java -version` to verify)
-- **Synthesis** installed ([Installation Guide](../../README.md#installation))
+- **Synthesis** installed ([Installation Guide](https://github.com/exoreaction/Synthesis/blob/main/README.md#installation))
 - A **workspace** you want to search (any project directory)
 
 ## Step 1: Index Your Workspace
