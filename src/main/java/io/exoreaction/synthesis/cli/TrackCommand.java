@@ -175,6 +175,15 @@ public class TrackCommand implements Callable<Integer> {
     }
 
     private int handleAudit(FileTrackingDatabase trackingDb) throws Exception {
+        if (auditHash == null || auditHash.isBlank()) {
+            AnsiOutput.printError("--audit requires a non-empty content hash");
+            return 1;
+        }
+        if (!auditHash.matches("(?i)[0-9a-f]{4,}")) {
+            AnsiOutput.printError("--audit expects a hex hash or hex prefix (min 4 chars): " + auditHash);
+            return 1;
+        }
+
         List<FileMovementRecord> movements = trackingDb.getByContentHash(auditHash);
 
         if (movements.isEmpty()) {
@@ -185,8 +194,16 @@ public class TrackCommand implements Callable<Integer> {
         System.out.println("  " + AnsiOutput.bold("Audit trail for hash: " + auditHash));
         System.out.println();
 
+        long distinctHashes = movements.stream().map(FileMovementRecord::contentHash).distinct().count();
+        boolean ambiguous = distinctHashes > 1;
+        if (ambiguous) {
+            AnsiOutput.printWarning("Prefix matched " + distinctHashes
+                    + " distinct hashes -- showing full hash per movement below.");
+            System.out.println();
+        }
+
         for (FileMovementRecord m : movements) {
-            printMovement(m);
+            printMovement(m, ambiguous);
 
             if (verbose) {
                 List<FileTrackingDatabase.AuditEntry> auditLog = trackingDb.getAuditLog(m.id());
@@ -201,6 +218,10 @@ public class TrackCommand implements Callable<Integer> {
     }
 
     private void printMovement(FileMovementRecord m) {
+        printMovement(m, false);
+    }
+
+    private void printMovement(FileMovementRecord m, boolean showFullHash) {
         String statusColor = switch (m.status()) {
             case DETECTED -> AnsiOutput.yellow(m.status().dbValue());
             case CONFIRMED -> AnsiOutput.blue(m.status().dbValue());
@@ -217,8 +238,9 @@ public class TrackCommand implements Callable<Integer> {
             System.out.println("    To:   " + (m.targetWorkspace() != null ? m.targetWorkspace() + ":" : "")
                     + m.targetPath());
         }
-        System.out.println("    Size: " + FileUtils.formatSize(m.fileSize())
-                + " | Hash: " + (m.contentHash() != null ? m.contentHash().substring(0, 8) + "..." : "n/a"));
+        String hashDisplay = m.contentHash() == null ? "n/a"
+                : showFullHash ? m.contentHash() : m.contentHash().substring(0, 8) + "...";
+        System.out.println("    Size: " + FileUtils.formatSize(m.fileSize()) + " | Hash: " + hashDisplay);
         if (m.safetyExpiry() != null) {
             boolean expired = m.safetyExpiry().isBefore(Instant.now());
             System.out.println("    Safety: " + (expired ? "EXPIRED" : "expires " + formatTime(m.safetyExpiry())));

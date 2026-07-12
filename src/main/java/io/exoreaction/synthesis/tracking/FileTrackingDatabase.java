@@ -155,14 +155,19 @@ public class FileTrackingDatabase {
     }
 
     /**
-     * Finds movements by content hash (for audit trail).
+     * Finds movements by content hash (for audit trail). Matches by prefix so the
+     * truncated hash shown in `track` output (see TrackCommand#printMovement) is
+     * directly usable in `--audit`.
      */
     public synchronized List<FileMovementRecord> getByContentHash(String hash) throws SQLException {
-        String sql = "SELECT * FROM file_movements WHERE content_hash = ? ORDER BY timestamp DESC";
+        if (hash == null) {
+            return List.of();
+        }
+        String sql = "SELECT * FROM file_movements WHERE content_hash LIKE ? ORDER BY timestamp DESC";
         Connection conn = db.getConnection();
         List<FileMovementRecord> results = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, hash);
+            ps.setString(1, hash + "%");
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(FileMovementRecord.fromResultSet(rs));
