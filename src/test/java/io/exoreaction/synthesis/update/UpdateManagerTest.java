@@ -138,6 +138,71 @@ class UpdateManagerTest {
     }
 
     @Test
+    void serverJarUrl_buildsClassifiedArtifactUrl() {
+        // #405: server jars are published as classified artifacts alongside the CLI jar
+        assertEquals(
+                "https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis"
+                        + "/1.42.0/synthesis-1.42.0-mcp-server.jar",
+                UpdateManager.serverJarUrl("1.42.0", "synthesis-mcp-server"));
+        assertEquals(
+                "https://mvnrepo.cantara.no/content/repositories/releases/io/exoreaction/synthesis"
+                        + "/1.42.0/synthesis-1.42.0-lsp-server.jar",
+                UpdateManager.serverJarUrl("1.42.0", "synthesis-lsp-server"));
+    }
+
+    @Test
+    void checkHealth_flagsServerJarVersionDrift() throws IOException {
+        // #405: CLI at 1.42.0 but MCP server jar recorded at 1.37.0 — drift must be loud
+        Files.createFile(synthesisHome.resolve("lib/current.jar"));
+        Files.createFile(synthesisHome.resolve("lib/synthesis-mcp-server.jar"));
+        Files.createFile(synthesisHome.resolve("lib/synthesis-lsp-server.jar"));
+        Path synthesisBin = synthesisHome.resolve("bin/synthesis");
+        Files.createFile(synthesisBin);
+        synthesisBin.toFile().setExecutable(true);
+
+        InstallationFingerprint fp = InstallationFingerprint.createNew("1.42.0", "installer", "cantara-maven");
+        fp.setComponent("synthesis-cli", true, "1.42.0");
+        fp.setComponent("synthesis-mcp-server", true, "1.37.0");
+        fp.setComponent("synthesis-lsp-server", true, "1.42.0");
+        fp.save(synthesisHome);
+
+        UpdateManager manager = new UpdateManager(synthesisHome);
+        InstallationHealth health = manager.checkHealth();
+
+        var warnings = health.getIssues(InstallationHealth.Severity.WARNING);
+        assertTrue(warnings.stream().anyMatch(i ->
+                        i.component().equals("synthesis-mcp-server") && i.message().contains("1.37.0")),
+                "Should flag MCP server version drift, got: " + warnings);
+        assertFalse(warnings.stream().anyMatch(i -> i.component().equals("synthesis-lsp-server")),
+                "LSP server at CLI version must not be flagged");
+    }
+
+    @Test
+    void checkHealth_noDriftWarning_whenComponentsMatchCliVersion() throws IOException {
+        Files.createFile(synthesisHome.resolve("lib/current.jar"));
+        Files.createFile(synthesisHome.resolve("lib/synthesis-mcp-server.jar"));
+        Files.createFile(synthesisHome.resolve("lib/synthesis-lsp-server.jar"));
+        Path synthesisBin = synthesisHome.resolve("bin/synthesis");
+        Files.createFile(synthesisBin);
+        synthesisBin.toFile().setExecutable(true);
+        Path updateBin = synthesisHome.resolve("bin/update.sh");
+        Files.createFile(updateBin);
+
+        InstallationFingerprint fp = InstallationFingerprint.createNew("1.42.0", "installer", "cantara-maven");
+        fp.setComponent("synthesis-cli", true, "1.42.0");
+        fp.setComponent("synthesis-mcp-server", true, "1.42.0");
+        fp.setComponent("synthesis-lsp-server", true, "1.42.0");
+        fp.save(synthesisHome);
+
+        UpdateManager manager = new UpdateManager(synthesisHome);
+        InstallationHealth health = manager.checkHealth();
+
+        assertTrue(health.getIssues(InstallationHealth.Severity.WARNING).stream()
+                        .noneMatch(i -> i.message().contains("Version drift")),
+                "In-sync components must not produce drift warnings");
+    }
+
+    @Test
     void updateOptions_defaults() {
         UpdateOptions options = new UpdateOptions();
 
