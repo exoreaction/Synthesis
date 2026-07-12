@@ -316,14 +316,16 @@ public class CodeGraphCommand implements Callable<Integer> {
 
         private int showDryRun(Path workspaceRoot) throws IOException {
             List<Path> javaFiles = findJavaFiles(workspaceRoot);
+            List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
             List<Path> sqlFiles = findSqlFiles(workspaceRoot);
 
             System.out.println();
             System.out.println("Code Graph Extraction (dry-run)");
             System.out.println();
-            System.out.println("  Java files:  " + javaFiles.size());
-            System.out.println("  SQL files:   " + sqlFiles.size());
-            System.out.println("  Total files: " + (javaFiles.size() + sqlFiles.size()));
+            System.out.println("  Java files:   " + javaFiles.size());
+            System.out.println("  Kotlin files: " + kotlinFiles.size());
+            System.out.println("  SQL files:    " + sqlFiles.size());
+            System.out.println("  Total files:  " + (javaFiles.size() + kotlinFiles.size() + sqlFiles.size()));
             System.out.println();
             System.out.println("  No changes made. Remove --dry-run to extract.");
             System.out.println();
@@ -356,9 +358,11 @@ public class CodeGraphCommand implements Callable<Integer> {
 
         private int runIncremental(CodeGraphExtractor extractor, Connection conn,
                                    Path workspaceRoot) throws Exception {
-            // For incremental, find all Java files as the "changed" set
+            // For incremental, find all Java + Kotlin files as the "changed" set
             List<Path> javaFiles = findJavaFiles(workspaceRoot);
+            List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
             Set<Path> changed = new HashSet<>(javaFiles);
+            changed.addAll(kotlinFiles);
 
             System.out.println();
             System.out.println("Extracting code graph (incremental, " + changed.size() + " files)...");
@@ -395,6 +399,16 @@ public class CodeGraphCommand implements Callable<Integer> {
             try (Stream<Path> walk = Files.walk(root)) {
                 return walk.filter(Files::isRegularFile)
                         .filter(p -> p.toString().endsWith(".sql"))
+                        .filter(p -> !p.toString().contains("/."))
+                        .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
+                        .toList();
+            }
+        }
+
+        private List<Path> findKotlinFiles(Path root) throws IOException {
+            try (Stream<Path> walk = Files.walk(root)) {
+                return walk.filter(Files::isRegularFile)
+                        .filter(p -> p.toString().endsWith(".kt"))
                         .filter(p -> !p.toString().contains("/."))
                         .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
                         .toList();
