@@ -9,6 +9,7 @@ import io.exoreaction.synthesis.ai.CodeExplainer.ExplanationResult;
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.core.WorkspaceManager;
+import io.exoreaction.synthesis.graph.RelationService;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -81,6 +82,8 @@ public class ExplainCommand implements Callable<Integer> {
             defaultValue = "text"
     )
     private String format;
+
+    private final RelationService relationService = new RelationService();
 
     @Override
     public Integer call() {
@@ -226,20 +229,32 @@ public class ExplainCommand implements Callable<Integer> {
         // Fall back to filename search in the index
         String query = input.getFileName().toString();
         try {
-            List<SearchResult> results = index.search(query, 10);
-            // Prefer exact path or filename match; fall back to top scored result
-            for (SearchResult r : results) {
-                if (r.relativePath().equals(query)
-                        || r.relativePath().endsWith("/" + query)
-                        || r.fileName().equals(query)) {
-                    return r.path();
-                }
-            }
-            if (!results.isEmpty()) {
-                return results.get(0).path();
+            // #431 bug class: the argument is a filename, not Lucene query syntax --
+            // special characters (e.g. Next.js "[id].ts") corrupt the classic query
+            // parser unless escaped. Cap raised 10 -> 1000 (#449) so ambiguity
+            // detection below sees the full candidate set, not a ranked subset.
+            List<SearchResult> results = index.searchLiteral(query, 1000);
+            // #448: same three-tier resolution as before (exact-path-or-suffix ->
+            // filename -> top result), now via RelationService so explain shares
+            // relate/impact's ambiguity warning (#430) instead of silently
+            // explaining an arbitrary same-named file.
+            SearchResult match = relationService.findBestMatch(results, query);
+            if (match != null) {
+                warnIfAmbiguous(results, query, match);
+                return match.path();
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    /**
+     * Warns on stderr when {@code chosen} was resolved from an ambiguous bare filename (#448),
+     * so explaining the wrong file isn't silent. Writes to stderr (not AnsiOutput.printWarning's
+     * stdout) so it never corrupts {@code --format json} output.
+     */
+    private void warnIfAmbiguous(List<SearchResult> results, String targetFile, SearchResult chosen) {
+        String warning = relationService.formatAmbiguityWarning(results, targetFile, chosen);
+        if (warning != null) System.err.println(AnsiOutput.warning("  [WARN] ") + warning);
     }
 
     private String escapeJson(String text) {

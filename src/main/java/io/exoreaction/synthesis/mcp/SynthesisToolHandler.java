@@ -744,7 +744,12 @@ public class SynthesisToolHandler {
             // Find the target file
             List<SearchResult> targetResults;
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                targetResults = index.search(filePath, 10);
+                // #450: searchLiteral, not search -- the argument is a path/filename, not
+                // Lucene query syntax; unescaped slashes are parsed as regex delimiters and
+                // corrupt the query (same fix as RelateCommand's #431).
+                // #449: cap raised 10 -> 1000 so the ambiguity check sees the full
+                // candidate set, not just the top-ranked subset.
+                targetResults = index.searchLiteral(filePath, 1000);
             }
 
             // Use RelationService's matching logic
@@ -1607,7 +1612,10 @@ public class SynthesisToolHandler {
         // 3. Filename search in the index
         String query = targetPath.getFileName().toString();
         try {
-            List<SearchResult> results = index.search(query, 10);
+            // #431 bug class: escape the filename -- special characters (e.g. Next.js
+            // "[id].ts") corrupt the classic query parser. Cap 10 -> 1000 (#449) to
+            // keep this mirror in sync with ExplainCommand.resolveFilePath().
+            List<SearchResult> results = index.searchLiteral(query, 1000);
             // Prefer exact path or filename match; fall back to top scored result
             for (SearchResult r : results) {
                 if (r.relativePath().equals(query)
