@@ -363,6 +363,121 @@ class CodeGraphExtractorTest {
     }
 
     // -----------------------------------------------------------------------
+    // Kotlin top-level function resolution (#438)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void buildKotlinPackageFunctionFileIndex_indexes_single_function_only_file() throws IOException {
+        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
+        Files.createDirectories(pkgDir);
+        Files.writeString(pkgDir.resolve("Utils.kt"), """
+                package com.example.utils
+
+                fun doThing() {}
+                """);
+
+        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
+                List.of(pkgDir.resolve("Utils.kt")), tempDir);
+
+        assertEquals(List.of("src/main/kotlin/com/example/utils/Utils.kt"), index.get("com.example.utils"));
+    }
+
+    @Test
+    void buildKotlinPackageFunctionFileIndex_excludes_file_with_top_level_function_and_class()
+            throws IOException {
+        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
+        Files.createDirectories(pkgDir);
+        Files.writeString(pkgDir.resolve("Mixed.kt"), """
+                package com.example.utils
+
+                fun doThing() {}
+
+                private class Helper
+                """);
+
+        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
+                List.of(pkgDir.resolve("Mixed.kt")), tempDir);
+
+        assertNull(index.get("com.example.utils"),
+                "file declares a top-level class, so it isn't function-only and must be excluded");
+    }
+
+    @Test
+    void extractAndPersist_resolves_kotlin_top_level_function_import_via_single_candidate()
+            throws SQLException, IOException {
+        // Regression test for #438: Utils.kt has no top-level class, only a top-level
+        // function -- the compiler-synthesized UtilsKt facade is never named by source-level
+        // imports (they name doThing directly), so buildKotlinClassToFileMap alone can't
+        // resolve this. Exactly one function-only file in the imported package -> resolve it.
+        Path utilsDir = tempDir.resolve("src/main/kotlin/com/example/utils");
+        Files.createDirectories(utilsDir);
+        Files.writeString(utilsDir.resolve("Utils.kt"), """
+                package com.example.utils
+
+                fun doThing() {}
+                """);
+        Path callerDir = tempDir.resolve("src/main/kotlin/com/example");
+        Files.createDirectories(callerDir);
+        Files.writeString(callerDir.resolve("Caller.kt"), """
+                package com.example
+
+                import com.example.utils.doThing
+
+                class Caller
+                """);
+
+        extractor.extractAndPersist(tempDir, conn);
+
+        List<CodeDependency> fromCaller = new CodeGraphRepository()
+                .getDependenciesFrom(conn, tempDir.toString(), "src/main/kotlin/com/example/Caller.kt");
+        CodeDependency importDep = fromCaller.stream()
+                .filter(d -> "import".equals(d.dependencyType()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected an import edge from Caller.kt"));
+        assertFalse(importDep.isExternal(),
+                "single function-only candidate in the imported package should resolve internal");
+        assertEquals("src/main/kotlin/com/example/utils/Utils.kt", importDep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_kotlin_import_stays_external_when_multiple_function_only_candidates()
+            throws SQLException, IOException {
+        Path utilsDir = tempDir.resolve("src/main/kotlin/com/example/utils");
+        Files.createDirectories(utilsDir);
+        Files.writeString(utilsDir.resolve("Utils.kt"), """
+                package com.example.utils
+
+                fun doThing() {}
+                """);
+        Files.writeString(utilsDir.resolve("Helpers.kt"), """
+                package com.example.utils
+
+                fun doOtherThing() {}
+                """);
+        Path callerDir = tempDir.resolve("src/main/kotlin/com/example");
+        Files.createDirectories(callerDir);
+        Files.writeString(callerDir.resolve("Caller.kt"), """
+                package com.example
+
+                import com.example.utils.doThing
+
+                class Caller
+                """);
+
+        extractor.extractAndPersist(tempDir, conn);
+
+        List<CodeDependency> fromCaller = new CodeGraphRepository()
+                .getDependenciesFrom(conn, tempDir.toString(), "src/main/kotlin/com/example/Caller.kt");
+        CodeDependency importDep = fromCaller.stream()
+                .filter(d -> "import".equals(d.dependencyType()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected an import edge from Caller.kt"));
+        assertTrue(importDep.isExternal(),
+                "ambiguous package (2 function-only candidates) should stay external, not guess");
+        assertNull(importDep.targetFile());
+    }
+
+    // -----------------------------------------------------------------------
     // Full extraction with temp workspace
     // -----------------------------------------------------------------------
 
