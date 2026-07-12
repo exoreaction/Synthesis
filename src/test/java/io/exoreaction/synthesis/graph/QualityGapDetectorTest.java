@@ -171,6 +171,32 @@ class QualityGapDetectorTest {
                 "Should NOT detect MISSING_INTERFACE for low fan-in module: " + gaps);
     }
 
+    @Test
+    void detect_no_interface_gap_when_kotlin_supertype_edge_targets_package() throws Exception {
+        // Regression test for #441: Kotlin structural edges use dependency_type "supertype"
+        // (colon syntax can't distinguish extends/implements). A high fan-in Kotlin module
+        // whose interfaces ARE implemented must not be flagged MISSING_INTERFACE.
+        String targetPkg = "com.example.kshared";
+        for (int i = 0; i < 6; i++) {
+            repo.upsertDependency(conn, new CodeDependency(WS, "",
+                    "src/main/kotlin/User" + i + ".kt", "User" + i, "com.user" + i,
+                    "src/main/kotlin/Shared.kt", "Shared", targetPkg, "import", false, NOW));
+        }
+        repo.upsertDependency(conn, new CodeDependency(WS, "", "src/main/kotlin/Shared.kt", "Shared", targetPkg,
+                null, "String", "java.lang", "import", true, NOW));
+        // The Kotlin equivalent of an implements edge: Impl : Shared
+        repo.upsertDependency(conn, new CodeDependency(WS, "",
+                "src/main/kotlin/Impl.kt", "Impl", "com.impl",
+                "src/main/kotlin/Shared.kt", "Shared", targetPkg, "supertype", false, NOW));
+
+        computer.computeAndPersist(WS, conn);
+        List<QualityGap> gaps = detector.detect(WS, workspaceRoot, conn);
+
+        assertTrue(gaps.stream().noneMatch(g -> "MISSING_INTERFACE".equals(g.gapType())
+                        && g.modulePath().contains("kshared")),
+                "Kotlin 'supertype' edge should count as interface evidence: " + gaps);
+    }
+
     // -----------------------------------------------------------------------
     // UNDOCUMENTED_HIGH_VALUE
     // -----------------------------------------------------------------------

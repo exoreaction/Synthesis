@@ -216,7 +216,9 @@ public class QualityGapDetector {
 
     /**
      * A module has fan_in > 5 but no interface classes detected.
-     * Checks for classes with "implements" edges pointing to something in the same package.
+     * Checks for classes with "implements" edges (Java) or "supertype" edges (Kotlin,
+     * whose colon syntax can't distinguish extends from implements) pointing to
+     * something in the same package.
      */
     private List<QualityGap> detectMissingInterface(ModuleProfileRow profile,
                                                       Connection conn,
@@ -249,10 +251,11 @@ public class QualityGapDetector {
      */
     private boolean checkForInterfaces(Connection conn, String workspacePath,
                                          String packageName) throws SQLException {
-        // Check if any dependency edge of type "implements" targets a class in this package
+        // Check if any dependency edge of type "implements" (Java) or "supertype" (Kotlin)
+        // targets a class in this package
         String sql = """
             SELECT COUNT(*) FROM code_dependencies
-            WHERE workspace_path = ? AND target_package = ? AND dependency_type = 'implements'
+            WHERE workspace_path = ? AND target_package = ? AND dependency_type IN ('implements', 'supertype')
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, workspacePath);
@@ -264,11 +267,11 @@ public class QualityGapDetector {
             }
         }
 
-        // Also check if any source class in this package has "implements" edges
+        // Also check if any source class in this package has "implements"/"supertype" edges
         // (meaning the package defines interfaces that are implemented)
         String sql2 = """
             SELECT COUNT(*) FROM code_dependencies
-            WHERE workspace_path = ? AND source_package = ? AND dependency_type = 'implements'
+            WHERE workspace_path = ? AND source_package = ? AND dependency_type IN ('implements', 'supertype')
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql2)) {
             ps.setString(1, workspacePath);
