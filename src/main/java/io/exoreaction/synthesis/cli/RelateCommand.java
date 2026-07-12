@@ -48,7 +48,9 @@ public class RelateCommand implements Callable<Integer> {
 
             List<SearchResult> targetResults;
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                targetResults = index.search(targetFile, 10);
+                // #431: the argument is a path/filename, not Lucene query syntax --
+                // unescaped slashes are parsed as regex delimiters and corrupt the query
+                targetResults = index.searchLiteral(targetFile, 10);
             }
             SearchResult target = relationService.findBestMatch(targetResults, targetFile);
             if (target == null) { AnsiOutput.printError("File not found in index: " + targetFile); AnsiOutput.printInfo("Try 'synthesis search " + targetFile + "' to find it."); return 1; }

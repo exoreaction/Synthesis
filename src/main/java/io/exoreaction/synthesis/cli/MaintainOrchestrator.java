@@ -957,33 +957,49 @@ public class MaintainOrchestrator {
     // Phase 10: Code Graph
     // =========================================================================
 
+    /**
+     * Source extensions the code-graph extractor understands (Java, Kotlin,
+     * TypeScript/TSX — see {@link CodeGraphExtractor}). #440: the phase gates below
+     * were Java-only, so pure-Kotlin/TypeScript workspaces were silently skipped
+     * and Kotlin/TS changes never triggered an incremental update.
+     */
+    private static final String[] CODE_GRAPH_EXTENSIONS = {".java", ".kt", ".ts", ".tsx"};
+
+    private static boolean isCodeGraphFile(String path) {
+        for (String ext : CODE_GRAPH_EXTENSIONS) {
+            if (path.endsWith(ext)) return true;
+        }
+        return false;
+    }
+
+    /** Walks the workspace (depth 10, hidden dirs excluded) for files matching the predicate. */
+    private Stream<Path> walkSourceFiles(Stream<Path> walk) {
+        return walk.filter(Files::isRegularFile)
+                .filter(p -> !p.toString().contains("/."));
+    }
+
     private PhaseResult runCodeGraph() throws Exception {
-        // Check if workspace contains any Java files (skip for pure document workspaces)
-        boolean hasJavaFiles;
+        // Check if workspace contains any extractor-supported code files
+        // (skip for pure document workspaces)
+        boolean hasCodeFiles;
         try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
-            hasJavaFiles = walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.toString().contains("/."))
-                    .findFirst()
-                    .isPresent();
+            hasCodeFiles = walkSourceFiles(walk)
+                    .anyMatch(p -> isCodeGraphFile(p.toString()));
         }
 
-        if (!hasJavaFiles) {
+        if (!hasCodeFiles) {
             return PhaseResult.skipped(10, "Code Graph", "no code files found");
         }
 
         if (options.dryRun()) {
-            long javaCount;
+            long codeCount;
             try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
-                javaCount = walk
-                        .filter(Files::isRegularFile)
-                        .filter(p -> p.toString().endsWith(".java"))
-                        .filter(p -> !p.toString().contains("/."))
+                codeCount = walkSourceFiles(walk)
+                        .filter(p -> isCodeGraphFile(p.toString()))
                         .count();
             }
             return PhaseResult.success(10, "Code Graph", 0,
-                    javaCount + " Java file(s) would be extracted", List.of());
+                    codeCount + " code file(s) would be extracted", List.of());
         }
 
         SynthesisDatabase db = SynthesisDatabase.getDefault();
@@ -997,19 +1013,19 @@ public class MaintainOrchestrator {
                 && changes != null && changes.hasChanges()) {
             Set<Path> changedPaths = new java.util.HashSet<>();
             for (FileMetadata fm : changes.added()) {
-                if (fm.relativePath().endsWith(".java")) {
+                if (isCodeGraphFile(fm.relativePath())) {
                     changedPaths.add(Path.of(fm.relativePath()));
                 }
             }
             for (FileMetadata fm : changes.modified()) {
-                if (fm.relativePath().endsWith(".java")) {
+                if (isCodeGraphFile(fm.relativePath())) {
                     changedPaths.add(Path.of(fm.relativePath()));
                 }
             }
 
             if (changedPaths.isEmpty()) {
                 return PhaseResult.success(10, "Code Graph", 0,
-                        "no Java files changed", List.of());
+                        "no code files changed", List.of());
             }
 
             stats = extractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
@@ -1070,19 +1086,18 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     private PhaseResult runSecurity() throws Exception {
-        // Same Java-file gate as Phase 10
+        // Unlike Phase 10, this gate stays Java-only: SecurityAnalyzer (CKG-5) scans
+        // .java files exclusively, so running it on a Kotlin/TS-only workspace would
+        // do nothing. The skip message names the real reason (#440).
         boolean hasJavaFiles;
         try (Stream<Path> walk = Files.walk(workspaceRoot, 10)) {
-            hasJavaFiles = walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(p -> !p.toString().contains("/."))
-                    .findFirst()
-                    .isPresent();
+            hasJavaFiles = walkSourceFiles(walk)
+                    .anyMatch(p -> p.toString().endsWith(".java"));
         }
 
         if (!hasJavaFiles) {
-            return PhaseResult.skipped(11, "Security", "no code files found");
+            return PhaseResult.skipped(11, "Security",
+                    "no Java files found (security analysis is Java-only)");
         }
 
         if (options.dryRun()) {
