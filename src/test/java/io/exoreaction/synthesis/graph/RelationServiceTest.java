@@ -65,6 +65,61 @@ class RelationServiceTest {
     }
 
     @Test
+    void analyzeOutgoingRefs_kotlinImports_resolved() throws IOException {
+        Path ktFile = tempDir.resolve("Service.kt");
+        Files.writeString(ktFile, """
+                package com.example
+                import com.example.Repository
+                import com.example.Config
+                class Service
+                """);
+        SearchResult target = makeResultWithFile(ktFile, "Service.kt", "CODE", "Kotlin");
+        Map<String, List<String>> idx = new HashMap<>();
+        idx.put("Repository.kt", List.of("src/Repository.kt"));
+        idx.put("Config.kt", List.of("src/Config.kt"));
+
+        RelationshipMap map = new RelationshipMap(target.relativePath());
+        service.analyzeOutgoingRefs(target, tempDir, map, idx);
+
+        assertTrue(map.outgoing().containsKey("src/Repository.kt"));
+        assertTrue(map.outgoing().containsKey("src/Config.kt"));
+    }
+
+    @Test
+    void analyzeOutgoingRefs_kotlinWildcardImport_notResolved() throws IOException {
+        Path ktFile = tempDir.resolve("Service.kt");
+        Files.writeString(ktFile, """
+                package com.example
+                import com.example.*
+                class Service
+                """);
+        SearchResult target = makeResultWithFile(ktFile, "Service.kt", "CODE", "Kotlin");
+        Map<String, List<String>> idx = Map.of("Config.kt", List.of("src/Config.kt"));
+
+        RelationshipMap map = new RelationshipMap(target.relativePath());
+        service.analyzeOutgoingRefs(target, tempDir, map, idx);
+
+        assertTrue(map.outgoing().isEmpty());
+    }
+
+    @Test
+    void analyzeOutgoingRefs_kotlinAliasedImport_resolved() throws IOException {
+        Path ktFile = tempDir.resolve("Service.kt");
+        Files.writeString(ktFile, """
+                package com.example
+                import com.example.Repository as Repo
+                class Service
+                """);
+        SearchResult target = makeResultWithFile(ktFile, "Service.kt", "CODE", "Kotlin");
+        Map<String, List<String>> idx = Map.of("Repository.kt", List.of("src/Repository.kt"));
+
+        RelationshipMap map = new RelationshipMap(target.relativePath());
+        service.analyzeOutgoingRefs(target, tempDir, map, idx);
+
+        assertTrue(map.outgoing().containsKey("src/Repository.kt"));
+    }
+
+    @Test
     void analyzeOutgoingRefs_markdownLinks() throws IOException {
         Path mdFile = tempDir.resolve("README.md");
         Files.writeString(mdFile, "See [setup](INSTALL.md) and [contributing](CONTRIBUTING.md).");
@@ -97,6 +152,23 @@ class RelationServiceTest {
     void resolveReference_javaPackageNotation() {
         Map<String, List<String>> idx = Map.of("Config.java", List.of("src/Config.java"));
         assertEquals("src/Config.java", service.resolveReference("com.example.Config", "src/Main.java", idx));
+    }
+
+    @Test
+    void resolveReference_kotlinPackageNotation() {
+        Map<String, List<String>> idx = Map.of("Config.kt", List.of("src/Config.kt"));
+        assertEquals("src/Config.kt", service.resolveReference("com.example.Config", "src/Main.kt", idx));
+    }
+
+    @Test
+    void resolveReference_javaKotlinStemCollision_prefersJava() {
+        // Documents current (imperfect) behavior: resolveReference has no visibility into the
+        // source file's language, so a same-simple-name Java/Kotlin collision deterministically
+        // resolves to .java first (#439 known limitation -- see RelationService.java comment).
+        Map<String, List<String>> idx = Map.of(
+                "Config.java", List.of("src/Config.java"),
+                "Config.kt", List.of("src/Config.kt"));
+        assertEquals("src/Config.java", service.resolveReference("com.example.Config", "src/Main.kt", idx));
     }
 
     @Test
