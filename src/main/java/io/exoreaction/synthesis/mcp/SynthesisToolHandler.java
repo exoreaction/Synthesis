@@ -754,6 +754,7 @@ public class SynthesisToolHandler {
                 throw new McpToolException(JsonRpcMessage.INVALID_PARAMS,
                         "File not found in index: " + filePath);
             }
+            List<SearchResult> ambiguousMatches = relateCmd.findAmbiguousMatches(targetResults, filePath, target);
 
             // Get all files for cross-reference analysis
             List<SearchResult> allFiles;
@@ -778,6 +779,13 @@ public class SynthesisToolHandler {
                 response.put("format", "mermaid");
                 response.put("diagram", relateCmd.generateMermaid(relationshipMap));
                 response.put("file", target.relativePath());
+                // #430: surface ambiguity here too -- this branch returns before the
+                // json-format block below ever runs.
+                if (!ambiguousMatches.isEmpty()) {
+                    ArrayNode ambiguous = mapper.createArrayNode();
+                    for (SearchResult other : ambiguousMatches) ambiguous.add(other.relativePath());
+                    response.set("ambiguousMatches", ambiguous);
+                }
                 return response;
             }
 
@@ -809,6 +817,14 @@ public class SynthesisToolHandler {
             stats.put("incomingCount", relationshipMap.incoming().size());
             stats.put("totalConnections", relationshipMap.outgoing().size() + relationshipMap.incoming().size());
             response.set("stats", stats);
+
+            // #430: surface other files sharing this bare filename so a caller can tell
+            // the match was ambiguous instead of silently trusting the resolved file.
+            if (!ambiguousMatches.isEmpty()) {
+                ArrayNode ambiguous = mapper.createArrayNode();
+                for (SearchResult other : ambiguousMatches) ambiguous.add(other.relativePath());
+                response.set("ambiguousMatches", ambiguous);
+            }
 
             // Knowledge graph enrichment — documentation coverage and confidence
             try {
@@ -2180,7 +2196,19 @@ public class SynthesisToolHandler {
             args.add(String.valueOf(depth));
             args.add("--format");
             args.add("text");
-            String output = runSynthesisCli(args, workspacePath);
+            // #430: use the stderr-capturing variant, not runSynthesisCli -- ImpactCommand
+            // can print a non-fatal ambiguity warning to stderr on a successful (exit 0)
+            // run, which runSynthesisCli's stdout-only-on-success contract would drop.
+            ProcessOutput result = runSynthesisCliCapturingStderr(args, workspacePath);
+            String output = result.stdout();
+            if (result.exitCode() != 0) {
+                if (output.isBlank()) {
+                    throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, result.stderr().trim());
+                }
+                if (!result.stderr().isBlank()) {
+                    output = output + "\n[stderr] " + result.stderr().trim();
+                }
+            }
 
             // Parse basic metrics from output
             int totalImpact = 0;
@@ -2203,6 +2231,9 @@ public class SynthesisToolHandler {
             response.put("report", output);
             response.put("depth", depth);
             response.put("workspace", workspacePath.toString());
+            if (result.exitCode() == 0 && !result.stderr().isBlank()) {
+                response.put("warnings", result.stderr().trim());
+            }
             return response;
         } catch (McpToolException e) {
             throw e;
@@ -2956,6 +2987,25 @@ public class SynthesisToolHandler {
     }
 
     /**
+     * Like {@link #runSynthesisCli}, but also returns stderr even when the subprocess
+     * exits 0. Used by {@code handleImpact}: {@code ImpactCommand} can print a non-fatal
+     * ambiguity warning to stderr on a successful run (#430) that {@link #runProcess}'s
+     * stdout-only-on-success contract would otherwise silently drop. Kept as a separate
+     * method rather than changing {@link #runProcess} itself, since that method has 30+
+     * other call sites whose behavior must not change.
+     */
+    private ProcessOutput runSynthesisCliCapturingStderr(java.util.List<String> args, Path workspacePath) throws Exception {
+        String synthesisBin = System.getProperty("user.home") + "/.synthesis/bin/synthesis";
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add(synthesisBin);
+        cmd.addAll(args);
+        cmd.add("-d");
+        cmd.add(workspacePath.toString());
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        return runProcessCapturingBoth(pb, DEFAULT_CLI_TIMEOUT_SECONDS);
+    }
+
+    /**
      * Runs a process with a timeout, draining stdout and stderr concurrently
      * to prevent pipe-buffer deadlocks.
      *
@@ -2974,6 +3024,37 @@ public class SynthesisToolHandler {
      * @throws McpToolException if the process times out or fails with no stdout
      */
     String runProcess(ProcessBuilder pb, long timeoutSeconds) throws Exception {
+        ProcessOutput result = runProcessCapturingBoth(pb, timeoutSeconds);
+        String output = result.stdout();
+        String err = result.stderr();
+
+        if (result.exitCode() != 0) {
+            // Some subcommands (e.g. architecture, validate) use a nonzero exit code
+            // to signal severity (warnings/errors/issues found), not failure -- they
+            // still print a full report to stdout, and genuine failures write to
+            // stderr. Only treat nonzero exit as a real failure when there's no
+            // output to show for it; otherwise surface any stderr alongside the
+            // report instead of silently dropping it.
+            if (output.isBlank()) {
+                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, err.trim());
+            }
+            if (!err.isBlank()) {
+                output = output + "\n[stderr] " + err.trim();
+            }
+        }
+        return output;
+    }
+
+    /** Captured result of {@link #runProcessCapturingBoth}. */
+    private record ProcessOutput(String stdout, String stderr, int exitCode) {}
+
+    /**
+     * Core of {@link #runProcess}, extracted so callers that need stderr even on a
+     * successful (exit 0) run -- e.g. {@link #runSynthesisCliCapturingStderr} -- don't
+     * have to re-implement the timeout/concurrent-drain handling. {@link #runProcess}
+     * delegates here and keeps its existing stdout-only-string contract unchanged.
+     */
+    private ProcessOutput runProcessCapturingBoth(ProcessBuilder pb, long timeoutSeconds) throws Exception {
         pb.redirectErrorStream(false);
         Process p = pb.start();
 
@@ -3004,26 +3085,9 @@ public class SynthesisToolHandler {
                             + "s. Run from the CLI directly for long operations.");
         }
 
-        String output = stdoutFuture.join();
-        String err = stderrFuture.join();
-        int exitCode = p.exitValue();
-
-        if (exitCode != 0) {
-            // Some subcommands (e.g. architecture, validate) use a nonzero exit code
-            // to signal severity (warnings/errors/issues found), not failure -- they
-            // still print a full report to stdout, and genuine failures write to
-            // stderr. Only treat nonzero exit as a real failure when there's no
-            // output to show for it; otherwise surface any stderr alongside the
-            // report instead of silently dropping it.
-            if (output.isBlank()) {
-                throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR, err.trim());
-            }
-            if (!err.isBlank()) {
-                output = output + "\n[stderr] " + err.trim();
-            }
-        }
-        return output;
+        return new ProcessOutput(stdoutFuture.join(), stderrFuture.join(), p.exitValue());
     }
+
     /**
      * Returns a snippet of {@code text} of at most {@code maxLen} characters,
      * centred around the first occurrence of any term from {@code query}.

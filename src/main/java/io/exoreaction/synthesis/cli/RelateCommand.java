@@ -54,6 +54,7 @@ public class RelateCommand implements Callable<Integer> {
             }
             SearchResult target = relationService.findBestMatch(targetResults, targetFile);
             if (target == null) { AnsiOutput.printError("File not found in index: " + targetFile); AnsiOutput.printInfo("Try 'synthesis search " + targetFile + "' to find it."); return 1; }
+            warnIfAmbiguous(targetResults, targetFile, target);
 
             RelationshipMap relationshipMap;
 
@@ -87,6 +88,16 @@ public class RelateCommand implements Callable<Integer> {
             }
             return 0;
         } catch (Exception e) { AnsiOutput.printError("Relate failed: " + e.getMessage()); return 1; }
+    }
+
+    /**
+     * Warns on stderr when {@code chosen} was resolved from an ambiguous bare filename (#430),
+     * so a genuinely wrong pick isn't silent. Writes to stderr (not AnsiOutput.printWarning's
+     * stdout) so it never corrupts {@code --format json} output.
+     */
+    private void warnIfAmbiguous(List<SearchResult> results, String targetFile, SearchResult chosen) {
+        String warning = relationService.formatAmbiguityWarning(results, targetFile, chosen);
+        if (warning != null) System.err.println(AnsiOutput.warning("  [WARN] ") + warning);
     }
 
     /**

@@ -40,6 +40,59 @@ public class RelationService {
         return results.get(0);
     }
 
+    /**
+     * Returns the other candidates in {@code results} that {@link #findBestMatch} could
+     * just as validly have picked instead of {@code chosen} (#430). Mirrors
+     * {@code findBestMatch}'s own three resolution tiers -- exact-path-or-suffix,
+     * filename-only, then "whatever's first" -- and reports ambiguity only within whichever
+     * tier actually produced the match, so a {@code target} that uniquely resolves via a
+     * more specific tier isn't flagged just because a same-named file exists elsewhere
+     * (e.g. "cli/Foo.java" uniquely matches tier 1 even when a "graph/Foo.java" also exists),
+     * while a {@code target} that falls through to the arbitrary tier-3 pick is correctly
+     * flagged whenever more than one candidate was on the table.
+     */
+    public List<SearchResult> findAmbiguousMatches(List<SearchResult> results, String target, SearchResult chosen) {
+        if (chosen == null) return List.of();
+
+        List<SearchResult> tier1 = new ArrayList<>();
+        for (SearchResult r : results) {
+            if (r.relativePath().equals(target) || r.relativePath().endsWith("/" + target)) tier1.add(r);
+        }
+        if (!tier1.isEmpty()) return otherThan(tier1, chosen);
+
+        List<SearchResult> tier2 = new ArrayList<>();
+        for (SearchResult r : results) {
+            if (r.fileName().equals(target)) tier2.add(r);
+        }
+        if (!tier2.isEmpty()) return otherThan(tier2, chosen);
+
+        return otherThan(results, chosen);
+    }
+
+    private List<SearchResult> otherThan(List<SearchResult> candidates, SearchResult chosen) {
+        List<SearchResult> others = new ArrayList<>();
+        for (SearchResult r : candidates) {
+            if (!r.relativePath().equals(chosen.relativePath())) others.add(r);
+        }
+        return others;
+    }
+
+    /**
+     * Formats the stderr warning for an ambiguous resolution (#430), or {@code null} when
+     * {@code chosen} was unambiguous. Shared by {@code RelateCommand} and {@code ImpactCommand}
+     * so the message stays identical across both callers.
+     */
+    public String formatAmbiguityWarning(List<SearchResult> results, String target, SearchResult chosen) {
+        List<SearchResult> others = findAmbiguousMatches(results, target, chosen);
+        if (others.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append(others.size()).append(" other file(s) are also named '").append(chosen.fileName())
+                .append("' -- resolved to ").append(chosen.relativePath())
+                .append(". Pass a longer/relative path to disambiguate:");
+        for (SearchResult r : others) sb.append("\n    - ").append(r.relativePath());
+        return sb.toString();
+    }
+
     public void analyzeOutgoingRefs(SearchResult target, Path workspaceRoot,
                                      RelationshipMap map, Map<String, List<String>> fileNameIndex) {
         try {
