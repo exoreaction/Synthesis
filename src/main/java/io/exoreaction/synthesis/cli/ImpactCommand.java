@@ -85,6 +85,7 @@ public class ImpactCommand implements Callable<Integer> {
                     AnsiOutput.printInfo("Try 'synthesis search " + targetFile + "' to find it.");
                     return 1;
                 }
+                warnIfAmbiguous(targetResults, targetFile, target);
                 allFiles = index.listAll(null, 10000);
             }
 
@@ -115,6 +116,16 @@ public class ImpactCommand implements Callable<Integer> {
             AnsiOutput.printError("Impact analysis failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Warns on stderr when {@code chosen} was resolved from an ambiguous bare filename (#430),
+     * so a genuinely wrong pick isn't silent. Writes to stderr (not AnsiOutput.printWarning's
+     * stdout) so it never corrupts {@code --format json} output.
+     */
+    private void warnIfAmbiguous(List<SearchResult> results, String targetFile, SearchResult chosen) {
+        String warning = relationService.formatAmbiguityWarning(results, targetFile, chosen);
+        if (warning != null) System.err.println(AnsiOutput.warning("  [WARN] ") + warning);
     }
 
     /**

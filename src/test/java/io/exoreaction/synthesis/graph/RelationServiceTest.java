@@ -43,6 +43,100 @@ class RelationServiceTest {
         assertNull(service.findBestMatch(List.of(), "Foo.java"));
     }
 
+    // #430: relate/impact silently resolve ambiguous bare filenames to the wrong file
+
+    @Test
+    void findAmbiguousMatches_bareFilenameWithTwoCandidates_returnsTheOther() {
+        SearchResult chosen = makeResult("src/main/graph/ProbeMarker.java", "ProbeMarker.java");
+        SearchResult other = makeResult("src/main/cli/ProbeMarker.java", "ProbeMarker.java");
+        List<SearchResult> results = List.of(chosen, other);
+
+        SearchResult best = service.findBestMatch(results, "ProbeMarker.java");
+        List<SearchResult> ambiguous = service.findAmbiguousMatches(results, "ProbeMarker.java", best);
+
+        assertEquals(1, ambiguous.size());
+        assertEquals("src/main/cli/ProbeMarker.java", ambiguous.get(0).relativePath());
+    }
+
+    @Test
+    void findAmbiguousMatches_exactPathRequested_returnsEmptyEvenWithSameNameElsewhere() {
+        SearchResult chosen = makeResult("src/main/graph/ProbeMarker.java", "ProbeMarker.java");
+        SearchResult other = makeResult("src/main/cli/ProbeMarker.java", "ProbeMarker.java");
+        List<SearchResult> results = List.of(chosen, other);
+
+        SearchResult best = service.findBestMatch(results, "src/main/graph/ProbeMarker.java");
+        List<SearchResult> ambiguous = service.findAmbiguousMatches(results, "src/main/graph/ProbeMarker.java", best);
+
+        assertTrue(ambiguous.isEmpty(),
+                "an explicit, exact path was requested -- not ambiguous even if another file shares the name");
+    }
+
+    @Test
+    void findAmbiguousMatches_singleCandidate_returnsEmpty() {
+        SearchResult only = makeResult("src/main/Config.java", "Config.java");
+        List<SearchResult> results = List.of(only);
+
+        SearchResult best = service.findBestMatch(results, "Config.java");
+        List<SearchResult> ambiguous = service.findAmbiguousMatches(results, "Config.java", best);
+
+        assertTrue(ambiguous.isEmpty());
+    }
+
+    @Test
+    void findAmbiguousMatches_nullChosen_returnsEmpty() {
+        assertTrue(service.findAmbiguousMatches(List.of(), "Foo.java", null).isEmpty());
+    }
+
+    @Test
+    void findAmbiguousMatches_pathSuffixMatch_notAmbiguousDespiteSameNameElsewhere() {
+        // target has "/" but isn't a full path -- still resolves via findBestMatch's
+        // path-suffix tier, and should be treated the same as an exact-path request.
+        SearchResult chosen = makeResult("src/main/graph/ProbeMarker.java", "ProbeMarker.java");
+        SearchResult other = makeResult("src/main/cli/ProbeMarker.java", "ProbeMarker.java");
+        List<SearchResult> results = List.of(chosen, other);
+
+        SearchResult best = service.findBestMatch(results, "graph/ProbeMarker.java");
+        List<SearchResult> ambiguous = service.findAmbiguousMatches(results, "graph/ProbeMarker.java", best);
+
+        assertTrue(ambiguous.isEmpty());
+    }
+
+    @Test
+    void findAmbiguousMatches_nonMatchingSlashTarget_arbitraryFallbackIsAmbiguous() {
+        // target contains "/" but matches neither tier 1 (no path suffix match) nor tier 2
+        // (fileName never equals a path) -- findBestMatch falls through to results.get(0),
+        // an arbitrary pick that should be flagged whenever there's more than one candidate.
+        SearchResult chosen = makeResult("src/main/Unrelated.java", "Unrelated.java");
+        SearchResult other = makeResult("src/main/OtherFile.java", "OtherFile.java");
+        List<SearchResult> results = List.of(chosen, other);
+
+        SearchResult best = service.findBestMatch(results, "bogus/does/not/exist.java");
+        List<SearchResult> ambiguous = service.findAmbiguousMatches(results, "bogus/does/not/exist.java", best);
+
+        assertEquals(1, ambiguous.size());
+    }
+
+    @Test
+    void formatAmbiguityWarning_ambiguous_includesOtherPaths() {
+        SearchResult chosen = makeResult("src/main/graph/ProbeMarker.java", "ProbeMarker.java");
+        SearchResult other = makeResult("src/main/cli/ProbeMarker.java", "ProbeMarker.java");
+        List<SearchResult> results = List.of(chosen, other);
+
+        SearchResult best = service.findBestMatch(results, "ProbeMarker.java");
+        String warning = service.formatAmbiguityWarning(results, "ProbeMarker.java", best);
+
+        assertNotNull(warning);
+        assertTrue(warning.contains("src/main/cli/ProbeMarker.java"));
+    }
+
+    @Test
+    void formatAmbiguityWarning_unambiguous_returnsNull() {
+        SearchResult only = makeResult("src/main/Config.java", "Config.java");
+        List<SearchResult> results = List.of(only);
+        SearchResult best = service.findBestMatch(results, "Config.java");
+        assertNull(service.formatAmbiguityWarning(results, "Config.java", best));
+    }
+
     @Test
     void analyzeOutgoingRefs_javaImports_resolved() throws IOException {
         Path javaFile = tempDir.resolve("Service.java");
