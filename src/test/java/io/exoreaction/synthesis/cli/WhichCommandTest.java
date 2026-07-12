@@ -78,6 +78,14 @@ class WhichCommandTest {
     void which_noDirectoryFlag_stillUsesDefaultDiscovery() throws Exception {
         // Baseline: unchanged behavior when -d is not passed at all.
         Path fakeHome = Files.createTempDirectory("which-404-fakehome-nodefault");
+        // The built-in default searchPaths include the absolute "/src", which the
+        // fake user.home does NOT sandbox -- on a dev machine with real workspaces
+        // under /src, discovery would find them and this test would fail. Pin
+        // discovery to an empty dir inside the fake home to make the test hermetic.
+        Path emptyRoot = Files.createDirectories(fakeHome.resolve("empty-scan-root"));
+        Files.createDirectories(fakeHome.resolve(".synthesis/config"));
+        Files.writeString(fakeHome.resolve(".synthesis/config/workspace-discovery.yaml"),
+                "searchPaths:\n  - \"" + emptyRoot + "\"\n");
 
         String output = runWhich(fakeHome, "which", "Foo.java");
 
