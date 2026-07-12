@@ -76,7 +76,9 @@ public class ImpactCommand implements Callable<Integer> {
             SearchResult target;
 
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                List<SearchResult> targetResults = index.search(targetFile, 1000);
+                // #431: the argument is a path/filename, not Lucene query syntax --
+                // unescaped slashes are parsed as regex delimiters and corrupt the query
+                List<SearchResult> targetResults = index.searchLiteral(targetFile, 1000);
                 target = relationService.findBestMatch(targetResults, targetFile);
                 if (target == null) {
                     AnsiOutput.printError("File not found: " + targetFile);

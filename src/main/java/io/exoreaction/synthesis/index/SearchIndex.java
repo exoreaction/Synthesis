@@ -243,6 +243,27 @@ public class SearchIndex implements Closeable {
     }
 
     /**
+     * Searches for a literal string -- typically a file path or filename argument --
+     * with all Lucene classic-parser syntax escaped first.
+     *
+     * <p>The classic parser reserves text between two {@code /} characters as a regex
+     * query, so an unescaped path like {@code src/main/java/Foo.java} is silently
+     * reinterpreted: it either matches nothing or matches an unrelated document (#431).
+     * Use this instead of {@link #search(String, int)} whenever the query is a
+     * path/filename rather than user-authored query syntax.
+     *
+     * @param literal    the literal text to search for (never treated as query syntax)
+     * @param maxResults maximum number of results to return
+     * @return ranked list of search results
+     */
+    public List<SearchResult> searchLiteral(String literal, int maxResults) throws IOException {
+        if (literal == null || literal.isBlank()) {
+            return List.of();
+        }
+        return search(QueryParser.escape(literal), maxResults);
+    }
+
+    /**
      * Searches the index with an optional file type filter.
      */
     public List<SearchResult> search(String queryString, String fileTypeFilter, int maxResults) throws IOException {
