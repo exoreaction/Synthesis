@@ -218,6 +218,31 @@ class CodeGraphExtractorTest {
     }
 
     @Test
+    void findKotlinTopLevelDecls_fun_interface_is_matched() {
+        // Regression test for #442: `fun interface` (SAM) declarations were invisible
+        // because `fun` was missing from the modifier alternation. A top-level function
+        // must still NOT match (covered by the extension-function-only test below) --
+        // the regex requires a class/interface/object keyword after the modifiers.
+        String content = """
+                package com.example
+
+                fun interface TokenValidator {
+                    fun validate(token: String): Boolean
+                }
+
+                private fun interface Scorer : Weighted {
+                    fun score(x: Int): Double
+                }
+                """;
+        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
+        assertEquals(2, decls.size());
+        assertEquals("TokenValidator", decls.get(0).name());
+        assertTrue(decls.get(0).supertypes().isEmpty());
+        assertEquals("Scorer", decls.get(1).name());
+        assertEquals(List.of("Weighted"), decls.get(1).supertypes());
+    }
+
+    @Test
     void findKotlinTopLevelDecls_empty_for_extension_function_only_file() {
         String content = """
                 package com.example

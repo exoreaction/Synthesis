@@ -87,10 +87,14 @@ public class CodeGraphExtractor {
      * parens and generic angle-brackets are matched non-greedily and are assumed non-nested (no
      * default-value calls like {@code = foo()} inside the primary constructor); this mirrors the
      * existing {@code JAVA_IMPLEMENTS} pattern's equally naive comma-split, not a regression.
+     *
+     * <p>{@code fun} appears in the modifier list for {@code fun interface} (SAM) declarations.
+     * This cannot mis-match a top-level function: the regex still requires a following
+     * {@code class}/{@code interface}/{@code object} keyword.
      */
     private static final Pattern KOTLIN_TOPLEVEL_DECL = Pattern.compile(
             "^(?:@[\\w.]+(?:\\([^)]*\\))?\\s*)*"
-                    + "(?:(?:public|private|protected|internal|open|sealed|abstract|final|inner|data|enum|value|annotation)\\s+)*"
+                    + "(?:(?:public|private|protected|internal|open|sealed|abstract|final|inner|data|enum|value|annotation|fun)\\s+)*"
                     + "(?:class|interface|object)\\s+"
                     + "([A-Z]\\w*)"
                     + "(?:\\s*<[^<>]*>)?"
