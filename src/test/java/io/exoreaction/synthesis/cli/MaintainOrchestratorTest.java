@@ -106,6 +106,36 @@ class MaintainOrchestratorTest {
     }
 
     @Test
+    void code_graph_phase_runs_for_pure_kotlin_workspace() throws Exception {
+        // Regression test for #440: the Code Graph gate checked only for .java files,
+        // so a pure-Kotlin workspace reported "skipped -- no code files found" and
+        // never got a persisted graph, despite the extractor supporting Kotlin.
+        Path root = createMinimalWorkspace();
+        Path src = Files.createDirectories(root.resolve("src/main/kotlin/com/example"));
+        Files.writeString(src.resolve("Greeter.kt"),
+                "package com.example\n\nclass Greeter\n");
+        SynthesisConfig config = loadConfig(root);
+
+        MaintainOrchestrator orchestrator =
+                new MaintainOrchestrator(root, MaintainOptions.forDryRun(), config);
+        MaintainResult result = orchestrator.run();
+
+        PhaseResult codeGraph = result.phases().get(9);
+        assertEquals("Code Graph", codeGraph.name());
+        assertFalse(codeGraph.summary().contains("skipped"),
+                "Code Graph must not skip a Kotlin-only workspace: " + codeGraph.summary());
+        assertTrue(codeGraph.summary().contains("code file(s) would be extracted"),
+                "Dry-run should report extractable code files: " + codeGraph.summary());
+
+        // Security stays Java-only by design (SecurityAnalyzer scans .java exclusively),
+        // but the skip message must name the real reason instead of "no code files found".
+        PhaseResult security = result.phases().get(10);
+        assertEquals("Security", security.name());
+        assertTrue(security.summary().contains("Java-only"),
+                "Security skip reason should say the analysis is Java-only: " + security.summary());
+    }
+
+    @Test
     void elapsed_time_is_positive() throws Exception {
         Path root = createMinimalWorkspace();
         SynthesisConfig config = loadConfig(root);
@@ -449,7 +479,7 @@ class MaintainOrchestratorTest {
         String summary = security.summary();
         assertTrue(
                 summary.contains("no findings")
-                        || summary.contains("no code files")
+                        || summary.contains("no Java files")
                         || summary.contains("HIGH")
                         || summary.contains("files scanned"),
                 "Security summary should show counts or 'no findings', got: " + summary);

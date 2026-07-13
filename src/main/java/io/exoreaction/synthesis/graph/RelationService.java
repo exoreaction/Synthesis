@@ -23,6 +23,8 @@ public class RelationService {
     private static final Pattern JAVA_IMPORT = Pattern.compile("^import\\s+([\\w.]+);", Pattern.MULTILINE);
     private static final Pattern PYTHON_IMPORT = Pattern.compile("^(?:from\\s+(\\S+)\\s+import|import\\s+(\\S+))", Pattern.MULTILINE);
     private static final Pattern JS_TS_IMPORT = Pattern.compile("(?:import|require)\\s*\\(?['\"]([^'\"]+)['\"]\\)?", Pattern.MULTILINE);
+    private static final Pattern KOTLIN_IMPORT = Pattern.compile(
+            "^import\\s+([\\w.]+(?:\\.\\*)?)(?:\\s+as\\s+\\w+)?\\s*(?:;|$)", Pattern.MULTILINE);
     private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]*)]\\(([^)]+)\\)", Pattern.MULTILINE);
     private static final Pattern YAML_REF = Pattern.compile("\\$ref:\\s*['\"]?([^'\"\\s]+)['\"]?", Pattern.MULTILINE);
     private static final Pattern GENERIC_FILE_REF = Pattern.compile("(?:['\"`])([\\w./-]+\\.(?:java|py|js|ts|md|yaml|yml|json|xml|go|rs|kt))['\"`]");
@@ -36,6 +38,59 @@ public class RelationService {
             if (r.fileName().equals(target)) return r;
         }
         return results.get(0);
+    }
+
+    /**
+     * Returns the other candidates in {@code results} that {@link #findBestMatch} could
+     * just as validly have picked instead of {@code chosen} (#430). Mirrors
+     * {@code findBestMatch}'s own three resolution tiers -- exact-path-or-suffix,
+     * filename-only, then "whatever's first" -- and reports ambiguity only within whichever
+     * tier actually produced the match, so a {@code target} that uniquely resolves via a
+     * more specific tier isn't flagged just because a same-named file exists elsewhere
+     * (e.g. "cli/Foo.java" uniquely matches tier 1 even when a "graph/Foo.java" also exists),
+     * while a {@code target} that falls through to the arbitrary tier-3 pick is correctly
+     * flagged whenever more than one candidate was on the table.
+     */
+    public List<SearchResult> findAmbiguousMatches(List<SearchResult> results, String target, SearchResult chosen) {
+        if (chosen == null) return List.of();
+
+        List<SearchResult> tier1 = new ArrayList<>();
+        for (SearchResult r : results) {
+            if (r.relativePath().equals(target) || r.relativePath().endsWith("/" + target)) tier1.add(r);
+        }
+        if (!tier1.isEmpty()) return otherThan(tier1, chosen);
+
+        List<SearchResult> tier2 = new ArrayList<>();
+        for (SearchResult r : results) {
+            if (r.fileName().equals(target)) tier2.add(r);
+        }
+        if (!tier2.isEmpty()) return otherThan(tier2, chosen);
+
+        return otherThan(results, chosen);
+    }
+
+    private List<SearchResult> otherThan(List<SearchResult> candidates, SearchResult chosen) {
+        List<SearchResult> others = new ArrayList<>();
+        for (SearchResult r : candidates) {
+            if (!r.relativePath().equals(chosen.relativePath())) others.add(r);
+        }
+        return others;
+    }
+
+    /**
+     * Formats the stderr warning for an ambiguous resolution (#430), or {@code null} when
+     * {@code chosen} was unambiguous. Shared by {@code RelateCommand} and {@code ImpactCommand}
+     * so the message stays identical across both callers.
+     */
+    public String formatAmbiguityWarning(List<SearchResult> results, String target, SearchResult chosen) {
+        List<SearchResult> others = findAmbiguousMatches(results, target, chosen);
+        if (others.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append(others.size()).append(" other file(s) are also named '").append(chosen.fileName())
+                .append("' -- resolved to ").append(chosen.relativePath())
+                .append(". Pass a longer/relative path to disambiguate:");
+        for (SearchResult r : others) sb.append("\n    - ").append(r.relativePath());
+        return sb.toString();
     }
 
     public void analyzeOutgoingRefs(SearchResult target, Path workspaceRoot,
@@ -54,6 +109,8 @@ public class RelationService {
                 extractMatches(PYTHON_IMPORT, content, 2, references);
             } else if ("JavaScript".equals(target.language()) || "TypeScript".equals(target.language())) {
                 extractMatches(JS_TS_IMPORT, content, 1, references);
+            } else if ("Kotlin".equals(target.language())) {
+                extractKotlinImports(content, references);
             }
             if ("MARKDOWN".equals(target.fileType())) {
                 Matcher m = MARKDOWN_LINK.matcher(content);
@@ -126,14 +183,21 @@ public class RelationService {
 
         if (ref.contains(".") && !ref.contains("/") && !hasKnownExtension(ref)) {
             String[] parts = ref.split("\\.");
-            fileName = parts[parts.length - 1] + ".java";
+            // Bare stem only -- no hardcoded extension. This branch is shared across every
+            // dotted-FQN-style language (Java, Kotlin, Python), so no single extension is
+            // correct here; the extension-fallback loop below resolves it (#439).
+            fileName = parts[parts.length - 1];
         }
         matches = fileNameIndex.get(fileName);
         if (matches != null && !matches.isEmpty()) return matches.get(0);
 
         // Bare-stem extension fallback. Prefer TypeScript over JavaScript so source files
         // win over compiled artifacts in mixed Bun/NodeNext projects (#323).
-        for (String ext : List.of(".java", ".py", ".ts", ".tsx", ".js", ".jsx", ".md")) {
+        // NOTE (#439): .java is probed before .kt, so a same-simple-name Java/Kotlin stem
+        // collision resolves to the Java file. Pre-existing class of ambiguity in this
+        // fallback design (same risk already exists for .ts/.js/.jsx); not fixed here --
+        // see RelationServiceTest#resolveReference_javaKotlinStemCollision_prefersJava.
+        for (String ext : List.of(".java", ".kt", ".py", ".ts", ".tsx", ".js", ".jsx", ".md")) {
             matches = fileNameIndex.get(fileName + ext);
             if (matches != null && !matches.isEmpty()) return matches.get(0);
         }
@@ -210,6 +274,20 @@ public class RelationService {
         while (m.find()) {
             String match = m.group(group);
             if (match != null && !match.isBlank()) results.add(match);
+        }
+    }
+
+    /**
+     * Kotlin imports need wildcard filtering that {@link #extractMatches} doesn't provide --
+     * mirrors {@code CodeGraphExtractor.extractKotlinImports}'s wildcard-drop behavior (#406).
+     */
+    private void extractKotlinImports(String content, Set<String> results) {
+        Matcher m = KOTLIN_IMPORT.matcher(content);
+        while (m.find()) {
+            String match = m.group(1);
+            if (match != null && !match.isBlank() && !match.endsWith(".*")) {
+                results.add(match);
+            }
         }
     }
 

@@ -28,7 +28,7 @@ import java.util.*;
  * <p>Update sources (checked in order):
  * <ol>
  *   <li>Local source directory (git pull + mvn package) - preferred for dev setups</li>
- *   <li>Cantara Maven repository (CLI JAR) + GitHub raw (scripts)</li>
+ *   <li>Cantara Maven repository (CLI JAR + classified MCP/LSP server jars) + bundled scripts</li>
  * </ol>
  *
  * @author Thor Henning Hetland / eXOReaction
@@ -179,6 +179,23 @@ public class UpdateManager {
                     InstallationHealth.Severity.INFO));
         }
 
+        // #405: flag server jars whose recorded version differs from the CLI's, so
+        // component drift is loud instead of silent ('--version' only tracks the CLI).
+        String cliVersion = fingerprint.getVersion();
+        if (cliVersion != null && !"unknown".equals(cliVersion)) {
+            for (String component : List.of("synthesis-mcp-server", "synthesis-lsp-server")) {
+                InstallationFingerprint.ComponentState state = fingerprint.getComponent(component);
+                if (state != null && state.isInstalled() && state.getVersion() != null
+                        && !state.getVersion().equals(cliVersion)) {
+                    issues.add(new InstallationHealth.Issue(component,
+                            "Version drift: " + component + " is " + state.getVersion()
+                                    + " but CLI is " + cliVersion
+                                    + " (run 'synthesis update' to re-sync)",
+                            InstallationHealth.Severity.WARNING));
+                }
+            }
+        }
+
         return new InstallationHealth(
                 fingerprint.getVersion(),
                 fingerprint.getInstallDate(),
@@ -265,7 +282,11 @@ public class UpdateManager {
         InstallationFingerprint fingerprint = loadOrDetectFingerprint();
         Path sourceDir = detectSourceDirectory();
 
-        if (sourceDir == null) {
+        // #405: the server jars are published to Cantara Maven as classified artifacts,
+        // so they no longer require a local source checkout — only the other components do.
+        boolean mavenInstallable = "synthesis-mcp-server".equals(componentName)
+                || "synthesis-lsp-server".equals(componentName);
+        if (sourceDir == null && !mavenInstallable) {
             System.err.println("Error: No source directory found. Cannot install component.");
             System.err.println("  Set source dir: echo '/path/to/synthesis' > ~/.synthesis/.metadata/source-dir");
             return false;
@@ -274,20 +295,41 @@ public class UpdateManager {
         boolean success = false;
 
         switch (componentName) {
-            case "synthesis-mcp-server" -> {
-                success = installJarFromSource(sourceDir, "synthesis-mcp-server.jar");
-                if (success) {
-                    installScriptFromSource(sourceDir, "synthesis-mcp-server");
-                    fingerprint.setComponent("synthesis-mcp-server", true, fingerprint.getVersion());
-                    fingerprint.setComponent("launcher-mcp-server", true, fingerprint.getVersion());
-                }
-            }
-            case "synthesis-lsp-server" -> {
-                success = installJarFromSource(sourceDir, "synthesis-lsp-server.jar");
-                if (success) {
-                    installScriptFromSource(sourceDir, "synthesis-lsp-server");
-                    fingerprint.setComponent("synthesis-lsp-server", true, fingerprint.getVersion());
-                    fingerprint.setComponent("launcher-lsp-server", true, fingerprint.getVersion());
+            case "synthesis-mcp-server", "synthesis-lsp-server" -> {
+                String launcherComponent = componentName.replace("synthesis-", "launcher-");
+                if (sourceDir != null) {
+                    success = installJarFromSource(sourceDir, componentName + ".jar");
+                    if (success) {
+                        installScriptFromSource(sourceDir, componentName);
+                        fingerprint.setComponent(componentName, true, fingerprint.getVersion());
+                        fingerprint.setComponent(launcherComponent, true, fingerprint.getVersion());
+                    }
+                } else {
+                    // #405: no source checkout — download the classified jar from Cantara,
+                    // pinned to the installed CLI version so components stay in sync
+                    // (falls back to the latest release when the CLI version is unknown).
+                    String version = fingerprint.getVersion();
+                    if (version == null || "unknown".equals(version) || version.contains("${")) {
+                        try {
+                            version = fetchLatestMavenVersion();
+                        } catch (Exception e) {
+                            version = null;
+                        }
+                        if (version == null) {
+                            System.err.println("Error: Could not determine version to install.");
+                            return false;
+                        }
+                    }
+                    List<String> updated = new ArrayList<>();
+                    List<String> errors = new ArrayList<>();
+                    success = installServerJarFromMaven(version, componentName, fingerprint, updated, errors);
+                    errors.forEach(e -> System.err.println("  " + e));
+                    if (success) {
+                        // Launcher script is bundled in the CLI jar's /bin resources
+                        if (extractBundledScript(componentName, updated)) {
+                            fingerprint.setComponent(launcherComponent, true, version);
+                        }
+                    }
                 }
             }
             case "launcher-scripts" -> {
@@ -500,6 +542,10 @@ public class UpdateManager {
 
         if (options.isDryRun()) {
             System.out.println("  [DRY RUN] Would download synthesis-" + latestVersion + ".jar from Cantara Maven");
+            System.out.println("  [DRY RUN] Would download synthesis-" + latestVersion
+                    + "-mcp-server.jar -> lib/synthesis-mcp-server.jar");
+            System.out.println("  [DRY RUN] Would download synthesis-" + latestVersion
+                    + "-lsp-server.jar -> lib/synthesis-lsp-server.jar");
             return latestVersion;
         }
 
@@ -519,6 +565,15 @@ public class UpdateManager {
             errors.add("Failed to download CLI JAR from Cantara: " + e.getMessage());
             return null;
         }
+
+        // #405: also download the MCP/LSP server jars. They are published to Cantara as
+        // classified artifacts (synthesis-<v>-mcp-server.jar / synthesis-<v>-lsp-server.jar)
+        // alongside the CLI jar; previously only the CLI jar was fetched, so the server
+        // jars silently drifted to whatever version was last installed. Non-fatal on
+        // failure: the CLI update above already succeeded, and older releases may not
+        // have published the classified artifacts.
+        installServerJarFromMaven(latestVersion, "synthesis-mcp-server", fingerprint, updated, errors);
+        installServerJarFromMaven(latestVersion, "synthesis-lsp-server", fingerprint, updated, errors);
 
         // Extract bundled scripts from the JAR (repo is private, scripts are bundled)
         for (String script : List.of("synthesis", "synthesis-mcp-server", "synthesis-lsp-server",
@@ -545,6 +600,43 @@ public class UpdateManager {
     // -----------------------------------------------------------------------
     // Component installation helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Cantara Maven URL for a classified server-jar artifact, e.g.
+     * {@code .../synthesis/1.42.0/synthesis-1.42.0-mcp-server.jar} for component
+     * {@code synthesis-mcp-server} (#405). The classifier is the component name
+     * without its {@code synthesis-} prefix, matching the pom's build-helper
+     * attach configuration.
+     */
+    static String serverJarUrl(String version, String componentName) {
+        String classifier = componentName.replaceFirst("^synthesis-", "");
+        return CANTARA_BASE + "/" + version + "/synthesis-" + version + "-" + classifier + ".jar";
+    }
+
+    /**
+     * Downloads a classified server jar (MCP or LSP) from Cantara Maven and installs it
+     * under its unversioned name in {@code lib/} (the launcher scripts reference the
+     * fixed names {@code synthesis-mcp-server.jar} / {@code synthesis-lsp-server.jar}).
+     *
+     * @return true if downloaded and installed
+     */
+    private boolean installServerJarFromMaven(String version, String componentName,
+                                              InstallationFingerprint fingerprint,
+                                              List<String> updated, List<String> errors) {
+        String targetName = componentName + ".jar";
+        try {
+            Path tempFile = downloadFile(serverJarUrl(version, componentName));
+            Files.createDirectories(libDir);
+            Files.move(tempFile, libDir.resolve(targetName), StandardCopyOption.REPLACE_EXISTING);
+            fingerprint.setComponent(componentName, true, version);
+            updated.add(targetName);
+            if (verbose) System.out.println("  Installed " + targetName + " (" + version + ")");
+            return true;
+        } catch (Exception e) {
+            errors.add("Failed to download " + targetName + " from Cantara: " + e.getMessage());
+            return false;
+        }
+    }
 
     private boolean installJarFromSource(Path sourceDir, String jarName) {
         Path sourceJar = sourceDir.resolve("target").resolve(jarName);

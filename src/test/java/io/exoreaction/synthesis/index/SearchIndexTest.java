@@ -96,6 +96,30 @@ class SearchIndexTest {
     }
 
     @Test
+    void searchLiteralResolvesSlashedFilePaths() throws IOException {
+        // Regression test for #431: relate/impact pass path arguments into the classic
+        // query parser, which treats text between two '/' characters as a regex query.
+        // searchLiteral escapes the argument so a full path resolves to the right file.
+        Path pkgDir = Files.createDirectories(tempDir.resolve("src/main/java/com/example"));
+        Path testFile = pkgDir.resolve("UserService.java");
+        Files.writeString(testFile, "public class UserService {}");
+
+        FileMetadata metadata = FileMetadata.of(testFile, tempDir, 30, Instant.now(), "def456");
+        AnalysisResult analysis = AnalysisResult.builder()
+                .summary("User service")
+                .contentPreview("public class UserService {}")
+                .build();
+        index.addDocument(fileIndexer.createDocument(metadata, analysis));
+        index.commit();
+
+        List<SearchResult> results =
+                index.searchLiteral("src/main/java/com/example/UserService.java", 10);
+
+        assertFalse(results.isEmpty(), "Escaped path query should find the indexed file");
+        assertEquals("UserService.java", results.get(0).fileName());
+    }
+
+    @Test
     void searchReturnsEmptyForNoMatch() throws IOException {
         addTestDocument("test.md", "Test file", "some content", List.of("test"));
 

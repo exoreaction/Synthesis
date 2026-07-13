@@ -106,6 +106,67 @@ class ExplainCommandTest {
         assertEquals(fileB, resolved);
     }
 
+    @Test
+    void resolveFilePath_ambiguousBareFilename_warnsOnStderr() throws IOException {
+        // Two files share the bare filename (#448) — resolution should still pick one
+        // (same behavior as before) but now warn on stderr about the other candidate.
+        Path dirA = Files.createDirectories(tempDir.resolve("graph"));
+        Path dirB = Files.createDirectories(tempDir.resolve("cli"));
+        Path fileA = Files.createFile(dirA.resolve("ProbeMarker.java"));
+        Path fileB = Files.createFile(dirB.resolve("ProbeMarker.java"));
+
+        SearchResult resultA = new SearchResult(
+                fileA, "graph/ProbeMarker.java", 0.9f, "ProbeMarker.java",
+                "CODE", "Java", "", "", "", 100);
+        SearchResult resultB = new SearchResult(
+                fileB, "cli/ProbeMarker.java", 0.8f, "ProbeMarker.java",
+                "CODE", "Java", "", "", "", 200);
+        StubSearchIndex index = new StubSearchIndex(List.of(resultA, resultB));
+
+        java.io.ByteArrayOutputStream errCapture = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream originalErr = System.err;
+        System.setErr(new java.io.PrintStream(errCapture));
+        Path resolved;
+        try {
+            ExplainCommand cmd = new ExplainCommand();
+            resolved = cmd.resolveFilePath(Path.of("ProbeMarker.java"), tempDir, index);
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        assertEquals(fileA, resolved, "Resolution behavior must not change — first candidate wins");
+        String stderr = errCapture.toString();
+        assertTrue(stderr.contains("also named"),
+                "Ambiguous bare filename should warn on stderr, got: " + stderr);
+        assertTrue(stderr.contains("cli/ProbeMarker.java"),
+                "Warning should list the other candidate, got: " + stderr);
+    }
+
+    @Test
+    void resolveFilePath_unambiguousBareFilename_noWarning() throws IOException {
+        Path deep = Files.createDirectories(tempDir.resolve("src/main/java/io/example"));
+        Path file = Files.createFile(deep.resolve("StagingCommand.java"));
+
+        SearchResult result = new SearchResult(
+                file, "src/main/java/io/example/StagingCommand.java", 1.0f,
+                "StagingCommand.java", "CODE", "Java", "", "", "", 1024);
+        StubSearchIndex index = new StubSearchIndex(List.of(result));
+
+        java.io.ByteArrayOutputStream errCapture = new java.io.ByteArrayOutputStream();
+        java.io.PrintStream originalErr = System.err;
+        System.setErr(new java.io.PrintStream(errCapture));
+        Path resolved;
+        try {
+            ExplainCommand cmd = new ExplainCommand();
+            resolved = cmd.resolveFilePath(Path.of("StagingCommand.java"), tempDir, index);
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        assertEquals(file, resolved);
+        assertEquals("", errCapture.toString(), "Unambiguous resolution must not warn");
+    }
+
     // ---------------------------------------------------------------------------
     // Stub SearchIndex — avoids spinning up a real Lucene directory
     // ---------------------------------------------------------------------------

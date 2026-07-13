@@ -1,8 +1,8 @@
 # Synthesis Release Notes
 
-**From first commit to v1.28.0 -- the full story.**
+**From first commit to v1.42.0 -- the full story.**
 
-This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 65+ CLI commands, 4,177+ tests, 20 Flyway migrations, and three fat JARs (CLI, MCP server, LSP server).
+This document covers the complete development history of Synthesis, from its first commit on February 14, 2026 through the current release. Synthesis grew from a simple file indexer into a comprehensive knowledge infrastructure platform with 76 CLI subcommands, 4,700+ tests, 23 Flyway migrations (V1-V24, V7 reserved), and three fat JARs (CLI, MCP server, LSP server).
 
 ---
 
@@ -34,6 +34,18 @@ This document covers the complete development history of Synthesis, from its fir
 - [v1.26.0 -- Interactive Skills Graph + Subagent Session Linking](#v1260--interactive-skills-graph--subagent-session-linking-marchapril-2026)
 - [v1.27.1 -- Topic Health/Triage + 3 New Bundled Skills](#v1271--topic-healthtriage--3-new-bundled-skills-april-10-2026)
 - [v1.28.0 -- Explicit API Key Guidance](#v1280--explicit-api-key-guidance-april-11-2026)
+- [v1.29.0 -- Git Signals + Notion Foundation (April 21, 2026)](#v1290--git-signals--notion-foundation-april-21-2026)
+- [v1.30.0 -- Notion OAuth (April 21, 2026)](#v1300--notion-oauth-april-21-2026)
+- [v1.32.x -- Maintenance Releases (April 22-27, 2026)](#v132x--maintenance-releases-april-22-27-2026)
+- [v1.33.0 -- MCP Multi-Workspace Resolution (May 17, 2026)](#v1330--mcp-multi-workspace-resolution-may-17-2026)
+- [v1.34.0 -- Bootstrap Context + Pilot Hardening (May 25, 2026)](#v1340--bootstrap-context--pilot-hardening-may-25-2026)
+- [v1.34.1 through v1.35.0 -- Dependency Maintenance (May 28 - June 14, 2026)](#v1341-through-v1350--dependency-maintenance-may-28---june-14-2026)
+- [v1.36.0 -- KCP v0.21 + OpenAI-Compatible Providers (June 14, 2026)](#v1360--kcp-v021--openai-compatible-providers-june-14-2026)
+- [v1.37.x -- KCP Fixes and Agent-Harness Polish (June 14 - July 6, 2026)](#v137x--kcp-fixes-and-agent-harness-polish-june-14---july-6-2026)
+- [v1.38.0 -- KCP v0.25 Full Stack (July 6, 2026)](#v1380--kcp-v025-full-stack-july-6-2026)
+- [v1.40.0 -- Semantic Search Hardening (July 8, 2026)](#v1400--semantic-search-hardening-july-8-2026)
+- [v1.41.0 -- Grounded Ask + Episodic Memory Tools (July 9, 2026)](#v1410--grounded-ask--episodic-memory-tools-july-9-2026)
+- [v1.42.0 -- KCP Retrieval Benchmarks (July 9, 2026)](#v1420--kcp-retrieval-benchmarks-july-9-2026)
 - [Current State](#current-state)
 
 ---
@@ -1212,20 +1224,172 @@ Previously, these scenarios failed with a generic HTTP error or silent skip. Thi
 
 ---
 
+## v1.29.0 -- Git Signals + Notion Foundation (April 21, 2026)
+
+**PRs:** #319, #321, #327 · **Date:** 2026-04-21
+
+**Git signal analysis (#321)** — Temporal intelligence mined from git history, persisted in the V20 migration (`git_file_metrics`, `git_cochange`):
+
+- `synthesis hotspots` — files ranked by temporal hotspot score (commit churn with a 180-day decay half-life). `--refresh` recomputes from git history via `GitMetricsComputer`; `--path` filters to a prefix.
+- `synthesis archaeology` — surfaces architectural decisions from commit messages (migration/inline/fix signals), with `--since` and `--min-confidence` filters.
+- `synthesis impact` gains git co-change partners: files that historically change together, even without a static dependency edge.
+- Bus factor analysis: contributor concentration per file.
+
+Both V20 tables are reconstructible caches — losing them loses no information.
+
+**Notion workspace source, Phase 1 (#327)** — Foundation for indexing Notion workspaces as a content source (V21 migration). This is the first non-filesystem source in Synthesis.
+
+**Pilot distribution fix (#319)** — the QUICKSTART generator now pins the canonical MCP config snippet.
+
+---
+
+## v1.30.0 -- Notion OAuth (April 21, 2026)
+
+**PR:** #330 (implements #328) · **Date:** 2026-04-21
+
+`synthesis notion auth` — OAuth flow for connecting a Notion workspace, completing the authentication half of the Notion source introduced in v1.29.0.
+
+---
+
+## v1.32.x -- Maintenance Releases (April 22-27, 2026)
+
+**Dates:** 2026-04-22 (v1.32.0), 2026-04-27 (v1.32.2)
+
+v1.31.0 and v1.32.1 were never released — the version numbers were skipped during release-process iteration. v1.32.0 carried dependency updates only. v1.32.2 fixed one MCP protocol issue (#335): `notifications/*` messages from MCP clients are now silently ignored per spec instead of returning an error, which had caused noise with strict clients.
+
+---
+
+## v1.33.0 -- MCP Multi-Workspace Resolution (May 17, 2026)
+
+**PR:** #342 · **Date:** 2026-05-17
+
+In multi-workspace mode, MCP tools now resolve workspaces by name or directory basename — previously agents had to pass exact full paths, which regularly failed when the model abbreviated or guessed. This closed the most common MCP-agent friction reported by pilots.
+
+---
+
+## v1.34.0 -- Bootstrap Context + Pilot Hardening (May 25, 2026)
+
+**PRs:** #337, #339, #343 · **Date:** 2026-05-25
+
+**`bootstrap_context` (#337)** — a harness-neutral startup surface: one call that gives any AI harness (Claude Code, or others) the workspace context it needs at session start, without depending on harness-specific hook mechanisms.
+
+**`.synthesisignore` glob patterns (#339)** — the ignore file now supports gitignore-style glob patterns, not just directory-name matching.
+
+**Prune safety (#343)** — `synthesis prune` never deletes symlinks, plus a batch of secondary pilot UX fixes from field feedback (Pål, 2026-05-22).
+
+---
+
+## v1.34.1 through v1.35.0 -- Dependency Maintenance (May 28 - June 14, 2026)
+
+**Dates:** 2026-05-28 (v1.34.1), 2026-05-30 (v1.34.2), 2026-06-14 (v1.35.0)
+
+Three releases containing only dependency updates and release plumbing — no source changes. Kept in the timeline for completeness.
+
+---
+
+## v1.36.0 -- KCP v0.21 + OpenAI-Compatible Providers (June 14, 2026)
+
+**PRs:** #344, #345 · **Date:** 2026-06-14
+
+**KCP v0.5 → v0.21 (#345)** — Knowledge Context Protocol support upgraded with temporal filtering: units carry validity windows, and expired/superseded units are filtered from agent-facing surfaces. V22 migration adds the v0.21 fields.
+
+**OpenAI-compatible AI provider (#344)** — AI features can now target any OpenAI-compatible endpoint (DeepSeek validated), breaking the hard dependency on the Anthropic API for `ask`, `enrich`, and friends.
+
+---
+
+## v1.37.x -- KCP Fixes and Agent-Harness Polish (June 14 - July 6, 2026)
+
+**Dates:** 2026-06-14 (v1.37.0), 2026-06-19 (v1.37.1), 2026-07-06 (v1.37.2)
+
+**v1.37.0 (#346)** — KCP temporal filtering now actually excludes inactive results (the v1.36.0 implementation computed but didn't apply the filter). **v1.37.1** was dependency maintenance.
+
+**v1.37.2** collected agent-harness and KCP polish:
+- `synthesis init` default-excludes agent-harness worktree directories in `.synthesisignore` (#351)
+- Warning when subdirectory `SKILL.md` skills are invisible to `skills match`/`list` (#350)
+- Warning when `knowledge.yaml` is gitignored but locally indexed (#352) — the K003 health signal
+- MCP server: stderr is surfaced instead of dropped on nonzero exit; nonzero exit is treated as failure only when stdout is blank
+- The repo's own `knowledge.yaml` upgraded to KCP v0.25 with per-unit intent/audience
+
+---
+
+## v1.38.0 -- KCP v0.25 Full Stack (July 6, 2026)
+
+**PRs:** #353-#360 (epic #361, 7 phases) · **Date:** 2026-07-06
+
+The largest feature release since the knowledge graph: full-stack KCP (Knowledge Context Protocol) v0.25 support, validated against the reference `kcp-agent` implementation in CI (`kcp-conformance.yml`). V23 (federation + lossless extensions) and V24 (verification results) migrations.
+
+**The command surface:**
+
+- `synthesis export --format kcp` — v0.25-conformant manifest generation from the Lucene index (#354)
+- `synthesis kcp init` — scaffold `knowledge.yaml` from repo structure; `--batch` scaffolds a whole repo estate (#357, implements #310)
+- `synthesis kcp refresh` — refresh volatile fields of generated manifests, with hand-edit protection (#357)
+- `synthesis kcp verify` + `kcp gaps` — evidence engine checking manifest declarations against reality (V001-V006 + K-signals); hot files with no KCP coverage (#356)
+- `synthesis kcp catalog` + `kcp federate` — externalize the cross-repo graph; root manifests federating every repo manifest, sharded above 50 repos (#358)
+- `synthesis kcp plan` — ordered read plan over indexed units (RFC-0007 scoring), also exposed as the `plan_context` MCP tool, with CI plan/replay (#359)
+- `synthesis kcp sign` — Ed25519 manifest signing with detached `.sig` envelope, trust tiers (TRUSTED/KNOWN/UNSIGNED/FAILED), and the G-series governance cross-check (#360)
+
+**Trust interop proven, not claimed:** `kcp-agent plan --require-signature` verifies a Synthesis-signed manifest and rejects a tampered one — both asserted in CI against the conformance pin (0.9.0).
+
+**Ingestion (#355):** v0.25 manifests persist losslessly — unmapped blocks land in `extensions_json` columns, federation entries in `kcp_federation`, and `synthesis kg` badges expired/superseded units with K-series health signals.
+
+Also in this release: 29 tool/command descriptions aligned with actual behavior (#353), and the JAR-bundled CLAUDE.md refreshed to the 1.38.0 feature set.
+
+---
+
+## v1.40.0 -- Semantic Search Hardening (July 8, 2026)
+
+**Date:** 2026-07-08 · *(v1.39 was never released — version number skipped)*
+
+A fix wave focused on the semantic search / embeddings path:
+
+- Embeddings are persisted for O(log N) HNSW semantic search instead of being recomputed (#376)
+- Semantic search embeds file content, not just the summary (#375)
+- `EmbeddingService` respects `ai.endpoint` config (#374)
+- MCP `explain` mirrors CLI filename resolution and guards zero-match generation (#373)
+- `runSynthesisCli` gets a timeout + concurrent stderr drain (#325)
+- `prune` skips dot-ancestor paths in candidates (#329)
+
+---
+
+## v1.41.0 -- Grounded Ask + Episodic Memory Tools (July 9, 2026)
+
+**Issue:** #371 · **Date:** 2026-07-09
+
+Benchmark-driven improvements to agent-facing retrieval, all measured before merging:
+
+- **Flag-gated KCP routing hints** for `search`/`ask` — manifest knowledge steers retrieval, behind a flag until benchmarks justified default-on
+- **Fail-closed grounding for `ask`** — answers that can't cite indexed sources fail explicitly instead of hallucinating
+- **KCP trigger-match boosting** — search/ask results matching a unit's declared `triggers` rank higher
+- **`remember`/`recall` MCP tools** — episodic memory: agents can persist and retrieve session facts
+- **`plan_context` session dedup** — a `known` parameter lets agents exclude units they've already read
+
+---
+
+## v1.42.0 -- KCP Retrieval Benchmarks (July 9, 2026)
+
+**Date:** 2026-07-09
+
+Adds the KCP manifest retrieval benchmark results (#371 item 3) — the measured evidence behind the v1.41.0 routing changes. Current release as of this writing; `main` carries post-release work including Kotlin code-graph extraction (#406).
+
+---
+
 ## Current State
 
-**Version:** v1.28.0
-**Date:** April 11, 2026
-**Days since first commit:** 57
-**Tests:** 4,177+ (all passing)
+**Version:** v1.42.0
+**Date:** July 9, 2026
+**Days since first commit:** 145
+**Tests:** 4,700+ (all passing)
 
-### Commands (65+ subcommands)
+### Commands (76 subcommands)
 
 **Workspace lifecycle:**
 `init`, `scan`, `maintain`, `status`, `health`, `dashboard`, `watch`, `discover`
 
 **Search and discovery:**
-`search`, `relate`, `impact`, `which`, `ask`, `hotspots`, `archaeology`
+`search`, `relate`, `impact`, `which`, `ask`, `hotspots`, `archaeology`, `discover`
+
+**KCP (Knowledge Context Protocol):**
+`kcp init`, `kcp refresh`, `kcp verify`, `kcp gaps`, `kcp catalog`, `kcp federate`, `kcp plan`, `kcp sign`, `export --format kcp`
 
 **AI-powered analysis:**
 `explain`, `perspectives`, `summary`, `research`, `enrich`
@@ -1274,15 +1438,23 @@ Previously, these scenarios failed with a generic HTTP error or silent skip. Thi
 | V11 | Virtual membership and routing feedback |
 | V12 | Directory classification |
 | V13 | Code knowledge graph (4 tables) |
+| V14 | Repo isolation |
+| V15 | Security analysis (CKG-5) |
+| V16 | Report history |
+| V17 | KCP tables (`kcp_manifests`, `kcp_units`, `kcp_relationships`) |
 | V18 | Claude sessions + FTS5 virtual table + sync triggers |
 | V19 | Session subagent links (parent-child agent tree) |
 | V20 | Git file metrics (`git_file_metrics`, `git_cochange`) |
+| V21 | Notion workspace source |
+| V22 | KCP v0.21 fields (temporal filtering) |
+| V23 | KCP v0.25 federation + lossless extensions |
+| V24 | KCP verification results |
 
 ### Technology Stack
 
 | Component | Technology | Version |
 |-----------|-----------|---------|
-| Language | Java | 17+ |
+| Language | Java | 21+ |
 | Build | Maven | -- |
 | CLI | picocli | 4.7.7 |
 | Search | Apache Lucene | 10.1.0 |
@@ -1315,8 +1487,8 @@ Previously, these scenarios failed with a generic HTTP error or silent skip. Thi
 | Retrieval time reduction | 92-95% |
 | Storage overhead | 2.7% (11.6 MB index for 434 MB content) |
 | Cross-repo deps | 58 repos, 429 dependencies in <31 seconds |
-| Packages | 30 Java packages |
-| Skills | 32 Claude Code skills |
+| Packages | 34 Java packages |
+| Skills | 38 Claude Code skills |
 
 ### Project Structure
 
@@ -1427,6 +1599,20 @@ io.exoreaction.synthesis/
 | v1.26.0 | Apr | Interactive skills-graph, parent-child subagent linking (V19), reflect improvements |
 | v1.27.1 | Apr 10 | topic-health, topic-triage commands + 3 new bundled Claude skills |
 | v1.28.0 | Apr 11 | Explicit API key guidance for AI features |
+| v1.29.0 | Apr 21 | Git signals (hotspots, co-change, bus factor, archaeology, V20), Notion source Phase 1 (V21) |
+| v1.30.0 | Apr 21 | Notion OAuth (`synthesis notion auth`) |
+| v1.32.0 | Apr 22 | Maintenance (v1.31 skipped) |
+| v1.32.2 | Apr 27 | MCP: silently ignore `notifications/*` |
+| v1.33.0 | May 17 | MCP workspace resolution by name/basename |
+| v1.34.0 | May 25 | bootstrap_context, .synthesisignore globs, prune symlink safety |
+| v1.34.1-v1.35.0 | May 28 - Jun 14 | Dependency maintenance |
+| v1.36.0 | Jun 14 | KCP v0.21 + temporal filtering (V22), OpenAI-compatible providers (DeepSeek) |
+| v1.37.0 | Jun 14 | KCP temporal filtering fix |
+| v1.37.2 | Jul 6 | Agent-harness polish: worktree ignores, skills warnings, K003, MCP stderr |
+| v1.38.0 | Jul 6 | KCP v0.25 full stack: init/refresh/verify/gaps/catalog/federate/plan/sign (epic #361, V23-V24) |
+| v1.40.0 | Jul 8 | Semantic search hardening: persisted HNSW embeddings, content embedding (v1.39 skipped) |
+| v1.41.0 | Jul 9 | Grounded ask, KCP routing hints, remember/recall MCP tools |
+| v1.42.0 | Jul 9 | KCP retrieval benchmark results |
 
 ---
 

@@ -217,6 +217,32 @@ class FileTrackingDatabaseOperationsTest {
         assertEquals(2, found.size());
     }
 
+    @Test
+    void getByContentHash_eightCharPrefix_matchesFullHash() throws SQLException {
+        // Reproduces issue #403: `track` prints an 8-char prefix, `--audit` must accept it.
+        String fullHash = "d0851cfd29a5581faad85d70cdcf31fe";
+        trackingDb.recordMovement(detected(fullHash, "src.txt", "dst.txt"));
+
+        List<FileMovementRecord> found = trackingDb.getByContentHash(fullHash.substring(0, 8));
+        assertEquals(1, found.size());
+        assertEquals(fullHash, found.get(0).contentHash());
+    }
+
+    @Test
+    void getByContentHash_nullHash_returnsEmpty() throws SQLException {
+        trackingDb.recordMovement(detected("some_hash", "src.txt", "dst.txt"));
+
+        assertTrue(trackingDb.getByContentHash(null).isEmpty());
+    }
+
+    @Test
+    void getByContentHash_prefixMustMatchStart_notMiddle() throws SQLException {
+        trackingDb.recordMovement(detected("abcdef1234567890", "src.txt", "dst.txt"));
+
+        // "cdef" is a substring but not a prefix — must not match.
+        assertTrue(trackingDb.getByContentHash("cdef").isEmpty());
+    }
+
     // --- getPendingDeletions ---
 
     @Test

@@ -274,11 +274,59 @@ class TraceCommandTest {
         assertTrue(path.get(2).endsWith("D.java"));
     }
 
+    @Test
+    void directConnection_kotlinImport_oneHop() throws IOException {
+        addKotlinFile("WorkOrderService.kt", """
+                package com.example.orders
+                import com.example.events.DomainEventPublisher
+                class WorkOrderService(private val publisher: DomainEventPublisher) {
+                    fun complete(orderId: String) { publisher.publish(orderId) }
+                }
+                """);
+        addKotlinFile("DomainEventPublisher.kt", """
+                package com.example.events
+                class DomainEventPublisher {
+                    fun publish(orderId: String) { println("published $orderId") }
+                }
+                """);
+
+        List<SearchResult> allFiles = index.listAll(null, 100);
+        Map<String, List<String>> fileNameIndex = relationService.buildFileNameIndex(allFiles);
+        Map<String, SearchResult> fileMap = buildFileMap(allFiles);
+        SearchResult startFile = findByName(allFiles, "WorkOrderService.kt");
+        SearchResult endFile = findByName(allFiles, "DomainEventPublisher.kt");
+
+        TraceCommand cmd = new TraceCommand(relationService);
+        cmd.maxDepth = 10;  // required: no inline default, only set by picocli parsing at runtime --
+                            // every existing bfsTrace-calling test in this file sets it explicitly
+                            // (TraceCommandTest.java:75,105,132,173,179,225,267); omitting it leaves
+                            // maxDepth=0, so the BFS while-loop guard (TraceCommand.java:167,
+                            // `currentDepth < maxDepth`) never runs and bfsTrace always returns null
+        List<String> path = cmd.bfsTrace(startFile, endFile, tempDir, allFiles, fileNameIndex, fileMap);
+
+        assertNotNull(path, "Path should be found (issue #439)");
+        assertEquals(2, path.size());
+        assertTrue(path.get(0).endsWith("WorkOrderService.kt"));
+        assertTrue(path.get(1).endsWith("DomainEventPublisher.kt"));
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
     private void addJavaFile(String fileName, String content) throws IOException {
+        Path file = tempDir.resolve(fileName);
+        Files.writeString(file, content);
+        FileMetadata metadata = FileMetadata.of(file, tempDir, content.length(), Instant.now(), null);
+        AnalysisResult analysis = AnalysisResult.builder()
+                .summary(fileName)
+                .contentPreview(content)
+                .build();
+        index.addDocument(fileIndexer.createDocument(metadata, analysis));
+        index.commit();
+    }
+
+    private void addKotlinFile(String fileName, String content) throws IOException {
         Path file = tempDir.resolve(fileName);
         Files.writeString(file, content);
         FileMetadata metadata = FileMetadata.of(file, tempDir, content.length(), Instant.now(), null);

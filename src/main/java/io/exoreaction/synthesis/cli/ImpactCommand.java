@@ -76,13 +76,16 @@ public class ImpactCommand implements Callable<Integer> {
             SearchResult target;
 
             try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) {
-                List<SearchResult> targetResults = index.search(targetFile, 1000);
+                // #431: the argument is a path/filename, not Lucene query syntax --
+                // unescaped slashes are parsed as regex delimiters and corrupt the query
+                List<SearchResult> targetResults = index.searchLiteral(targetFile, 1000);
                 target = relationService.findBestMatch(targetResults, targetFile);
                 if (target == null) {
                     AnsiOutput.printError("File not found: " + targetFile);
                     AnsiOutput.printInfo("Try 'synthesis search " + targetFile + "' to find it.");
                     return 1;
                 }
+                warnIfAmbiguous(targetResults, targetFile, target);
                 allFiles = index.listAll(null, 10000);
             }
 
@@ -113,6 +116,16 @@ public class ImpactCommand implements Callable<Integer> {
             AnsiOutput.printError("Impact analysis failed: " + e.getMessage());
             return 1;
         }
+    }
+
+    /**
+     * Warns on stderr when {@code chosen} was resolved from an ambiguous bare filename (#430),
+     * so a genuinely wrong pick isn't silent. Writes to stderr (not AnsiOutput.printWarning's
+     * stdout) so it never corrupts {@code --format json} output.
+     */
+    private void warnIfAmbiguous(List<SearchResult> results, String targetFile, SearchResult chosen) {
+        String warning = relationService.formatAmbiguityWarning(results, targetFile, chosen);
+        if (warning != null) System.err.println(AnsiOutput.warning("  [WARN] ") + warning);
     }
 
     /**
