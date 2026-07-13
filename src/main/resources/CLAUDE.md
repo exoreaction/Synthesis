@@ -4,7 +4,7 @@ Synthesis is an open-source (Apache 2.0) Java 21+ CLI tool and MCP server for kn
 
 **Repository:** https://github.com/exoreaction/Synthesis
 **License:** Apache 2.0
-**Status:** Production-ready (v1.42.0, July 2026)
+**Status:** Production-ready (v1.43.0, July 2026)
 
 ---
 

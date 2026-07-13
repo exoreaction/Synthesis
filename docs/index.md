@@ -110,7 +110,7 @@ Not listed? The [role selector](perspectives/README.md) has nine role-specific g
 
 ## By the numbers
 
-**v1.42.0** · 76 CLI commands · 52 MCP tools · 4,700+ tests · 200–300 files/sec indexing ·
+**v1.43.0** · 76 CLI commands · 52 MCP tools · 4,700+ tests · 200–300 files/sec indexing ·
 sub-second search · Java 21 · Apache 2.0
 
 ---
