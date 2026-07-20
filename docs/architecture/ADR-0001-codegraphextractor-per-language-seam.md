@@ -125,16 +125,31 @@ extract(root, conn, changed /*null=full*/):
 REGISTRY = [Java, Kotlin, TypeScript]  // + Go = zero orchestrator edit
 ```
 
-### New open questions (need decision)
+### Open questions — options + our recommendation
 
-- **Q5 — PackageKey many-to-one:** Go index needs `Map<Key,List<File>>` (dir→N files) vs 1:1 for Fqn/Path; `code_dependencies.target_file` is a single String, so `resolve()` must collapse a package's file-list to one target. Rule undefined.
-- **Q6 — `edges()` needs `declarations()` output:** Kotlin supertypes require decls in the same pass. Drafted interface now passes `decls` into `edges()`; confirm this is the shape (vs re-parse) before impl.
+**Q5 — Go package (dir, N files) → single `code_dependencies.target_file`.** Regex can't tell which file supplies the used symbol.
+- A. **Fan-out** — one edge per file in the target package. Faithful, file-level for consumers; cost: importing a large package inflates edges with never-used targets.
+- B. **Representative** — `target_file` = package directory path (synthetic), one edge. Compact; breaks the "target is a real file" assumption in §B consumers.
+- C. **Best-effort single** — resolve to the file whose declared symbol the import names, else `is_external`. Accurate when the name matches; regex-fragile, more honest misses.
+- **Recommend C, fallback B** — matches the pinned-limitation culture (accurate when resolvable, clean miss otherwise); B if consumers must stay strictly 1:1 file. Index is `Map<Key,List<File>>` either way.
+
+**Q6 — `edges()` needs `declarations()` (Kotlin supertypes are declarations).**
+- A. **Pass decls in** — `edges(file, content, decls)` (current draft). No re-parse; only the same file's own decls are needed in pass 2.
+- B. **Combined** — `extract(file, content) -> {decls, edges}`. One parse, but couples the two capabilities the seam split and fights the all-decls-before-resolve two-pass.
+- C. **Re-parse** in `edges()` (status-quo double-parse). Simplest; accepted perf cost.
+- **Recommend A** — kills the double-parse, keeps two-pass + capability split. C only if threading decls through incremental proves messy.
 
 ### Test-coupling constraint (hard)
 
-`CodeGraphExtractorTest.java` = 51 @Test. **Majority are white-box**, calling internal methods directly (`extractor.lookupBySimpleName`/`buildSimpleNameIndex` `:766-797`, `findKotlinTopLevelDecls_*` incl. pinned `..._known_limitation_constructor_default_value_call`). Moving these methods into `LanguageExtractor`/`Resolver` **modifies** those tests → "tests pass unmodified" (#428) only holds for the ~5 black-box `extractAndPersist_*` tests. **Must resolve before impl:** either (a) redefine "unmodified" = behavior tests only + move unit tests with their methods (reviewed exception), or (b) keep seam methods package-private in the same package so tests still reach them. Decision needed from maintainer.
+`CodeGraphExtractorTest.java` = 51 @Test. **Majority are white-box**, calling internal methods directly (`extractor.lookupBySimpleName`/`buildSimpleNameIndex` `:766-797`, `findKotlinTopLevelDecls_*` incl. pinned `..._known_limitation_constructor_default_value_call`). Moving these methods into `LanguageExtractor`/`Resolver` **modifies** those tests → "tests pass unmodified" (#428) only holds for the ~5 black-box `extractAndPersist_*` tests.
+- A. Redefine "unmodified" = behavior tests (`extractAndPersist_*`) stay green; move white-box unit tests into per-language test classes alongside their methods (reviewed, expected).
+- B. Keep `LanguageExtractor`/`Resolver` package-private in `graph` so existing tests reach methods unchanged — zero test diff, weaker encapsulation, all languages in one package.
+- C. Leave thin delegator methods on `CodeGraphExtractor` — tests unchanged but vestigial methods defeat the shrink.
+- **Recommend A** — aligns with the "per-language tests localize" consequence; B as interim if a zero-test-diff PR is required. Reject C.
 
-### Behavioral gaps — maintainer intent (fix under seam, or preserve as "no behavior change"?)
+### Behavioral gaps — our recommendation
+
+**Recommend:** seam PR **preserves** current behavior (faithful refactor, keeps black-box tests green); file each gap as a **separate follow-up issue** so "no behavior change" stays honest and the PR stays reviewable. Priority: #4/#5 are correctness bugs (stale/orphaned rows) — file first; #1 is a trivial cleanup; #2/#3/#6 are feature-coverage gaps. Maintainer confirms fix-vs-preserve per gap.
 
 1. Dead `classToFile` param passed to `extractCrossFormatLinks` (`:233`), never read.
 2. `findYamlToJavaLinks` (`:113`) never called — cross-format is SQL-only.
