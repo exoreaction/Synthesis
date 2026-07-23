@@ -1,7 +1,7 @@
 # ADR-0001: Per-language extraction seam for CodeGraphExtractor
 
 **Date:** 2026-07-20
-**Status:** Proposed — 4 sub-decisions resolved (design grill 2026-07-20); 2 new open (Q5/Q6) + maintainer-intent gaps pending
+**Status:** Accepted — 4 sub-decisions resolved (design grill 2026-07-20); Q5/Q6/test-coupling/gaps resolved by maintainer review ([PR #457](https://github.com/exoreaction/Synthesis/pull/457), 2026-07-21)
 **Issue:** [#428](https://github.com/exoreaction/Synthesis/issues/428)
 
 ## Context
@@ -69,7 +69,7 @@ Sub-decisions (resolved via design grill):
 |---|---|---|
 | 1 | `ResolutionKey` shape | **Sealed interface + records** — compile-time exhaustiveness protects behavior as languages are added; discriminator+`default` risks silent no-resolve. Java 21 (`pom.xml:31`). |
 | 2 | `resolve()` location | **Own `Resolver` class** — single `resolve(ResolutionKey)` dispatching to the 4 *existing* algorithms verbatim (unify call site, not algorithms). Keeping it in orchestrator leaves the god-class problem. |
-| 3 | Incremental | **One shared two-pass, no per-language hooks.** Contract: `findFiles()`+`declarations()` always full-workspace (index never stale); only `edges()` scoped to changed set. |
+| 3 | Incremental | **One shared two-pass, no per-language hooks.** Contract: `findFiles()`+`declarations()` always full-workspace (index never stale); only `edges()` scoped to changed set. Maintainer confirms: incremental already rebuilds the full FQN map today — the always-full `declarations()` pass **codifies current cost, adds none**. |
 | 4 | Cross-format | **Outside the seam** — category error: corpus substring scan (`CrossFormatLinker.java:56`), no `ResolutionKey` decls, writes a different table. Kept as a distinct orchestrator step. |
 
 ### Interface (pseudo-code)
@@ -125,38 +125,40 @@ extract(root, conn, changed /*null=full*/):
 REGISTRY = [Java, Kotlin, TypeScript]  // + Go = zero orchestrator edit
 ```
 
-### Open questions — options + our recommendation
+### Open questions — resolved by maintainer review (PR #457)
 
-**Q5 — Go package (dir, N files) → single `code_dependencies.target_file`.** Regex can't tell which file supplies the used symbol.
+**Q5 — Go package (dir, N files) → single `code_dependencies.target_file`.** Regex can't tell which file supplies the used symbol. **Resolved (maintainer): C, with a real-file fallback.**
+
+Go's compilation unit *is* the package, so option A's fan-out is semantically defensible — but a 30-file package producing 30 edges per importer destroys impact's signal-to-noise, and C's honest misses fit the pinned-limitation culture here.
 - A. **Fan-out** — one edge per file in the target package. Faithful, file-level for consumers; cost: importing a large package inflates edges with never-used targets.
-- B. **Representative** — `target_file` = package directory path (synthetic), one edge. Compact; breaks the "target is a real file" assumption in §B consumers.
+- B. **Representative (synthetic)** — `target_file` = package directory path, one edge. **Rejected**: a directory path is not a real file, breaking the `target_file` invariant every §B consumer assumes (`relate` display, `impact` BFS, ADR §B:34).
 - C. **Best-effort single** — resolve to the file whose declared symbol the import names, else `is_external`. Accurate when the name matches; regex-fragile, more honest misses.
-- **Recommend C, fallback B** — matches the pinned-limitation culture (accurate when resolvable, clean miss otherwise); B if consumers must stay strictly 1:1 file. Index is `Map<Key,List<File>>` either way.
+- **Decision — C, fallback to a deterministic representative *real* file** (lexicographically-first non-test `.go` file in the target package), never a synthetic directory path. Preserves the "`target_file` is a real file" invariant; `target_package` carries the package-level truth in both the resolved and fallback cases. Index is `Map<Key,List<File>>` either way.
 
-**Q6 — `edges()` needs `declarations()` (Kotlin supertypes are declarations).**
+**Q6 — `edges()` needs `declarations()` (Kotlin supertypes are declarations).** **Resolved (maintainer): A.**
 - A. **Pass decls in** — `edges(file, content, decls)` (current draft). No re-parse; only the same file's own decls are needed in pass 2.
 - B. **Combined** — `extract(file, content) -> {decls, edges}`. One parse, but couples the two capabilities the seam split and fights the all-decls-before-resolve two-pass.
 - C. **Re-parse** in `edges()` (status-quo double-parse). Simplest; accepted perf cost.
-- **Recommend A** — kills the double-parse, keeps two-pass + capability split. C only if threading decls through incremental proves messy.
+- **Decision — A** — kills the double-parse, keeps the two-pass + capability split.
 
 ### Test-coupling constraint (hard)
 
-`CodeGraphExtractorTest.java` = 51 @Test. **Majority are white-box**, calling internal methods directly (`extractor.lookupBySimpleName`/`buildSimpleNameIndex` `:766-797`, `findKotlinTopLevelDecls_*` incl. pinned `..._known_limitation_constructor_default_value_call`). Moving these methods into `LanguageExtractor`/`Resolver` **modifies** those tests → "tests pass unmodified" (#428) only holds for the ~5 black-box `extractAndPersist_*` tests.
+`CodeGraphExtractorTest.java` = 51 @Test. **Majority are white-box**, calling internal methods directly (`extractor.lookupBySimpleName`/`buildSimpleNameIndex` `:766-797`, `findKotlinTopLevelDecls_*` incl. pinned `..._known_limitation_constructor_default_value_call`). Moving these methods into `LanguageExtractor`/`Resolver` **modifies** those tests → "tests pass unmodified" (#428) only holds for the ~5 black-box `extractAndPersist_*` tests. **Resolved (maintainer): A — #428's constraint is amended.**
 - A. Redefine "unmodified" = behavior tests (`extractAndPersist_*`) stay green; move white-box unit tests into per-language test classes alongside their methods (reviewed, expected).
 - B. Keep `LanguageExtractor`/`Resolver` package-private in `graph` so existing tests reach methods unchanged — zero test diff, weaker encapsulation, all languages in one package.
 - C. Leave thin delegator methods on `CodeGraphExtractor` — tests unchanged but vestigial methods defeat the shrink.
-- **Recommend A** — aligns with the "per-language tests localize" consequence; B as interim if a zero-test-diff PR is required. Reject C.
+- **Decision — A.** #428's "tests pass unmodified" is amended to: *black-box behavior tests (`extractAndPersist_*`) pass unmodified; white-box unit tests relocate 1:1 with their methods into per-language test classes, assertions unchanged.* The pinned-limitation tests (e.g. `findKotlinTopLevelDecls_known_limitation_*`) move **with their regexes — relocation, never rewording.** Reject C.
 
 ### Behavioral gaps — our recommendation
 
-**Recommend:** seam PR **preserves** current behavior (faithful refactor, keeps black-box tests green); file each gap as a **separate follow-up issue** so "no behavior change" stays honest and the PR stays reviewable. Priority: #4/#5 are correctness bugs (stale/orphaned rows) — file first; #1 is a trivial cleanup; #2/#3/#6 are feature-coverage gaps. Maintainer confirms fix-vs-preserve per gap.
+**Resolved (maintainer):** seam PR **preserves** current behavior (faithful refactor, keeps black-box tests green); file each gap as a **separate follow-up issue** so "no behavior change" stays honest and the PR stays reviewable. Dispositions:
 
-1. Dead `classToFile` param passed to `extractCrossFormatLinks` (`:233`), never read.
-2. `findYamlToJavaLinks` (`:113`) never called — cross-format is SQL-only.
-3. Cross-format never runs incrementally (`incrementalUpdate` hardcodes `crossLinks=0` `:355`).
-4. Incremental target-file staleness: unchanged file A importing new file B keeps stale `external` row (delete is `WHERE source_file` only).
-5. Deletions orphaned (`:279` skips `!Files.exists`; `ChangeSet.deleted()` never wired).
-6. TS excluded from CLI `--incremental` (`CodeGraphCommand.java:362`).
+1. Dead `classToFile` param passed to `extractCrossFormatLinks` (`:233`), never read. **May ride inside the seam PR** — deleting a provably-unread parameter is behavior-neutral and does not taint the faithful-refactor claim.
+2. `findYamlToJavaLinks` (`:113`) never called — cross-format is SQL-only. Follow-up (feature-coverage).
+3. Cross-format never runs incrementally (`incrementalUpdate` hardcodes `crossLinks=0` `:355`). Follow-up (feature-coverage).
+4. Incremental target-file staleness: unchanged file A importing new file B keeps stale `external` row (delete is `WHERE source_file` only). Correctness bug — filed **[#459](https://github.com/exoreaction/Synthesis/issues/459)**; lands regardless of the seam.
+5. Deletions orphaned (`:279` skips `!Files.exists`; `ChangeSet.deleted()` never wired). Correctness bug — filed **[#460](https://github.com/exoreaction/Synthesis/issues/460)**; real from the extractor side alone (even when a deleted path is passed, `!Files.exists → continue` leaves the rows).
+6. TS excluded from CLI `--incremental` (`CodeGraphCommand.java:362`). **Drift-shaped**, not mere feature-coverage: silently dropping TypeScript means a quietly stale TS graph. Follow-up, filed with that framing.
 
 ## Alternatives Considered
 
@@ -174,6 +176,10 @@ REGISTRY = [Java, Kotlin, TypeScript]  // + Go = zero orchestrator edit
 - edges: no supertypes; struct embedding = EMBED; implicit interface satisfaction = un-regex-able → emit subset.
 
 **Accept iff Go slots in as a new `LanguageExtractor` with zero orchestrator edits.**
+
+### Acceptance criterion (mechanical)
+
+Go lands as `LanguageExtractor` #4 behind this seam. The zero-orchestrator-edit claim is **verifiable, not aspirational**: the Go PR's diff must not touch `CodeGraphExtractor.java` outside the single `REGISTRY` registration line. A diff that edits the orchestrator anywhere else means the seam failed to hold — a reviewer can hold the Go PR to this with `git diff` alone.
 
 ## Consequences
 
