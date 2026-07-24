@@ -5,9 +5,12 @@
 **Issue:** [#463](https://github.com/exoreaction/Synthesis/issues/463) (implementation) — parent [#428](https://github.com/exoreaction/Synthesis/issues/428)
 **Branch:** `463-language-extractor-seam`
 
-This plan restates **only** what ADR-0001 and the maintainer review ([PR #457](https://github.com/exoreaction/Synthesis/pull/457))
-specify. Anything the ADR does not rule on is listed under "Open — confirm before coding",
-not assumed.
+This plan restates **only** what ADR-0001, the maintainer review ([PR #457](https://github.com/exoreaction/Synthesis/pull/457)),
+and the scoped issue [#463](https://github.com/exoreaction/Synthesis/issues/463) specify. Anything none of
+them rule on is listed under "Open — confirm before coding", not assumed.
+
+**Contract (issue #463):** pure structural refactor of the **three existing** languages (Java, Kotlin,
+TypeScript) behind the seam. `code_dependencies` + `cross_format_links` row output stays **byte-identical**.
 
 ## Regression proof (exactly the ADR's mechanism — no extra instrument)
 
@@ -28,10 +31,9 @@ Green → commit → next step. Red → revert step.
 ## Contract mandated by the ADR
 
 ### Types (ADR "Interface" pseudo-code) — verbatim shapes
-- `sealed interface ResolutionKey permits FqnKey, PathKey, PackageKey`
+- `sealed interface ResolutionKey permits FqnKey, PathKey` — **PackageKey NOT added now** (issue #463: Go/`PackageKey` out of scope; the sealed `permits` line is a one-line, non-orchestrator edit in the Go PR)
 - `record FqnKey(String fqn)` — Java, Kotlin (file-level)
 - `record PathKey(String modulePath)` — TS/JS (file-level)
-- `record PackageKey(String importPath, String pkg)` — Go, dir-level *(see Open #2)*
 - `enum EdgeKind { IMPORT, SUPERTYPE, EMBED }` — no CROSS_FORMAT
 - `record Declaration(ResolutionKey key, File file)`
 - `record RawEdge(ResolutionKey from, ResolutionRef to, EdgeKind kind)` — `to` unresolved
@@ -73,10 +75,11 @@ algorithms verbatim** (unify the call site, do not rewrite the algorithms). Owns
   inside this PR** (behavior-neutral, ADR-permitted).
 - **Gaps #2–#6** — **do not touch.** Follow-ups. #4/#5 are #459/#460.
 
-### Acceptance (ADR "Acceptance criterion (mechanical)")
-After the refactor, `CodeGraphExtractor` holds **no per-language extraction code**: a future
-Go extractor must slot in touching the orchestrator only at the single `REGISTRY` line
-(`git diff`-verifiable).
+### Acceptance (ADR "Acceptance criterion (mechanical)" = issue #463 Definition of Done)
+- Black-box `extractAndPersist_*` tests pass **unmodified**.
+- Full `mvn test` green.
+- `CodeGraphExtractor` holds **no per-language extraction code**: a future Go extractor slots in
+  touching the orchestrator only at the single `REGISTRY` line (`git diff`-verifiable).
 
 ## Execution order (working sequence; gate = regression proof above)
 
@@ -91,15 +94,16 @@ Go extractor must slot in touching the orchestrator only at the single `REGISTRY
 
 Each step: one commit, `extractAndPersist_*` + relocated tests green.
 
-## Open — confirm before coding (ADR does NOT rule these; do not assume)
+## Resolved
 
-1. **Package location of the new types/classes.** ADR ruling A chose to *relocate tests into
-   per-language test classes* but never named a production package. Options: keep in
-   `io.exoreaction.synthesis.graph` (no new package) vs a new `graph.lang` subpackage.
-   *No default taken here.*
-2. **`PackageKey` / Go scaffolding now vs Go PR.** ADR pseudo-code lists `PackageKey` in the
-   sealed `permits`, but `REGISTRY` excludes Go and Q5's fallback is a Go-only concern.
-   Decide: include `PackageKey` in the sealed interface now (Resolver leaves it unhandled
-   until Go lands) vs add `PackageKey` in the Go PR. *No default taken here.*
-3. **`ResolutionRef`, `Ext`, `ExclusionRules` concrete shapes.** ADR pseudo-code names them
-   but does not define fields — design detail to settle at step 1.
+- **Package location = `io.exoreaction.synthesis.graph.lang`** (new subpackage). Seam types,
+  `LanguageExtractor`, `Resolver`, and per-language impls live here with a public API surface
+  (matches ADR test-coupling ruling A; rejects option B's package-private-in-`graph`). *(was Open #1)*
+- **`PackageKey` / Go — deferred (issue #463).** Issue #463 rules Go/`PackageKey` **out of scope**; the seam
+  must accept it with zero orchestrator edits. `PackageKey` is added in the Go PR (one-line
+  `permits` edit in `ResolutionKey`, not an orchestrator edit). *(was Open #2)*
+
+## Open — design detail, settle at step 1
+
+1. **`ResolutionRef`, `Ext`, `ExclusionRules` concrete shapes.** ADR pseudo-code names them
+   but does not define fields.
