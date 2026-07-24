@@ -83,16 +83,24 @@ algorithms verbatim** (unify the call site, do not rewrite the algorithms). Owns
 
 ## Execution order (working sequence; gate = regression proof above)
 
-1. Value types (`ResolutionKey` + records, `EdgeKind`, `Declaration`, `RawEdge`, `ResolutionRef`). Compile only.
-2. `Resolver` — extract existing resolution algorithms verbatim; relocate their white-box tests 1:1.
-3. `LanguageExtractor` interface.
-4. `JavaLanguageExtractor` — move Java extraction; relocate Java white-box tests.
-5. `KotlinLanguageExtractor` — move Kotlin extraction; relocate white-box + pinned tests (regexes intact).
-6. `TypeScriptLanguageExtractor` — move TS extraction; relocate TS white-box tests.
-7. Rewire orchestrator to the two-pass over `REGISTRY`; keep cross-format separate; delete gap #1 param.
-8. Full `mvn test`; confirm orchestrator has no per-language code (acceptance).
+**Sequencing = per-language vertical slices.** Each language step both moves the impl AND rewires
+the orchestrator for that language, so inline code and its white-box tests move together (no interim
+duplication, gate green every step). Shared exclusion predicates `isBuildArtifact`/`isArchiveDirectory`
+**stay public-static on `CodeGraphExtractor`** — orchestrator-shared, external callers, not per-language.
 
-Each step: one commit, `extractAndPersist_*` + relocated tests green.
+1. ✅ Value types (`ResolutionKey`+records, `EdgeKind`, `Declaration`, `RawEdge`, `ResolutionRef`). Compile only. `883806f`
+2. ✅ `Resolver` — FQN/simple-name algorithms verbatim; 5 white-box tests → `ResolverTest`. `3c105f2`
+3. ✅ `LanguageExtractor` interface + `Ext` + `ExclusionRules`. Pure additions. `53f3169`
+4. `JavaLanguageExtractor` slice — impl (findFiles/declarations/edges) + introduce the two-pass over a
+   `REGISTRY` holding only Java; delete inline Java; relocate Java white-box tests → `JavaLanguageExtractorTest`.
+5. `KotlinLanguageExtractor` slice — add to `REGISTRY`; delete inline Kotlin; relocate white-box + pinned
+   tests (regexes intact) → `KotlinLanguageExtractorTest`.
+6. `TypeScriptLanguageExtractor` slice — add to `REGISTRY`; move TS path resolution into `Resolver`;
+   delete inline TS; relocate TS white-box tests (if any).
+7. Final orchestrator tidy: keep cross-format a separate step; delete dead gap #1 `classToFile` param.
+8. Full `mvn test`; confirm orchestrator has no per-language extraction code (acceptance, `git diff`).
+
+Each step: one commit, `extractAndPersist_*`/`incrementalUpdate_*` + relocated tests green.
 
 ## Resolved
 
