@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.graph;
 
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
+import io.exoreaction.synthesis.graph.lang.Resolver;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.util.FileUtils;
 
@@ -162,7 +163,7 @@ public class CodeGraphExtractor {
         Map<String, List<String>> kotlinPackageFunctionFiles = kotlinIndexes.packageFunctionFiles();
 
         // Build simple-name-to-FQN index for extends/implements/supertype resolution
-        Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
+        Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
 
         int dependenciesFound = 0;
         int externalDeps = 0;
@@ -181,8 +182,8 @@ public class CodeGraphExtractor {
 
                 List<String> imports = extractImports(content);
                 for (String imp : imports) {
-                    String targetClass = getSimpleClassName(imp);
-                    String targetPackage = getPackageFromImport(imp);
+                    String targetClass = Resolver.getSimpleClassName(imp);
+                    String targetPackage = Resolver.getPackageFromImport(imp);
                     // Look up by full import string (FQN) — not simple name
                     String targetFile = classToFile.get(imp);
                     boolean external = (targetFile == null);
@@ -262,7 +263,7 @@ public class CodeGraphExtractor {
         classToFile.putAll(kotlinIndexes.classToFile());
         Map<String, List<String>> kotlinPackageFunctionFiles = kotlinIndexes.packageFunctionFiles();
 
-        Map<String, List<String>> simpleNameIndex = buildSimpleNameIndex(classToFile);
+        Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
 
         // TypeScript path index for resolving incremental TS imports (#323).
         List<Path> allTsFiles = findTypeScriptFiles(workspaceRoot);
@@ -321,8 +322,8 @@ public class CodeGraphExtractor {
 
                 List<String> imports = extractImports(content);
                 for (String imp : imports) {
-                    String targetClass = getSimpleClassName(imp);
-                    String targetPackage = getPackageFromImport(imp);
+                    String targetClass = Resolver.getSimpleClassName(imp);
+                    String targetPackage = Resolver.getPackageFromImport(imp);
                     // Look up by full import string (FQN) — not simple name
                     String targetFile = classToFile.get(imp);
                     boolean external = (targetFile == null);
@@ -488,46 +489,6 @@ public class CodeGraphExtractor {
         return map;
     }
 
-    /**
-     * Builds a reverse index from simple class name to set of FQN keys present
-     * in the classToFile map. Used for extends/implements resolution where only
-     * simple names are available.
-     */
-    Map<String, List<String>> buildSimpleNameIndex(Map<String, String> classToFileMap) {
-        Map<String, List<String>> index = new HashMap<>();
-        for (String fqn : classToFileMap.keySet()) {
-            String simpleName = getSimpleClassName(fqn);
-            index.computeIfAbsent(simpleName, k -> new ArrayList<>()).add(fqn);
-        }
-        return index;
-    }
-
-    /**
-     * Looks up a simple class name in the FQN map using the simple name index.
-     * If exactly one project class has that simple name, returns its file path.
-     * If multiple classes share the name, tries to match by source package proximity.
-     * Returns null if no match (external class).
-     */
-    String lookupBySimpleName(String simpleName, String sourcePackage,
-                               Map<String, String> classToFileMap,
-                               Map<String, List<String>> simpleNameIndex) {
-        List<String> fqns = simpleNameIndex.get(simpleName);
-        if (fqns == null || fqns.isEmpty()) {
-            return null; // external
-        }
-        if (fqns.size() == 1) {
-            return classToFileMap.get(fqns.get(0));
-        }
-        // Multiple matches: prefer same package
-        for (String fqn : fqns) {
-            String pkg = getPackageFromImport(fqn);
-            if (pkg.equals(sourcePackage)) {
-                return classToFileMap.get(fqn);
-            }
-        }
-        // No exact package match — return first (project-internal either way)
-        return classToFileMap.get(fqns.get(0));
-    }
 
     List<String> extractImports(String content) {
         List<String> imports = new ArrayList<>();
@@ -546,16 +507,6 @@ public class CodeGraphExtractor {
     String extractClassName(Path javaFile) {
         String name = javaFile.getFileName().toString();
         return name.endsWith(".java") ? name.substring(0, name.length() - 5) : name;
-    }
-
-    String getSimpleClassName(String fullyQualified) {
-        int lastDot = fullyQualified.lastIndexOf('.');
-        return lastDot >= 0 ? fullyQualified.substring(lastDot + 1) : fullyQualified;
-    }
-
-    String getPackageFromImport(String fullyQualified) {
-        int lastDot = fullyQualified.lastIndexOf('.');
-        return lastDot >= 0 ? fullyQualified.substring(0, lastDot) : "";
     }
 
     /**
@@ -637,10 +588,10 @@ public class CodeGraphExtractor {
         // extends
         Matcher extendsM = JAVA_EXTENDS.matcher(content);
         while (extendsM.find()) {
-            String parentClass = getSimpleClassName(extendsM.group(1).trim());
+            String parentClass = Resolver.getSimpleClassName(extendsM.group(1).trim());
             if (!parentClass.equals(className)) {
                 // Use simple name index for extends (we only have simple name from source)
-                String targetFile = lookupBySimpleName(parentClass, pkg,
+                String targetFile = Resolver.lookupBySimpleName(parentClass, pkg,
                         classToFile, simpleNameIndex);
                 deps.add(new CodeDependency(wsPath, repoName, relPath, className, pkg,
                         targetFile, parentClass, "", "extends",
@@ -653,10 +604,10 @@ public class CodeGraphExtractor {
         while (implM.find()) {
             String interfaces = implM.group(1).trim();
             for (String iface : interfaces.split(",")) {
-                String ifaceName = getSimpleClassName(iface.trim());
+                String ifaceName = Resolver.getSimpleClassName(iface.trim());
                 if (!ifaceName.isBlank() && !ifaceName.equals(className)) {
                     // Use simple name index for implements
-                    String targetFile = lookupBySimpleName(ifaceName, pkg,
+                    String targetFile = Resolver.lookupBySimpleName(ifaceName, pkg,
                             classToFile, simpleNameIndex);
                     deps.add(new CodeDependency(wsPath, repoName, relPath, className, pkg,
                             targetFile, ifaceName, "", "implements",
@@ -1029,7 +980,7 @@ public class CodeGraphExtractor {
         for (String part : cleaned.split(",")) {
             String name = part.trim();
             if (name.matches("[A-Za-z_][\\w.]*")) {
-                names.add(getSimpleClassName(name));
+                names.add(Resolver.getSimpleClassName(name));
             }
         }
         return names;
@@ -1161,8 +1112,8 @@ public class CodeGraphExtractor {
         String primaryClass = choosePrimaryClass(decls, ktFile);
 
         for (String imp : extractKotlinImports(content)) {
-            String targetClass = getSimpleClassName(imp);
-            String targetPackage = getPackageFromImport(imp);
+            String targetClass = Resolver.getSimpleClassName(imp);
+            String targetPackage = Resolver.getPackageFromImport(imp);
             String targetFile = classToFile.get(imp);
 
             // Fallback for imports of top-level functions/properties: these have no
@@ -1191,7 +1142,7 @@ public class CodeGraphExtractor {
         for (KotlinDecl decl : decls) {
             for (String supertype : decl.supertypes()) {
                 if (supertype.equals(decl.name())) continue; // guard against a malformed capture
-                String targetFile = lookupBySimpleName(supertype,
+                String targetFile = Resolver.lookupBySimpleName(supertype,
                         packageName != null ? packageName : "", classToFile, simpleNameIndex);
                 boolean isExternal = (targetFile == null);
 

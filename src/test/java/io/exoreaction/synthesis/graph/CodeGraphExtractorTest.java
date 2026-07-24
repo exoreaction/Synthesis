@@ -79,18 +79,6 @@ class CodeGraphExtractorTest {
         assertEquals("Foo", extractor.extractClassName(file));
     }
 
-    @Test
-    void getSimpleClassName_extracts_last_segment() {
-        assertEquals("Foo", extractor.getSimpleClassName("com.example.Foo"));
-        assertEquals("Bar", extractor.getSimpleClassName("Bar"));
-    }
-
-    @Test
-    void getPackageFromImport_extracts_package() {
-        assertEquals("com.example", extractor.getPackageFromImport("com.example.Foo"));
-        assertEquals("", extractor.getPackageFromImport("Foo"));
-    }
-
     // -----------------------------------------------------------------------
     // Kotlin support (spike)
     // -----------------------------------------------------------------------
@@ -754,47 +742,6 @@ class CodeGraphExtractorTest {
                         && !d.isExternal());
         assertTrue(projectInternal,
                 "Project Service import should be internal: " + appDeps);
-    }
-
-    @Test
-    void buildSimpleNameIndex_groups_by_simple_name() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java",
-                "com.example.Config", "src/Config.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertEquals(2, index.get("Service").size());
-        assertEquals(1, index.get("Config").size());
-    }
-
-    @Test
-    void lookupBySimpleName_prefers_same_package() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        // When source is in com.example, prefer com.example.Service
-        String result = extractor.lookupBySimpleName("Service", "com.example",
-                classToFile, index);
-        assertEquals("src/Service.java", result);
-
-        // When source is in com.example.util, prefer com.example.util.Service
-        String result2 = extractor.lookupBySimpleName("Service", "com.example.util",
-                classToFile, index);
-        assertEquals("src/util/Service.java", result2);
-    }
-
-    @Test
-    void lookupBySimpleName_returns_null_for_unknown() {
-        Map<String, String> classToFile = Map.of("com.example.Config", "src/Config.java");
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertNull(extractor.lookupBySimpleName("NonExistent", "com.example",
-                classToFile, index));
     }
 
     // -----------------------------------------------------------------------
