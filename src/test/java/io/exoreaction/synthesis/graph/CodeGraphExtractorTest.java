@@ -429,4 +429,115 @@ class CodeGraphExtractorTest {
                 Path.of("/workspace/archiver/Foo.java")));
     }
 
+
+    // -----------------------------------------------------------------------
+    // TypeScript extraction (#323) -- characterization (black-box) so the
+    // per-language seam refactor has a gate to measure against.
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractAndPersist_ts_relative_import_resolves_internal() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar';\nexport const foo = bar;\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), "relative import to an in-workspace file is internal");
+        assertEquals("src/Bar.ts", dep.targetFile());
+        assertEquals("import", dep.dependencyType());
+        assertEquals("Foo", dep.sourceClass());
+    }
+
+    @Test
+    void extractAndPersist_ts_bare_module_import_stays_external() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Foo.ts"), "import React from 'react';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "react".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected react edge: " + fooDeps));
+        assertTrue(dep.isExternal(), "bare module specifier is external");
+        assertNull(dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_js_extension_rewrite_resolves_to_ts() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        // Bun/NodeNext: source imports its own file by the compiled .js extension.
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), ".js specifier must rewrite to the .ts file");
+        assertEquals("src/Bar.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_duplicate_specifier_deduped_to_one_edge() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\nexport const baz = 2;\n");
+        Files.writeString(src.resolve("Foo.ts"),
+                "import { bar } from './Bar';\nimport { baz } from './Bar';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        long barEdges = fooDeps.stream().filter(d -> "Bar".equals(d.targetClass())).count();
+        assertEquals(1, barEdges, "the same specifier imported twice yields one edge: " + fooDeps);
+    }
+
+    @Test
+    void extractAndPersist_ts_directory_index_import_resolves() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Path widget = Files.createDirectories(src.resolve("widget"));
+        Files.writeString(widget.resolve("index.ts"), "export const w = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { w } from './widget';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "widget".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to widget: " + fooDeps));
+        assertFalse(dep.isExternal(), "directory import resolves to <dir>/index.ts");
+        assertEquals("src/widget/index.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_declaration_file_excluded() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Other.ts"), "export const x = 1;\n");
+        Files.writeString(src.resolve("types.d.ts"), "import { X } from './Other';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> dtsDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/types.d.ts");
+        assertTrue(dtsDeps.isEmpty(), ".d.ts declaration files are excluded from extraction: " + dtsDeps);
+    }
+
 }
