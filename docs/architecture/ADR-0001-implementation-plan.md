@@ -103,7 +103,38 @@ Each step: one commit, `extractAndPersist_*` + relocated tests green.
   must accept it with zero orchestrator edits. `PackageKey` is added in the Go PR (one-line
   `permits` edit in `ResolutionKey`, not an orchestrator edit). *(was Open #2)*
 
-## Open — design detail, settle at step 1
+## Settled at step 1 — value-type shapes (faithful to existing code)
 
-1. **`ResolutionRef`, `Ext`, `ExclusionRules` concrete shapes.** ADR pseudo-code names them
+Read of `CodeGraphExtractor` surfaced 3 hard faithfulness constraints (none in ADR pseudo-code):
+- **`EdgeKind` ≠ `dependency_type`.** Rows store `"import"`/`"extends"`/`"implements"`/`"supertype"`
+  (`:194,646,662,1202`; test asserts exact strings `:556,558`). `RawEdge` carries the literal
+  `dependencyType`; `EdgeKind{IMPORT,SUPERTYPE,EMBED}` is only the abstract opt-in category.
+- **Kotlin function-fallback stays per-language.** Java import resolve does NOT apply
+  `packageFunctionFiles` (`:187`); Kotlin does (`:1173`). `FqnRef` carries a
+  `packageFunctionFallback` flag so a merged resolve can't change mixed-repo behavior.
+- **3 resolution algorithms, not 1 map.** FQN-exact, simple-name-in-package, TS-path → 3 `ResolutionRef` subtypes.
+
+`Declaration`/`RawEdge` use `java.nio.file.Path` (whole codebase is `Path`), not pseudo-code's `File`.
+
+```java
+sealed interface ResolutionKey permits FqnKey, PathKey {}
+  record FqnKey(String fqn) implements ResolutionKey {}      // Java, Kotlin
+  record PathKey(String modulePath) implements ResolutionKey {} // TS stem
+sealed interface ResolutionRef permits FqnRef, SimpleNameRef, ModulePathRef {}
+  record FqnRef(String fqn, boolean packageFunctionFallback) implements ResolutionRef {} // Java=false, Kotlin=true
+  record SimpleNameRef(String simpleName, String sourcePackage) implements ResolutionRef {} // extends/implements/supertype
+  record ModulePathRef(String specifier, String sourceRelPath) implements ResolutionRef {} // TS import
+enum EdgeKind { IMPORT, SUPERTYPE, EMBED }
+record Declaration(ResolutionKey key, Path file) {}
+// carries every field for a byte-identical code_dependencies row:
+record RawEdge(String sourceClass, String sourcePackage,
+               ResolutionRef to, String targetClass, String targetPackage,
+               EdgeKind kind, String dependencyType) {}
+```
+
+`Ext` + `ExclusionRules` land with the interface (step 3), not step 1.
+
+## Open — design detail, settle when reached
+
+1. **`Ext`, `ExclusionRules` concrete shapes (step 3).** ADR pseudo-code names them
    but does not define fields.
