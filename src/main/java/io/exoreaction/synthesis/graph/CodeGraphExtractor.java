@@ -3,6 +3,7 @@ package io.exoreaction.synthesis.graph;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
 import io.exoreaction.synthesis.graph.lang.Declaration;
+import io.exoreaction.synthesis.graph.lang.Ext;
 import io.exoreaction.synthesis.graph.lang.ExclusionRules;
 import io.exoreaction.synthesis.graph.lang.JavaLanguageExtractor;
 import io.exoreaction.synthesis.graph.lang.KotlinLanguageExtractor;
@@ -22,19 +23,18 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.*;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
- * Extracts code dependency information from source files and persists it
- * to the code knowledge graph tables via {@link CodeGraphRepository}.
+ * Orchestrates code dependency extraction and persists it to the code knowledge graph
+ * tables via {@link CodeGraphRepository}.
  *
- * <p>Wraps existing extraction capabilities:
- * <ul>
- *   <li>Java import extraction (pattern-based, similar to {@link ViolationDetector})</li>
- *   <li>Cross-format links via {@link CrossFormatLinker}</li>
- * </ul>
+ * <p>Per-language extraction lives behind the {@link io.exoreaction.synthesis.graph.lang.LanguageExtractor}
+ * seam (ADR-0001): this class owns only the shared concerns -- the {@link #REGISTRY}, the
+ * two-pass (declare across all languages, then resolve edges via {@link Resolver}),
+ * persistence, incremental scoping, and the Java-coupled cross-format step
+ * ({@link CrossFormatLinker}). A new language is added by registering one
+ * {@code LanguageExtractor}; nothing else here changes.
  *
  * <p>Supports both full extraction and incremental updates for changed files.
  */
@@ -49,9 +49,13 @@ public class CodeGraphExtractor {
 
     private final CodeGraphRepository repository;
     private final CrossFormatLinker crossFormatLinker;
-    private final JavaLanguageExtractor javaExtractor = new JavaLanguageExtractor();
-    private final KotlinLanguageExtractor kotlinExtractor = new KotlinLanguageExtractor();
-    private final TypeScriptLanguageExtractor tsExtractor = new TypeScriptLanguageExtractor();
+    /**
+     * The per-language extraction seam (ADR-0001). A new language slots in by adding one
+     * {@link LanguageExtractor} here -- the orchestrator drives them uniformly, so nothing
+     * else in this file changes (the acceptance criterion: a Go extractor touches only this line).
+     */
+    private final List<LanguageExtractor> REGISTRY =
+            List.of(new JavaLanguageExtractor(), new KotlinLanguageExtractor(), new TypeScriptLanguageExtractor());
     private boolean includeArchives = false;
 
     public CodeGraphExtractor() {
@@ -75,8 +79,8 @@ public class CodeGraphExtractor {
     }
 
     /**
-     * Full extraction: scans all Java files under workspaceRoot, extracts
-     * dependencies, and persists them. Clears existing data first.
+     * Full extraction: scans every registered language's files under workspaceRoot,
+     * extracts dependencies, and persists them. Clears existing data first.
      *
      * @param workspaceRoot root of the workspace to scan
      * @param conn          database connection
@@ -90,26 +94,25 @@ public class CodeGraphExtractor {
         repository.deleteAllDependencies(conn, wsPath);
         repository.deleteAllCrossFormatLinks(conn, wsPath);
 
-        // Pass 1 (declarations, always full): discover files, register declared FQNs, and
-        // collect any per-language resolver fallback indexes. Java + Kotlin share the FQN
-        // resolution machinery, so both declare into the same index before any edge resolves.
+        // Pass 1 (declarations, always full): for every language in the registry, discover files
+        // and register declared identities + resolver fallback indexes before any edge resolves.
         ExclusionRules excl = new ExclusionRules(includeArchives);
         Map<String, String> classToFile = new HashMap<>();
         Map<String, List<String>> packageFunctionFiles = new HashMap<>();
         Map<String, String> tsPathIndex = new HashMap<>();
         Set<String> packages = new HashSet<>();
 
-        List<Path> javaFiles = javaExtractor.findFiles(workspaceRoot, excl);
-        List<Map.Entry<Path, List<Declaration>>> javaWork =
-                registerDeclarations(javaExtractor, workspaceRoot, javaFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
-
-        List<Path> kotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
-        List<Map.Entry<Path, List<Declaration>>> kotlinWork =
-                registerDeclarations(kotlinExtractor, workspaceRoot, kotlinFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
-
-        List<Path> tsFiles = tsExtractor.findFiles(workspaceRoot, excl);
-        List<Map.Entry<Path, List<Declaration>>> tsWork =
-                registerDeclarations(tsExtractor, workspaceRoot, tsFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
+        List<Path> javaFiles = List.of();
+        int totalFiles = 0;
+        List<Map.Entry<LanguageExtractor, List<Map.Entry<Path, List<Declaration>>>>> work = new ArrayList<>();
+        for (LanguageExtractor lang : REGISTRY) {
+            List<Path> files = lang.findFiles(workspaceRoot, excl);
+            totalFiles += files.size();
+            // Cross-format linking (below) is Java-coupled and lives outside the seam (ADR sub-decision 4).
+            if (lang.languageId().equals("java")) javaFiles = files;
+            work.add(Map.entry(lang, registerDeclarations(lang, workspaceRoot, files,
+                    classToFile, packageFunctionFiles, tsPathIndex, packages)));
+        }
 
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
         Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles, tsPathIndex);
@@ -117,17 +120,19 @@ public class CodeGraphExtractor {
         long now = Instant.now().getEpochSecond();
 
         // Pass 2 (edges): resolve each edge against the full index and persist rows.
-        EdgeTotals javaTotals = persistEdges(javaExtractor, workspaceRoot, javaWork, resolver, conn, wsPath, now);
-        EdgeTotals kotlinTotals = persistEdges(kotlinExtractor, workspaceRoot, kotlinWork, resolver, conn, wsPath, now);
-        EdgeTotals tsTotals = persistEdges(tsExtractor, workspaceRoot, tsWork, resolver, conn, wsPath, now);
-        int dependenciesFound = javaTotals.dependencies() + kotlinTotals.dependencies() + tsTotals.dependencies();
-        int externalDeps = javaTotals.external() + kotlinTotals.external() + tsTotals.external();
+        int dependenciesFound = 0;
+        int externalDeps = 0;
+        for (Map.Entry<LanguageExtractor, List<Map.Entry<Path, List<Declaration>>>> w : work) {
+            EdgeTotals t = persistEdges(w.getKey(), workspaceRoot, w.getValue(), resolver, conn, wsPath, now);
+            dependenciesFound += t.dependencies();
+            externalDeps += t.external();
+        }
 
         // Cross-format links (SQL -> Java)
-        int crossLinks = extractCrossFormatLinks(workspaceRoot, conn, javaFiles, classToFile, now);
+        int crossLinks = extractCrossFormatLinks(workspaceRoot, conn, javaFiles, now);
 
         long elapsed = System.currentTimeMillis() - start;
-        return new CodeGraphStats(javaFiles.size() + kotlinFiles.size() + tsFiles.size(), dependenciesFound,
+        return new CodeGraphStats(totalFiles, dependenciesFound,
                 crossLinks, packages.size(), externalDeps, elapsed, Instant.now());
     }
 
@@ -152,12 +157,10 @@ public class CodeGraphExtractor {
         Map<String, List<String>> packageFunctionFiles = new HashMap<>();
         Map<String, String> tsPathIndex = new HashMap<>();
 
-        List<Path> allJavaFiles = javaExtractor.findFiles(workspaceRoot, excl);
-        registerDeclarations(javaExtractor, workspaceRoot, allJavaFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
-        List<Path> allKotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
-        registerDeclarations(kotlinExtractor, workspaceRoot, allKotlinFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
-        List<Path> allTsFiles = tsExtractor.findFiles(workspaceRoot, excl);
-        registerDeclarations(tsExtractor, workspaceRoot, allTsFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
+        for (LanguageExtractor lang : REGISTRY) {
+            registerDeclarations(lang, workspaceRoot, lang.findFiles(workspaceRoot, excl),
+                    classToFile, packageFunctionFiles, tsPathIndex, null);
+        }
 
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
         Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles, tsPathIndex);
@@ -172,41 +175,18 @@ public class CodeGraphExtractor {
             Path fullPath = changedFile.isAbsolute() ? changedFile : workspaceRoot.resolve(changedFile);
             if (!Files.exists(fullPath)) continue;
 
-            String pathStr = fullPath.toString();
-            boolean isJava = pathStr.endsWith(".java");
-            boolean isKotlin = pathStr.endsWith(".kt");
-            boolean isTypeScript = pathStr.endsWith(".ts") || pathStr.endsWith(".tsx");
-            if (!isJava && !isKotlin && !isTypeScript) continue;
+            LanguageExtractor lang = extractorFor(fullPath);
+            if (lang == null) continue; // not a language we extract
 
             String relPath = workspaceRoot.relativize(fullPath).toString();
             filesProcessed++;
 
-            if (isTypeScript) {
-                // Delete old edges for this TS file and re-extract.
-                repository.deleteDependenciesForFile(conn, wsPath, relPath);
-                EdgeTotals ts = persistChangedFile(tsExtractor, workspaceRoot, fullPath,
-                        resolver, packages, conn, wsPath, relPath, now);
-                dependenciesFound += ts.dependencies();
-                externalDeps += ts.external();
-                continue;
-            }
-
-            if (isKotlin) {
-                // Delete old edges for this Kotlin file and re-extract.
-                repository.deleteDependenciesForFile(conn, wsPath, relPath);
-                EdgeTotals kt = persistChangedFile(kotlinExtractor, workspaceRoot, fullPath,
-                        resolver, packages, conn, wsPath, relPath, now);
-                dependenciesFound += kt.dependencies();
-                externalDeps += kt.external();
-                continue;
-            }
-
-            // Delete old edges for this file, then re-extract.
+            // Delete old edges for this file, then re-extract via its language.
             repository.deleteDependenciesForFile(conn, wsPath, relPath);
-            EdgeTotals jv = persistChangedFile(javaExtractor, workspaceRoot, fullPath,
+            EdgeTotals t = persistChangedFile(lang, workspaceRoot, fullPath,
                     resolver, packages, conn, wsPath, relPath, now);
-            dependenciesFound += jv.dependencies();
-            externalDeps += jv.external();
+            dependenciesFound += t.dependencies();
+            externalDeps += t.external();
         }
 
         long elapsed = System.currentTimeMillis() - start;
@@ -219,6 +199,21 @@ public class CodeGraphExtractor {
      */
     public CodeGraphRepository getRepository() {
         return repository;
+    }
+
+    /**
+     * Returns the registered {@link LanguageExtractor} that claims {@code file} by extension,
+     * or {@code null} if no language does. Drives the incremental changed-file dispatch so a
+     * new language is handled automatically once it is in {@link #REGISTRY}.
+     */
+    private LanguageExtractor extractorFor(Path file) {
+        String name = file.getFileName().toString();
+        for (LanguageExtractor lang : REGISTRY) {
+            for (Ext ext : lang.extensions()) {
+                if (name.endsWith(ext.suffix())) return lang;
+            }
+        }
+        return null;
     }
 
     /** Per-language edge counters accumulated across a pass. */
@@ -415,7 +410,6 @@ public class CodeGraphExtractor {
 
     private int extractCrossFormatLinks(Path workspaceRoot, Connection conn,
                                          List<Path> javaFiles,
-                                         Map<String, String> classToFile,
                                          long now) throws IOException, SQLException {
         String wsPath = workspaceRoot.toString();
         List<CrossFormatLinkRecord> allRecords = new ArrayList<>();
@@ -464,9 +458,5 @@ public class CodeGraphExtractor {
         }
         return 0;
     }
-
-    // -----------------------------------------------------------------------
-    // TypeScript / TSX support (#323)
-    // -----------------------------------------------------------------------
 
 }
