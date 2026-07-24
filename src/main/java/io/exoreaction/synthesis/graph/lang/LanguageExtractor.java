@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.graph.lang;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -49,4 +50,19 @@ public interface LanguageExtractor {
      * (ADR-0001 Q6=A). Runs in pass 2, scoped to changed files when incremental.
      */
     List<RawEdge> edges(Path file, String content, List<Declaration> decls);
+
+    /**
+     * Optional per-package fallback entries ({@code package -> declaring files}) this
+     * language contributes to the shared resolver, for imports that name a symbol the
+     * FQN index cannot key directly (Kotlin top-level functions resolve to the single
+     * function-only file in the package). Computed in the same declaration pass from
+     * the already-read {@code content}.
+     *
+     * <p>Default: no contribution. The orchestrator merges whatever is returned without
+     * knowing the language, so a language that needs no such fallback (Java, TypeScript,
+     * a future Go) leaves this empty and stays entirely self-contained.
+     */
+    default Map<String, List<Path>> packageFallbackFiles(Path file, String content, List<Declaration> decls) {
+        return Map.of();
+    }
 }

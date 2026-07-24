@@ -5,6 +5,8 @@ import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
 import io.exoreaction.synthesis.graph.lang.Declaration;
 import io.exoreaction.synthesis.graph.lang.ExclusionRules;
 import io.exoreaction.synthesis.graph.lang.JavaLanguageExtractor;
+import io.exoreaction.synthesis.graph.lang.KotlinLanguageExtractor;
+import io.exoreaction.synthesis.graph.lang.LanguageExtractor;
 import io.exoreaction.synthesis.graph.lang.RawEdge;
 import io.exoreaction.synthesis.graph.lang.ResolutionKey;
 import io.exoreaction.synthesis.graph.lang.Resolver;
@@ -58,47 +60,6 @@ public class CodeGraphExtractor {
             "(?:\\b(?:from|import)\\s+|require\\s*\\()['\"]([^'\"]+)['\"]",
             Pattern.MULTILINE);
 
-    /**
-     * Kotlin import. Unlike Java, the trailing {@code ;} is optional and imports may carry
-     * an {@code as} alias ({@code import com.foo.Bar as Baz} -- alias is ignored, only the
-     * FQN is captured) or a wildcard suffix ({@code import com.foo.*} -- caller drops these,
-     * see {@link #extractKotlinImports}).
-     */
-    private static final Pattern KOTLIN_IMPORT = Pattern.compile(
-            "^import\\s+([\\w.]+(?:\\.\\*)?)(?:\\s+as\\s+\\w+)?\\s*(?:;|$)", Pattern.MULTILINE);
-
-    private static final Pattern KOTLIN_PACKAGE = Pattern.compile(
-            "^package\\s+([\\w.]+)\\s*(?:;|$)", Pattern.MULTILINE);
-
-    /**
-     * Matches a top-level Kotlin type declaration ({@code class}/{@code interface}/{@code object},
-     * optionally prefixed with modifiers -- {@code data}, {@code sealed}, {@code enum}, {@code value},
-     * {@code annotation}, visibility, etc. -- which Kotlin allows in front of the bare keyword rather
-     * than as compound keywords). No leading {@code \s*} before the anchor: nested/inner declarations
-     * are indented in idiomatic Kotlin (ktlint/detekt-enforced in this codebase, verified against
-     * real tvimenning-template source), so requiring column-0 is a cheap, effective filter against
-     * matching non-top-level classes -- a real parser would use scope tracking instead.
-     *
-     * <p>Group 1: type name. Group 2 (optional): raw supertype list text after {@code :}, up to
-     * {@code {} or end of line -- fed to {@link #splitKotlinSupertypes} for cleanup. Constructor-arg
-     * parens and generic angle-brackets are matched non-greedily and are assumed non-nested (no
-     * default-value calls like {@code = foo()} inside the primary constructor); this mirrors the
-     * existing {@code JAVA_IMPLEMENTS} pattern's equally naive comma-split, not a regression.
-     *
-     * <p>{@code fun} appears in the modifier list for {@code fun interface} (SAM) declarations.
-     * This cannot mis-match a top-level function: the regex still requires a following
-     * {@code class}/{@code interface}/{@code object} keyword.
-     */
-    private static final Pattern KOTLIN_TOPLEVEL_DECL = Pattern.compile(
-            "^(?:@[\\w.]+(?:\\([^)]*\\))?\\s*)*"
-                    + "(?:(?:public|private|protected|internal|open|sealed|abstract|final|inner|data|enum|value|annotation|fun)\\s+)*"
-                    + "(?:class|interface|object)\\s+"
-                    + "([A-Z]\\w*)"
-                    + "(?:\\s*<[^<>]*>)?"
-                    + "(?:\\s*\\([^()]*\\))?"
-                    + "(?:\\s*:\\s*([^{\\n]+))?",
-            Pattern.MULTILINE);
-
     /** Directory names excluded by default (duplicates, vendored code). */
     private static final Set<String> ARCHIVE_DIR_NAMES = Set.of(
             "archive", "vendor", "node_modules"
@@ -107,6 +68,7 @@ public class CodeGraphExtractor {
     private final CodeGraphRepository repository;
     private final CrossFormatLinker crossFormatLinker;
     private final JavaLanguageExtractor javaExtractor = new JavaLanguageExtractor();
+    private final KotlinLanguageExtractor kotlinExtractor = new KotlinLanguageExtractor();
     private boolean includeArchives = false;
 
     public CodeGraphExtractor() {
@@ -145,60 +107,32 @@ public class CodeGraphExtractor {
         repository.deleteAllDependencies(conn, wsPath);
         repository.deleteAllCrossFormatLinks(conn, wsPath);
 
-        // Java pass 1 (declarations): discover files + register declared FQNs.
-        List<Path> javaFiles = javaExtractor.findFiles(workspaceRoot, new ExclusionRules(includeArchives));
+        // Pass 1 (declarations, always full): discover files, register declared FQNs, and
+        // collect any per-language resolver fallback indexes. Java + Kotlin share the FQN
+        // resolution machinery, so both declare into the same index before any edge resolves.
+        ExclusionRules excl = new ExclusionRules(includeArchives);
         Map<String, String> classToFile = new HashMap<>();
+        Map<String, List<String>> packageFunctionFiles = new HashMap<>();
         Set<String> packages = new HashSet<>();
+
+        List<Path> javaFiles = javaExtractor.findFiles(workspaceRoot, excl);
         List<Map.Entry<Path, List<Declaration>>> javaWork =
-                registerJavaDeclarations(workspaceRoot, javaFiles, classToFile, packages);
+                registerDeclarations(javaExtractor, workspaceRoot, javaFiles, classToFile, packageFunctionFiles, packages);
 
-        // Merge in Kotlin declarations BEFORE building the simple-name index, so Java<->Kotlin
-        // cross-references resolve correctly in mixed repos (Kotlin imports are FQN-based just
-        // like Java's, so it shares this same resolution machinery rather than needing a new
-        // path-based resolver like the TypeScript support below).
-        List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
-        KotlinIndexes kotlinIndexes = buildKotlinIndexes(kotlinFiles, workspaceRoot);
-        classToFile.putAll(kotlinIndexes.classToFile());
-        Map<String, List<String>> kotlinPackageFunctionFiles = kotlinIndexes.packageFunctionFiles();
+        List<Path> kotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
+        List<Map.Entry<Path, List<Declaration>>> kotlinWork =
+                registerDeclarations(kotlinExtractor, workspaceRoot, kotlinFiles, classToFile, packageFunctionFiles, packages);
 
-        // Build simple-name-to-FQN index for extends/implements/supertype resolution
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
-        Resolver resolver = new Resolver(classToFile, simpleNameIndex, kotlinPackageFunctionFiles);
+        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles);
 
-        int dependenciesFound = 0;
-        int externalDeps = 0;
         long now = Instant.now().getEpochSecond();
 
-        // Java pass 2 (edges): resolve each edge against the full index and persist a row.
-        for (Map.Entry<Path, List<Declaration>> work : javaWork) {
-            Path javaFile = work.getKey();
-            String relPath = workspaceRoot.relativize(javaFile).toString();
-            try {
-                String content = FileUtils.readPreview(javaFile, 50_000);
-                String repoName = detectRepoName(workspaceRoot, javaFile);
-                for (RawEdge edge : javaExtractor.edges(javaFile, content, work.getValue())) {
-                    String targetFile = resolver.resolve(edge.to());
-                    boolean external = (targetFile == null);
-                    CodeDependency dep = new CodeDependency(
-                            wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
-                            targetFile, edge.targetClass(), edge.targetPackage(),
-                            edge.dependencyType(), external, now);
-                    repository.upsertDependency(conn, dep);
-                    dependenciesFound++;
-                    if (external) externalDeps++;
-                }
-            } catch (IOException e) {
-                LOG.fine("Skipping unreadable file: " + javaFile + ": " + e.getMessage());
-            }
-        }
-
-        // Kotlin support: reuses the merged classToFile/simpleNameIndex built above, same
-        // resolution machinery as Java (see extractKotlinFiles for why this differs from TS).
-        KtExtractionTotals ktTotals = extractKotlinFiles(
-                workspaceRoot, conn, kotlinFiles, classToFile, simpleNameIndex,
-                kotlinPackageFunctionFiles, packages, now);
-        dependenciesFound += ktTotals.dependencies();
-        externalDeps += ktTotals.external();
+        // Pass 2 (edges): resolve each edge against the full index and persist rows.
+        EdgeTotals javaTotals = persistEdges(javaExtractor, workspaceRoot, javaWork, resolver, conn, wsPath, now);
+        EdgeTotals kotlinTotals = persistEdges(kotlinExtractor, workspaceRoot, kotlinWork, resolver, conn, wsPath, now);
+        int dependenciesFound = javaTotals.dependencies() + kotlinTotals.dependencies();
+        int externalDeps = javaTotals.external() + kotlinTotals.external();
 
         // TypeScript / TSX support (#323): mirror the Java extraction so impact and
         // graph queries see edges for Bun/NodeNext projects.
@@ -231,20 +165,19 @@ public class CodeGraphExtractor {
         long start = System.currentTimeMillis();
         String wsPath = workspaceRoot.toString();
 
-        // Build full FQN-to-file map (we need it for resolving imports)
-        List<Path> allJavaFiles = javaExtractor.findFiles(workspaceRoot, new ExclusionRules(includeArchives));
-        Map<String, String> classToFile = new HashMap<>();
-        registerJavaDeclarations(workspaceRoot, allJavaFiles, classToFile, null);
-
-        // Merge in Kotlin declarations across the whole workspace (not just changedFiles) so
+        // Build the full FQN-to-file index across the whole workspace (both languages) so
         // resolution is correct even when only one side of a Java<->Kotlin reference changed.
-        List<Path> allKotlinFiles = findKotlinFiles(workspaceRoot);
-        KotlinIndexes kotlinIndexes = buildKotlinIndexes(allKotlinFiles, workspaceRoot);
-        classToFile.putAll(kotlinIndexes.classToFile());
-        Map<String, List<String>> kotlinPackageFunctionFiles = kotlinIndexes.packageFunctionFiles();
+        ExclusionRules excl = new ExclusionRules(includeArchives);
+        Map<String, String> classToFile = new HashMap<>();
+        Map<String, List<String>> packageFunctionFiles = new HashMap<>();
+
+        List<Path> allJavaFiles = javaExtractor.findFiles(workspaceRoot, excl);
+        registerDeclarations(javaExtractor, workspaceRoot, allJavaFiles, classToFile, packageFunctionFiles, null);
+        List<Path> allKotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
+        registerDeclarations(kotlinExtractor, workspaceRoot, allKotlinFiles, classToFile, packageFunctionFiles, null);
 
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
-        Resolver resolver = new Resolver(classToFile, simpleNameIndex, kotlinPackageFunctionFiles);
+        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles);
 
         // TypeScript path index for resolving incremental TS imports (#323).
         List<Path> allTsFiles = findTypeScriptFiles(workspaceRoot);
@@ -282,42 +215,19 @@ public class CodeGraphExtractor {
             if (isKotlin) {
                 // Delete old edges for this Kotlin file and re-extract.
                 repository.deleteDependenciesForFile(conn, wsPath, relPath);
-                KtExtractionTotals fileTotals = extractKotlinFile(
-                        workspaceRoot, conn, fullPath, classToFile, simpleNameIndex,
-                        kotlinPackageFunctionFiles, packages, now);
-                dependenciesFound += fileTotals.dependencies();
-                externalDeps += fileTotals.external();
+                EdgeTotals kt = persistChangedFile(kotlinExtractor, workspaceRoot, fullPath,
+                        resolver, packages, conn, wsPath, relPath, now);
+                dependenciesFound += kt.dependencies();
+                externalDeps += kt.external();
                 continue;
             }
 
-            // Delete old edges for this file
+            // Delete old edges for this file, then re-extract.
             repository.deleteDependenciesForFile(conn, wsPath, relPath);
-
-            try {
-                String content = FileUtils.readPreview(fullPath, 50_000);
-                String repoName = detectRepoName(workspaceRoot, fullPath);
-
-                List<Declaration> decls = javaExtractor.declarations(fullPath, content);
-                for (Declaration d : decls) {
-                    if (d.key() instanceof ResolutionKey.FqnKey fk) {
-                        String p = Resolver.getPackageFromImport(fk.fqn());
-                        if (!p.isEmpty()) packages.add(p);
-                    }
-                }
-                for (RawEdge edge : javaExtractor.edges(fullPath, content, decls)) {
-                    String targetFile = resolver.resolve(edge.to());
-                    boolean external = (targetFile == null);
-                    CodeDependency dep = new CodeDependency(
-                            wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
-                            targetFile, edge.targetClass(), edge.targetPackage(),
-                            edge.dependencyType(), external, now);
-                    repository.upsertDependency(conn, dep);
-                    dependenciesFound++;
-                    if (external) externalDeps++;
-                }
-            } catch (IOException e) {
-                LOG.fine("Skipping unreadable file: " + fullPath + ": " + e.getMessage());
-            }
+            EdgeTotals jv = persistChangedFile(javaExtractor, workspaceRoot, fullPath,
+                    resolver, packages, conn, wsPath, relPath, now);
+            dependenciesFound += jv.dependencies();
+            externalDeps += jv.external();
         }
 
         long elapsed = System.currentTimeMillis() - start;
@@ -332,24 +242,30 @@ public class CodeGraphExtractor {
         return repository;
     }
 
+    /** Per-language edge counters accumulated across a pass. */
+    private record EdgeTotals(int dependencies, int external) {}
+
     /**
-     * Java pass 1: reads each file's package/class declaration (via
-     * {@link JavaLanguageExtractor#declarations}) and registers the resulting
-     * FQN -> relative-path entries in {@code classToFile}. Returns the per-file
-     * work list (file + its declarations) so pass 2 can emit edges without a
-     * second declaration parse. Mirrors the former {@code buildClassToFileMap},
-     * including its filename-stem fallback for an unreadable file.
+     * Pass 1 for a language (always full): reads each file, registers its declared
+     * FQN -> relative-path entries in {@code classToFile}, and merges any per-language
+     * package-fallback entries into {@code packageFunctionFiles}. Returns the per-file
+     * work list (file + declarations) for pass 2. Language-agnostic: the fallback merge
+     * is driven by {@link LanguageExtractor#packageFallbackFiles} (empty for languages
+     * that need none). Mirrors the former index builders, including the filename-stem
+     * fallback for an unreadable file.
      *
      * @param packages if non-null, each declared package is added here (stats)
      */
-    private List<Map.Entry<Path, List<Declaration>>> registerJavaDeclarations(
-            Path root, List<Path> javaFiles, Map<String, String> classToFile, Set<String> packages) {
+    private List<Map.Entry<Path, List<Declaration>>> registerDeclarations(
+            LanguageExtractor lang, Path root, List<Path> files,
+            Map<String, String> classToFile, Map<String, List<String>> packageFunctionFiles,
+            Set<String> packages) {
         List<Map.Entry<Path, List<Declaration>>> work = new ArrayList<>();
-        for (Path f : javaFiles) {
+        for (Path f : files) {
             String rel = root.relativize(f).toString();
             try {
-                String content = FileUtils.readPreview(f, 2_000);
-                List<Declaration> decls = javaExtractor.declarations(f, content);
+                String content = FileUtils.readPreview(f, 50_000);
+                List<Declaration> decls = lang.declarations(f, content);
                 for (Declaration d : decls) {
                     if (d.key() instanceof ResolutionKey.FqnKey fk) {
                         classToFile.put(fk.fqn(), rel);
@@ -359,14 +275,91 @@ public class CodeGraphExtractor {
                         }
                     }
                 }
+                lang.packageFallbackFiles(f, content, decls).forEach((pkg, pfiles) -> {
+                    List<String> bucket = packageFunctionFiles.computeIfAbsent(pkg, k -> new ArrayList<>());
+                    for (Path pf : pfiles) bucket.add(root.relativize(pf).toString());
+                });
                 work.add(Map.entry(f, decls));
             } catch (IOException e) {
-                // Fallback (as buildClassToFileMap did): key on the filename stem.
+                // Fallback (as the former index builders did): key on the filename stem.
                 String n = f.getFileName().toString();
-                classToFile.put(n.endsWith(".java") ? n.substring(0, n.length() - 5) : n, rel);
+                int dot = n.lastIndexOf('.');
+                classToFile.put(dot > 0 ? n.substring(0, dot) : n, rel);
             }
         }
         return work;
+    }
+
+    /**
+     * Pass 2 for a language (scoped to {@code work}; full when non-incremental): emits each
+     * file's edges, resolves each target against the shared {@code resolver}, and persists a
+     * {@code code_dependencies} row.
+     */
+    private EdgeTotals persistEdges(LanguageExtractor lang, Path root,
+            List<Map.Entry<Path, List<Declaration>>> work, Resolver resolver,
+            Connection conn, String wsPath, long now) throws SQLException {
+        int deps = 0;
+        int external = 0;
+        for (Map.Entry<Path, List<Declaration>> w : work) {
+            Path f = w.getKey();
+            String relPath = root.relativize(f).toString();
+            try {
+                String content = FileUtils.readPreview(f, 50_000);
+                String repoName = detectRepoName(root, f);
+                for (RawEdge edge : lang.edges(f, content, w.getValue())) {
+                    String targetFile = resolver.resolve(edge.to());
+                    boolean isExternal = (targetFile == null);
+                    CodeDependency dep = new CodeDependency(
+                            wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
+                            targetFile, edge.targetClass(), edge.targetPackage(),
+                            edge.dependencyType(), isExternal, now);
+                    repository.upsertDependency(conn, dep);
+                    deps++;
+                    if (isExternal) external++;
+                }
+            } catch (IOException e) {
+                LOG.fine("Skipping unreadable file: " + f + ": " + e.getMessage());
+            }
+        }
+        return new EdgeTotals(deps, external);
+    }
+
+    /**
+     * Incremental pass 2 for a single changed file: derives the file's declared packages
+     * (stats) and persists its edges (targets resolved against the full {@code resolver}).
+     * The caller has already deleted the file's old rows.
+     */
+    private EdgeTotals persistChangedFile(LanguageExtractor lang, Path root, Path file,
+            Resolver resolver, Set<String> packages, Connection conn, String wsPath,
+            String relPath, long now) throws SQLException {
+        try {
+            String content = FileUtils.readPreview(file, 50_000);
+            String repoName = detectRepoName(root, file);
+            List<Declaration> decls = lang.declarations(file, content);
+            for (Declaration d : decls) {
+                if (d.key() instanceof ResolutionKey.FqnKey fk) {
+                    String pkg = Resolver.getPackageFromImport(fk.fqn());
+                    if (!pkg.isEmpty()) packages.add(pkg);
+                }
+            }
+            int deps = 0;
+            int external = 0;
+            for (RawEdge edge : lang.edges(file, content, decls)) {
+                String targetFile = resolver.resolve(edge.to());
+                boolean isExternal = (targetFile == null);
+                CodeDependency dep = new CodeDependency(
+                        wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
+                        targetFile, edge.targetClass(), edge.targetPackage(),
+                        edge.dependencyType(), isExternal, now);
+                repository.upsertDependency(conn, dep);
+                deps++;
+                if (isExternal) external++;
+            }
+            return new EdgeTotals(deps, external);
+        } catch (IOException e) {
+            LOG.fine("Skipping unreadable file: " + file + ": " + e.getMessage());
+            return new EdgeTotals(0, 0);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -685,299 +678,4 @@ public class CodeGraphExtractor {
         return last.isBlank() ? spec : last;
     }
 
-    // -----------------------------------------------------------------------
-    // Kotlin support
-    // -----------------------------------------------------------------------
-
-    private record KtExtractionTotals(int dependencies, int external) {}
-
-    /** A top-level Kotlin declaration found via {@link #KOTLIN_TOPLEVEL_DECL}. */
-    record KotlinDecl(String name, List<String> supertypes) {}
-
-    /**
-     * Walks the workspace for {@code .kt} files, applying the same exclusion rules as
-     * {@link #findTypeScriptFiles} (build artifacts, archive directories, hidden dirs) --
-     * no {@code identifyNonJavaRepos}-style repo-skip logic is needed here, mirroring how
-     * TS handles this (#323). {@code .kts} script files (Gradle Kotlin DSL, build scripts)
-     * are excluded -- they aren't application source.
-     */
-    List<Path> findKotlinFiles(Path root) throws IOException {
-        List<Path> files = new ArrayList<>();
-        try (Stream<Path> walk = Files.walk(root)) {
-            Stream<Path> filtered = walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".kt"))
-                    .filter(p -> !p.toString().contains("/."))
-                    .filter(p -> !isBuildArtifact(root, p));
-            if (!includeArchives) {
-                filtered = filtered.filter(p -> !isArchiveDirectory(root, p));
-            }
-            filtered.forEach(files::add);
-        }
-        return files;
-    }
-
-    /**
-     * Extracts non-wildcard import FQNs from Kotlin source. Wildcard imports
-     * ({@code import x.*}) are dropped -- they don't name a specific class to resolve,
-     * matching how {@code JAVA_IMPORT}'s stricter {@code ;}-terminated pattern already
-     * fails to match Java wildcard imports today (pre-existing behavior, not a regression).
-     */
-    List<String> extractKotlinImports(String content) {
-        List<String> imports = new ArrayList<>();
-        Matcher m = KOTLIN_IMPORT.matcher(content);
-        while (m.find()) {
-            String imp = m.group(1);
-            if (imp != null && !imp.endsWith(".*")) {
-                imports.add(imp);
-            }
-        }
-        return imports;
-    }
-
-    String extractKotlinPackage(String content) {
-        Matcher m = KOTLIN_PACKAGE.matcher(content);
-        return m.find() ? m.group(1) : null;
-    }
-
-    /**
-     * Fallback identity for a Kotlin file with no top-level type declaration (e.g. an
-     * extension-function-only utility file like {@code StringExt.kt}).
-     */
-    String extractKotlinFileClassName(Path ktFile) {
-        String name = ktFile.getFileName().toString();
-        return name.endsWith(".kt") ? name.substring(0, name.length() - 3) : name;
-    }
-
-    /**
-     * Picks which of a Kotlin file's top-level declarations owns the file's import edges.
-     *
-     * <p>Unlike Java (compiler-enforced: the one public top-level type must match the
-     * filename), Kotlin allows several public top-level declarations per file in any order,
-     * so "first declared" is an arbitrary tie-break with no correctness guarantee -- e.g. a
-     * {@code data class} response type declared above the file's actual primary class would
-     * silently steal all of that class's import edges. Prefer the declaration whose name
-     * matches the filename (Kotlin's own strong convention, same one
-     * {@link #extractKotlinFileClassName} assumes); fall back to the first declaration only
-     * when nothing matches.
-     */
-    String choosePrimaryClass(List<KotlinDecl> decls, Path ktFile) {
-        String fileBasedName = extractKotlinFileClassName(ktFile);
-        if (decls.isEmpty()) return fileBasedName;
-        return decls.stream()
-                .filter(d -> d.name().equals(fileBasedName))
-                .findFirst()
-                .map(KotlinDecl::name)
-                .orElse(decls.get(0).name());
-    }
-
-    /**
-     * Finds every top-level type declaration in a Kotlin file. Unlike Java, one file may
-     * declare zero (a pure extension-function/utility file), one, or several top-level
-     * classes/interfaces/objects -- the filename-equals-classname convention
-     * {@code JavaLanguageExtractor.extractClassName} relies on for Java is only a convention in Kotlin, not
-     * enforced by the compiler.
-     */
-    List<KotlinDecl> findKotlinTopLevelDecls(String content) {
-        List<KotlinDecl> decls = new ArrayList<>();
-        Matcher m = KOTLIN_TOPLEVEL_DECL.matcher(content);
-        while (m.find()) {
-            decls.add(new KotlinDecl(m.group(1), splitKotlinSupertypes(m.group(2))));
-        }
-        return decls;
-    }
-
-    /**
-     * Cleans a raw {@code : A(), B<T>} supertype-list capture into simple type names.
-     * Strips constructor-call parens and generic angle-brackets (both assumed non-nested --
-     * see {@link #KOTLIN_TOPLEVEL_DECL}'s caveat) before splitting on top-level commas.
-     */
-    List<String> splitKotlinSupertypes(String raw) {
-        if (raw == null) return List.of();
-        String cleaned = raw
-                .replaceAll("<[^<>]*>", "")
-                .replaceAll("\\([^()]*\\)", "");
-        List<String> names = new ArrayList<>();
-        for (String part : cleaned.split(",")) {
-            String name = part.trim();
-            if (name.matches("[A-Za-z_][\\w.]*")) {
-                names.add(Resolver.getSimpleClassName(name));
-            }
-        }
-        return names;
-    }
-
-    /** Combined result of {@link #buildKotlinIndexes}. */
-    private record KotlinIndexes(Map<String, String> classToFile, Map<String, List<String>> packageFunctionFiles) {}
-
-    /**
-     * Single read+regex pass over {@code kotlinFiles} that builds both the FQN -> file index
-     * ({@link #buildKotlinClassToFileMap}'s contract) and the package -> function-only-file
-     * index ({@link #buildKotlinPackageFunctionFileIndex}'s contract) together. The two were
-     * previously independent loops, each re-reading and re-parsing every Kotlin file with
-     * {@link FileUtils#readPreview} + {@link #findKotlinTopLevelDecls} -- merged here so the
-     * two production call sites ({@link #extractAndPersist} and the incremental path) only
-     * pay for one I/O + regex pass per file. Per-file logic is unchanged from the two original
-     * methods.
-     */
-    private KotlinIndexes buildKotlinIndexes(List<Path> kotlinFiles, Path workspaceRoot) {
-        Map<String, String> classToFile = new HashMap<>();
-        Map<String, List<String>> packageFunctionFiles = new HashMap<>();
-        for (Path f : kotlinFiles) {
-            String relPath = workspaceRoot.relativize(f).toString();
-            try {
-                String content = FileUtils.readPreview(f, 50_000);
-                String pkg = extractKotlinPackage(content);
-                List<KotlinDecl> decls = findKotlinTopLevelDecls(content);
-                if (decls.isEmpty()) {
-                    String fallback = extractKotlinFileClassName(f);
-                    classToFile.put(pkg != null ? pkg + "." + fallback : fallback, relPath);
-                    packageFunctionFiles.computeIfAbsent(pkg != null ? pkg : "", k -> new ArrayList<>()).add(relPath);
-                } else {
-                    for (KotlinDecl decl : decls) {
-                        classToFile.put(pkg != null ? pkg + "." + decl.name() : decl.name(), relPath);
-                    }
-                }
-            } catch (IOException e) {
-                classToFile.put(extractKotlinFileClassName(f), relPath);
-            }
-        }
-        return new KotlinIndexes(classToFile, packageFunctionFiles);
-    }
-
-    /**
-     * Builds FQN -> file entries for every top-level Kotlin declaration in {@code kotlinFiles},
-     * to be merged into the same map Java uses ({@code JavaLanguageExtractor} declarations) so Java<->Kotlin
-     * cross-references resolve correctly in mixed repos. A file with zero declarations gets one
-     * filename-derived fallback entry (mirrors Java's filename-based behavior) so it still has
-     * a stable identity for edge attribution.
-     *
-     * <p>Delegates to {@link #buildKotlinIndexes}; kept as its own method (rather than inlined
-     * at call sites) since it's exercised directly by unit tests.
-     */
-    Map<String, String> buildKotlinClassToFileMap(List<Path> kotlinFiles, Path workspaceRoot) {
-        return buildKotlinIndexes(kotlinFiles, workspaceRoot).classToFile();
-    }
-
-    /**
-     * Builds package -> [file] index for Kotlin files with zero top-level type declarations
-     * (pure top-level-function/property files, e.g. {@code Utils.kt} containing only
-     * {@code fun doThing()}). The Kotlin compiler compiles such declarations into a synthetic
-     * {@code <FileName>Kt} facade class, but source-level imports name the function directly
-     * ({@code import pkg.doThing}), never the facade ({@code import pkg.UtilsKt}) -- so
-     * {@link #buildKotlinClassToFileMap}'s FQN map can never contain a matching key for these
-     * imports. This index lets {@link #extractKotlinFile} fall back to same-package resolution:
-     * if exactly one function-only file exists in the imported symbol's package, attribute the
-     * edge to it. Ambiguous (more than one candidate) or empty stays external -- same
-     * conservative default as today, just narrowed to the genuinely unresolvable cases.
-     *
-     * <p>Delegates to {@link #buildKotlinIndexes}; kept as its own method (rather than inlined
-     * at call sites) since it's exercised directly by unit tests.
-     */
-    Map<String, List<String>> buildKotlinPackageFunctionFileIndex(List<Path> kotlinFiles, Path workspaceRoot) {
-        return buildKotlinIndexes(kotlinFiles, workspaceRoot).packageFunctionFiles();
-    }
-
-    private KtExtractionTotals extractKotlinFiles(Path workspaceRoot, Connection conn,
-                                                   List<Path> kotlinFiles,
-                                                   Map<String, String> classToFile,
-                                                   Map<String, List<String>> simpleNameIndex,
-                                                   Map<String, List<String>> packageFunctionFiles,
-                                                   Set<String> packages,
-                                                   long now) throws SQLException {
-        int deps = 0;
-        int external = 0;
-        for (Path ktFile : kotlinFiles) {
-            KtExtractionTotals fileTotals = extractKotlinFile(
-                    workspaceRoot, conn, ktFile, classToFile, simpleNameIndex,
-                    packageFunctionFiles, packages, now);
-            deps += fileTotals.dependencies();
-            external += fileTotals.external();
-        }
-        return new KtExtractionTotals(deps, external);
-    }
-
-    /**
-     * Extracts and persists import + supertype dependency edges for a single Kotlin file,
-     * using the shared FQN map built across Java + Kotlin for internal/external
-     * classification -- the same resolution machinery the Java loop in
-     * {@link #extractAndPersist} uses, not a new path-based resolver like TypeScript needed.
-     * Structural (supertype) edges use dependency type {@code "supertype"}, distinct from
-     * Java's separate {@code "extends"}/{@code "implements"} types since Kotlin's colon-based
-     * inheritance syntax doesn't distinguish the two at the syntax level.
-     */
-    private KtExtractionTotals extractKotlinFile(Path workspaceRoot, Connection conn,
-                                                  Path ktFile,
-                                                  Map<String, String> classToFile,
-                                                  Map<String, List<String>> simpleNameIndex,
-                                                  Map<String, List<String>> packageFunctionFiles,
-                                                  Set<String> packages,
-                                                  long now) throws SQLException {
-        int deps = 0;
-        int external = 0;
-        String wsPath = workspaceRoot.toString();
-        String relPath = workspaceRoot.relativize(ktFile).toString();
-        String repoName = detectRepoName(workspaceRoot, ktFile);
-
-        String content;
-        try {
-            content = FileUtils.readPreview(ktFile, 50_000);
-        } catch (IOException e) {
-            LOG.fine("Skipping unreadable file: " + ktFile + ": " + e.getMessage());
-            return new KtExtractionTotals(0, 0);
-        }
-
-        String packageName = extractKotlinPackage(content);
-        if (packageName != null) packages.add(packageName);
-        List<KotlinDecl> decls = findKotlinTopLevelDecls(content);
-        String primaryClass = choosePrimaryClass(decls, ktFile);
-
-        for (String imp : extractKotlinImports(content)) {
-            String targetClass = Resolver.getSimpleClassName(imp);
-            String targetPackage = Resolver.getPackageFromImport(imp);
-            String targetFile = classToFile.get(imp);
-
-            // Fallback for imports of top-level functions/properties: these have no
-            // classToFile entry (see buildKotlinPackageFunctionFileIndex) because the import
-            // names the symbol directly, not the compiler-synthesized <FileName>Kt facade.
-            // Only resolve when exactly one function-only file exists in the target package --
-            // ambiguous cases stay external rather than guess.
-            if (targetFile == null) {
-                List<String> candidates = packageFunctionFiles.get(targetPackage);
-                if (candidates != null && candidates.size() == 1) {
-                    targetFile = candidates.get(0);
-                }
-            }
-            boolean isExternal = (targetFile == null);
-
-            CodeDependency dep = new CodeDependency(
-                    wsPath, repoName, relPath, primaryClass,
-                    packageName != null ? packageName : "",
-                    targetFile, targetClass, targetPackage != null ? targetPackage : "",
-                    "import", isExternal, now);
-            repository.upsertDependency(conn, dep);
-            deps++;
-            if (isExternal) external++;
-        }
-
-        for (KotlinDecl decl : decls) {
-            for (String supertype : decl.supertypes()) {
-                if (supertype.equals(decl.name())) continue; // guard against a malformed capture
-                String targetFile = Resolver.lookupBySimpleName(supertype,
-                        packageName != null ? packageName : "", classToFile, simpleNameIndex);
-                boolean isExternal = (targetFile == null);
-
-                CodeDependency dep = new CodeDependency(
-                        wsPath, repoName, relPath, decl.name(),
-                        packageName != null ? packageName : "",
-                        targetFile, supertype, "",
-                        "supertype", isExternal, now);
-                repository.upsertDependency(conn, dep);
-                deps++;
-                if (isExternal) external++;
-            }
-        }
-
-        return new KtExtractionTotals(deps, external);
-    }
 }
