@@ -91,14 +91,14 @@ duplication, gate green every step). Shared exclusion predicates `isBuildArtifac
 1. ✅ Value types (`ResolutionKey`+records, `EdgeKind`, `Declaration`, `RawEdge`, `ResolutionRef`). Compile only. `883806f`
 2. ✅ `Resolver` — FQN/simple-name algorithms verbatim; 5 white-box tests → `ResolverTest`. `3c105f2`
 3. ✅ `LanguageExtractor` interface + `Ext` + `ExclusionRules`. Pure additions. `53f3169`
-4. `JavaLanguageExtractor` slice — impl (findFiles/declarations/edges) + introduce the two-pass over a
-   `REGISTRY` holding only Java; delete inline Java; relocate Java white-box tests → `JavaLanguageExtractorTest`.
-5. `KotlinLanguageExtractor` slice — add to `REGISTRY`; delete inline Kotlin; relocate white-box + pinned
-   tests (regexes intact) → `KotlinLanguageExtractorTest`.
-6. `TypeScriptLanguageExtractor` slice — add to `REGISTRY`; move TS path resolution into `Resolver`;
-   delete inline TS; relocate TS white-box tests (if any).
-7. Final orchestrator tidy: keep cross-format a separate step; delete dead gap #1 `classToFile` param.
-8. Full `mvn test`; confirm orchestrator has no per-language extraction code (acceptance, `git diff`).
+4. ✅ `JavaLanguageExtractor` slice — impl + two-pass + inline-Java delete + 13 tests relocated. `4be2cb0`
+5. ✅ `KotlinLanguageExtractor` slice — added; inline Kotlin deleted; 18 tests relocated (pinned regexes intact). `a4f2753`
+6. ✅ `TypeScriptLanguageExtractor` slice — added; TS path resolution → `Resolver`; inline TS deleted.
+   Prereq gate: 6 TS characterization tests written first against inline TS (`6ecff40`), since TS had
+   zero coverage (safety-net-first). `66f0c8d`
+7. ✅ Orchestrator tidy — inlined `REGISTRY` loop + `extractorFor` dispatch; gap #1 param deleted;
+   stale javadocs/imports cleaned. `88f1031`
+8. ✅ Full `mvn test` 4803/0; orchestrator holds no per-language extraction code (467 lines from ~1150).
 
 Each step: one commit, `extractAndPersist_*`/`incrementalUpdate_*` + relocated tests green.
 
@@ -110,6 +110,18 @@ Each step: one commit, `extractAndPersist_*`/`incrementalUpdate_*` + relocated t
 - **`PackageKey` / Go — deferred (issue #463).** Issue #463 rules Go/`PackageKey` **out of scope**; the seam
   must accept it with zero orchestrator edits. `PackageKey` is added in the Go PR (one-line
   `permits` edit in `ResolutionKey`, not an orchestrator edit). *(was Open #2)*
+
+## Resolver-population hooks (ADR left the mechanism open; user-approved, consistent)
+
+The ADR says the `Resolver` owns the indexes for its **4 existing algorithms** (ADR:71) but does
+not say how the two non-FQN indexes get populated. Resolved consistently (both = an opt-in default
+hook on `LanguageExtractor`; orchestrator merges generically; non-contributing languages leave empty;
+Go stays a one-line REGISTRY add):
+- **Kotlin** top-level-function fallback (algorithm #3) → `packageFallbackFiles(file, content, decls)`.
+- **TypeScript** path index (algorithm #4) → `pathIndex(root, file, content)`; plus `Resolver.resolve`
+  gains a `sourceRelPath` param (orchestrator supplies it) since TS resolution is path-relative.
+Core 6 seam methods unchanged; the deviations are the population detail the ADR under-specified,
+resolved in the direction the ADR points (orchestrator generic, languages self-contained).
 
 ## Settled at step 1 — value-type shapes (faithful to existing code)
 
