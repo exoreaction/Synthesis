@@ -1,6 +1,8 @@
 package io.exoreaction.synthesis.graph.lang;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,18 +23,22 @@ public class Resolver {
     private final Map<String, String> classToFile;
     private final Map<String, List<String>> simpleNameIndex;
     private final Map<String, List<String>> packageFunctionFiles;
+    private final Map<String, String> tsPathIndex;
 
     /**
      * @param classToFile          FQN (or bare simple name when unpackaged) to workspace-relative path
      * @param simpleNameIndex      simple class name to the FQN keys carrying it
      * @param packageFunctionFiles package to Kotlin function-only files (for the Kotlin import fallback)
+     * @param tsPathIndex          module-path stem to workspace-relative file (TypeScript resolution)
      */
     public Resolver(Map<String, String> classToFile,
                     Map<String, List<String>> simpleNameIndex,
-                    Map<String, List<String>> packageFunctionFiles) {
+                    Map<String, List<String>> packageFunctionFiles,
+                    Map<String, String> tsPathIndex) {
         this.classToFile = classToFile;
         this.simpleNameIndex = simpleNameIndex;
         this.packageFunctionFiles = packageFunctionFiles;
+        this.tsPathIndex = tsPathIndex;
     }
 
     /**
@@ -40,14 +46,13 @@ public class Resolver {
      * {@code null} when unresolved (external). Dispatches each subtype to the
      * existing algorithm verbatim.
      */
-    public String resolve(ResolutionRef ref) {
+    public String resolve(ResolutionRef ref, String sourceRelPath) {
         return switch (ref) {
             case ResolutionRef.FqnRef f -> resolveFqn(f);
             case ResolutionRef.SimpleNameRef s ->
                     lookupBySimpleName(s.simpleName(), s.sourcePackage(), classToFile, simpleNameIndex);
             case ResolutionRef.ModulePathRef m ->
-                    throw new UnsupportedOperationException(
-                            "TypeScript path resolution is wired into Resolver in step 6");
+                    resolveTypeScriptImport(m.specifier(), sourceRelPath, tsPathIndex);
         };
     }
 
@@ -117,5 +122,68 @@ public class Resolver {
     public static String getPackageFromImport(String fullyQualified) {
         int lastDot = fullyQualified.lastIndexOf('.');
         return lastDot >= 0 ? fullyQualified.substring(0, lastDot) : "";
+    }
+
+    // -----------------------------------------------------------------------
+    // TypeScript path resolution (verbatim from CodeGraphExtractor)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Resolves a TypeScript import specifier to a workspace-relative file path, or
+     * returns {@code null} if the specifier is a bare module (npm / external).
+     *
+     * <p>Honours the {@code .js} -> {@code .ts}/{@code .tsx} rewrite required by
+     * Bun/NodeNext projects where source code imports its own files using the
+     * compiled extension (#323).
+     */
+    public static String resolveTypeScriptImport(String spec, String sourceRelPath,
+                                    Map<String, String> tsPathIndex) {
+        if (spec == null || spec.isBlank()) return null;
+        String normalized = spec.replace('\\', '/');
+        // Strip query strings or fragments occasionally seen in bundler imports.
+        int q = normalized.indexOf('?');
+        if (q >= 0) normalized = normalized.substring(0, q);
+
+        boolean relative = normalized.startsWith("./") || normalized.startsWith("../");
+        if (!relative) return null; // bare module -> external
+
+        java.nio.file.Path sourceDir = java.nio.file.Path.of(sourceRelPath).getParent();
+        String basePath = (sourceDir == null ? "" : sourceDir.toString().replace('\\', '/'));
+        String joined = basePath.isEmpty() ? normalized : basePath + "/" + normalized;
+        String resolved = normalizeRelativePath(joined);
+
+        // Attempt 1: direct lookup with whatever extension was supplied (after stripping).
+        String stem = stripTsExtension(resolved);
+        // The `.js` / `.jsx` rewrite: drop the JS extension so the stem can match `.ts`/`.tsx`.
+        if (stem.endsWith(".js")) stem = stem.substring(0, stem.length() - 3);
+        else if (stem.endsWith(".jsx")) stem = stem.substring(0, stem.length() - 4);
+
+        String hit = tsPathIndex.get(stem);
+        if (hit != null) return hit;
+
+        // Attempt 2: directory-style import -> `<stem>/index.ts(x)`.
+        return tsPathIndex.get(stem + "/index");
+    }
+
+    /** Strips a trailing {@code .ts}/{@code .tsx} extension, if present. */
+    public static String stripTsExtension(String path) {
+        if (path.endsWith(".tsx")) return path.substring(0, path.length() - 4);
+        if (path.endsWith(".ts")) return path.substring(0, path.length() - 3);
+        return path;
+    }
+
+    /** Normalizes a path segment list, collapsing {@code .} and {@code ..} entries. */
+    private static String normalizeRelativePath(String path) {
+        Deque<String> stack = new ArrayDeque<>();
+        for (String segment : path.split("/")) {
+            if (segment.isEmpty() || ".".equals(segment)) continue;
+            if ("..".equals(segment)) {
+                if (!stack.isEmpty() && !"..".equals(stack.peekLast())) stack.removeLast();
+                else stack.addLast("..");
+            } else {
+                stack.addLast(segment);
+            }
+        }
+        return String.join("/", stack);
     }
 }

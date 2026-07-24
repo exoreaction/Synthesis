@@ -65,4 +65,16 @@ public interface LanguageExtractor {
     default Map<String, List<Path>> packageFallbackFiles(Path file, String content, List<Declaration> decls) {
         return Map.of();
     }
+
+    /**
+     * Optional module-path index entries ({@code module-stem -> workspace-relative file})
+     * this language contributes to the shared resolver, for path-based (not FQN-based)
+     * resolution — TypeScript relative imports. Needs {@code root} to compute the
+     * workspace-relative stem, so it is passed here (unlike {@link #packageFallbackFiles},
+     * whose keys come from file content). Default: no contribution; FQN-resolved languages
+     * (Java, Kotlin) and a future Go leave this empty.
+     */
+    default Map<String, String> pathIndex(Path root, Path file, String content) {
+        return Map.of();
+    }
 }

@@ -32,8 +32,10 @@ public sealed interface ResolutionRef
     record SimpleNameRef(String simpleName, String sourcePackage) implements ResolutionRef {}
 
     /**
-     * TypeScript module-specifier reference (e.g. {@code './Foo.js'}). Resolves
-     * against the source file's directory and the TS path index.
+     * TypeScript module-specifier reference (e.g. {@code './Foo.js'}). Resolves against
+     * the TS path index, relative to the source file's directory. The source file's
+     * workspace-relative path is supplied to {@code Resolver.resolve} at call time (the
+     * orchestrator already has it), so it is not stored on the ref.
      */
-    record ModulePathRef(String specifier, String sourceRelPath) implements ResolutionRef {}
+    record ModulePathRef(String specifier) implements ResolutionRef {}
 }

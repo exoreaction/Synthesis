@@ -7,6 +7,7 @@ import io.exoreaction.synthesis.graph.lang.ExclusionRules;
 import io.exoreaction.synthesis.graph.lang.JavaLanguageExtractor;
 import io.exoreaction.synthesis.graph.lang.KotlinLanguageExtractor;
 import io.exoreaction.synthesis.graph.lang.LanguageExtractor;
+import io.exoreaction.synthesis.graph.lang.TypeScriptLanguageExtractor;
 import io.exoreaction.synthesis.graph.lang.RawEdge;
 import io.exoreaction.synthesis.graph.lang.ResolutionKey;
 import io.exoreaction.synthesis.graph.lang.Resolver;
@@ -41,25 +42,6 @@ public class CodeGraphExtractor {
 
     private static final Logger LOG = Logger.getLogger(CodeGraphExtractor.class.getName());
 
-    /**
-     * Matches ES6 import / require references and captures the module specifier.
-     *
-     * <p>Covers four TypeScript/JavaScript import forms:
-     * <ul>
-     *   <li>{@code import X from 'specifier'} — default import</li>
-     *   <li>{@code import { X } from 'specifier'} — named import</li>
-     *   <li>{@code import 'specifier'} — side-effect import</li>
-     *   <li>{@code require('specifier')} — CommonJS</li>
-     *   <li>{@code export ... from 'specifier'} — re-export</li>
-     * </ul>
-     * The key insight: for named / default imports the specifier follows {@code from},
-     * not {@code import} directly. Using {@code (?:from|import)\s+} as the prefix
-     * captures both cases with a single group.
-     */
-    private static final Pattern JS_TS_IMPORT = Pattern.compile(
-            "(?:\\b(?:from|import)\\s+|require\\s*\\()['\"]([^'\"]+)['\"]",
-            Pattern.MULTILINE);
-
     /** Directory names excluded by default (duplicates, vendored code). */
     private static final Set<String> ARCHIVE_DIR_NAMES = Set.of(
             "archive", "vendor", "node_modules"
@@ -69,6 +51,7 @@ public class CodeGraphExtractor {
     private final CrossFormatLinker crossFormatLinker;
     private final JavaLanguageExtractor javaExtractor = new JavaLanguageExtractor();
     private final KotlinLanguageExtractor kotlinExtractor = new KotlinLanguageExtractor();
+    private final TypeScriptLanguageExtractor tsExtractor = new TypeScriptLanguageExtractor();
     private boolean includeArchives = false;
 
     public CodeGraphExtractor() {
@@ -113,35 +96,32 @@ public class CodeGraphExtractor {
         ExclusionRules excl = new ExclusionRules(includeArchives);
         Map<String, String> classToFile = new HashMap<>();
         Map<String, List<String>> packageFunctionFiles = new HashMap<>();
+        Map<String, String> tsPathIndex = new HashMap<>();
         Set<String> packages = new HashSet<>();
 
         List<Path> javaFiles = javaExtractor.findFiles(workspaceRoot, excl);
         List<Map.Entry<Path, List<Declaration>>> javaWork =
-                registerDeclarations(javaExtractor, workspaceRoot, javaFiles, classToFile, packageFunctionFiles, packages);
+                registerDeclarations(javaExtractor, workspaceRoot, javaFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
 
         List<Path> kotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
         List<Map.Entry<Path, List<Declaration>>> kotlinWork =
-                registerDeclarations(kotlinExtractor, workspaceRoot, kotlinFiles, classToFile, packageFunctionFiles, packages);
+                registerDeclarations(kotlinExtractor, workspaceRoot, kotlinFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
+
+        List<Path> tsFiles = tsExtractor.findFiles(workspaceRoot, excl);
+        List<Map.Entry<Path, List<Declaration>>> tsWork =
+                registerDeclarations(tsExtractor, workspaceRoot, tsFiles, classToFile, packageFunctionFiles, tsPathIndex, packages);
 
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
-        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles);
+        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles, tsPathIndex);
 
         long now = Instant.now().getEpochSecond();
 
         // Pass 2 (edges): resolve each edge against the full index and persist rows.
         EdgeTotals javaTotals = persistEdges(javaExtractor, workspaceRoot, javaWork, resolver, conn, wsPath, now);
         EdgeTotals kotlinTotals = persistEdges(kotlinExtractor, workspaceRoot, kotlinWork, resolver, conn, wsPath, now);
-        int dependenciesFound = javaTotals.dependencies() + kotlinTotals.dependencies();
-        int externalDeps = javaTotals.external() + kotlinTotals.external();
-
-        // TypeScript / TSX support (#323): mirror the Java extraction so impact and
-        // graph queries see edges for Bun/NodeNext projects.
-        List<Path> tsFiles = findTypeScriptFiles(workspaceRoot);
-        Map<String, String> tsPathIndex = buildTsPathIndex(tsFiles, workspaceRoot);
-        TsExtractionTotals tsTotals = extractTypeScript(
-                workspaceRoot, conn, tsFiles, tsPathIndex, now);
-        dependenciesFound += tsTotals.dependencies;
-        externalDeps += tsTotals.external;
+        EdgeTotals tsTotals = persistEdges(tsExtractor, workspaceRoot, tsWork, resolver, conn, wsPath, now);
+        int dependenciesFound = javaTotals.dependencies() + kotlinTotals.dependencies() + tsTotals.dependencies();
+        int externalDeps = javaTotals.external() + kotlinTotals.external() + tsTotals.external();
 
         // Cross-format links (SQL -> Java)
         int crossLinks = extractCrossFormatLinks(workspaceRoot, conn, javaFiles, classToFile, now);
@@ -165,23 +145,22 @@ public class CodeGraphExtractor {
         long start = System.currentTimeMillis();
         String wsPath = workspaceRoot.toString();
 
-        // Build the full FQN-to-file index across the whole workspace (both languages) so
-        // resolution is correct even when only one side of a Java<->Kotlin reference changed.
+        // Build the full index across the whole workspace (all languages) so resolution is
+        // correct even when only one side of a cross-language reference changed.
         ExclusionRules excl = new ExclusionRules(includeArchives);
         Map<String, String> classToFile = new HashMap<>();
         Map<String, List<String>> packageFunctionFiles = new HashMap<>();
+        Map<String, String> tsPathIndex = new HashMap<>();
 
         List<Path> allJavaFiles = javaExtractor.findFiles(workspaceRoot, excl);
-        registerDeclarations(javaExtractor, workspaceRoot, allJavaFiles, classToFile, packageFunctionFiles, null);
+        registerDeclarations(javaExtractor, workspaceRoot, allJavaFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
         List<Path> allKotlinFiles = kotlinExtractor.findFiles(workspaceRoot, excl);
-        registerDeclarations(kotlinExtractor, workspaceRoot, allKotlinFiles, classToFile, packageFunctionFiles, null);
+        registerDeclarations(kotlinExtractor, workspaceRoot, allKotlinFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
+        List<Path> allTsFiles = tsExtractor.findFiles(workspaceRoot, excl);
+        registerDeclarations(tsExtractor, workspaceRoot, allTsFiles, classToFile, packageFunctionFiles, tsPathIndex, null);
 
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
-        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles);
-
-        // TypeScript path index for resolving incremental TS imports (#323).
-        List<Path> allTsFiles = findTypeScriptFiles(workspaceRoot);
-        Map<String, String> tsPathIndex = buildTsPathIndex(allTsFiles, workspaceRoot);
+        Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles, tsPathIndex);
 
         int dependenciesFound = 0;
         int externalDeps = 0;
@@ -205,10 +184,10 @@ public class CodeGraphExtractor {
             if (isTypeScript) {
                 // Delete old edges for this TS file and re-extract.
                 repository.deleteDependenciesForFile(conn, wsPath, relPath);
-                TsExtractionTotals fileTotals = extractTypeScriptFile(
-                        workspaceRoot, conn, fullPath, tsPathIndex, now);
-                dependenciesFound += fileTotals.dependencies;
-                externalDeps += fileTotals.external;
+                EdgeTotals ts = persistChangedFile(tsExtractor, workspaceRoot, fullPath,
+                        resolver, packages, conn, wsPath, relPath, now);
+                dependenciesFound += ts.dependencies();
+                externalDeps += ts.external();
                 continue;
             }
 
@@ -259,7 +238,7 @@ public class CodeGraphExtractor {
     private List<Map.Entry<Path, List<Declaration>>> registerDeclarations(
             LanguageExtractor lang, Path root, List<Path> files,
             Map<String, String> classToFile, Map<String, List<String>> packageFunctionFiles,
-            Set<String> packages) {
+            Map<String, String> tsPathIndex, Set<String> packages) {
         List<Map.Entry<Path, List<Declaration>>> work = new ArrayList<>();
         for (Path f : files) {
             String rel = root.relativize(f).toString();
@@ -279,6 +258,7 @@ public class CodeGraphExtractor {
                     List<String> bucket = packageFunctionFiles.computeIfAbsent(pkg, k -> new ArrayList<>());
                     for (Path pf : pfiles) bucket.add(root.relativize(pf).toString());
                 });
+                tsPathIndex.putAll(lang.pathIndex(root, f, content));
                 work.add(Map.entry(f, decls));
             } catch (IOException e) {
                 // Fallback (as the former index builders did): key on the filename stem.
@@ -307,7 +287,7 @@ public class CodeGraphExtractor {
                 String content = FileUtils.readPreview(f, 50_000);
                 String repoName = detectRepoName(root, f);
                 for (RawEdge edge : lang.edges(f, content, w.getValue())) {
-                    String targetFile = resolver.resolve(edge.to());
+                    String targetFile = resolver.resolve(edge.to(), relPath);
                     boolean isExternal = (targetFile == null);
                     CodeDependency dep = new CodeDependency(
                             wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
@@ -345,7 +325,7 @@ public class CodeGraphExtractor {
             int deps = 0;
             int external = 0;
             for (RawEdge edge : lang.edges(file, content, decls)) {
-                String targetFile = resolver.resolve(edge.to());
+                String targetFile = resolver.resolve(edge.to(), relPath);
                 boolean isExternal = (targetFile == null);
                 CodeDependency dep = new CodeDependency(
                         wsPath, repoName, relPath, edge.sourceClass(), edge.sourcePackage(),
@@ -488,194 +468,5 @@ public class CodeGraphExtractor {
     // -----------------------------------------------------------------------
     // TypeScript / TSX support (#323)
     // -----------------------------------------------------------------------
-
-    /** Aggregate counters returned by the TypeScript extraction helpers. */
-    private record TsExtractionTotals(int dependencies, int external) {}
-
-    /**
-     * Walks the workspace for {@code .ts} and {@code .tsx} files, applying the same
-     * exclusion rules used for Java (build artifacts, archive directories, hidden dirs).
-     * Declaration files ({@code .d.ts}) are excluded — they describe ambient types and
-     * would inflate the graph with synthetic edges.
-     */
-    List<Path> findTypeScriptFiles(Path root) throws IOException {
-        List<Path> files = new ArrayList<>();
-        try (Stream<Path> walk = Files.walk(root)) {
-            Stream<Path> filtered = walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        String s = p.toString();
-                        return (s.endsWith(".ts") || s.endsWith(".tsx")) && !s.endsWith(".d.ts");
-                    })
-                    .filter(p -> !p.toString().contains("/."))
-                    .filter(p -> !isBuildArtifact(root, p));
-            if (!includeArchives) {
-                filtered = filtered.filter(p -> !isArchiveDirectory(root, p));
-            }
-            filtered.forEach(files::add);
-        }
-        return files;
-    }
-
-    /**
-     * Builds a lookup for resolving relative TypeScript imports. Each TS file is
-     * indexed by both:
-     * <ul>
-     *   <li>its full relative path with extension stripped (e.g. {@code src/foo/Bar})</li>
-     *   <li>the same path with {@code /index} appended for directory-style imports</li>
-     * </ul>
-     * Both entries point at the actual relative path including extension.
-     *
-     * <p>The index uses forward slashes so it works on Windows as well.
-     */
-    Map<String, String> buildTsPathIndex(List<Path> tsFiles, Path workspaceRoot) {
-        Map<String, String> index = new HashMap<>();
-        for (Path f : tsFiles) {
-            String rel = workspaceRoot.relativize(f).toString().replace('\\', '/');
-            String stem = stripTsExtension(rel);
-            index.put(stem, rel);
-            // Directory-style import: `import './foo'` may resolve to `foo/index.ts`.
-            if (stem.endsWith("/index")) {
-                index.put(stem.substring(0, stem.length() - "/index".length()), rel);
-            }
-        }
-        return index;
-    }
-
-    private static String stripTsExtension(String path) {
-        if (path.endsWith(".tsx")) return path.substring(0, path.length() - 4);
-        if (path.endsWith(".ts")) return path.substring(0, path.length() - 3);
-        return path;
-    }
-
-    /** Bulk extraction over a list of TypeScript files. */
-    private TsExtractionTotals extractTypeScript(Path workspaceRoot, Connection conn,
-                                                  List<Path> tsFiles,
-                                                  Map<String, String> tsPathIndex,
-                                                  long now) throws SQLException {
-        int deps = 0;
-        int external = 0;
-        for (Path tsFile : tsFiles) {
-            TsExtractionTotals fileTotals = extractTypeScriptFile(
-                    workspaceRoot, conn, tsFile, tsPathIndex, now);
-            deps += fileTotals.dependencies;
-            external += fileTotals.external;
-        }
-        return new TsExtractionTotals(deps, external);
-    }
-
-    /**
-     * Extracts and persists imports for a single TypeScript file. Bare-module specifiers
-     * (e.g. {@code 'react'}) are recorded as external dependencies; relative specifiers
-     * (e.g. {@code './Foo.js'}) are resolved against the source file's directory and the
-     * TS path index — applying the {@code .js} -> {@code .ts}/{@code .tsx} rewrite that
-     * Bun/NodeNext projects rely on (#323).
-     */
-    private TsExtractionTotals extractTypeScriptFile(Path workspaceRoot, Connection conn,
-                                                      Path tsFile,
-                                                      Map<String, String> tsPathIndex,
-                                                      long now) throws SQLException {
-        int deps = 0;
-        int external = 0;
-        String wsPath = workspaceRoot.toString();
-        String relPath = workspaceRoot.relativize(tsFile).toString().replace('\\', '/');
-        String repoName = detectRepoName(workspaceRoot, tsFile);
-        String sourceModule = stripTsExtension(tsFile.getFileName().toString());
-
-        String content;
-        try {
-            content = FileUtils.readPreview(tsFile, 50_000);
-        } catch (IOException e) {
-            LOG.fine("Skipping unreadable file: " + tsFile + ": " + e.getMessage());
-            return new TsExtractionTotals(0, 0);
-        }
-
-        Set<String> seenSpecifiers = new LinkedHashSet<>();
-        Matcher m = JS_TS_IMPORT.matcher(content);
-        while (m.find()) {
-            String spec = m.group(1);
-            if (spec != null && !spec.isBlank()) seenSpecifiers.add(spec);
-        }
-
-        for (String spec : seenSpecifiers) {
-            String targetFile = resolveTypeScriptImport(spec, relPath, tsPathIndex);
-            String targetClass = simpleSpecifierName(spec);
-            boolean isExternal = (targetFile == null);
-
-            CodeDependency dep = new CodeDependency(
-                    wsPath, repoName, relPath, sourceModule, "",
-                    targetFile, targetClass, "",
-                    "import", isExternal, now);
-            repository.upsertDependency(conn, dep);
-            deps++;
-            if (isExternal) external++;
-        }
-        return new TsExtractionTotals(deps, external);
-    }
-
-    /**
-     * Resolves a TypeScript import specifier to a workspace-relative file path, or
-     * returns {@code null} if the specifier is a bare module (npm / external).
-     *
-     * <p>Honours the {@code .js} -> {@code .ts}/{@code .tsx} rewrite required by
-     * Bun/NodeNext projects where source code imports its own files using the
-     * compiled extension (#323).
-     */
-    String resolveTypeScriptImport(String spec, String sourceRelPath,
-                                    Map<String, String> tsPathIndex) {
-        if (spec == null || spec.isBlank()) return null;
-        String normalized = spec.replace('\\', '/');
-        // Strip query strings or fragments occasionally seen in bundler imports.
-        int q = normalized.indexOf('?');
-        if (q >= 0) normalized = normalized.substring(0, q);
-
-        boolean relative = normalized.startsWith("./") || normalized.startsWith("../");
-        if (!relative) return null; // bare module -> external
-
-        Path sourceDir = Path.of(sourceRelPath).getParent();
-        String basePath = (sourceDir == null ? "" : sourceDir.toString().replace('\\', '/'));
-        String joined = basePath.isEmpty() ? normalized : basePath + "/" + normalized;
-        String resolved = normalizeRelativePath(joined);
-
-        // Attempt 1: direct lookup with whatever extension was supplied (after stripping).
-        String stem = stripTsExtension(resolved);
-        // The `.js` / `.jsx` rewrite: drop the JS extension so the stem can match `.ts`/`.tsx`.
-        if (stem.endsWith(".js")) stem = stem.substring(0, stem.length() - 3);
-        else if (stem.endsWith(".jsx")) stem = stem.substring(0, stem.length() - 4);
-
-        String hit = tsPathIndex.get(stem);
-        if (hit != null) return hit;
-
-        // Attempt 2: directory-style import -> `<stem>/index.ts(x)`.
-        return tsPathIndex.get(stem + "/index");
-    }
-
-    /** Normalizes a path segment list, collapsing {@code .} and {@code ..} entries. */
-    private static String normalizeRelativePath(String path) {
-        Deque<String> stack = new ArrayDeque<>();
-        for (String segment : path.split("/")) {
-            if (segment.isEmpty() || ".".equals(segment)) continue;
-            if ("..".equals(segment)) {
-                if (!stack.isEmpty() && !"..".equals(stack.peekLast())) stack.removeLast();
-                else stack.addLast("..");
-            } else {
-                stack.addLast(segment);
-            }
-        }
-        return String.join("/", stack);
-    }
-
-    /** Extracts the trailing identifier from a module specifier (best-effort). */
-    private static String simpleSpecifierName(String spec) {
-        String trimmed = spec.replace('\\', '/');
-        int slash = trimmed.lastIndexOf('/');
-        String last = (slash >= 0) ? trimmed.substring(slash + 1) : trimmed;
-        // Drop common extensions for a cleaner display name.
-        if (last.endsWith(".tsx")) last = last.substring(0, last.length() - 4);
-        else if (last.endsWith(".ts")) last = last.substring(0, last.length() - 3);
-        else if (last.endsWith(".jsx")) last = last.substring(0, last.length() - 4);
-        else if (last.endsWith(".js")) last = last.substring(0, last.length() - 3);
-        return last.isBlank() ? spec : last;
-    }
 
 }
