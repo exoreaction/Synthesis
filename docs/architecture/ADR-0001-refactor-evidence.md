@@ -22,6 +22,10 @@ the end for reproducibility.
 Stats reported by both jars were identical: **Files processed 11, Dependencies 13,
 Cross-format links 1, Packages 2, External deps 2.**
 
+> Note (#469): the reported `13` counted upsert attempts, one more than the 12 persisted rows
+> (`./bar` and `./bar.js` collapse onto the same row). Since #469 the counter reports persisted
+> rows, so this corpus now prints `Dependencies 12`. The rows themselves are unchanged.
+
 | Channel | before rows | after rows | Verdict |
 |---|---|---|---|
 | Java `code_dependencies` | 4 | 4 | **IDENTICAL** |
