@@ -47,15 +47,19 @@ public class CodeGraphExtractor {
             "archive", "vendor", "node_modules"
     );
 
-    private final CodeGraphRepository repository;
-    private final CrossFormatLinker crossFormatLinker;
     /**
      * The per-language extraction seam (ADR-0001). A new language slots in by adding one
      * {@link LanguageExtractor} here -- the orchestrator drives them uniformly, so nothing
      * else in this file changes (the acceptance criterion: a Go extractor touches only this line).
+     *
+     * <p>Genuinely a constant: the extractors are stateless, so one shared immutable list
+     * serves every {@code CodeGraphExtractor} instance.
      */
-    private final List<LanguageExtractor> REGISTRY =
+    private static final List<LanguageExtractor> REGISTRY =
             List.of(new JavaLanguageExtractor(), new KotlinLanguageExtractor(), new TypeScriptLanguageExtractor());
+
+    private final CodeGraphRepository repository;
+    private final CrossFormatLinker crossFormatLinker;
     private boolean includeArchives = false;
 
     public CodeGraphExtractor() {
