@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -538,6 +540,81 @@ class CodeGraphExtractorTest {
         List<CodeDependency> dtsDeps = new CodeGraphRepository()
                 .getDependenciesFrom(conn, root.toString(), "src/types.d.ts");
         assertTrue(dtsDeps.isEmpty(), ".d.ts declaration files are excluded from extraction: " + dtsDeps);
+    }
+
+    // -----------------------------------------------------------------------
+    // Stats reflect what was persisted, not upsert attempts (#469)
+    //
+    // code_dependencies is UNIQUE(workspace_path, source_file, target_class,
+    // target_package) (V13__code_knowledge_graph.sql), so two edges that agree on
+    // those columns collapse into one row on INSERT OR REPLACE. The counters must
+    // report the surviving rows -- otherwise `code-graph extract` prints a larger
+    // number than `code-graph extract --stats`, which reads countDependencies().
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractAndPersist_dependenciesFound_equals_persisted_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        // './Bar' and './Bar.js' both resolve to src/Bar.ts with targetClass "Bar":
+        // two edges, one persisted row.
+        Files.writeString(src.resolve("Foo.ts"),
+                "import { bar } from './Bar';\nimport { bar as b2 } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.extractAndPersist(root, conn);
+
+        int persisted = new CodeGraphRepository().countDependencies(conn, root.toString());
+        assertEquals(1, persisted, "the two specifiers collapse onto one row");
+        assertEquals(persisted, stats.dependenciesFound(),
+                "dependenciesFound must count persisted rows, not upsert attempts");
+    }
+
+    @Test
+    void extractAndPersist_externalDeps_equals_persisted_external_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        // Two bare modules sharing a trailing segment -> same targetClass "util",
+        // same (empty) targetPackage: two external edges, one persisted row.
+        Files.writeString(src.resolve("Foo.ts"),
+                "import a from 'pkg-one/util';\nimport b from 'pkg-two/util';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.extractAndPersist(root, conn);
+
+        int persistedExternal = countExternalRows(root);
+        assertEquals(1, persistedExternal, "the two bare modules collapse onto one row");
+        assertEquals(persistedExternal, stats.externalDeps(),
+                "externalDeps must count persisted external rows, not upsert attempts");
+        assertTrue(stats.externalDeps() <= stats.dependenciesFound(),
+                "external rows are a subset of all rows");
+    }
+
+    @Test
+    void incrementalUpdate_dependenciesFound_equals_persisted_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        Path foo = src.resolve("Foo.ts");
+        Files.writeString(foo, "import { bar } from './Bar';\nimport { bar as b2 } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.incrementalUpdate(root, conn, Set.of(foo));
+
+        int persisted = new CodeGraphRepository().countDependencies(conn, root.toString());
+        assertEquals(1, persisted, "the two specifiers collapse onto one row");
+        assertEquals(persisted, stats.dependenciesFound(),
+                "incremental dependenciesFound must count persisted rows too");
+    }
+
+    /** Counts persisted {@code code_dependencies} rows flagged external for a workspace. */
+    private int countExternalRows(Path workspaceRoot) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM code_dependencies "
+                + "WHERE workspace_path = ? AND is_external = 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspaceRoot.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
     }
 
 }

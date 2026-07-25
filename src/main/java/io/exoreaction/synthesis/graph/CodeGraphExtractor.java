@@ -120,20 +120,17 @@ public class CodeGraphExtractor {
         long now = Instant.now().getEpochSecond();
 
         // Pass 2 (edges): resolve each edge against the full index and persist rows.
-        int dependenciesFound = 0;
-        int externalDeps = 0;
+        PersistedRows rows = new PersistedRows();
         for (Map.Entry<LanguageExtractor, List<Map.Entry<Path, List<Declaration>>>> w : work) {
-            EdgeTotals t = persistEdges(w.getKey(), workspaceRoot, w.getValue(), resolver, conn, wsPath, now);
-            dependenciesFound += t.dependencies();
-            externalDeps += t.external();
+            persistEdges(w.getKey(), workspaceRoot, w.getValue(), resolver, conn, wsPath, now, rows);
         }
 
         // Cross-format links (SQL -> Java)
         int crossLinks = extractCrossFormatLinks(workspaceRoot, conn, javaFiles, now);
 
         long elapsed = System.currentTimeMillis() - start;
-        return new CodeGraphStats(totalFiles, dependenciesFound,
-                crossLinks, packages.size(), externalDeps, elapsed, Instant.now());
+        return new CodeGraphStats(totalFiles, rows.total(),
+                crossLinks, packages.size(), rows.external(), elapsed, Instant.now());
     }
 
     /**
@@ -165,8 +162,7 @@ public class CodeGraphExtractor {
         Map<String, List<String>> simpleNameIndex = Resolver.buildSimpleNameIndex(classToFile);
         Resolver resolver = new Resolver(classToFile, simpleNameIndex, packageFunctionFiles, tsPathIndex);
 
-        int dependenciesFound = 0;
-        int externalDeps = 0;
+        PersistedRows rows = new PersistedRows();
         Set<String> packages = new HashSet<>();
         long now = Instant.now().getEpochSecond();
         int filesProcessed = 0;
@@ -183,15 +179,13 @@ public class CodeGraphExtractor {
 
             // Delete old edges for this file, then re-extract via its language.
             repository.deleteDependenciesForFile(conn, wsPath, relPath);
-            EdgeTotals t = persistChangedFile(lang, workspaceRoot, fullPath,
-                    resolver, packages, conn, wsPath, relPath, now);
-            dependenciesFound += t.dependencies();
-            externalDeps += t.external();
+            persistChangedFile(lang, workspaceRoot, fullPath,
+                    resolver, packages, conn, wsPath, relPath, now, rows);
         }
 
         long elapsed = System.currentTimeMillis() - start;
-        return new CodeGraphStats(filesProcessed, dependenciesFound, 0,
-                packages.size(), externalDeps, elapsed, Instant.now());
+        return new CodeGraphStats(filesProcessed, rows.total(), 0,
+                packages.size(), rows.external(), elapsed, Instant.now());
     }
 
     /**
@@ -216,8 +210,38 @@ public class CodeGraphExtractor {
         return null;
     }
 
-    /** Per-language edge counters accumulated across a pass. */
-    private record EdgeTotals(int dependencies, int external) {}
+    /**
+     * Counts the {@code code_dependencies} rows a run persists, not the upsert attempts (#469).
+     *
+     * <p>The table is {@code UNIQUE(workspace_path, source_file, target_class, target_package)}
+     * (V13__code_knowledge_graph.sql) and {@link CodeGraphRepository#upsertDependency} issues
+     * {@code INSERT OR REPLACE}, so two edges agreeing on those columns collapse into one row
+     * with the last write winning (e.g. the TypeScript specifiers {@code ./bar} and
+     * {@code ./bar.js}). Keying on that same tuple -- and letting the last write win for
+     * {@code is_external} -- makes the stats agree with
+     * {@link CodeGraphRepository#countDependencies}, which {@code code-graph extract --stats}
+     * prints. {@code workspace_path} is omitted from the key: it is constant within a run.
+     */
+    private static final class PersistedRows {
+        /** The table's unique key, minus the run-constant {@code workspace_path}. */
+        private record RowKey(String sourceFile, String targetClass, String targetPackage) {}
+
+        private final Map<RowKey, Boolean> externalByKey = new HashMap<>();
+
+        void record(CodeDependency dep) {
+            externalByKey.put(
+                    new RowKey(dep.sourceFile(), dep.targetClass(), dep.targetPackage()),
+                    dep.isExternal());
+        }
+
+        int total() {
+            return externalByKey.size();
+        }
+
+        int external() {
+            return (int) externalByKey.values().stream().filter(Boolean::booleanValue).count();
+        }
+    }
 
     /**
      * Pass 1 for a language (always full): reads each file, registers its declared
@@ -268,13 +292,12 @@ public class CodeGraphExtractor {
     /**
      * Pass 2 for a language (scoped to {@code work}; full when non-incremental): emits each
      * file's edges, resolves each target against the shared {@code resolver}, and persists a
-     * {@code code_dependencies} row.
+     * {@code code_dependencies} row. Each persisted row is recorded in {@code rows} so the
+     * run's stats report surviving rows rather than upsert attempts (#469).
      */
-    private EdgeTotals persistEdges(LanguageExtractor lang, Path root,
+    private void persistEdges(LanguageExtractor lang, Path root,
             List<Map.Entry<Path, List<Declaration>>> work, Resolver resolver,
-            Connection conn, String wsPath, long now) throws SQLException {
-        int deps = 0;
-        int external = 0;
+            Connection conn, String wsPath, long now, PersistedRows rows) throws SQLException {
         for (Map.Entry<Path, List<Declaration>> w : work) {
             Path f = w.getKey();
             String relPath = root.relativize(f).toString();
@@ -289,24 +312,23 @@ public class CodeGraphExtractor {
                             targetFile, edge.targetClass(), edge.targetPackage(),
                             edge.dependencyType(), isExternal, now);
                     repository.upsertDependency(conn, dep);
-                    deps++;
-                    if (isExternal) external++;
+                    rows.record(dep);
                 }
             } catch (IOException e) {
                 LOG.fine("Skipping unreadable file: " + f + ": " + e.getMessage());
             }
         }
-        return new EdgeTotals(deps, external);
     }
 
     /**
      * Incremental pass 2 for a single changed file: derives the file's declared packages
      * (stats) and persists its edges (targets resolved against the full {@code resolver}).
-     * The caller has already deleted the file's old rows.
+     * The caller has already deleted the file's old rows. Persisted rows are recorded in
+     * {@code rows} (#469).
      */
-    private EdgeTotals persistChangedFile(LanguageExtractor lang, Path root, Path file,
+    private void persistChangedFile(LanguageExtractor lang, Path root, Path file,
             Resolver resolver, Set<String> packages, Connection conn, String wsPath,
-            String relPath, long now) throws SQLException {
+            String relPath, long now, PersistedRows rows) throws SQLException {
         try {
             String content = FileUtils.readPreview(file, 50_000);
             String repoName = detectRepoName(root, file);
@@ -317,8 +339,6 @@ public class CodeGraphExtractor {
                     if (!pkg.isEmpty()) packages.add(pkg);
                 }
             }
-            int deps = 0;
-            int external = 0;
             for (RawEdge edge : lang.edges(file, content, decls)) {
                 String targetFile = resolver.resolve(edge.to(), relPath);
                 boolean isExternal = (targetFile == null);
@@ -327,13 +347,10 @@ public class CodeGraphExtractor {
                         targetFile, edge.targetClass(), edge.targetPackage(),
                         edge.dependencyType(), isExternal, now);
                 repository.upsertDependency(conn, dep);
-                deps++;
-                if (isExternal) external++;
+                rows.record(dep);
             }
-            return new EdgeTotals(deps, external);
         } catch (IOException e) {
             LOG.fine("Skipping unreadable file: " + file + ": " + e.getMessage());
-            return new EdgeTotals(0, 0);
         }
     }
 

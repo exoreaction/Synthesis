@@ -5,11 +5,18 @@ import java.time.Instant;
 /**
  * Statistics from a code graph extraction run.
  *
+ * <p>{@code dependenciesFound} and {@code externalDeps} count persisted
+ * {@code code_dependencies} rows, not extracted edges (#469): the table is
+ * {@code UNIQUE(workspace_path, source_file, target_class, target_package)}, so several
+ * edges may collapse onto one row. After a full extraction the count therefore equals
+ * {@link CodeGraphRepository#countDependencies}; after an incremental update it is the
+ * number of rows written for the changed files.
+ *
  * @param filesProcessed   number of source files processed
- * @param dependenciesFound number of dependency edges extracted
+ * @param dependenciesFound number of dependency rows persisted
  * @param crossFormatLinks  number of cross-format links found
  * @param packagesFound     number of distinct packages detected
- * @param externalDeps      number of external (non-project) dependencies
+ * @param externalDeps      number of persisted rows whose target is external (non-project)
  * @param elapsedMs         extraction time in milliseconds
  * @param timestamp         when the extraction was performed
  */
