@@ -73,6 +73,12 @@ public class MaintainOrchestrator {
     private final Path workspaceRoot;
     private final MaintainOptions options;
     private final SynthesisConfig config;
+    /**
+     * Drives phase 10. Also answers which files the code graph covers, so the phase gates
+     * follow the {@code LanguageExtractor} registry instead of a local list (#466). The
+     * constructor touches no database.
+     */
+    private final CodeGraphExtractor codeGraphExtractor = new CodeGraphExtractor();
 
     /**
      * Creates an orchestrator for the given workspace.
@@ -958,18 +964,14 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Source extensions the code-graph extractor understands (Java, Kotlin,
-     * TypeScript/TSX — see {@link CodeGraphExtractor}). #440: the phase gates below
-     * were Java-only, so pure-Kotlin/TypeScript workspaces were silently skipped
-     * and Kotlin/TS changes never triggered an incremental update.
+     * Whether the code-graph extractor understands this file. Asked of the extractor's
+     * {@code LanguageExtractor} registry rather than a local extension list (#466) -- the
+     * list kept here went stale each time a language was registered. #440: these phase
+     * gates were once Java-only, so pure-Kotlin/TypeScript workspaces were silently
+     * skipped and Kotlin/TS changes never triggered an incremental update.
      */
-    private static final String[] CODE_GRAPH_EXTENSIONS = {".java", ".kt", ".ts", ".tsx"};
-
-    private static boolean isCodeGraphFile(String path) {
-        for (String ext : CODE_GRAPH_EXTENSIONS) {
-            if (path.endsWith(ext)) return true;
-        }
-        return false;
+    private boolean isCodeGraphFile(String path) {
+        return codeGraphExtractor.isSourceFile(path);
     }
 
     /** Walks the workspace (depth 10, hidden dirs excluded) for files matching the predicate. */
@@ -1004,7 +1006,7 @@ public class MaintainOrchestrator {
 
         SynthesisDatabase db = SynthesisDatabase.getDefault();
         java.sql.Connection conn = db.getConnection();
-        CodeGraphExtractor extractor = new CodeGraphExtractor();
+        CodeGraphExtractor extractor = codeGraphExtractor; // same instance the gates above queried
 
         CodeGraphStats stats;
 

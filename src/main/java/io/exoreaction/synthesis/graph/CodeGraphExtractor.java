@@ -200,6 +200,22 @@ public class CodeGraphExtractor {
     }
 
     /**
+     * Whether any registered language claims {@code path} by extension (#466). The single
+     * source of truth for "is this a code-graph file?" -- callers that keep their own
+     * extension list go stale the moment a language is registered.
+     *
+     * @param path a file path or name (only the suffix is inspected)
+     */
+    public boolean isSourceFile(String path) {
+        for (LanguageExtractor lang : REGISTRY) {
+            for (Ext ext : lang.extensions()) {
+                if (path.endsWith(ext.suffix())) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The source files every registered language claims under {@code workspaceRoot}, keyed by
      * {@link LanguageExtractor#displayName()} in registry order (#466).
      *
