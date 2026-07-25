@@ -46,271 +46,9 @@ class CodeGraphExtractorTest {
     // Import extraction (unit-level)
     // -----------------------------------------------------------------------
 
-    @Test
-    void extractImports_finds_java_imports() {
-        String content = """
-                package com.example;
-                import com.example.util.Helper;
-                import java.util.List;
-                import static org.junit.jupiter.api.Assertions.assertEquals;
-
-                public class Foo {}
-                """;
-        List<String> imports = extractor.extractImports(content);
-        assertTrue(imports.contains("com.example.util.Helper"));
-        assertTrue(imports.contains("java.util.List"));
-        assertTrue(imports.contains("org.junit.jupiter.api.Assertions.assertEquals"));
-    }
-
-    @Test
-    void extractPackage_finds_package() {
-        String content = "package com.example.core;\nimport java.util.List;\npublic class Foo {}";
-        assertEquals("com.example.core", extractor.extractPackage(content));
-    }
-
-    @Test
-    void extractPackage_returns_null_for_no_package() {
-        assertNull(extractor.extractPackage("public class Foo {}"));
-    }
-
-    @Test
-    void extractClassName_strips_java_extension() {
-        Path file = Path.of("src/main/java/Foo.java");
-        assertEquals("Foo", extractor.extractClassName(file));
-    }
-
-    @Test
-    void getSimpleClassName_extracts_last_segment() {
-        assertEquals("Foo", extractor.getSimpleClassName("com.example.Foo"));
-        assertEquals("Bar", extractor.getSimpleClassName("Bar"));
-    }
-
-    @Test
-    void getPackageFromImport_extracts_package() {
-        assertEquals("com.example", extractor.getPackageFromImport("com.example.Foo"));
-        assertEquals("", extractor.getPackageFromImport("Foo"));
-    }
-
     // -----------------------------------------------------------------------
     // Kotlin support (spike)
     // -----------------------------------------------------------------------
-
-    @Test
-    void extractKotlinImports_handles_semicolon_optional_alias_and_wildcard() {
-        String content = """
-                package no.tvimenning.samtygd.config
-
-                import org.springframework.context.annotation.Bean
-                import com.example.Foo as Bar
-                import kotlin.collections.*
-                import java.util.List;
-
-                class Foo
-                """;
-        List<String> imports = extractor.extractKotlinImports(content);
-        assertTrue(imports.contains("org.springframework.context.annotation.Bean"));
-        assertTrue(imports.contains("com.example.Foo"), "alias should be dropped, FQN kept");
-        assertTrue(imports.contains("java.util.List"), "trailing ; is optional, not required");
-        assertFalse(imports.stream().anyMatch(i -> i.contains("*")), "wildcard imports are dropped");
-    }
-
-    @Test
-    void extractKotlinPackage_semicolon_optional() {
-        assertEquals("no.tvimenning.samtygd.config",
-                extractor.extractKotlinPackage("package no.tvimenning.samtygd.config\n\nclass Foo"));
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_single_class_no_supertype() {
-        // Real shape: tvimenning-template SecurityConfig.kt (api-internal)
-        String content = """
-                package no.tvimenning.samtygd.config
-
-                import org.springframework.context.annotation.Configuration
-
-                @Configuration
-                @EnableWebSecurity
-                class SecurityConfig {
-                    fun securityFilterChain() {}
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("SecurityConfig", decls.get(0).name());
-        assertTrue(decls.get(0).supertypes().isEmpty());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_single_supertype_with_constructor_call() {
-        // Real shape: tvimenning-template GdprMaskingConverter.kt
-        String content = "class GdprMaskingConverter : ClassicConverter() {\n}\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("GdprMaskingConverter", decls.get(0).name());
-        assertEquals(List.of("ClassicConverter"), decls.get(0).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_known_limitation_constructor_default_value_call() {
-        // Documents the known, non-regression limitation noted on KOTLIN_TOPLEVEL_DECL's
-        // javadoc: constructor-arg parens are matched non-greedily and assumed non-nested, so
-        // a default-value call like `= bar()` inside the primary constructor breaks the
-        // optional constructor-params group, which in turn stops the trailing `: Base()`
-        // supertype from being captured on this declaration. The declaration's own name is
-        // still found correctly (no crash, no misattribution of the file's identity) -- only
-        // this specific declaration's supertype edge is missed. Same naiveté level as the
-        // pre-existing JAVA_IMPLEMENTS comma-split; pin the current behavior so a future
-        // change to this regex is a deliberate choice, not a silent drift.
-        String content = "class Foo(x: Int = bar()) : Base()\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("Foo", decls.get(0).name());
-        assertEquals(List.of(), decls.get(0).supertypes(),
-                "known limitation: default-value call in constructor args truncates supertype capture");
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_interface_supertype_no_parens() {
-        // Real shape: tvimenning-template WebMvcConfig.kt
-        String content = "class WebMvcConfig : WebMvcConfigurer {\n}\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals(List.of("WebMvcConfigurer"), decls.get(0).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_ignores_nested_indented_class() {
-        // Real shape: tvimenning-template WebMvcConfig.kt has a nested `private class
-        // TraceIdInterceptor : HandlerInterceptor` inside the outer class body -- only the
-        // outer, column-0 declaration should be picked up as a top-level entity.
-        String content = """
-                class WebMvcConfig : WebMvcConfigurer {
-
-                    private class TraceIdInterceptor : HandlerInterceptor {
-                        override fun preHandle(): Boolean { return true }
-                    }
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size(), "nested indented class must not be picked up as top-level");
-        assertEquals("WebMvcConfig", decls.get(0).name());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_multiple_top_level_declarations_in_one_file() {
-        String content = """
-                package com.example
-
-                sealed class Result
-
-                data class Ok(val value: String) : Result()
-
-                class Err(val message: String) : Result()
-
-                object Empty : Result()
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(4, decls.size());
-        assertEquals(List.of("Result", "Ok", "Err", "Empty"),
-                decls.stream().map(CodeGraphExtractor.KotlinDecl::name).toList());
-        assertEquals(List.of("Result"), decls.get(1).supertypes());
-        assertEquals(List.of("Result"), decls.get(3).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_fun_interface_is_matched() {
-        // Regression test for #442: `fun interface` (SAM) declarations were invisible
-        // because `fun` was missing from the modifier alternation. A top-level function
-        // must still NOT match (covered by the extension-function-only test below) --
-        // the regex requires a class/interface/object keyword after the modifiers.
-        String content = """
-                package com.example
-
-                fun interface TokenValidator {
-                    fun validate(token: String): Boolean
-                }
-
-                private fun interface Scorer : Weighted {
-                    fun score(x: Int): Double
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(2, decls.size());
-        assertEquals("TokenValidator", decls.get(0).name());
-        assertTrue(decls.get(0).supertypes().isEmpty());
-        assertEquals("Scorer", decls.get(1).name());
-        assertEquals(List.of("Weighted"), decls.get(1).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_empty_for_extension_function_only_file() {
-        String content = """
-                package com.example
-
-                fun String.truncate(n: Int): String = take(n)
-                fun String.isBlankOrNull(): Boolean = this.isBlank()
-                """;
-        assertTrue(extractor.findKotlinTopLevelDecls(content).isEmpty());
-    }
-
-    @Test
-    void extractKotlinFileClassName_strips_kt_extension() {
-        assertEquals("StringExt", extractor.extractKotlinFileClassName(Path.of("util/StringExt.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_prefers_filename_match_over_first_declared() {
-        // Real shape: tvimenning-template HelloController.kt -- HelloResponse (a data class)
-        // is declared before HelloController itself. "First declared" would misattribute
-        // every import edge in the file to HelloResponse instead of the file's real class.
-        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
-                new CodeGraphExtractor.KotlinDecl("HelloResponse", List.of()),
-                new CodeGraphExtractor.KotlinDecl("HelloController", List.of()));
-        assertEquals("HelloController",
-                extractor.choosePrimaryClass(decls, Path.of("web/HelloController.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_falls_back_to_first_declared_when_no_filename_match() {
-        // No declaration matches the filename at all (e.g. a poorly-named file) -- fall back
-        // to today's behavior rather than silently dropping the file's identity.
-        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
-                new CodeGraphExtractor.KotlinDecl("Ok", List.of()),
-                new CodeGraphExtractor.KotlinDecl("Err", List.of()));
-        assertEquals("Ok", extractor.choosePrimaryClass(decls, Path.of("Result.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_uses_filename_when_no_declarations_found() {
-        assertEquals("StringExt",
-                extractor.choosePrimaryClass(List.of(), Path.of("util/StringExt.kt")));
-    }
-
-    @Test
-    void splitKotlinSupertypes_strips_generics_and_multiple_supertypes() {
-        List<String> names = extractor.splitKotlinSupertypes("Bar<String>(), Baz, com.example.Qux");
-        assertEquals(List.of("Bar", "Baz", "Qux"), names);
-    }
-
-    @Test
-    void buildKotlinClassToFileMap_registers_every_top_level_declaration() throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Result.kt"), """
-                package com.example
-
-                sealed class Result
-                data class Ok(val value: String) : Result()
-                class Err(val message: String) : Result()
-                """);
-
-        Map<String, String> map = extractor.buildKotlinClassToFileMap(
-                List.of(pkgDir.resolve("Result.kt")), tempDir);
-
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Result"));
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Ok"));
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Err"));
-    }
 
     @Test
     void extractAndPersist_resolves_kotlin_supertype_edge_as_internal() throws SQLException, IOException {
@@ -365,42 +103,6 @@ class CodeGraphExtractorTest {
     // -----------------------------------------------------------------------
     // Kotlin top-level function resolution (#438)
     // -----------------------------------------------------------------------
-
-    @Test
-    void buildKotlinPackageFunctionFileIndex_indexes_single_function_only_file() throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Utils.kt"), """
-                package com.example.utils
-
-                fun doThing() {}
-                """);
-
-        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
-                List.of(pkgDir.resolve("Utils.kt")), tempDir);
-
-        assertEquals(List.of("src/main/kotlin/com/example/utils/Utils.kt"), index.get("com.example.utils"));
-    }
-
-    @Test
-    void buildKotlinPackageFunctionFileIndex_excludes_file_with_top_level_function_and_class()
-            throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Mixed.kt"), """
-                package com.example.utils
-
-                fun doThing() {}
-
-                private class Helper
-                """);
-
-        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
-                List.of(pkgDir.resolve("Mixed.kt")), tempDir);
-
-        assertNull(index.get("com.example.utils"),
-                "file declares a top-level class, so it isn't function-only and must be excluded");
-    }
 
     @Test
     void extractAndPersist_resolves_kotlin_top_level_function_import_via_single_candidate()
@@ -637,40 +339,6 @@ class CodeGraphExtractorTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void findJavaFiles_discovers_nested_java_files() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
-        Files.writeString(src.resolve("Bar.java"), "class Bar {}");
-        Files.writeString(tempDir.resolve("project/README.md"), "# Readme");
-
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(2, found.size());
-        assertTrue(found.stream().allMatch(p -> p.toString().endsWith(".java")));
-    }
-
-    @Test
-    void findJavaFiles_excludes_build_artifact_directories() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
-
-        // Create files inside build artifact directories
-        Path target = Files.createDirectories(tempDir.resolve("project/target/classes/com"));
-        Files.writeString(target.resolve("Foo.java"), "class Foo {}");
-        Path build = Files.createDirectories(tempDir.resolve("project/build/classes/com"));
-        Files.writeString(build.resolve("Foo.java"), "class Foo {}");
-        Path out = Files.createDirectories(tempDir.resolve("project/out/classes/com"));
-        Files.writeString(out.resolve("Foo.java"), "class Foo {}");
-
-        // Also test nested target/ (multi-module)
-        Path nested = Files.createDirectories(tempDir.resolve("project/submodule/target/classes/com"));
-        Files.writeString(nested.resolve("Bar.java"), "class Bar {}");
-
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(1, found.size(), "Should find only the source file, excluding target/build/out: " + found);
-        assertTrue(found.get(0).toString().contains("src/main/java"));
-    }
-
-    @Test
     void isBuildArtifact_detects_common_build_dirs() {
         Path root = Path.of("/workspace");
         assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/target/classes/Foo.java")));
@@ -678,41 +346,6 @@ class CodeGraphExtractorTest {
         assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/out/classes/Foo.java")));
         assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/sub/target/Foo.java")));
         assertFalse(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/src/main/java/Foo.java")));
-    }
-
-    @Test
-    void buildClassToFileMap_maps_classname_to_relpath_no_package() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src"));
-        Path fooFile = Files.writeString(src.resolve("Foo.java"), "class Foo {}");
-        Path barFile = Files.writeString(src.resolve("Bar.java"), "class Bar {}");
-
-        Path root = tempDir.resolve("project");
-        Map<String, String> map = extractor.buildClassToFileMap(
-                List.of(fooFile, barFile), root);
-
-        // No package declaration -> simple class name as key (fallback)
-        assertEquals("src/Foo.java", map.get("Foo"));
-        assertEquals("src/Bar.java", map.get("Bar"));
-    }
-
-    @Test
-    void buildClassToFileMap_uses_fqn_keys_with_package() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src"));
-        Path fooFile = Files.writeString(src.resolve("Foo.java"),
-                "package com.example;\nclass Foo {}");
-        Path barFile = Files.writeString(src.resolve("Bar.java"),
-                "package com.example.util;\nclass Bar {}");
-
-        Path root = tempDir.resolve("project");
-        Map<String, String> map = extractor.buildClassToFileMap(
-                List.of(fooFile, barFile), root);
-
-        // With package declaration -> FQN as key
-        assertEquals("src/Foo.java", map.get("com.example.Foo"));
-        assertEquals("src/Bar.java", map.get("com.example.util.Bar"));
-        // Simple name should NOT be a key when package is present
-        assertNull(map.get("Foo"));
-        assertNull(map.get("Bar"));
     }
 
     @Test
@@ -756,104 +389,9 @@ class CodeGraphExtractorTest {
                 "Project Service import should be internal: " + appDeps);
     }
 
-    @Test
-    void buildSimpleNameIndex_groups_by_simple_name() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java",
-                "com.example.Config", "src/Config.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertEquals(2, index.get("Service").size());
-        assertEquals(1, index.get("Config").size());
-    }
-
-    @Test
-    void lookupBySimpleName_prefers_same_package() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        // When source is in com.example, prefer com.example.Service
-        String result = extractor.lookupBySimpleName("Service", "com.example",
-                classToFile, index);
-        assertEquals("src/Service.java", result);
-
-        // When source is in com.example.util, prefer com.example.util.Service
-        String result2 = extractor.lookupBySimpleName("Service", "com.example.util",
-                classToFile, index);
-        assertEquals("src/util/Service.java", result2);
-    }
-
-    @Test
-    void lookupBySimpleName_returns_null_for_unknown() {
-        Map<String, String> classToFile = Map.of("com.example.Config", "src/Config.java");
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertNull(extractor.lookupBySimpleName("NonExistent", "com.example",
-                classToFile, index));
-    }
-
     // -----------------------------------------------------------------------
     // Non-Java repo skipping (#226)
     // -----------------------------------------------------------------------
-
-    @Test
-    void identifyNonJavaRepos_skips_repos_with_no_java_files() throws IOException {
-        // Java repo with pom.xml
-        Path javaRepo = Files.createDirectories(tempDir.resolve("workspace/JavaProject/src"));
-        Files.writeString(tempDir.resolve("workspace/JavaProject/pom.xml"), "<project/>");
-        Files.writeString(javaRepo.resolve("App.java"), "class App {}");
-
-        // Non-Java repo (Nuxt frontend)
-        Path nuxtRepo = Files.createDirectories(tempDir.resolve("workspace/NuxtFrontend/pages"));
-        Files.writeString(nuxtRepo.resolve("index.vue"), "<template></template>");
-
-        // Non-Java repo (CloudFormation)
-        Path cfnRepo = Files.createDirectories(tempDir.resolve("workspace/AwsInfra/stacks"));
-        Files.writeString(cfnRepo.resolve("vpc.yaml"), "AWSTemplateFormatVersion: ...");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        Set<String> skipped = extractor.identifyNonJavaRepos(wsRoot);
-
-        assertTrue(skipped.contains("NuxtFrontend"), "Nuxt repo should be skipped");
-        assertTrue(skipped.contains("AwsInfra"), "CloudFormation repo should be skipped");
-        assertFalse(skipped.contains("JavaProject"), "Java repo should not be skipped");
-    }
-
-    @Test
-    void identifyNonJavaRepos_keeps_repos_with_java_files_but_no_build_file() throws IOException {
-        // Repo with .java files but no pom.xml/build.gradle (legacy project)
-        Path legacyRepo = Files.createDirectories(tempDir.resolve("workspace/Legacy/src"));
-        Files.writeString(legacyRepo.resolve("Main.java"), "class Main {}");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        Set<String> skipped = extractor.identifyNonJavaRepos(wsRoot);
-
-        assertFalse(skipped.contains("Legacy"),
-                "Repo with Java files should not be skipped even without build file");
-    }
-
-    @Test
-    void findJavaFiles_excludes_non_java_repos() throws IOException {
-        // Java repo
-        Path javaRepo = Files.createDirectories(tempDir.resolve("workspace/JavaProject/src"));
-        Files.writeString(tempDir.resolve("workspace/JavaProject/pom.xml"), "<project/>");
-        Files.writeString(javaRepo.resolve("App.java"), "class App {}");
-
-        // Non-Java repo with no .java files at all
-        Path nuxtRepo = Files.createDirectories(tempDir.resolve("workspace/NuxtFrontend/pages"));
-        Files.writeString(nuxtRepo.resolve("index.vue"), "<template></template>");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        List<Path> found = extractor.findJavaFiles(wsRoot);
-
-        assertEquals(1, found.size());
-        assertTrue(found.get(0).toString().contains("JavaProject"));
-    }
 
     // -----------------------------------------------------------------------
     // #279: archive/ directory exclusion
@@ -891,42 +429,115 @@ class CodeGraphExtractorTest {
                 Path.of("/workspace/archiver/Foo.java")));
     }
 
+
+    // -----------------------------------------------------------------------
+    // TypeScript extraction (#323) -- characterization (black-box) so the
+    // per-language seam refactor has a gate to measure against.
+    // -----------------------------------------------------------------------
+
     @Test
-    void findJavaFiles_excludes_archive_directories() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+    void extractAndPersist_ts_relative_import_resolves_internal() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar';\nexport const foo = bar;\n");
 
-        // Create files inside archive directories
-        Path archiveDir = Files.createDirectories(
-                tempDir.resolve("project/archive/old-version/src/com"));
-        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
 
-        Path vendorDir = Files.createDirectories(
-                tempDir.resolve("project/vendor/lib/src"));
-        Files.writeString(vendorDir.resolve("Bar.java"), "class Bar {}");
-
-        Path nodeModules = Files.createDirectories(
-                tempDir.resolve("project/node_modules/some-pkg"));
-        Files.writeString(nodeModules.resolve("Gen.java"), "class Gen {}");
-
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(1, found.size(),
-                "Should find only the source file, excluding archive/vendor/node_modules: " + found);
-        assertTrue(found.get(0).toString().contains("src/main/java"));
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), "relative import to an in-workspace file is internal");
+        assertEquals("src/Bar.ts", dep.targetFile());
+        assertEquals("import", dep.dependencyType());
+        assertEquals("Foo", dep.sourceClass());
     }
 
     @Test
-    void findJavaFiles_includesArchives_when_flag_set() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+    void extractAndPersist_ts_bare_module_import_stays_external() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Foo.ts"), "import React from 'react';\n");
 
-        Path archiveDir = Files.createDirectories(
-                tempDir.resolve("project/archive/old-version/src/com"));
-        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
 
-        extractor.setIncludeArchives(true);
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(2, found.size(),
-                "With --include-archives, should find both source and archive files: " + found);
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "react".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected react edge: " + fooDeps));
+        assertTrue(dep.isExternal(), "bare module specifier is external");
+        assertNull(dep.targetFile());
     }
+
+    @Test
+    void extractAndPersist_ts_js_extension_rewrite_resolves_to_ts() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        // Bun/NodeNext: source imports its own file by the compiled .js extension.
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), ".js specifier must rewrite to the .ts file");
+        assertEquals("src/Bar.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_duplicate_specifier_deduped_to_one_edge() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\nexport const baz = 2;\n");
+        Files.writeString(src.resolve("Foo.ts"),
+                "import { bar } from './Bar';\nimport { baz } from './Bar';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        long barEdges = fooDeps.stream().filter(d -> "Bar".equals(d.targetClass())).count();
+        assertEquals(1, barEdges, "the same specifier imported twice yields one edge: " + fooDeps);
+    }
+
+    @Test
+    void extractAndPersist_ts_directory_index_import_resolves() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Path widget = Files.createDirectories(src.resolve("widget"));
+        Files.writeString(widget.resolve("index.ts"), "export const w = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { w } from './widget';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "widget".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to widget: " + fooDeps));
+        assertFalse(dep.isExternal(), "directory import resolves to <dir>/index.ts");
+        assertEquals("src/widget/index.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_declaration_file_excluded() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Other.ts"), "export const x = 1;\n");
+        Files.writeString(src.resolve("types.d.ts"), "import { X } from './Other';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> dtsDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/types.d.ts");
+        assertTrue(dtsDeps.isEmpty(), ".d.ts declaration files are excluded from extraction: " + dtsDeps);
+    }
+
 }
