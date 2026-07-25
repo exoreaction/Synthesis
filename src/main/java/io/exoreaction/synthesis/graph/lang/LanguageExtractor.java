@@ -25,6 +25,16 @@ public interface LanguageExtractor {
     /** Stable identifier for this language (e.g. {@code "java"}), for logging/diagnostics. */
     String languageId();
 
+    /**
+     * Human-readable name for CLI output (e.g. {@code "Java"}). Defaults to
+     * {@link #languageId()} capitalised; override only when that is not the
+     * conventional spelling (e.g. {@code "TypeScript"}).
+     */
+    default String displayName() {
+        String id = languageId();
+        return id.isEmpty() ? id : Character.toUpperCase(id.charAt(0)) + id.substring(1);
+    }
+
     /** The file extensions this language claims. */
     Set<Ext> extensions();
 

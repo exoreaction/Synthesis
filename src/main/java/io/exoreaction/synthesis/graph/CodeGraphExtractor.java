@@ -200,6 +200,30 @@ public class CodeGraphExtractor {
     }
 
     /**
+     * The source files every registered language claims under {@code workspaceRoot}, keyed by
+     * {@link LanguageExtractor#displayName()} in registry order (#466).
+     *
+     * <p>Callers that need a file set -- the CLI's {@code --incremental} changed set and its
+     * {@code --dry-run} counts -- must use this rather than walking for extensions themselves:
+     * a hardcoded per-language walk silently drops any language it forgets, leaving that
+     * language's graph stale (ADR-0001 gap #6), and misses each language's own exclusions
+     * (e.g. TypeScript {@code .d.ts} files) and the shared {@link ExclusionRules} that
+     * {@code --include-archives} feeds. Registering a language is therefore enough to have it
+     * discovered everywhere.
+     *
+     * @param workspaceRoot root of the workspace to scan
+     * @return display name to that language's files (empty list when a language has none)
+     */
+    public Map<String, List<Path>> sourceFilesByLanguage(Path workspaceRoot) {
+        ExclusionRules excl = new ExclusionRules(includeArchives);
+        Map<String, List<Path>> byLanguage = new LinkedHashMap<>();
+        for (LanguageExtractor lang : REGISTRY) {
+            byLanguage.put(lang.displayName(), lang.findFiles(workspaceRoot, excl));
+        }
+        return byLanguage;
+    }
+
+    /**
      * Returns the registered {@link LanguageExtractor} that claims {@code file} by extension,
      * or {@code null} if no language does. Drives the incremental changed-file dispatch so a
      * new language is handled automatically once it is in {@link #REGISTRY}.
