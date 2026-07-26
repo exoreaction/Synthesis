@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.11.0'
+  KCP_AGENT_VERSION: '0.18.0'
 
 jobs:
   conformance:
@@ -75,6 +75,9 @@ jobs:
           cat knowledge.yaml
 
       - name: Validate with kcp-agent (pinned)
+        # Since 0.18 the validator warns (not errors) on `kind: policy` —
+        # it only knows `kind: skill` and loads other kinds as ungoverned
+        # plain units. Expected output: "✓ valid — 1 warning(s)".
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml
 
       - name: Plan over the generated manifest (pinned)
@@ -89,7 +92,17 @@ jobs:
           node -e "const p=require('/tmp/plan.json'); const n=(p.units||p.plan||p.selected||[]).length; if(!JSON.stringify(p).includes('docs-api')){console.error('plan did not select docs-api');process.exit(1)} console.log('plan ok')"
 
       - name: Replay the saved plan (drift re-verification)
-        run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" replay /tmp/plan.json
+        run: |
+          # Upstream bug (kcp-agent >= 0.14.0): `plan --json` wraps the artifact
+          # in a versioned envelope (schemaVersion + kind), but replay's
+          # comparable() does not strip those fields before diffing against the
+          # freshly recomputed (unwrapped) plan — so every plan→replay
+          # round-trip reports false drift "plan differs in: kind, schemaVersion".
+          # Strip the envelope before replay; the determinism check itself
+          # (selected/skipped/scores/manifest sha256) still runs at full strength.
+          # Remove this workaround once fixed upstream.
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('/tmp/plan.json','utf8'));delete p.schemaVersion;delete p.kind;fs.writeFileSync('/tmp/plan.json',JSON.stringify(p,null,2))"
+          npx --yes "kcp-agent@${KCP_AGENT_VERSION}" replay /tmp/plan.json
 
       - name: Sign the manifest and have kcp-agent verify it (interop)
         run: |
