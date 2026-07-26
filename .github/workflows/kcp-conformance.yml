@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.11.0'
+  KCP_AGENT_VERSION: '0.19.0'
 
 jobs:
   conformance:
@@ -75,6 +75,9 @@ jobs:
           cat knowledge.yaml
 
       - name: Validate with kcp-agent (pinned)
+        # Since 0.18 the validator warns (not errors) on `kind: policy` —
+        # it only knows `kind: skill` and loads other kinds as ungoverned
+        # plain units. Expected output: "✓ valid — 1 warning(s)".
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml
 
       - name: Plan over the generated manifest (pinned)
@@ -89,6 +92,10 @@ jobs:
           node -e "const p=require('/tmp/plan.json'); const n=(p.units||p.plan||p.selected||[]).length; if(!JSON.stringify(p).includes('docs-api')){console.error('plan did not select docs-api');process.exit(1)} console.log('plan ok')"
 
       - name: Replay the saved plan (drift re-verification)
+        # kcp-agent 0.14.0–0.18.0 false-drifted on every plan --json artifact
+        # (versioned envelope not stripped before compare); fixed in 0.19.0.
+        # If this step regresses on a future pin bump, that bug is the first
+        # thing to check.
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" replay /tmp/plan.json
 
       - name: Sign the manifest and have kcp-agent verify it (interop)
