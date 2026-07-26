@@ -46,6 +46,9 @@ public class ValidateCommand implements Callable<Integer> {
         System.out.println();
         System.out.println("Validate: " + workspaceRoot.getFileName());
         System.out.println("  Workspace: " + workspaceRoot);
+        scopeWarning(workspaceRoot, Path.of("").toAbsolutePath().normalize(),
+                parent.getExplicitWorkspaceRoot().isPresent())
+                .ifPresent(w -> System.out.println("  " + w));
 
         List<String> checks = new ArrayList<>();
         if (skills) checks.add("skills");
@@ -67,6 +70,15 @@ public class ValidateCommand implements Callable<Integer> {
                     System.out.println("  Looked for: .claude/skills/*.md, .claude/skills/*.yaml, CLAUDE.md"
                             + (docs ? ", docs/**/*.md" : ""));
                 } else {
+                    // Say what was NOT in scope. Checking a lone CLAUDE.md and printing
+                    // "Result: OK" reads as a pass over the skill library when no skill
+                    // was looked at (#480) — the same failure the kcp-skill linter had
+                    // before SK009 reported its own coverage.
+                    if (skills && !Files.isDirectory(workspaceRoot.resolve(".claude").resolve("skills"))) {
+                        System.out.println();
+                        System.out.println("  no .claude/skills directory under this workspace — "
+                                + "no skills were checked");
+                    }
                     DriftDetector detector = new DriftDetector();
                     Map<Path, List<DriftIssue>> allIssues = new LinkedHashMap<>();
                     for (Path f : filesToCheck) allIssues.put(f, detector.detect(f, index));
@@ -95,6 +107,32 @@ public class ValidateCommand implements Callable<Integer> {
 
             return exitCode;
         } catch (Exception e) { AnsiOutput.printError("Validate failed: " + e.getMessage()); return 1; }
+    }
+
+    /**
+     * A note to print when the workspace being validated is probably not the one the
+     * user meant (#480).
+     *
+     * <p>{@code getWorkspaceRoot()} resolves {@code -d} &rarr; {@code SYNTHESIS_WORKSPACE}
+     * &rarr; {@code ~/.synthesis/workspace} &rarr; cwd. When the config file is set,
+     * cwd is never reached — so running {@code validate --skills} inside a repo silently
+     * validated the configured workspace instead, found no {@code .claude/skills} there,
+     * checked one {@code CLAUDE.md} and reported {@code Result: OK}. A green pass over a
+     * scope of one is indistinguishable from a green pass over a real library.
+     *
+     * <p>The precedence itself is fine and is left alone: changing it would break every
+     * caller that relies on a configured default. What was missing is saying so.
+     *
+     * @param resolvedRoot the workspace {@code getWorkspaceRoot()} chose
+     * @param cwd          the directory the user actually ran from
+     * @param wasExplicit  whether {@code -d} was passed on this invocation
+     * @return a warning to print, or empty when the scope is unsurprising
+     */
+    static Optional<String> scopeWarning(Path resolvedRoot, Path cwd, boolean wasExplicit) {
+        if (wasExplicit) return Optional.empty();       // the user said which one
+        if (cwd.equals(resolvedRoot) || cwd.startsWith(resolvedRoot)) return Optional.empty();
+        return Optional.of("NOTE: workspace was defaulted, not requested — you are in "
+                + cwd + ". Pass -d " + cwd + " to validate there instead.");
     }
 
     private int printReport(Map<Path, List<DriftIssue>> allIssues, Path workspaceRoot) {
@@ -166,11 +204,20 @@ public class ValidateCommand implements Callable<Integer> {
         return 1;
     }
 
+    /** Depth of the skills tree we descend. Enough for both supported layouts —
+     *  flat {@code <name>.yaml}, grouped {@code <group>/<name>.yaml}, and
+     *  {@code <name>/SKILL.md} — without walking an arbitrarily deep tree (#481). */
+    private static final int SKILLS_MAX_DEPTH = 3;
+
     private List<Path> collectSkillFiles(Path workspaceRoot) throws IOException {
         List<Path> files = new ArrayList<>();
         Path skillsDir = workspaceRoot.resolve(".claude").resolve("skills");
         if (Files.isDirectory(skillsDir)) {
-            try (Stream<Path> walk = Files.walk(skillsDir, 1)) {
+            // Was maxDepth 1, which silently skipped every grouped skill — 19 of them
+            // in ~/.claude/skills/common/ alone — and skipped the <name>/SKILL.md
+            // layout entirely (#340). A bounded enumeration is fine; an invisible bound
+            // is not, so the depth is named and the count is reported by the caller.
+            try (Stream<Path> walk = Files.walk(skillsDir, SKILLS_MAX_DEPTH)) {
                 walk.filter(Files::isRegularFile)
                     .filter(p -> {
                         String n = p.getFileName().toString();
