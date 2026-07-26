@@ -102,8 +102,18 @@ public class KcpCommand implements Callable<Integer> {
                         + " — nothing to generate.");
                 return 0;
             }
+            Path manifestForIds = repoDir.resolve("knowledge.yaml");
+            java.util.Set<String> reserved = java.util.Set.of();
+            try {
+                if (Files.isRegularFile(manifestForIds)) {
+                    reserved = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                            .reservedUnitIds(Files.readString(manifestForIds));
+                }
+            } catch (Exception e) {
+                // unreadable manifest is reported by the write path below
+            }
             String block = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
-                    .skillsBlock(repoDir, skills);
+                    .skillsBlock(repoDir, skills, reserved);
 
             System.out.printf("Governed skills: %d unit(s) from %s%n",
                     skills.size(), repoDir.resolve(".claude/skills"));

@@ -113,6 +113,20 @@ class KcpSkillScaffolderTest {
     }
 
     @Test
+    void dotfilesAreNeverSkills() throws IOException {
+        Path dir = skillsDir();
+        // synthesis init/sync writes directory-identity files even inside
+        // .claude/skills — they must not become governed skill units.
+        Files.writeString(dir.resolve(".synthesis.md"), "# Directory Identity\n");
+        Files.createDirectories(dir.resolve(".hidden"));
+        Files.writeString(dir.resolve(".hidden/SKILL.md"), "# Hidden\n");
+        writeYamlSkill(dir);
+        var skills = KcpSkillScaffolder.collectSkills(tempDir);
+        assertEquals(1, skills.size(), "dotfiles/hidden dirs must be skipped: " + skills);
+        assertEquals("demo-release", skills.get(0).name());
+    }
+
+    @Test
     void malformedYamlSkillIsSkippedNotGuessed() throws IOException {
         Path dir = skillsDir();
         Files.writeString(dir.resolve("broken.yaml"), "name: [unclosed");
@@ -183,6 +197,23 @@ class KcpSkillScaffolderTest {
     @Test
     void emptySkillListYieldsEmptyBlock() {
         assertEquals("", KcpSkillScaffolder.skillsBlock(tempDir, List.of()));
+    }
+
+    @Test
+    void collidingUnitIdGetsSkillPrefix() throws IOException {
+        Path dir = skillsDir();
+        writeYamlSkill(dir);
+        String manifest = scaffoldedManifest()
+                + "  - id: demo-release\n    path: docs/demo-release.md\n"
+                + "    intent: \"Release notes\"\n    scope: module\n"
+                + "    audience: [human, agent]\n\n";
+
+        var reserved = KcpSkillScaffolder.reservedUnitIds(manifest);
+        assertTrue(reserved.contains("demo-release"), reserved.toString());
+        String block = KcpSkillScaffolder.skillsBlock(tempDir,
+                KcpSkillScaffolder.collectSkills(tempDir), reserved);
+        assertTrue(block.contains("  - id: skill-demo-release\n"),
+                "colliding id must get the skill- prefix (spec: manifest-unique ids): " + block);
     }
 
     // -------------------------------------------------------------------

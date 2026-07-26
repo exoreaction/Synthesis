@@ -70,6 +70,10 @@ public final class KcpSkillScaffolder {
         try (Stream<Path> entries = Files.list(skillsDir)) {
             entries.sorted().forEach(entry -> {
                 String fileName = entry.getFileName().toString();
+                if (fileName.startsWith(".")) {
+                    // .synthesis.md identity files, hidden dirs — never skills
+                    return;
+                }
                 if (Files.isRegularFile(entry)
                         && (fileName.endsWith(".yaml") || fileName.endsWith(".yml"))) {
                     addYamlSkill(skills, repoDir, entry);
@@ -205,6 +209,16 @@ public final class KcpSkillScaffolder {
      * open top-level key — {@link #mergeSkillsBlock} handles that.
      */
     public static String skillsBlock(Path repoDir, List<SkillSource> skills) {
+        return skillsBlock(repoDir, skills, Set.of());
+    }
+
+    /**
+     * @param reservedIds unit ids already present in the target manifest —
+     *        a colliding skill id is prefixed {@code skill-} so ids stay
+     *        manifest-unique as the spec requires
+     */
+    public static String skillsBlock(Path repoDir, List<SkillSource> skills,
+                                     Set<String> reservedIds) {
         if (skills.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
         String today = LocalDate.now().toString();
@@ -212,7 +226,9 @@ public final class KcpSkillScaffolder {
         sb.append("  # KCP v0.26 §4.3a — selectable like knowledge, enaction bounded by\n");
         sb.append("  # action_scope; not invoke-eligible without an explicit grant (§16.3 C4).\n");
         for (SkillSource skill : skills) {
-            sb.append("  - id: ").append(KcpScaffolder.slug(skill.name())).append("\n");
+            String id = KcpScaffolder.slug(skill.name());
+            if (reservedIds.contains(id)) id = "skill-" + id;
+            sb.append("  - id: ").append(id).append("\n");
             sb.append("    path: ").append(skill.relativePath()).append("\n");
             sb.append("    intent: \"").append(escape(skill.intent())).append("\"\n");
             sb.append("    scope: project\n");
@@ -276,6 +292,17 @@ public final class KcpSkillScaffolder {
                 "kcp_version: \"0.26\"");
         merged = merged.replaceFirst("\\(KCP\\) v0\\.2[0-9]", "(KCP) v0.26");
         return recountUnits(merged);
+    }
+
+    /** Unit ids declared in {@code manifestYaml} (skills block excluded). */
+    public static Set<String> reservedUnitIds(String manifestYaml) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (String line : stripSkillsBlock(manifestYaml).split("\n")) {
+            if (line.startsWith("  - id: ")) {
+                ids.add(line.substring("  - id: ".length()).strip());
+            }
+        }
+        return ids;
     }
 
     /** Removes the marker-delimited skills block, if present. */
