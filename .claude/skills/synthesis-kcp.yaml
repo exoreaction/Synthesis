@@ -228,7 +228,7 @@ instructions: |
 
   After generation, validate with the reference consumer (pinned version — same as CI):
   ```bash
-  npx --yes kcp-agent@0.18.0 validate knowledge.yaml
+  npx --yes kcp-agent@0.19.0 validate knowledge.yaml
   ```
 
   Or with the KCP Python reference parser:
