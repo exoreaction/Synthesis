@@ -183,6 +183,8 @@ synthesis kcp plan "task" --budget N --format json   # Ordered read plan over in
 synthesis kcp sign [manifest]                        # Ed25519-sign a manifest (detached knowledge.yaml.sig; keys in ~/.synthesis/kcp-keys/)
 synthesis kcp sign [manifest] --verify               # Print trust tier (TRUSTED/KNOWN/UNSIGNED/FAILED)
 synthesis kcp init --sign                            # Sign each generated manifest at scaffold time
+synthesis kcp skills [dir]                           # Preview governed kind: skill units from .claude/skills/ (v0.26 §4.3a; issue #477)
+synthesis kcp skills --write                         # Merge the skills block into knowledge.yaml (bumps kcp_version to 0.26; fail-closed action_scope)
 
 # Knowledge graph (document workspaces)
 synthesis route-explain "filename"          # Explain routing decision for a file

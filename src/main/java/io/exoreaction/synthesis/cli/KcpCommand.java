@@ -49,7 +49,8 @@ import java.util.concurrent.Callable;
         subcommands = {KcpCommand.InitSub.class, KcpCommand.RefreshSub.class,
                 KcpCommand.VerifySub.class, KcpCommand.GapsSub.class,
                 KcpCommand.CatalogSub.class, KcpCommand.FederateSub.class,
-                KcpCommand.PlanSub.class, KcpCommand.SignSub.class}
+                KcpCommand.PlanSub.class, KcpCommand.SignSub.class,
+                KcpCommand.SkillsSub.class}
 )
 public class KcpCommand implements Callable<Integer> {
 
@@ -58,9 +59,90 @@ public class KcpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate|plan|sign> "
+        System.out.println("Usage: synthesis kcp <init|refresh|verify|gaps|catalog|federate|plan|sign|skills> "
                 + "— see 'synthesis kcp --help'");
         return 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // synthesis kcp skills
+    // -----------------------------------------------------------------------
+
+    @Command(name = "skills",
+            description = {"Generate governed kind: skill units (KCP v0.26 §4.3a) from .claude/skills/ (issue #477).",
+                    "action_scope is inferred fail-closed from each playbook's own evidence: tools from "
+                            + "what it invokes, paths only where they exist in the repo. Units land in a "
+                            + "marker-delimited block of the root knowledge.yaml (regenerable in place, "
+                            + "preserved by kcp refresh); merging bumps kcp_version to 0.26. Preview by "
+                            + "default; --write to modify the manifest."},
+            mixinStandardHelpOptions = true)
+    static class SkillsSub implements Callable<Integer> {
+
+        @ParentCommand
+        private KcpCommand kcpParent;
+
+        @picocli.CommandLine.Parameters(index = "0", arity = "0..1",
+                description = "Repository directory (default: the workspace root)")
+        private Path targetDir;
+
+        @Option(names = {"--write"}, description = "Merge the generated block into knowledge.yaml "
+                + "(default is preview only)")
+        private boolean write;
+
+        @Override
+        public Integer call() {
+            Path repoDir = targetDir != null ? targetDir : kcpParent.parent.getWorkspaceRoot();
+            if (!Files.isDirectory(repoDir)) {
+                AnsiOutput.printError("Not a directory: " + repoDir);
+                return 2;
+            }
+            var skills = io.exoreaction.synthesis.kcp.KcpSkillScaffolder.collectSkills(repoDir);
+            if (skills.isEmpty()) {
+                System.out.println("No skills found under " + repoDir.resolve(".claude/skills")
+                        + " — nothing to generate.");
+                return 0;
+            }
+            String block = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                    .skillsBlock(repoDir, skills);
+
+            System.out.printf("Governed skills: %d unit(s) from %s%n",
+                    skills.size(), repoDir.resolve(".claude/skills"));
+            for (var skill : skills) {
+                System.out.println("  - " + io.exoreaction.synthesis.kcp.KcpScaffolder
+                        .slug(skill.name()) + "  (" + skill.relativePath() + ")");
+            }
+
+            if (!write) {
+                System.out.println();
+                System.out.print(block);
+                System.out.println();
+                System.out.println("Preview only — re-run with --write to merge into knowledge.yaml.");
+                return 0;
+            }
+
+            Path manifest = repoDir.resolve("knowledge.yaml");
+            try {
+                String merged;
+                if (Files.isRegularFile(manifest)) {
+                    merged = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                            .mergeSkillsBlock(Files.readString(manifest), block);
+                } else {
+                    merged = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                            .standaloneManifest(repoDir, Version.getVersion(), block);
+                }
+                Files.writeString(manifest, merged);
+                System.out.println("  [OK] governed-skills block written to " + manifest
+                        + "  (kcp_version: 0.26)");
+                if (Files.exists(manifest.resolveSibling("knowledge.yaml.sig"))) {
+                    AnsiOutput.printWarning("Manifest changed after signing — re-run "
+                            + "'synthesis kcp sign' to restore a verifiable signature.");
+                }
+                return 0;
+            } catch (Exception e) {
+                AnsiOutput.printError("Failed to write " + manifest + ": " + e.getMessage());
+                return 1;
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -402,10 +484,21 @@ public class KcpCommand implements Callable<Integer> {
                     structural++;
                     continue;
                 }
+                // A governed-skills block (kcp skills) is maintained separately:
+                // compare without it, and re-attach it to whatever we write.
+                String skillsBlock = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                        .extractSkillsBlock(existing);
+                String existingSansSkills = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                        .stripSkillsBlock(existing);
+                if (skillsBlock != null) {
+                    fresh = io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                            .mergeSkillsBlock(fresh, skillsBlock);
+                }
                 String normalizedExisting = io.exoreaction.synthesis.kcp.KcpScaffolder
-                        .normalizeVolatile(existing);
+                        .normalizeVolatile(existingSansSkills);
                 String normalizedFresh = io.exoreaction.synthesis.kcp.KcpScaffolder
-                        .normalizeVolatile(fresh);
+                        .normalizeVolatile(io.exoreaction.synthesis.kcp.KcpSkillScaffolder
+                                .stripSkillsBlock(fresh));
                 if (!normalizedExisting.equals(normalizedFresh)) {
                     System.out.println("  [modified] " + manifest
                             + " — structure differs from a fresh scaffold (hand-edited or repo "
