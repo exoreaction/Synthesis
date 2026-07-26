@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.19.0'
+  KCP_AGENT_VERSION: '0.19.1'
 
 jobs:
   conformance:
@@ -100,9 +100,8 @@ jobs:
         run: npx --yes github:Cantara/kcp-skill#v0.1.0 /tmp/fixture/knowledge.yaml
 
       - name: Validate with kcp-agent (pinned)
-        # Since 0.18 the validator warns (not errors) on `kind: policy` —
-        # it only knows `kind: skill` and loads other kinds as ungoverned
-        # plain units. Expected output: "✓ valid — 1 warning(s)".
+        # 0.18.0–0.19.0 warned on spec-valid kinds (policy/schema); fixed
+        # in 0.19.1 per §4.3. Expected output: "✓ valid — 0 warning(s)".
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml
 
       - name: Plan over the generated manifest (pinned)
