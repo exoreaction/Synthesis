@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -334,6 +335,44 @@ class CodeGraphExtractorTest {
         CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn, changed);
 
         assertEquals(0, stats.filesProcessed());
+    }
+
+    // -----------------------------------------------------------------------
+    // Incremental staleness -- the graph must not outlive the source (#459, #460)
+    // -----------------------------------------------------------------------
+
+    /** Writes a two-file project where Service imports Config, and returns its root. */
+    private Path writeServiceImportingConfig(boolean withConfig) throws IOException {
+        Path srcDir = Files.createDirectories(tempDir.resolve("project/src"));
+        if (withConfig) {
+            Files.writeString(srcDir.resolve("Config.java"), """
+                    package com.example;
+                    public class Config {}
+                    """);
+        }
+        Files.writeString(srcDir.resolve("Service.java"), """
+                package com.example;
+                import com.example.Config;
+                public class Service {}
+                """);
+        return tempDir.resolve("project");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #460: deleting a source file removes its rows on the next incremental")
+    void incrementalUpdate_removes_rows_of_a_deleted_source_file() throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertFalse(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "precondition: Service.java has edges after the full extract");
+
+        Files.delete(projectRoot.resolve("src/Service.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Service.java")));
+
+        assertTrue(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "a deleted file's outgoing edges must not survive the incremental update (#460)");
     }
 
     // -----------------------------------------------------------------------

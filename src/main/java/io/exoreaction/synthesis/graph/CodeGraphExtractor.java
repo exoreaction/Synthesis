@@ -141,6 +141,10 @@ public class CodeGraphExtractor {
      * Incremental update: re-extracts only the given changed files.
      * Deletes old edges for those files, then re-extracts.
      *
+     * <p>A changed file that no longer exists has its rows deleted rather than skipped (#460):
+     * a row is only ever rewritten by its own source file, so the fan-out of a deleted file
+     * would otherwise survive until the next full extract.
+     *
      * @param workspaceRoot workspace root
      * @param conn          database connection
      * @param changedFiles  set of changed file paths (relative to workspace root)
@@ -173,12 +177,19 @@ public class CodeGraphExtractor {
 
         for (Path changedFile : changedFiles) {
             Path fullPath = changedFile.isAbsolute() ? changedFile : workspaceRoot.resolve(changedFile);
-            if (!Files.exists(fullPath)) continue;
+            String relPath = workspaceRoot.relativize(fullPath).toString();
+
+            if (!Files.exists(fullPath)) {
+                // The file is gone (#460). Its outgoing rows have to go with it -- skipping the
+                // path, as this loop used to, left the whole fan-out of a deleted file in the
+                // graph until the next full extract.
+                repository.deleteDependenciesForFile(conn, wsPath, relPath);
+                continue;
+            }
 
             LanguageExtractor lang = extractorFor(fullPath);
             if (lang == null) continue; // not a language we extract
 
-            String relPath = workspaceRoot.relativize(fullPath).toString();
             filesProcessed++;
 
             // Delete old edges for this file, then re-extract via its language.
