@@ -358,6 +358,15 @@ class CodeGraphExtractorTest {
         return tempDir.resolve("project");
     }
 
+    /** The single Service -> Config edge, or an assertion failure if it is gone. */
+    private CodeDependency serviceToConfig(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").stream()
+                .filter(d -> "Config".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a Service -> Config edge"));
+    }
+
     @Test
     @DisplayName("REGRESSION #460: deleting a source file removes its rows on the next incremental")
     void incrementalUpdate_removes_rows_of_a_deleted_source_file() throws SQLException, IOException {
@@ -373,6 +382,50 @@ class CodeGraphExtractorTest {
         assertTrue(extractor.getRepository()
                         .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
                 "a deleted file's outgoing edges must not survive the incremental update (#460)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target appears later")
+    void incrementalUpdate_refreshes_edges_whose_target_became_resolvable()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(false); // Config.java does not exist yet
+        extractor.extractAndPersist(projectRoot, conn);
+        assertTrue(serviceToConfig(projectRoot).isExternal(),
+                "precondition: Config is unresolvable at first extract, so the edge is external");
+
+        // Config.java appears later. Only Config.java is in the changed set -- Service.java is
+        // untouched on disk and will never enter it.
+        Files.writeString(projectRoot.resolve("src/Config.java"), """
+                package com.example;
+                public class Config {}
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertFalse(edge.isExternal(),
+                "Service -> Config must be internal once Config.java exists (#459)");
+        assertEquals("src/Config.java", edge.targetFile(),
+                "the refreshed edge must point at the file that now provides the target (#459)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target disappears")
+    void incrementalUpdate_refreshes_edges_whose_target_file_disappeared()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals("src/Config.java", serviceToConfig(projectRoot).targetFile(),
+                "precondition: the edge resolves to Config.java after the full extract");
+
+        // Config.java is deleted. Service.java is unchanged, so only Config.java is in the set.
+        Files.delete(projectRoot.resolve("src/Config.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertTrue(edge.isExternal(),
+                "Service -> Config must fall back to external once Config.java is gone (#459)");
+        assertTrue(edge.targetFile() == null || edge.targetFile().isEmpty(),
+                "the edge must not keep pointing at a file that no longer exists (#459)");
     }
 
     // -----------------------------------------------------------------------
