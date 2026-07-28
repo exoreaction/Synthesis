@@ -428,6 +428,37 @@ class CodeGraphExtractorTest {
                 "the edge must not keep pointing at a file that no longer exists (#459)");
     }
 
+    @Test
+    @DisplayName("REGRESSION #459: a TypeScript edge is refreshed when its module appears later")
+    void incrementalUpdate_refreshes_typescript_edges_whose_module_became_resolvable()
+            throws SQLException, IOException {
+        // TypeScript declares no FQN identities -- it reaches the resolver through the module
+        // path index -- so it needs its own path into the re-resolution above.
+        Path tsDir = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(tsDir.resolve("foo.ts"), "import { bar } from './bar';\n");
+        Path projectRoot = tempDir.resolve("project");
+        extractor.extractAndPersist(projectRoot, conn);
+
+        CodeDependency before = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertTrue(before.isExternal(), "precondition: bar.ts does not exist yet");
+
+        Files.writeString(tsDir.resolve("bar.ts"), "export const bar = 1;\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/bar.ts")));
+
+        CodeDependency after = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertFalse(after.isExternal(),
+                "foo.ts -> ./bar must be internal once bar.ts exists (#459)");
+        assertEquals("src/bar.ts", after.targetFile());
+    }
+
     // -----------------------------------------------------------------------
     // Helper: findJavaFiles
     // -----------------------------------------------------------------------

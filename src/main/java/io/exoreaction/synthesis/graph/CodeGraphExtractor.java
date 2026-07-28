@@ -223,6 +223,19 @@ public class CodeGraphExtractor {
             }
         }
 
+        // The same, for languages that resolve by module path instead of FQN: TypeScript
+        // declares no FQN identities (its files reach the resolver via the path index), and its
+        // rows record the specifier's last segment as the target class.
+        for (Map.Entry<String, String> module : tsPathIndex.entrySet()) {
+            if (!processed.contains(module.getValue())) continue;
+            String stem = module.getKey();
+            int lastSlash = stem.lastIndexOf('/');
+            String targetClass = lastSlash >= 0 ? stem.substring(lastSlash + 1) : stem;
+            for (CodeDependency dep : repository.getDependenciesTo(conn, wsPath, targetClass, "")) {
+                if (dep.isExternal()) reresolve.add(dep.sourceFile());
+            }
+        }
+
         reresolve.removeAll(processed);
         for (String relPath : reresolve) {
             Path fullPath = workspaceRoot.resolve(relPath);
