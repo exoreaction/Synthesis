@@ -69,10 +69,7 @@ public class CrossFormatLinker {
             catch (IOException e) { continue; }
 
             for (String table : tableNames) {
-                String t = table.toLowerCase(java.util.Locale.ROOT);
-                if (content.contains("\"" + t + "\"")
-                        || content.contains("'" + t + "'")
-                        || content.contains(t.replace("_", ""))) {
+                if (referencesTable(content, table)) {
                     links.add(new CrossFormatLink(
                         javaFile.relativePath(), javaFile.fileName(), "table", table));
                     break;
@@ -80,6 +77,20 @@ public class CrossFormatLinker {
             }
         }
         return links;
+    }
+
+    /**
+     * Whether already-lowercased Java source content references {@code table}.
+     *
+     * <p>Extracted from {@link #findSqlToJavaLinks} so a caller that already holds the file
+     * content -- the incremental path, which reads each Java file once per run rather than
+     * once per SQL file (#465) -- can match without reading it again.
+     */
+    public static boolean referencesTable(String lowerCaseContent, String table) {
+        String t = table.toLowerCase(java.util.Locale.ROOT);
+        return lowerCaseContent.contains("\"" + t + "\"")
+                || lowerCaseContent.contains("'" + t + "'")
+                || lowerCaseContent.contains(t.replace("_", ""));
     }
 
     /** Extract CREATE TABLE names from a SQL file. */

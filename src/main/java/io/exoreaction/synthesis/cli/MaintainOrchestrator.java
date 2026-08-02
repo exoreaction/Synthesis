@@ -975,6 +975,16 @@ public class MaintainOrchestrator {
     }
 
     /**
+     * Whether phase 10 must see this file at all -- source files, plus the cross-format inputs
+     * no language extractor claims (#465). A migration is not a source file, so
+     * {@link #isCodeGraphFile} rejects it, and it would never enter the changed set; its links
+     * would then never be added when it appears, nor cleaned up when it is deleted.
+     */
+    private boolean isCodeGraphInput(String path) {
+        return isCodeGraphFile(path) || codeGraphExtractor.isCrossFormatSourceFile(path);
+    }
+
+    /**
      * The code files phase 10 must hand to the incremental update: everything added, modified
      * <em>or deleted</em> since the last scan.
      *
@@ -983,21 +993,23 @@ public class MaintainOrchestrator {
      * {@code relate}, {@code impact}, health and gaps reporting a file that is no longer on
      * disk until the next full extract. {@code CodeGraphExtractor.incrementalUpdate} deletes
      * the rows of any path it is given that no longer exists.
+     *
+     * <p>Cross-format inputs belong here too (#465) -- see {@link #isCodeGraphInput}.
      */
     Set<Path> codeGraphChangedPaths(ScanState.ChangeSet changes) {
         Set<Path> changedPaths = new java.util.LinkedHashSet<>();
         for (FileMetadata fm : changes.added()) {
-            if (isCodeGraphFile(fm.relativePath())) {
+            if (isCodeGraphInput(fm.relativePath())) {
                 changedPaths.add(Path.of(fm.relativePath()));
             }
         }
         for (FileMetadata fm : changes.modified()) {
-            if (isCodeGraphFile(fm.relativePath())) {
+            if (isCodeGraphInput(fm.relativePath())) {
                 changedPaths.add(Path.of(fm.relativePath()));
             }
         }
         for (String deleted : changes.deleted()) {
-            if (isCodeGraphFile(deleted)) {
+            if (isCodeGraphInput(deleted)) {
                 changedPaths.add(Path.of(deleted));
             }
         }

@@ -5,6 +5,7 @@ import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -230,6 +231,38 @@ class CodeGraphRepositoryTest {
         int deleted = repo.deleteAllCrossFormatLinks(conn, WS);
         assertEquals(2, deleted);
         assertEquals(0, repo.countCrossFormatLinks(conn, WS));
+    }
+
+    @Test
+    @DisplayName("#465: a per-file delete drops the links on both sides, and only that file's")
+    void deleteCrossFormatLinksForFile_matches_either_endpoint() throws SQLException {
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                WS, "V1.sql", "Dao.java", "table-reference", "users", NOW));
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                WS, "V2.sql", "Dao.java", "table-reference", "orders", NOW));
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                WS, "V2.sql", "Repo.java", "table-reference", "orders", NOW));
+
+        // Source side: only V1.sql's link goes.
+        assertEquals(1, repo.deleteCrossFormatLinksForFile(conn, WS, "V1.sql"));
+        assertEquals(2, repo.countCrossFormatLinks(conn, WS));
+
+        // Target side: both links pointing at Dao.java go, whichever migration sourced them.
+        assertEquals(1, repo.deleteCrossFormatLinksForFile(conn, WS, "Dao.java"));
+        assertEquals(List.of("Repo.java"), repo.getCrossFormatLinks(conn, WS).stream()
+                .map(CrossFormatLinkRecord::targetFile).toList());
+    }
+
+    @Test
+    void deleteCrossFormatLinksForFile_is_workspace_scoped() throws SQLException {
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                WS, "V1.sql", "Dao.java", "table-reference", "users", NOW));
+        repo.upsertCrossFormatLink(conn, new CrossFormatLinkRecord(
+                "/other", "V1.sql", "Dao.java", "table-reference", "users", NOW));
+
+        assertEquals(1, repo.deleteCrossFormatLinksForFile(conn, WS, "V1.sql"));
+        assertEquals(1, repo.countCrossFormatLinks(conn, "/other"),
+                "another workspace's identically-named file must be untouched");
     }
 
     // -----------------------------------------------------------------------
