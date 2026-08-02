@@ -105,4 +105,88 @@ class ValidateCommandTest {
         assertTrue(output.contains("Validate"),
                 "Output should contain header even with skill files: " + output);
     }
+
+    // ---- #480: a pass over the wrong scope must not read as a pass ----
+    //
+    // `synthesis validate --skills` run from any repo that is not the configured
+    // workspace validated ~/Documents instead, found no .claude/skills there, checked a
+    // single CLAUDE.md and printed "Result: OK" -- while the repo the user was standing
+    // in had 38 skills and 15 with drift. The precedence (-d > env > ~/.synthesis/
+    // workspace > cwd) is defensible; doing it silently is not.
+
+    @Test
+    void scopeWarning_defaultedRootAwayFromCwd_warns() {
+        Path root = Path.of("/home/u/Documents");
+        Path cwd = Path.of("/src/org/some-repo");
+
+        var warning = ValidateCommand.scopeWarning(root, cwd, false);
+
+        assertTrue(warning.isPresent(), "a defaulted root outside cwd must be announced");
+        assertTrue(warning.get().contains("some-repo"),
+                "warning should name where the user actually is: " + warning.get());
+    }
+
+    @Test
+    void scopeWarning_explicitRoot_staysQuiet() {
+        // The user passed -d; they know what they asked for.
+        var warning = ValidateCommand.scopeWarning(
+                Path.of("/home/u/Documents"), Path.of("/src/org/some-repo"), true);
+
+        assertTrue(warning.isEmpty(), "an explicit -d needs no warning: " + warning);
+    }
+
+    @Test
+    void scopeWarning_cwdInsideRoot_staysQuiet() {
+        var warning = ValidateCommand.scopeWarning(
+                Path.of("/home/u/Documents"), Path.of("/home/u/Documents/sub/dir"), false);
+
+        assertTrue(warning.isEmpty(), "cwd inside the workspace is the normal case: " + warning);
+    }
+
+    // ---- #481: bounded enumeration whose bound is invisible ----
+    //
+    // collectSkillFiles walked with maxDepth 1, so a skill one level down was never
+    // checked and its absence was never reported. ~/.claude/skills/common/ holds 19
+    // such skills. Same class as #340 (subdirectory SKILL.md ignored), #320 (flat .yaml
+    // skipped), and the workspace-discovery maxDepth that hid 21 workspaces from
+    // `synthesis list`.
+
+    @Test
+    void validate_skillInSubdirectory_isChecked() throws Exception {
+        setupWorkspace(tempDir);
+        Path nested = Files.createDirectories(tempDir.resolve(".claude/skills/common"));
+        Files.writeString(nested.resolve("nested-skill.yaml"),
+                "name: nested-skill\ndescription: One level down\n");
+
+        String output = runValidate(tempDir, "--skills");
+
+        assertTrue(output.contains("nested-skill"),
+                "a skill in a subdirectory must be checked, not silently skipped: " + output);
+    }
+
+    @Test
+    void validate_skillAsDirectoryWithSkillMd_isChecked() throws Exception {
+        setupWorkspace(tempDir);
+        // The other supported layout: <name>/SKILL.md (#340).
+        Path dir = Files.createDirectories(tempDir.resolve(".claude/skills/rotate-key"));
+        Files.writeString(dir.resolve("SKILL.md"), "# Rotate key\n\nSteps here.\n");
+
+        String output = runValidate(tempDir, "--skills");
+
+        assertTrue(output.contains("SKILL.md") || output.contains("rotate-key"),
+                "the <name>/SKILL.md layout must be checked too: " + output);
+    }
+
+    @Test
+    void validate_skillsRequestedButNoSkillsDir_saysSo() throws Exception {
+        setupWorkspace(tempDir);
+        // A CLAUDE.md but no .claude/skills -- the exact shape that produced a green
+        // "Checked 1 files ... Result: OK" over a library it never saw.
+        Files.writeString(tempDir.resolve("CLAUDE.md"), "# Project\n\nSome context.\n");
+
+        String output = runValidate(tempDir, "--skills");
+
+        assertTrue(output.contains("no .claude/skills") || output.contains("No skills directory"),
+                "must state that the skills directory was absent, not just report OK: " + output);
+    }
 }
