@@ -29,7 +29,7 @@ Perfect for:
 **Find the guide written for your perspective**
 
 If you are an Engineering Manager, Architect, or Executive, start here instead:
-- **[Executive Brief](../perspectives/EXECUTIVE-BRIEF.md)** -- 5-min strategic overview, ROI, decision framework
+- **[Executive Brief](../perspectives/EXECUTIVE.md)** -- 5-min strategic overview, ROI, decision framework
 - **[Engineering Manager Guide](../perspectives/ENGINEERING-MANAGER.md)** -- 10-min team adoption playbook with metrics
 - **[Architecture Intelligence Guide](../perspectives/ARCHITECT.md)** -- 12-min dependency mapping and governance integration
 

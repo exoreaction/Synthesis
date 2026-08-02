@@ -517,4 +517,4 @@ synthesis org                               # Organization registry
 - [Developer Guide](./DEVELOPER.md) -- for your team members
 - [Architect Guide](./ARCHITECT.md) -- for architectural analysis
 - [Executive Guide](./EXECUTIVE.md) -- for justifying to leadership
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

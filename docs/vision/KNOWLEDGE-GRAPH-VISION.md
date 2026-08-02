@@ -807,5 +807,5 @@ Synthesis is the system that understands those purposes and helps them be fulfil
 
 *Next review: after Phase 2 implementation begins*
 *Related documents:*
-- *[SYNC-ROUTING-ARCHITECTURE-REPORT.md](../architecture/SYNC-ROUTING-ARCHITECTURE-REPORT.md) — current state analysis*
-- *[Synthesis CLAUDE.md](../../CLAUDE.md) — codebase context*
+- *[SYNC-ROUTING-ARCHITECTURE-REPORT.md](https://github.com/exoreaction/Synthesis/blob/main/docs/architecture/SYNC-ROUTING-ARCHITECTURE-REPORT.md) — current state analysis*
+- *[Synthesis CLAUDE.md](https://github.com/exoreaction/Synthesis/blob/main/CLAUDE.md) — codebase context*

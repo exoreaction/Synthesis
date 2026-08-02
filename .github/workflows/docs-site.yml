@@ -1,0 +1,59 @@
+name: Docs site
+
+# Builds the mkdocs-material documentation site and publishes it to GitHub
+# Pages. Requires Pages to be enabled for the repo with "GitHub Actions" as
+# the source (Settings → Pages → Build and deployment → GitHub Actions).
+#
+# While the repo is private, only the build job runs (as a docs CI check) —
+# Pages on private repos needs a paid plan, so the deploy job is gated on
+# repo visibility and starts deploying automatically once the repo is public
+# and Pages is enabled.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mkdocs-material
+        run: pip install mkdocs-material
+
+      - name: Build site
+        run: mkdocs build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

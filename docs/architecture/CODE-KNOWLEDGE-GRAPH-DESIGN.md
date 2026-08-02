@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-22
 **Authors:** Claude Opus 4.6 (design analysis session)
-**Context:** Parallel to the document knowledge graph ([IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md)), this document designs knowledge graph features specifically for source code repositories. All metadata lives outside the source tree (SQLite only — no `.synthesis.md` files inside repos).
+**Context:** Parallel to the document knowledge graph ([IMPLEMENTATION-PLAN.md](https://github.com/exoreaction/Synthesis/blob/main/docs/architecture/IMPLEMENTATION-PLAN.md)), this document designs knowledge graph features specifically for source code repositories. All metadata lives outside the source tree (SQLite only — no `.synthesis.md` files inside repos).
 
 ---
 
@@ -329,4 +329,4 @@ The two systems are **parallel but independent**. In a mixed workspace (repo wit
 
 *Related documents:*
 *[KNOWLEDGE-GRAPH-VISION.md](../vision/KNOWLEDGE-GRAPH-VISION.md) — document knowledge graph vision*
-*[IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md) — document knowledge graph implementation plan*
+*[IMPLEMENTATION-PLAN.md](https://github.com/exoreaction/Synthesis/blob/main/docs/architecture/IMPLEMENTATION-PLAN.md) — document knowledge graph implementation plan*

@@ -538,4 +538,4 @@ CREATE TABLE IF NOT EXISTS kcp_relationships (
 
 ---
 
-**Related:** [FEATURE-KCP.md](../features/FEATURE-KCP.md) · [synthesis-kcp.yaml](../../.claude/skills/synthesis-kcp.yaml) · KCP spec: github.com/cantara/knowledge-context-protocol
+**Related:** [FEATURE-KCP.md](../features/FEATURE-KCP.md) · [synthesis-kcp.yaml](https://github.com/exoreaction/Synthesis/blob/main/.claude/skills/synthesis-kcp.yaml) · KCP spec: github.com/cantara/knowledge-context-protocol
