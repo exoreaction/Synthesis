@@ -53,6 +53,11 @@ public class TypeScriptLanguageExtractor implements LanguageExtractor {
     }
 
     @Override
+    public String displayName() {
+        return "TypeScript"; // not the default "Typescript"
+    }
+
+    @Override
     public Set<Ext> extensions() {
         return Set.of(new Ext(".ts"), new Ext(".tsx"));
     }

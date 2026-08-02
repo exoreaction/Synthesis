@@ -463,6 +463,70 @@ class CodeGraphExtractorTest {
     // Helper: findJavaFiles
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Registry-driven file discovery (#466)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void sourceFilesByLanguage_covers_every_registered_language() throws IOException {
+        Path java = Files.createDirectories(tempDir.resolve("src/main/java/com/example"));
+        Files.writeString(java.resolve("Foo.java"), "package com.example;\npublic class Foo {}\n");
+        Path kotlin = Files.createDirectories(tempDir.resolve("src/main/kotlin/com/example"));
+        Files.writeString(kotlin.resolve("Bar.kt"), "package com.example\n\nclass Bar\n");
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("baz.ts"), "export const baz = 1;\n");
+        Files.writeString(ts.resolve("widget.tsx"), "export const w = 1;\n");
+
+        Map<String, List<Path>> byLanguage = extractor.sourceFilesByLanguage(tempDir);
+
+        assertEquals(List.of("Java", "Kotlin", "TypeScript"), List.copyOf(byLanguage.keySet()),
+                "every registered language is reported, in registry order");
+        assertEquals(1, byLanguage.get("Java").size());
+        assertEquals(1, byLanguage.get("Kotlin").size());
+        assertEquals(2, byLanguage.get("TypeScript").size(), ".ts and .tsx both claimed");
+    }
+
+    @Test
+    void sourceFilesByLanguage_applies_each_language_own_exclusions() throws IOException {
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("foo.ts"), "export const foo = 1;\n");
+        Files.writeString(ts.resolve("types.d.ts"), "export declare const x: number;\n");
+
+        Map<String, List<Path>> byLanguage = extractor.sourceFilesByLanguage(tempDir);
+
+        assertEquals(1, byLanguage.get("TypeScript").size(),
+                "the TypeScript extractor's own .d.ts exclusion must apply: "
+                        + byLanguage.get("TypeScript"));
+        assertTrue(byLanguage.get("TypeScript").get(0).toString().endsWith("foo.ts"));
+    }
+
+    @Test
+    void sourceFilesByLanguage_honours_includeArchives_flag() throws IOException {
+        Path vendored = Files.createDirectories(tempDir.resolve("node_modules/dep/src"));
+        Files.writeString(vendored.resolve("dep.ts"), "export const d = 1;\n");
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("foo.ts"), "export const foo = 1;\n");
+
+        assertEquals(1, extractor.sourceFilesByLanguage(tempDir).get("TypeScript").size(),
+                "node_modules excluded by default");
+
+        extractor.setIncludeArchives(true);
+        assertEquals(2, extractor.sourceFilesByLanguage(tempDir).get("TypeScript").size(),
+                "--include-archives must reach discovery too");
+    }
+
+    @Test
+    void isSourceFile_matches_every_registered_language_extension() {
+        // The single source of truth for "is this a code-graph file?" -- callers that gate on
+        // their own extension list (maintain phase 10 did) go stale when a language is added.
+        assertTrue(extractor.isSourceFile("src/main/java/com/example/Foo.java"));
+        assertTrue(extractor.isSourceFile("src/main/kotlin/com/example/Bar.kt"));
+        assertTrue(extractor.isSourceFile("src/main/ts/baz.ts"));
+        assertTrue(extractor.isSourceFile("src/main/ts/widget.tsx"));
+        assertFalse(extractor.isSourceFile("README.md"));
+        assertFalse(extractor.isSourceFile("src/main/resources/db/V1__init.sql"));
+    }
+
     @Test
     void isBuildArtifact_detects_common_build_dirs() {
         Path root = Path.of("/workspace");

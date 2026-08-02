@@ -257,6 +257,60 @@ class CodeGraphCommandTest {
     }
 
     // =========================================================================
+    // Language coverage of the CLI's file collection (#466)
+    //
+    // The CLI must derive its file set from the LanguageExtractor registry, not
+    // from hardcoded per-language walks: dropping a registered language leaves a
+    // silently stale graph for it (ADR-0001 gap #6, drift-shaped).
+    // =========================================================================
+
+    @Test
+    void extract_incremental_includes_typescript_files() throws Exception {
+        setupWorkspace(tempDir);
+        createJavaFiles(tempDir);      // 3 Java files
+        createTypeScriptFiles(tempDir); // 2 TypeScript files
+
+        String output = runCodeGraph(tempDir, "extract", "--incremental");
+
+        assertTrue(output.contains("incremental, 5 files"),
+                "TypeScript files must be part of the incremental set: " + output);
+        assertTrue(output.contains("Files processed:    5"),
+                "all 5 registered-language files should be processed: " + output);
+    }
+
+    @Test
+    void extract_incremental_persists_typescript_edges() throws Exception {
+        setupWorkspace(tempDir);
+        createTypeScriptFiles(tempDir);
+
+        runCodeGraph(tempDir, "extract", "--incremental");
+        String stats = runCodeGraph(tempDir, "extract", "--stats");
+
+        assertFalse(stats.contains("Dependencies:       0"),
+                "the TS import edge should be persisted, not silently skipped: " + stats);
+    }
+
+    @Test
+    void extract_dry_run_reports_typescript_files() throws Exception {
+        setupWorkspace(tempDir);
+        createTypeScriptFiles(tempDir);
+
+        String output = runCodeGraph(tempDir, "extract", "--dry-run");
+
+        assertTrue(output.contains("TypeScript files:"),
+                "dry-run must report every registered language: " + output);
+        assertTrue(output.contains("Total files:  2"),
+                "TypeScript files must count toward the total: " + output);
+    }
+
+    /** Two TypeScript files, one importing the other (one internal import edge). */
+    private void createTypeScriptFiles(Path root) throws IOException {
+        Path srcDir = Files.createDirectories(root.resolve("src/main/ts"));
+        Files.writeString(srcDir.resolve("bar.ts"), "export const bar = 1;\n");
+        Files.writeString(srcDir.resolve("foo.ts"), "import { bar } from './bar';\n");
+    }
+
+    // =========================================================================
     // Alias: synthesis cg extract
     // =========================================================================
 
