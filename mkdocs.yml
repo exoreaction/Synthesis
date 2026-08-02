@@ -10,10 +10,18 @@ edit_uri: edit/main/docs/
 
 docs_dir: docs
 
-# Curation is allowlist-by-nav plus these hard excludes. Internal working
-# papers, analysis sessions, and heavy media stay out of the published site.
+# Curation model: nav does NOT gate publication (a page outside nav is still
+# published) — only exclude_docs does. The validation gate below turns any
+# doc that is neither excluded nor in nav into a strict-mode build failure,
+# so new stray docs fail CI instead of leaking into the site (PR #437 review,
+# finding D1).
+validation:
+  nav:
+    omitted_files: warn
+
 exclude_docs: |
   visuals/**
+  architecture/ADR-*.md
   analysis/**
   oauth/**
   features/AI-FEATURES-ANALYSIS.md

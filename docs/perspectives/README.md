@@ -88,7 +88,7 @@
 
 ## All Documentation
 
-### Perspective Guides (v1.15.0)
+### Perspective Guides
 
 | Guide | Audience | Key topics |
 |-------|----------|------------|
@@ -123,12 +123,7 @@
 
 - [Infographics and Presentations](https://github.com/exoreaction/Synthesis/blob/main/docs/visuals/README.md) -- NotebookLM-generated visuals (sales decks, infographics, workshop slides)
 
-### Previous Versions (Retained)
-
-These files predate the v1.8.0 documentation rewrite. They are retained for reference but may contain outdated information.
-
-- [User Guide v1](../guides/USER-GUIDE.md) -- Original command reference (superseded by [User Guide v2](../guides/USER-GUIDE.md))
 
 ---
 
-**Synthesis v1.15.0** -- [GitHub](https://github.com/exoreaction/Synthesis)
+**Synthesis** -- [GitHub](https://github.com/exoreaction/Synthesis)
