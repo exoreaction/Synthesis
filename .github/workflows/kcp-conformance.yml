@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  KCP_AGENT_VERSION: '0.19.0'
+  KCP_AGENT_VERSION: '0.19.1'
 
 jobs:
   conformance:
@@ -60,6 +60,20 @@ jobs:
 
           Report vulnerabilities responsibly.
           EOF
+          mkdir -p /tmp/fixture/.claude/skills
+          cat > /tmp/fixture/.claude/skills/demo-release.yaml <<'EOF'
+          name: demo-release
+          description: |
+            How do I cut a release safely? Version bump, changelog, tag.
+          trigger_phrases:
+            - "cut a release"
+            - "release and tag"
+          instructions: |
+            Bump the version, then:
+            ```bash
+            git tag v1.0.0
+            ```
+          EOF
           git -C /tmp/fixture init -q
           git -C /tmp/fixture add -A
           git -C /tmp/fixture -c user.email=ci@example.com -c user.name=ci commit -qm fixture
@@ -71,13 +85,23 @@ jobs:
           java -jar "$JAR" init --yes
           java -jar "$JAR" scan
           java -jar "$JAR" export --format kcp --output knowledge.yaml
+          # Governed skills (issue #477): merge kind: skill units with inferred
+          # action_scope into the manifest — bumps kcp_version to 0.26. Every
+          # downstream step (validate/plan/replay/sign/tamper) then exercises
+          # the merged v0.26 manifest.
+          java -jar "$JAR" kcp skills /tmp/fixture --write
           echo "--- generated manifest ---"
           cat knowledge.yaml
 
+      - name: Lint governed skills with kcp-skill (pinned)
+        # The generator's output contract: units must pass the shared
+        # governed-skill linter (SK001–SK008) — same producer/validator
+        # relationship this workflow already has with kcp-agent validate.
+        run: npx --yes github:Cantara/kcp-skill#v0.1.0 /tmp/fixture/knowledge.yaml
+
       - name: Validate with kcp-agent (pinned)
-        # Since 0.18 the validator warns (not errors) on `kind: policy` —
-        # it only knows `kind: skill` and loads other kinds as ungoverned
-        # plain units. Expected output: "✓ valid — 1 warning(s)".
+        # 0.18.0–0.19.0 warned on spec-valid kinds (policy/schema); fixed
+        # in 0.19.1 per §4.3. Expected output: "✓ valid — 0 warning(s)".
         run: npx --yes "kcp-agent@${KCP_AGENT_VERSION}" validate /tmp/fixture/knowledge.yaml
 
       - name: Plan over the generated manifest (pinned)

@@ -228,7 +228,7 @@ instructions: |
 
   After generation, validate with the reference consumer (pinned version — same as CI):
   ```bash
-  npx --yes kcp-agent@0.19.0 validate knowledge.yaml
+  npx --yes kcp-agent@0.19.1 validate knowledge.yaml
   ```
 
   Or with the KCP Python reference parser:
@@ -375,6 +375,28 @@ instructions: |
 
   The full trustworthy-context story = **verify (evidence-backed) + sign (tamper-evident) +
   govern (declarations match reality)**. Run `synthesis kcp verify` after `sign` for all three.
+
+  ## Governed skills (synthesis kcp skills)
+
+  Generates KCP v0.26 §4.3a `kind: skill` units from the repo's Claude Code skills
+  (`.claude/skills/` — flat yaml, flat md, and dir/SKILL.md layouts), with a fail-closed
+  `action_scope` inferred from each playbook's own evidence:
+
+  ```bash
+  synthesis kcp skills            # preview the generated block (default)
+  synthesis kcp skills --write    # merge into knowledge.yaml; bumps kcp_version to 0.26
+  ```
+
+  - `tools` come from what the playbook demonstrably invokes (shell fences → bash, git
+    commands → git; `read` always); `paths` only from tokens that exist in the repo,
+    repo-root-relative; `capabilities` are never invented.
+  - Units land in a marker-delimited block (`# --- governed skills ... ---`) appended to
+    the `units:` sequence — regenerable in place, preserved across `kcp refresh`, inserted
+    before any `signing:` block. Re-sign after `--write`.
+  - Fail-closed by spec: without an explicit eligibility grant the units are selectable by
+    planners but **not invoke-eligible** (§16.3 C4) — discoverable, inert until granted.
+  - CI lints the generated output with the shared governed-skill linter
+    (`npx github:Cantara/kcp-skill`) in `kcp-conformance.yml`.
 
   ## Use cases
 
