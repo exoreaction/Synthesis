@@ -12,7 +12,9 @@ import java.time.Instant;
  * {@link CodeGraphRepository#countDependencies}; after an incremental update it is the
  * number of rows written for the changed files.
  *
- * @param filesProcessed   number of source files processed
+ * @param filesProcessed   number of source files processed -- on an incremental update this
+ *                         includes files pulled in because a change re-resolved one of their
+ *                         edges (#459), not only the files in the changed set
  * @param dependenciesFound number of dependency rows persisted
  * @param crossFormatLinks  number of cross-format links found
  * @param packagesFound     number of distinct packages detected

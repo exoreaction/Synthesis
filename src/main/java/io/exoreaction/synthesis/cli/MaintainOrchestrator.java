@@ -972,6 +972,36 @@ public class MaintainOrchestrator {
         return false;
     }
 
+    /**
+     * The code files phase 10 must hand to the incremental update: everything added, modified
+     * <em>or deleted</em> since the last scan.
+     *
+     * <p>Deletions belong here (#460). The code graph stores a row per source file, so a file
+     * that disappears takes nothing with it unless its path still arrives -- leaving
+     * {@code relate}, {@code impact}, health and gaps reporting a file that is no longer on
+     * disk until the next full extract. {@code CodeGraphExtractor.incrementalUpdate} deletes
+     * the rows of any path it is given that no longer exists.
+     */
+    Set<Path> codeGraphChangedPaths(ScanState.ChangeSet changes) {
+        Set<Path> changedPaths = new java.util.LinkedHashSet<>();
+        for (FileMetadata fm : changes.added()) {
+            if (isCodeGraphFile(fm.relativePath())) {
+                changedPaths.add(Path.of(fm.relativePath()));
+            }
+        }
+        for (FileMetadata fm : changes.modified()) {
+            if (isCodeGraphFile(fm.relativePath())) {
+                changedPaths.add(Path.of(fm.relativePath()));
+            }
+        }
+        for (String deleted : changes.deleted()) {
+            if (isCodeGraphFile(deleted)) {
+                changedPaths.add(Path.of(deleted));
+            }
+        }
+        return changedPaths;
+    }
+
     /** Walks the workspace (depth 10, hidden dirs excluded) for files matching the predicate. */
     private Stream<Path> walkSourceFiles(Stream<Path> walk) {
         return walk.filter(Files::isRegularFile)
@@ -1011,17 +1041,7 @@ public class MaintainOrchestrator {
         // Incremental: if graph is already populated and we have change data, use incremental
         if (extractor.getRepository().isPopulated(conn, workspaceRoot.toString())
                 && changes != null && changes.hasChanges()) {
-            Set<Path> changedPaths = new java.util.HashSet<>();
-            for (FileMetadata fm : changes.added()) {
-                if (isCodeGraphFile(fm.relativePath())) {
-                    changedPaths.add(Path.of(fm.relativePath()));
-                }
-            }
-            for (FileMetadata fm : changes.modified()) {
-                if (isCodeGraphFile(fm.relativePath())) {
-                    changedPaths.add(Path.of(fm.relativePath()));
-                }
-            }
+            Set<Path> changedPaths = codeGraphChangedPaths(changes);
 
             if (changedPaths.isEmpty()) {
                 return PhaseResult.success(10, "Code Graph", 0,

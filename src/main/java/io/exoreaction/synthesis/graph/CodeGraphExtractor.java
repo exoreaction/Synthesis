@@ -141,6 +141,12 @@ public class CodeGraphExtractor {
      * Incremental update: re-extracts only the given changed files.
      * Deletes old edges for those files, then re-extracts.
      *
+     * <p>A changed file that no longer exists has its rows deleted rather than skipped (#460),
+     * and files whose edges the change can re-resolve are pulled in as well (#459): a row is
+     * only ever rewritten by its own source file, so an edge that resolved to a now-deleted
+     * file, or one stored as external before its target existed, would otherwise stay wrong
+     * until the next full extract.
+     *
      * @param workspaceRoot workspace root
      * @param conn          database connection
      * @param changedFiles  set of changed file paths (relative to workspace root)
@@ -171,17 +177,73 @@ public class CodeGraphExtractor {
         long now = Instant.now().getEpochSecond();
         int filesProcessed = 0;
 
+        // Files whose own rows were rewritten, and files that only need re-resolving because a
+        // *target* of theirs moved in or out of the workspace (#459).
+        Set<String> processed = new LinkedHashSet<>();
+        Set<String> reresolve = new LinkedHashSet<>();
+
         for (Path changedFile : changedFiles) {
             Path fullPath = changedFile.isAbsolute() ? changedFile : workspaceRoot.resolve(changedFile);
-            if (!Files.exists(fullPath)) continue;
+            String relPath = workspaceRoot.relativize(fullPath).toString();
+
+            if (!Files.exists(fullPath)) {
+                // The file is gone (#460). Its outgoing rows have to go with it -- skipping the
+                // path, as this loop used to, left the whole fan-out of a deleted file in the
+                // graph until the next full extract. Everything that resolved *to* it now points
+                // at a ghost, so those sources need re-resolving too.
+                repository.deleteDependenciesForFile(conn, wsPath, relPath);
+                for (CodeDependency incoming : repository.getIncomingForFile(conn, wsPath, relPath)) {
+                    reresolve.add(incoming.sourceFile());
+                }
+                continue;
+            }
 
             LanguageExtractor lang = extractorFor(fullPath);
             if (lang == null) continue; // not a language we extract
 
-            String relPath = workspaceRoot.relativize(fullPath).toString();
             filesProcessed++;
+            processed.add(relPath);
 
             // Delete old edges for this file, then re-extract via its language.
+            repository.deleteDependenciesForFile(conn, wsPath, relPath);
+            persistChangedFile(lang, workspaceRoot, fullPath,
+                    resolver, packages, conn, wsPath, relPath, now, rows);
+        }
+
+        // An edge written while its target was unresolvable is stored as external, and its own
+        // source file may never change again -- so nothing would ever revisit it (#459). Every
+        // declaration a changed file provides can un-strand such rows: find the sources that gave
+        // up on exactly that declaration and re-resolve them.
+        for (Map.Entry<String, String> declaration : classToFile.entrySet()) {
+            if (!processed.contains(declaration.getValue())) continue;
+            String fqn = declaration.getKey();
+            for (CodeDependency dep : repository.getDependenciesTo(conn, wsPath,
+                    Resolver.getSimpleClassName(fqn), Resolver.getPackageFromImport(fqn))) {
+                if (dep.isExternal()) reresolve.add(dep.sourceFile());
+            }
+        }
+
+        // The same, for languages that resolve by module path instead of FQN: TypeScript
+        // declares no FQN identities (its files reach the resolver via the path index), and its
+        // rows record the specifier's last segment as the target class.
+        for (Map.Entry<String, String> module : tsPathIndex.entrySet()) {
+            if (!processed.contains(module.getValue())) continue;
+            String stem = module.getKey();
+            int lastSlash = stem.lastIndexOf('/');
+            String targetClass = lastSlash >= 0 ? stem.substring(lastSlash + 1) : stem;
+            for (CodeDependency dep : repository.getDependenciesTo(conn, wsPath, targetClass, "")) {
+                if (dep.isExternal()) reresolve.add(dep.sourceFile());
+            }
+        }
+
+        reresolve.removeAll(processed);
+        for (String relPath : reresolve) {
+            Path fullPath = workspaceRoot.resolve(relPath);
+            if (!Files.exists(fullPath)) continue; // deleted as well -- its own pass cleaned it up
+            LanguageExtractor lang = extractorFor(fullPath);
+            if (lang == null) continue;
+
+            filesProcessed++;
             repository.deleteDependenciesForFile(conn, wsPath, relPath);
             persistChangedFile(lang, workspaceRoot, fullPath,
                     resolver, packages, conn, wsPath, relPath, now, rows);

@@ -4,6 +4,7 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -334,6 +335,128 @@ class CodeGraphExtractorTest {
         CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn, changed);
 
         assertEquals(0, stats.filesProcessed());
+    }
+
+    // -----------------------------------------------------------------------
+    // Incremental staleness -- the graph must not outlive the source (#459, #460)
+    // -----------------------------------------------------------------------
+
+    /** Writes a two-file project where Service imports Config, and returns its root. */
+    private Path writeServiceImportingConfig(boolean withConfig) throws IOException {
+        Path srcDir = Files.createDirectories(tempDir.resolve("project/src"));
+        if (withConfig) {
+            Files.writeString(srcDir.resolve("Config.java"), """
+                    package com.example;
+                    public class Config {}
+                    """);
+        }
+        Files.writeString(srcDir.resolve("Service.java"), """
+                package com.example;
+                import com.example.Config;
+                public class Service {}
+                """);
+        return tempDir.resolve("project");
+    }
+
+    /** The single Service -> Config edge, or an assertion failure if it is gone. */
+    private CodeDependency serviceToConfig(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").stream()
+                .filter(d -> "Config".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a Service -> Config edge"));
+    }
+
+    @Test
+    @DisplayName("REGRESSION #460: deleting a source file removes its rows on the next incremental")
+    void incrementalUpdate_removes_rows_of_a_deleted_source_file() throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertFalse(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "precondition: Service.java has edges after the full extract");
+
+        Files.delete(projectRoot.resolve("src/Service.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Service.java")));
+
+        assertTrue(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "a deleted file's outgoing edges must not survive the incremental update (#460)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target appears later")
+    void incrementalUpdate_refreshes_edges_whose_target_became_resolvable()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(false); // Config.java does not exist yet
+        extractor.extractAndPersist(projectRoot, conn);
+        assertTrue(serviceToConfig(projectRoot).isExternal(),
+                "precondition: Config is unresolvable at first extract, so the edge is external");
+
+        // Config.java appears later. Only Config.java is in the changed set -- Service.java is
+        // untouched on disk and will never enter it.
+        Files.writeString(projectRoot.resolve("src/Config.java"), """
+                package com.example;
+                public class Config {}
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertFalse(edge.isExternal(),
+                "Service -> Config must be internal once Config.java exists (#459)");
+        assertEquals("src/Config.java", edge.targetFile(),
+                "the refreshed edge must point at the file that now provides the target (#459)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target disappears")
+    void incrementalUpdate_refreshes_edges_whose_target_file_disappeared()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals("src/Config.java", serviceToConfig(projectRoot).targetFile(),
+                "precondition: the edge resolves to Config.java after the full extract");
+
+        // Config.java is deleted. Service.java is unchanged, so only Config.java is in the set.
+        Files.delete(projectRoot.resolve("src/Config.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertTrue(edge.isExternal(),
+                "Service -> Config must fall back to external once Config.java is gone (#459)");
+        assertTrue(edge.targetFile() == null || edge.targetFile().isEmpty(),
+                "the edge must not keep pointing at a file that no longer exists (#459)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: a TypeScript edge is refreshed when its module appears later")
+    void incrementalUpdate_refreshes_typescript_edges_whose_module_became_resolvable()
+            throws SQLException, IOException {
+        // TypeScript declares no FQN identities -- it reaches the resolver through the module
+        // path index -- so it needs its own path into the re-resolution above.
+        Path tsDir = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(tsDir.resolve("foo.ts"), "import { bar } from './bar';\n");
+        Path projectRoot = tempDir.resolve("project");
+        extractor.extractAndPersist(projectRoot, conn);
+
+        CodeDependency before = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertTrue(before.isExternal(), "precondition: bar.ts does not exist yet");
+
+        Files.writeString(tsDir.resolve("bar.ts"), "export const bar = 1;\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/bar.ts")));
+
+        CodeDependency after = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertFalse(after.isExternal(),
+                "foo.ts -> ./bar must be internal once bar.ts exists (#459)");
+        assertEquals("src/bar.ts", after.targetFile());
     }
 
     // -----------------------------------------------------------------------
