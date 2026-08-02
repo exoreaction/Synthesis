@@ -105,7 +105,7 @@
         <dependency>
             <groupId>net.sourceforge.tess4j</groupId>
             <artifactId>tess4j</artifactId>
-            <version>5.19.0</version>
+            <version>5.20.0</version>
             <exclusions>
                 <!-- Exclude bundled native libs - we'll use system-installed Tesseract -->
                 <exclusion>
