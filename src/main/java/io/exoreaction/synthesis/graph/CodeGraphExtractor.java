@@ -266,9 +266,12 @@ public class CodeGraphExtractor {
      * source of truth for "is this a code-graph file?" -- callers that keep their own
      * extension list go stale the moment a language is registered.
      *
+     * <p>Static because it reads only {@link #REGISTRY} and its argument (#485), like the
+     * other predicates here -- a caller that needs the gate does not need an extractor.
+     *
      * @param path a file path or name (only the suffix is inspected)
      */
-    public boolean isSourceFile(String path) {
+    public static boolean isSourceFile(String path) {
         for (LanguageExtractor lang : REGISTRY) {
             for (Ext ext : lang.extensions()) {
                 if (path.endsWith(ext.suffix())) return true;

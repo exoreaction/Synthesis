@@ -964,14 +964,14 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Whether the code-graph extractor understands this file. Asked of the extractor's
+     * Whether the code-graph extractor understands this file. Asked of its
      * {@code LanguageExtractor} registry rather than a local extension list (#466) -- the
      * list kept here went stale each time a language was registered. #440: these phase
      * gates were once Java-only, so pure-Kotlin/TypeScript workspaces were silently
      * skipped and Kotlin/TS changes never triggered an incremental update.
      */
     private boolean isCodeGraphFile(String path) {
-        return codeGraphExtractor.isSourceFile(path);
+        return CodeGraphExtractor.isSourceFile(path);
     }
 
     /**
@@ -1036,12 +1036,11 @@ public class MaintainOrchestrator {
 
         SynthesisDatabase db = SynthesisDatabase.getDefault();
         java.sql.Connection conn = db.getConnection();
-        CodeGraphExtractor extractor = codeGraphExtractor; // same instance the gates above queried
 
         CodeGraphStats stats;
 
         // Incremental: if graph is already populated and we have change data, use incremental
-        if (extractor.getRepository().isPopulated(conn, workspaceRoot.toString())
+        if (codeGraphExtractor.getRepository().isPopulated(conn, workspaceRoot.toString())
                 && changes != null && changes.hasChanges()) {
             Set<Path> changedPaths = codeGraphChangedPaths(changes);
 
@@ -1050,10 +1049,10 @@ public class MaintainOrchestrator {
                         "no code files changed", List.of());
             }
 
-            stats = extractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
+            stats = codeGraphExtractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
         } else {
             // Full extraction
-            stats = extractor.extractAndPersist(workspaceRoot, conn);
+            stats = codeGraphExtractor.extractAndPersist(workspaceRoot, conn);
         }
 
         // Compute module profiles after extraction (CKG-2.04)
