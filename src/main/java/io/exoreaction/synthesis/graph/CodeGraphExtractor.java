@@ -164,8 +164,12 @@ public class CodeGraphExtractor {
         Map<String, List<String>> packageFunctionFiles = new HashMap<>();
         Map<String, String> tsPathIndex = new HashMap<>();
 
+        List<Path> javaFiles = List.of();
         for (LanguageExtractor lang : REGISTRY) {
-            registerDeclarations(lang, workspaceRoot, lang.findFiles(workspaceRoot, excl),
+            List<Path> files = lang.findFiles(workspaceRoot, excl);
+            // Cross-format linking is Java-coupled and lives outside the seam (ADR sub-decision 4).
+            if (lang.languageId().equals("java")) javaFiles = files;
+            registerDeclarations(lang, workspaceRoot, files,
                     classToFile, packageFunctionFiles, tsPathIndex, null);
         }
 
@@ -249,9 +253,150 @@ public class CodeGraphExtractor {
                     resolver, packages, conn, wsPath, relPath, now, rows);
         }
 
+        int crossLinks = updateCrossFormatLinks(workspaceRoot, conn, wsPath,
+                changedFiles, javaFiles, now);
+
         long elapsed = System.currentTimeMillis() - start;
-        return new CodeGraphStats(filesProcessed, rows.total(), 0,
+        return new CodeGraphStats(filesProcessed, rows.total(), crossLinks,
                 packages.size(), rows.external(), elapsed, Instant.now());
+    }
+
+    /**
+     * Brings {@code cross_format_links} in step with the changed files, the way the dependency
+     * rows above are (#465).
+     *
+     * <p>A link dies with either endpoint, so both directions are handled: a changed or deleted
+     * {@code .sql} invalidates every link it sourced, and a changed or deleted {@code .java}
+     * invalidates every link that targeted it. Re-linking only the changed {@code .sql} files
+     * would leave the counterpart hole -- a Java file added later would never be linked to a
+     * migration that never changed again -- which is the #459 staleness class in this table.
+     *
+     * <p>Every Java file is read at most once per run and its content reused across all SQL
+     * files, rather than re-read once per SQL file as the full path does.
+     *
+     * @return the number of link rows persisted by this run
+     */
+    private int updateCrossFormatLinks(Path workspaceRoot, Connection conn, String wsPath,
+                                        Set<Path> changedFiles, List<Path> javaFiles, long now)
+            throws SQLException, IOException {
+        List<String> changedSql = new ArrayList<>();
+        List<String> changedJava = new ArrayList<>();
+        Set<String> invalidated = new LinkedHashSet<>();
+
+        for (Path changedFile : changedFiles) {
+            Path fullPath = changedFile.isAbsolute() ? changedFile : workspaceRoot.resolve(changedFile);
+            String relPath = workspaceRoot.relativize(fullPath).toString();
+            String name = fullPath.getFileName().toString();
+
+            boolean isSql = name.endsWith(".sql");
+            boolean isJava = name.endsWith(".java") && !relPath.contains("src/test/");
+            if (!isSql && !isJava) continue;
+
+            invalidated.add(relPath);
+            if (!Files.exists(fullPath)) continue; // deleted: drop its rows, nothing to re-link
+            if (isSql) changedSql.add(relPath); else changedJava.add(relPath);
+        }
+
+        if (invalidated.isEmpty()) return 0;
+        for (String relPath : invalidated) {
+            repository.deleteCrossFormatLinksForFile(conn, wsPath, relPath);
+        }
+
+        // Table names of every migration in the workspace: a changed Java file may reference any
+        // of them, including one whose .sql has not been touched since the last full extract.
+        Map<String, List<String>> tablesBySqlFile = new LinkedHashMap<>();
+        try (Stream<Path> walk = Files.walk(workspaceRoot)) {
+            for (Path sqlFile : walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".sql"))
+                    .filter(p -> !p.toString().contains("/."))
+                    .filter(p -> !isBuildArtifact(workspaceRoot, p))
+                    .toList()) {
+                String relPath = workspaceRoot.relativize(sqlFile).toString();
+                List<String> tables = crossFormatLinker.extractTableNames(
+                        sqlSearchResult(sqlFile, relPath), workspaceRoot);
+                if (!tables.isEmpty()) tablesBySqlFile.put(relPath, tables);
+            }
+        }
+
+        // (sourceSql, targetJava) -> the table that matched, deduplicated: one link per pair,
+        // matching findSqlToJavaLinks, which stops at the first table a file references.
+        Map<List<String>, String> matched = new LinkedHashMap<>();
+        Map<String, String> javaContent = new HashMap<>();
+
+        // Changed .sql: re-link against every Java file in the workspace.
+        if (!changedSql.isEmpty()) {
+            for (Path javaFile : javaFiles) {
+                String javaRel = workspaceRoot.relativize(javaFile).toString();
+                if (javaRel.contains("src/test/")) continue;
+                for (String sqlRel : changedSql) {
+                    matchTables(matched, javaContent, workspaceRoot, javaRel,
+                            sqlRel, tablesBySqlFile.getOrDefault(sqlRel, List.of()));
+                }
+            }
+        }
+
+        // Changed .java: re-link against every migration in the workspace.
+        for (String javaRel : changedJava) {
+            for (Map.Entry<String, List<String>> sql : tablesBySqlFile.entrySet()) {
+                matchTables(matched, javaContent, workspaceRoot, javaRel,
+                        sql.getKey(), sql.getValue());
+            }
+        }
+
+        if (matched.isEmpty()) return 0;
+        List<CrossFormatLinkRecord> records = new ArrayList<>(matched.size());
+        for (Map.Entry<List<String>, String> link : matched.entrySet()) {
+            records.add(new CrossFormatLinkRecord(wsPath, link.getKey().get(0),
+                    link.getKey().get(1), "table-reference", link.getValue(), now));
+        }
+        return repository.batchInsertCrossFormatLinks(conn, records, 1000);
+    }
+
+    /** Records a link if the Java file references any of the SQL file's tables. */
+    private void matchTables(Map<List<String>, String> matched, Map<String, String> javaContent,
+                             Path workspaceRoot, String javaRel, String sqlRel,
+                             List<String> tables) {
+        if (tables.isEmpty()) return;
+        List<String> pair = List.of(sqlRel, javaRel);
+        if (matched.containsKey(pair)) return;
+
+        String content = javaContent.computeIfAbsent(javaRel, rel -> {
+            Path p = workspaceRoot.resolve(rel);
+            if (!Files.exists(p) || !CrossFormatLinker.isReadableTextFile(p)) return "";
+            try {
+                return Files.readString(p).toLowerCase(java.util.Locale.ROOT);
+            } catch (IOException e) {
+                LOG.fine("Cross-format link extraction failed for " + p + ": " + e.getMessage());
+                return "";
+            }
+        });
+        if (content.isEmpty()) return;
+
+        for (String table : tables) {
+            if (CrossFormatLinker.referencesTable(content, table)) {
+                matched.put(pair, table);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Whether this file feeds cross-format linking rather than the language seam.
+     *
+     * <p>No {@link LanguageExtractor} claims a migration, so {@link #isSourceFile} rejects it --
+     * yet a {@code .sql} that appears or disappears changes {@code cross_format_links}, and has
+     * to reach {@link #incrementalUpdate} to be linked or cleaned up (#465). Callers that decide
+     * what the incremental path gets to see must admit these alongside source files.
+     */
+    public boolean isCrossFormatSourceFile(String path) {
+        return path.endsWith(".sql");
+    }
+
+    /** A minimal {@link SearchResult} for a SQL file, as the linker's API expects. */
+    private SearchResult sqlSearchResult(Path sqlFile, String relPath) throws IOException {
+        return new SearchResult(sqlFile, relPath, 1.0f, sqlFile.getFileName().toString(),
+                "SQL", null, "", "", "", Files.size(sqlFile));
     }
 
     /**

@@ -2,6 +2,7 @@ package io.exoreaction.synthesis.graph;
 
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
+import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -457,6 +458,167 @@ class CodeGraphExtractorTest {
         assertFalse(after.isExternal(),
                 "foo.ts -> ./bar must be internal once bar.ts exists (#459)");
         assertEquals("src/bar.ts", after.targetFile());
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-format links must not freeze on the incremental path (#465)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Writes a project with one migration creating {@code customers} and one Java class
+     * referencing that table, and returns its root.
+     */
+    private Path writeMigrationAndRepo() throws IOException {
+        Path srcDir = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(srcDir.resolve("V1__init.sql"), "CREATE TABLE customers (id INT);\n");
+        Files.writeString(srcDir.resolve("CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {
+                    String t = "customers";
+                }
+                """);
+        return tempDir.resolve("project");
+    }
+
+    /** The source files of every persisted cross-format link, for readable assertions. */
+    private List<String> crossFormatSources(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::sourceFile)
+                .toList();
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a new SQL file's links are persisted on the incremental path")
+    void incrementalUpdate_persists_links_for_a_new_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the full extract links V1__init.sql to CustomerRepo.java");
+
+        Files.writeString(projectRoot.resolve("src/V2__orders.sql"),
+                "CREATE TABLE orders (id INT);\n");
+        Files.writeString(projectRoot.resolve("src/OrderRepo.java"), """
+                package com.example;
+                public class OrderRepo {
+                    String t = "orders";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/V2__orders.sql"), Path.of("src/OrderRepo.java")));
+
+        assertTrue(crossFormatSources(projectRoot).contains("src/V2__orders.sql"),
+                "a migration added since the last full extract must be linked (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a deleted SQL file's links are removed on the incremental path")
+    void incrementalUpdate_removes_links_of_a_deleted_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        Files.delete(projectRoot.resolve("src/V1__init.sql"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/V1__init.sql")));
+
+        assertFalse(crossFormatSources(projectRoot).contains("src/V1__init.sql"),
+                "a link must not outlive the SQL file that produced it (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a new Java file is linked to an unchanged SQL file")
+    void incrementalUpdate_links_a_new_java_file_to_an_unchanged_sql_file()
+            throws SQLException, IOException {
+        // The counterpart case: only the Java side changes, so re-linking just the changed
+        // .sql files would miss it -- the #459 staleness class in the cross-format table.
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("src/CustomerDao.java"), """
+                package com.example;
+                public class CustomerDao {
+                    String t = "customers";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/CustomerDao.java")));
+
+        List<String> targets = extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::targetFile)
+                .toList();
+        assertTrue(targets.contains("src/CustomerDao.java"),
+                "a Java file added after the full extract must be linked to the table it uses (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a modified SQL file's links follow the table it now declares")
+    void incrementalUpdate_relinks_a_modified_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // The migration now declares a table nothing references.
+        Files.writeString(projectRoot.resolve("src/V1__init.sql"),
+                "CREATE TABLE archived_invoices (id INT);\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/V1__init.sql")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the table declaration that justified it (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a Java file that drops its table reference drops its link")
+    void incrementalUpdate_removes_the_link_of_a_java_file_that_stopped_referencing()
+            throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // Only the Java side changes -- V1__init.sql is untouched and never enters the set.
+        Files.writeString(projectRoot.resolve("src/CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {}
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/CustomerRepo.java")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the reference that justified it (#465)");
+    }
+
+    @Test
+    @DisplayName("#465: a change touching no cross-format file leaves the links alone")
+    void incrementalUpdate_leaves_links_untouched_when_no_sql_or_java_changed()
+            throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        Files.writeString(projectRoot.resolve("src/Util.kt"), "package com.example\n\nclass Util\n");
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/Util.kt")));
+
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "a Kotlin-only change must not disturb the cross-format table (#465)");
+        assertEquals(0, stats.crossFormatLinks(), "nothing was re-persisted");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: the incremental path reports its cross-format link count")
+    void incrementalUpdate_reports_the_cross_format_link_count() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        // CustomerRepo.java references `customers`, so re-linking it persists exactly one row.
+        CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/CustomerRepo.java")));
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the incremental path must report the links it persisted, like the full path "
+                        + "does, instead of a hardcoded 0 (#465)");
     }
 
     // -----------------------------------------------------------------------

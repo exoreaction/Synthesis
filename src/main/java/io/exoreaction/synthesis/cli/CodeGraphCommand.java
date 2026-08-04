@@ -382,6 +382,7 @@ public class CodeGraphCommand implements Callable<Integer> {
             System.out.println();
             System.out.println("  Files processed:    " + stats.filesProcessed());
             System.out.println("  Dependencies found: " + stats.dependenciesFound());
+            System.out.println("  Cross-format links: " + stats.crossFormatLinks());
             System.out.println("  Packages found:     " + stats.packagesFound());
             System.out.println("  External deps:      " + stats.externalDeps());
             System.out.println("  Elapsed:            " + stats.elapsedMs() + " ms");
