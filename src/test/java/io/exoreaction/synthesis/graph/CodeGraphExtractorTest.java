@@ -681,12 +681,12 @@ class CodeGraphExtractorTest {
     void isSourceFile_matches_every_registered_language_extension() {
         // The single source of truth for "is this a code-graph file?" -- callers that gate on
         // their own extension list (maintain phase 10 did) go stale when a language is added.
-        assertTrue(extractor.isSourceFile("src/main/java/com/example/Foo.java"));
-        assertTrue(extractor.isSourceFile("src/main/kotlin/com/example/Bar.kt"));
-        assertTrue(extractor.isSourceFile("src/main/ts/baz.ts"));
-        assertTrue(extractor.isSourceFile("src/main/ts/widget.tsx"));
-        assertFalse(extractor.isSourceFile("README.md"));
-        assertFalse(extractor.isSourceFile("src/main/resources/db/V1__init.sql"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/java/com/example/Foo.java"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/kotlin/com/example/Bar.kt"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/ts/baz.ts"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/ts/widget.tsx"));
+        assertFalse(CodeGraphExtractor.isSourceFile("README.md"));
+        assertFalse(CodeGraphExtractor.isSourceFile("src/main/resources/db/V1__init.sql"));
     }
 
     @Test
