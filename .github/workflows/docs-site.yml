@@ -38,10 +38,14 @@ jobs:
           python-version: '3.14'
 
       - name: Install mkdocs-material
-        run: pip install mkdocs-material
+        # Pinned: the published site's build must be reproducible, and
+        # mkdocs-material warns that MkDocs 2.0 will break all plugins.
+        run: pip install mkdocs-material==9.7.7
 
       - name: Build site
-        run: mkdocs build
+        # --strict: broken links and nav-omitted docs fail the build
+        # instead of logging a warning nobody reads.
+        run: mkdocs build --strict
 
       - uses: actions/upload-pages-artifact@v3
         with:
