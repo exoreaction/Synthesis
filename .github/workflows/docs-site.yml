@@ -47,7 +47,7 @@ jobs:
         # instead of logging a warning nobody reads.
         run: mkdocs build --strict
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
