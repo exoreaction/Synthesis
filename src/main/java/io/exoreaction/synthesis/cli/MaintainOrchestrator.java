@@ -976,12 +976,13 @@ public class MaintainOrchestrator {
 
     /**
      * Whether phase 10 must see this file at all -- source files, plus the cross-format inputs
-     * no language extractor claims (#465). A migration is not a source file, so
-     * {@link #isCodeGraphFile} rejects it, and it would never enter the changed set; its links
-     * would then never be added when it appears, nor cleaned up when it is deleted.
+     * no language extractor claims (#465, #464). Neither a migration nor a YAML config is a
+     * source file, so {@link #isCodeGraphFile} rejects both, and they would never enter the
+     * changed set; their links would then never be added when they appear, nor cleaned up when
+     * they are deleted.
      */
     private boolean isCodeGraphInput(String path) {
-        return isCodeGraphFile(path) || codeGraphExtractor.isCrossFormatSourceFile(path);
+        return isCodeGraphFile(path) || CodeGraphExtractor.isCrossFormatSourceFile(path);
     }
 
     /**

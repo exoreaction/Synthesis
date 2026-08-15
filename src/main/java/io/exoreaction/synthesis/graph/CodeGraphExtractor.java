@@ -279,7 +279,7 @@ public class CodeGraphExtractor {
     private int updateCrossFormatLinks(Path workspaceRoot, Connection conn, String wsPath,
                                         Set<Path> changedFiles, List<Path> javaFiles, long now)
             throws SQLException, IOException {
-        List<String> changedSql = new ArrayList<>();
+        List<String> changedSources = new ArrayList<>();
         List<String> changedJava = new ArrayList<>();
         Set<String> invalidated = new LinkedHashSet<>();
 
@@ -288,13 +288,13 @@ public class CodeGraphExtractor {
             String relPath = workspaceRoot.relativize(fullPath).toString();
             String name = fullPath.getFileName().toString();
 
-            boolean isSql = name.endsWith(".sql");
+            boolean isCrossFormatSource = isCrossFormatSourceFile(name);
             boolean isJava = name.endsWith(".java") && !relPath.contains("src/test/");
-            if (!isSql && !isJava) continue;
+            if (!isCrossFormatSource && !isJava) continue;
 
             invalidated.add(relPath);
             if (!Files.exists(fullPath)) continue; // deleted: drop its rows, nothing to re-link
-            if (isSql) changedSql.add(relPath); else changedJava.add(relPath);
+            if (isCrossFormatSource) changedSources.add(relPath); else changedJava.add(relPath);
         }
 
         if (invalidated.isEmpty()) return 0;
@@ -302,80 +302,162 @@ public class CodeGraphExtractor {
             repository.deleteCrossFormatLinksForFile(conn, wsPath, relPath);
         }
 
-        // Table names of every migration in the workspace: a changed Java file may reference any
-        // of them, including one whose .sql has not been touched since the last full extract.
-        Map<String, List<String>> tablesBySqlFile = new LinkedHashMap<>();
-        try (Stream<Path> walk = Files.walk(workspaceRoot)) {
-            for (Path sqlFile : walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".sql"))
-                    .filter(p -> !p.toString().contains("/."))
-                    .filter(p -> !isBuildArtifact(workspaceRoot, p))
-                    .toList()) {
-                String relPath = workspaceRoot.relativize(sqlFile).toString();
-                List<String> tables = crossFormatLinker.extractTableNames(
-                        sqlSearchResult(sqlFile, relPath), workspaceRoot);
-                if (!tables.isEmpty()) tablesBySqlFile.put(relPath, tables);
-            }
-        }
+        // The entities declared by every cross-format source in the workspace: a changed Java
+        // file may reference any of them, including one whose source file has not been touched
+        // since the last full extract.
+        Map<String, CrossFormatSource> sourcesByFile = collectCrossFormatSources(workspaceRoot);
 
-        // (sourceSql, targetJava) -> the table that matched, deduplicated: one link per pair,
-        // matching findSqlToJavaLinks, which stops at the first table a file references.
-        Map<List<String>, String> matched = new LinkedHashMap<>();
-        Map<String, String> javaContent = new HashMap<>();
+        // (source, targetJava) -> the entity that matched, deduplicated: one link per pair,
+        // matching the linker, which stops at the first entity a file references.
+        Map<List<String>, CrossFormatMatch> matched = new LinkedHashMap<>();
+        JavaContentCache javaContent = new JavaContentCache(workspaceRoot);
 
-        // Changed .sql: re-link against every Java file in the workspace.
-        if (!changedSql.isEmpty()) {
+        // Changed source file: re-link against every Java file in the workspace.
+        if (!changedSources.isEmpty()) {
             for (Path javaFile : javaFiles) {
                 String javaRel = workspaceRoot.relativize(javaFile).toString();
                 if (javaRel.contains("src/test/")) continue;
-                for (String sqlRel : changedSql) {
-                    matchTables(matched, javaContent, workspaceRoot, javaRel,
-                            sqlRel, tablesBySqlFile.getOrDefault(sqlRel, List.of()));
+                for (String sourceRel : changedSources) {
+                    CrossFormatSource source = sourcesByFile.get(sourceRel);
+                    if (source != null) {
+                        matchEntities(matched, javaContent, javaRel, sourceRel, source);
+                    }
                 }
             }
         }
 
-        // Changed .java: re-link against every migration in the workspace.
+        // Changed .java: re-link against every cross-format source in the workspace.
         for (String javaRel : changedJava) {
-            for (Map.Entry<String, List<String>> sql : tablesBySqlFile.entrySet()) {
-                matchTables(matched, javaContent, workspaceRoot, javaRel,
-                        sql.getKey(), sql.getValue());
+            for (Map.Entry<String, CrossFormatSource> source : sourcesByFile.entrySet()) {
+                matchEntities(matched, javaContent, javaRel, source.getKey(), source.getValue());
             }
         }
 
         if (matched.isEmpty()) return 0;
         List<CrossFormatLinkRecord> records = new ArrayList<>(matched.size());
-        for (Map.Entry<List<String>, String> link : matched.entrySet()) {
+        for (Map.Entry<List<String>, CrossFormatMatch> link : matched.entrySet()) {
             records.add(new CrossFormatLinkRecord(wsPath, link.getKey().get(0),
-                    link.getKey().get(1), "table-reference", link.getValue(), now));
+                    link.getKey().get(1), link.getValue().linkType(),
+                    link.getValue().entityName(), now));
         }
         return repository.batchInsertCrossFormatLinks(conn, records, 1000);
     }
 
-    /** Records a link if the Java file references any of the SQL file's tables. */
-    private void matchTables(Map<List<String>, String> matched, Map<String, String> javaContent,
-                             Path workspaceRoot, String javaRel, String sqlRel,
-                             List<String> tables) {
-        if (tables.isEmpty()) return;
-        List<String> pair = List.of(sqlRel, javaRel);
+    /**
+     * The kinds of file that produce a cross-format link, each with the entity it declares and
+     * the {@code link_type} persisted for it.
+     *
+     * <p>The type strings are the contract two surfaces share: {@code relate} prints them and
+     * {@code cross_format_links} stores them, and #464 is what happens when only one of the two
+     * knows about a kind.
+     */
+    private enum CrossFormatKind {
+        SQL("table-reference"),
+        YAML("config-key");
+
+        private final String linkType;
+
+        CrossFormatKind(String linkType) {
+            this.linkType = linkType;
+        }
+
+        String linkType() {
+            return linkType;
+        }
+
+        /** The kind that claims this file name, or {@code null} if none does. */
+        static CrossFormatKind of(String fileName) {
+            if (fileName.endsWith(".sql")) return SQL;
+            if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) return YAML;
+            return null;
+        }
+    }
+
+    /** A cross-format source file and the entities it declares -- tables, or config keys. */
+    private record CrossFormatSource(CrossFormatKind kind, List<String> entities) {}
+
+    /** The entity that justified a link, and the type it is persisted under. */
+    private record CrossFormatMatch(String entityName, String linkType) {}
+
+    /**
+     * Reads every Java file at most once per run and keeps both the raw content config keys are
+     * matched against and the lower-cased content table names are matched against.
+     */
+    private static final class JavaContentCache {
+        private final Path workspaceRoot;
+        private final Map<String, String> raw = new HashMap<>();
+        private final Map<String, String> lower = new HashMap<>();
+
+        JavaContentCache(Path workspaceRoot) {
+            this.workspaceRoot = workspaceRoot;
+        }
+
+        String raw(String javaRel) {
+            return raw.computeIfAbsent(javaRel, rel -> {
+                Path p = workspaceRoot.resolve(rel);
+                if (!Files.exists(p) || !CrossFormatLinker.isReadableTextFile(p)) return "";
+                try {
+                    return Files.readString(p);
+                } catch (IOException e) {
+                    LOG.fine("Cross-format link extraction failed for " + p + ": " + e.getMessage());
+                    return "";
+                }
+            });
+        }
+
+        String lower(String javaRel) {
+            return lower.computeIfAbsent(javaRel,
+                    rel -> raw(rel).toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    /**
+     * Every cross-format source in the workspace, with the entities it declares. Sources that
+     * declare nothing are left out: they can produce no link.
+     */
+    private Map<String, CrossFormatSource> collectCrossFormatSources(Path workspaceRoot)
+            throws IOException {
+        Map<String, CrossFormatSource> sources = new LinkedHashMap<>();
+        try (Stream<Path> walk = Files.walk(workspaceRoot)) {
+            for (Path file : walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
+                    .filter(p -> !p.toString().contains("/."))
+                    .filter(p -> !isBuildArtifact(workspaceRoot, p))
+                    .toList()) {
+                String relPath = workspaceRoot.relativize(file).toString();
+                CrossFormatKind kind = CrossFormatKind.of(file.getFileName().toString());
+                if (kind == null) continue;
+                SearchResult result = crossFormatSearchResult(file, relPath, kind);
+                List<String> entities = kind == CrossFormatKind.SQL
+                        ? crossFormatLinker.extractTableNames(result, workspaceRoot)
+                        : crossFormatLinker.extractConfigKeys(result, workspaceRoot);
+                if (!entities.isEmpty()) {
+                    sources.put(relPath, new CrossFormatSource(kind, entities));
+                }
+            }
+        }
+        return sources;
+    }
+
+    /** Records a link if the Java file references any entity of the cross-format source. */
+    private void matchEntities(Map<List<String>, CrossFormatMatch> matched,
+                               JavaContentCache javaContent, String javaRel, String sourceRel,
+                               CrossFormatSource source) {
+        List<String> pair = List.of(sourceRel, javaRel);
         if (matched.containsKey(pair)) return;
 
-        String content = javaContent.computeIfAbsent(javaRel, rel -> {
-            Path p = workspaceRoot.resolve(rel);
-            if (!Files.exists(p) || !CrossFormatLinker.isReadableTextFile(p)) return "";
-            try {
-                return Files.readString(p).toLowerCase(java.util.Locale.ROOT);
-            } catch (IOException e) {
-                LOG.fine("Cross-format link extraction failed for " + p + ": " + e.getMessage());
-                return "";
-            }
-        });
+        String content = source.kind() == CrossFormatKind.SQL
+                ? javaContent.lower(javaRel)
+                : javaContent.raw(javaRel);
         if (content.isEmpty()) return;
 
-        for (String table : tables) {
-            if (CrossFormatLinker.referencesTable(content, table)) {
-                matched.put(pair, table);
+        for (String entity : source.entities()) {
+            boolean references = source.kind() == CrossFormatKind.SQL
+                    ? CrossFormatLinker.referencesTable(content, entity)
+                    : CrossFormatLinker.referencesConfigKey(content, entity);
+            if (references) {
+                matched.put(pair, new CrossFormatMatch(entity, source.kind().linkType()));
                 return;
             }
         }
@@ -384,19 +466,24 @@ public class CodeGraphExtractor {
     /**
      * Whether this file feeds cross-format linking rather than the language seam.
      *
-     * <p>No {@link LanguageExtractor} claims a migration, so {@link #isSourceFile} rejects it --
-     * yet a {@code .sql} that appears or disappears changes {@code cross_format_links}, and has
-     * to reach {@link #incrementalUpdate} to be linked or cleaned up (#465). Callers that decide
-     * what the incremental path gets to see must admit these alongside source files.
+     * <p>No {@link LanguageExtractor} claims a migration or a config file, so
+     * {@link #isSourceFile} rejects them -- yet a {@code .sql} or {@code .yaml} that appears or
+     * disappears changes {@code cross_format_links}, and has to reach {@link #incrementalUpdate}
+     * to be linked or cleaned up (#465, #464). Callers that decide what the incremental path
+     * gets to see must admit these alongside source files.
+     *
+     * <p>Static because it reads only its argument (#485): a caller that needs the gate does not
+     * need an extractor.
      */
-    public boolean isCrossFormatSourceFile(String path) {
-        return path.endsWith(".sql");
+    public static boolean isCrossFormatSourceFile(String path) {
+        return CrossFormatKind.of(path) != null;
     }
 
-    /** A minimal {@link SearchResult} for a SQL file, as the linker's API expects. */
-    private SearchResult sqlSearchResult(Path sqlFile, String relPath) throws IOException {
-        return new SearchResult(sqlFile, relPath, 1.0f, sqlFile.getFileName().toString(),
-                "SQL", null, "", "", "", Files.size(sqlFile));
+    /** A minimal {@link SearchResult} for a cross-format source, as the linker's API expects. */
+    private SearchResult crossFormatSearchResult(Path file, String relPath, CrossFormatKind kind)
+            throws IOException {
+        return new SearchResult(file, relPath, 1.0f, file.getFileName().toString(),
+                kind.name(), null, "", "", "", Files.size(file));
     }
 
     /**
@@ -685,16 +772,16 @@ public class CodeGraphExtractor {
         String wsPath = workspaceRoot.toString();
         List<CrossFormatLinkRecord> allRecords = new ArrayList<>();
 
-        // Find SQL files
+        // Find every cross-format source: migrations and config files alike (#464)
         try (Stream<Path> walk = Files.walk(workspaceRoot)) {
-            List<Path> sqlFiles = walk
+            List<Path> sourceFiles = walk
                     .filter(Files::isRegularFile)
-                    .filter(p -> p.toString().endsWith(".sql"))
+                    .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
                     .filter(p -> !p.toString().contains("/."))
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
                     .toList();
 
-            // Pre-build Java SearchResult list (shared across all SQL files)
+            // Pre-build Java SearchResult list (shared across all source files)
             List<SearchResult> javaResults = new ArrayList<>();
             for (Path jf : javaFiles) {
                 String jRelPath = workspaceRoot.relativize(jf).toString();
@@ -703,22 +790,26 @@ public class CodeGraphExtractor {
                         "CODE", "Java", "", "", "", Files.size(jf)));
             }
 
-            for (Path sqlFile : sqlFiles) {
-                String relPath = workspaceRoot.relativize(sqlFile).toString();
-                SearchResult sqlResult = new SearchResult(
-                        sqlFile, relPath, 1.0f, sqlFile.getFileName().toString(),
-                        "SQL", null, "", "", "", Files.size(sqlFile));
+            for (Path sourceFile : sourceFiles) {
+                String relPath = workspaceRoot.relativize(sourceFile).toString();
+                CrossFormatKind kind = CrossFormatKind.of(sourceFile.getFileName().toString());
+                if (kind == null) continue;
+                SearchResult sourceResult = crossFormatSearchResult(sourceFile, relPath, kind);
 
                 try {
                     List<CrossFormatLinker.CrossFormatLink> links =
-                            crossFormatLinker.findSqlToJavaLinks(sqlResult, javaResults, workspaceRoot);
+                            kind == CrossFormatKind.SQL
+                                    ? crossFormatLinker.findSqlToJavaLinks(
+                                            sourceResult, javaResults, workspaceRoot)
+                                    : crossFormatLinker.findYamlToJavaLinks(
+                                            sourceResult, javaResults, workspaceRoot);
                     for (CrossFormatLinker.CrossFormatLink link : links) {
                         allRecords.add(new CrossFormatLinkRecord(
                                 wsPath, relPath, link.targetPath(),
-                                "table-reference", link.entityName(), now));
+                                kind.linkType(), link.entityName(), now));
                     }
                 } catch (IOException e) {
-                    LOG.fine("Cross-format link extraction failed for " + sqlFile + ": " + e.getMessage());
+                    LOG.fine("Cross-format link extraction failed for " + sourceFile + ": " + e.getMessage());
                 }
             }
         }

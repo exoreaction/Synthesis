@@ -622,6 +622,250 @@ class CodeGraphExtractorTest {
     }
 
     // -----------------------------------------------------------------------
+    // YAML config links must be persisted, not only shown by `relate` (#464)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Writes a project with one YAML config declaring {@code featureToggle} and one Java class
+     * referencing that key, and returns its root.
+     */
+    private Path writeConfigAndConsumer() throws IOException {
+        Path projectRoot = Files.createDirectories(tempDir.resolve("project"));
+        Files.createDirectories(projectRoot.resolve("conf"));
+        Files.createDirectories(projectRoot.resolve("src"));
+        Files.writeString(projectRoot.resolve("conf/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+        Files.writeString(projectRoot.resolve("src/Config.java"), """
+                package com.example;
+                public class Config {
+                    String k = "featureToggle";
+                }
+                """);
+        return projectRoot;
+    }
+
+    /** Every persisted cross-format link as {@code source|target|type|entity}, for readability. */
+    private List<String> crossFormatLinks(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(l -> l.sourceFile() + "|" + l.targetFile() + "|" + l.linkType()
+                        + "|" + l.entityName())
+                .toList();
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: the full extract persists YAML→Java links, not only SQL ones")
+    void extractAndPersist_persists_yaml_to_java_links() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("conf/application.yaml|src/Config.java|config-key|featureToggle"),
+                crossFormatLinks(projectRoot),
+                "`relate application.yaml` reports this link, so the graph must stand behind "
+                        + "it too (#464)");
+    }
+
+    @Test
+    @DisplayName("#464: SQL and YAML links coexist, each under its own link type")
+    void extractAndPersist_persists_sql_and_yaml_links_side_by_side()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.writeString(projectRoot.resolve("src/V1__init.sql"),
+                "CREATE TABLE customers (id INT);\n");
+        Files.writeString(projectRoot.resolve("src/CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {
+                    String t = "customers";
+                }
+                """);
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(2, stats.crossFormatLinks(), "one SQL link and one YAML link");
+        List<String> links = crossFormatLinks(projectRoot);
+        assertTrue(links.contains("src/V1__init.sql|src/CustomerRepo.java|table-reference|customers"),
+                "the SQL link keeps its existing link type: " + links);
+        assertTrue(links.contains("conf/application.yaml|src/Config.java|config-key|featureToggle"),
+                "the YAML link carries the type `relate` already prints: " + links);
+    }
+
+    @Test
+    @DisplayName("#464: YAML links exclude test sources, as SQL links do")
+    void extractAndPersist_does_not_link_yaml_to_test_sources() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("src/Config.java"));
+        Files.createDirectories(projectRoot.resolve("src/test/java"));
+        Files.writeString(projectRoot.resolve("src/test/java/ConfigTest.java"), """
+                package com.example;
+                public class ConfigTest {
+                    String k = "featureToggle";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a test source is not a consumer the graph reports (#464)");
+    }
+
+    @Test
+    @DisplayName("#464: YAML under a build output directory is not linked")
+    void extractAndPersist_ignores_yaml_in_build_output() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("target/classes"));
+        Files.writeString(projectRoot.resolve("target/classes/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a copy of the config under target/ is not a source of truth");
+    }
+
+    @Test
+    @DisplayName("#464: an unreadable YAML file is skipped, not fatal")
+    void extractAndPersist_skips_unreadable_yaml() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.write(projectRoot.resolve("conf/broken.yaml"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the readable config is still linked after the broken one is skipped");
+    }
+
+    @Test
+    @DisplayName("#464: a broken YAML between two good ones stops neither of them")
+    void extractAndPersist_continues_past_a_broken_yaml_between_two_good_ones()
+            throws SQLException, IOException {
+        // The walk hands the sources over in an order the caller does not choose, so a file that
+        // cannot be read has to be skipped in place rather than end the pass.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.writeString(projectRoot.resolve("conf/a-first.yaml"), "firstToggle:\n  on: true\n");
+        Files.write(projectRoot.resolve("conf/b-broken.yaml"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+        Files.writeString(projectRoot.resolve("conf/c-last.yaml"), "lastToggle:\n  on: true\n");
+        Files.writeString(projectRoot.resolve("src/Toggles.java"), """
+                package com.example;
+                public class Toggles {
+                    String first = "firstToggle";
+                    String last = "lastToggle";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        List<String> sources = crossFormatSources(projectRoot);
+        assertTrue(sources.contains("conf/a-first.yaml"),
+                "the config before the broken one is linked: " + sources);
+        assertTrue(sources.contains("conf/c-last.yaml"),
+                "the config after the broken one is linked: " + sources);
+    }
+
+    @Test
+    @DisplayName("#464: a Java file that cannot be read is skipped, and the pass continues")
+    void extractAndPersist_skips_an_unreadable_java_consumer() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.write(projectRoot.resolve("src/Broken.java"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the readable consumer is still linked after the unreadable one is skipped");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a new YAML file's links are persisted on the incremental path")
+    void incrementalUpdate_persists_links_for_a_new_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("conf/routing.yaml"), "routingRules:\n  a: b\n");
+        Files.writeString(projectRoot.resolve("src/Router.java"), """
+                package com.example;
+                public class Router {
+                    String k = "routingRules";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("conf/routing.yaml"), Path.of("src/Router.java")));
+
+        assertTrue(crossFormatSources(projectRoot).contains("conf/routing.yaml"),
+                "a config added since the last full extract must be linked (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a deleted YAML file's links are removed on the incremental path")
+    void incrementalUpdate_removes_links_of_a_deleted_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("conf/application.yaml")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not outlive the config file that produced it (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a new Java file is linked to an unchanged YAML file")
+    void incrementalUpdate_links_a_new_java_file_to_an_unchanged_yaml_file()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("src/SecondConsumer.java"), """
+                package com.example;
+                public class SecondConsumer {
+                    String k = "featureToggle";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/SecondConsumer.java")));
+
+        List<String> targets = extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::targetFile)
+                .toList();
+        assertTrue(targets.contains("src/SecondConsumer.java"),
+                "a Java file added after the full extract must be linked to the config key it "
+                        + "uses (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a modified YAML file's links follow the keys it now declares")
+    void incrementalUpdate_relinks_a_modified_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // The config now declares a key nothing references.
+        Files.writeString(projectRoot.resolve("conf/application.yaml"),
+                "retiredToggle:\n  enabled: true\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("conf/application.yaml")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the key declaration that justified it (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: phase 10 must admit YAML as a cross-format input")
+    void isCrossFormatSourceFile_admits_yaml_and_sql() {
+        // MaintainOrchestrator gates the changed set on this: a .yaml it rejects never reaches
+        // the incremental update, so its links are never added, and never cleaned up.
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/application.yaml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/application.yml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("src/V1__init.sql"));
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("README.md"));
+    }
+
+    // -----------------------------------------------------------------------
     // Helper: findJavaFiles
     // -----------------------------------------------------------------------
 
