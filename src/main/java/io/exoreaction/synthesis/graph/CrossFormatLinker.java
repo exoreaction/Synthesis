@@ -128,12 +128,9 @@ public class CrossFormatLinker {
     public List<CrossFormatLink> findYamlToJavaLinks(SearchResult yamlFile,
                                                       List<SearchResult> allFiles,
                                                       Path workspaceRoot) throws IOException {
-        Path p = workspaceRoot.resolve(yamlFile.relativePath());
-        if (!Files.exists(p)) return List.of();
-        if (!isReadableTextFile(p)) {
-            log.fine("Skipping non-text/oversized file in cross-format linking: " + p);
-            return List.of();
-        }
+        // extractConfigKeys applies the existence and readability gates itself, and returns an
+        // empty list when either fails -- so an unreadable config falls out here as one with no
+        // keys, without this method repeating the checks.
         List<String> keys = extractConfigKeys(yamlFile, workspaceRoot);
         if (keys.isEmpty()) return List.of();
 
@@ -251,7 +248,22 @@ public class CrossFormatLinker {
     private List<SearchResult> javaSourceFiles(List<SearchResult> all) {
         return all.stream()
             .filter(f -> f.fileName().endsWith(".java"))
-            .filter(f -> !f.relativePath().contains("src/test/"))
+            .filter(f -> !isTestPath(f.relativePath()))
             .collect(Collectors.toList());
+    }
+
+    /**
+     * Whether a workspace-relative path belongs to a test source tree.
+     *
+     * <p>Both ends of a cross-format link are filtered by this: the Java end here, and the
+     * source end in {@code CodeGraphExtractor}'s walks. It lives in one place so the two ends
+     * cannot drift apart -- a rule enforced in one direction only is what let a test fixture
+     * explain production code.
+     *
+     * <p>Matched as a path segment, so {@code src/testing/} -- production code whose directory
+     * name merely starts with "test" -- is not excluded.
+     */
+    public static boolean isTestPath(String relativePath) {
+        return relativePath.contains("src/test/");
     }
 }

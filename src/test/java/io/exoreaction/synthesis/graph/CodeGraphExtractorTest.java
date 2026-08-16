@@ -865,6 +865,86 @@ class CodeGraphExtractorTest {
         assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("README.md"));
     }
 
+    @Test
+    @DisplayName("#504 review: the extension match is case-insensitive, like the readability gate")
+    void isCrossFormatSourceFile_matches_extensions_case_insensitively() {
+        // CrossFormatLinker.isReadableTextFile lower-cases before comparing extensions. A file
+        // that clears that gate and fails this one is admitted as readable and then never read.
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/CONFIG.YAML"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/App.Yml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("src/V1__INIT.SQL"));
+    }
+
+    @Test
+    @DisplayName("#504 review: a near-miss extension is not a cross-format source")
+    void isCrossFormatSourceFile_rejects_near_miss_extensions() {
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("notes.yamlx"),
+                "the extension must end the name, not merely appear in it");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("Makefile"),
+                "a file with no extension is not a source");
+    }
+
+    // -----------------------------------------------------------------------
+    // Test sources must not act as cross-format sources (#504 review, item 6a)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("#504 review: a config under src/test is not a cross-format source")
+    void extractAndPersist_does_not_treat_test_resources_as_a_source()
+            throws SQLException, IOException {
+        // The Java side of a link has always excluded src/test (CrossFormatLinker.javaSourceFiles
+        // and the incremental filter). Applying the rule to one end only lets a test fixture
+        // explain production code.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("src/test/resources"));
+        Files.writeString(projectRoot.resolve("src/test/resources/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a test fixture is not a source the graph reports: " + crossFormatLinks(projectRoot));
+    }
+
+    @Test
+    @DisplayName("#504 review: src/testing is not src/test -- the guard matches a path segment")
+    void extractAndPersist_still_links_a_config_under_a_src_testing_directory()
+            throws SQLException, IOException {
+        // The exclusion is a path-segment rule. A directory whose name merely starts with
+        // "test" is ordinary production code and keeps its links.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("src/testing/resources"));
+        Files.writeString(projectRoot.resolve("src/testing/resources/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("src/testing/resources/application.yaml"),
+                crossFormatSources(projectRoot),
+                "only the src/test/ segment is excluded");
+    }
+
+    @Test
+    @DisplayName("#504 review: a changed config under src/test creates no links incrementally")
+    void incrementalUpdate_ignores_a_changed_yaml_under_src_test()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the production config is linked");
+
+        Files.createDirectories(projectRoot.resolve("src/test/resources"));
+        Files.writeString(projectRoot.resolve("src/test/resources/fixture.yaml"),
+                "featureToggle:\n  enabled: false\n");
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/test/resources/fixture.yaml")));
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "the test fixture adds nothing, and disturbs nothing");
+    }
+
     // -----------------------------------------------------------------------
     // Helper: findJavaFiles
     // -----------------------------------------------------------------------

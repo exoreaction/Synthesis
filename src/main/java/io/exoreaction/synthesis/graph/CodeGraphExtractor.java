@@ -288,8 +288,8 @@ public class CodeGraphExtractor {
             String relPath = workspaceRoot.relativize(fullPath).toString();
             String name = fullPath.getFileName().toString();
 
-            boolean isCrossFormatSource = isCrossFormatSourceFile(name);
-            boolean isJava = name.endsWith(".java") && !relPath.contains("src/test/");
+            boolean isCrossFormatSource = isCrossFormatSourceFile(name) && !CrossFormatLinker.isTestPath(relPath);
+            boolean isJava = name.endsWith(".java") && !CrossFormatLinker.isTestPath(relPath);
             if (!isCrossFormatSource && !isJava) continue;
 
             invalidated.add(relPath);
@@ -316,7 +316,7 @@ public class CodeGraphExtractor {
         if (!changedSources.isEmpty()) {
             for (Path javaFile : javaFiles) {
                 String javaRel = workspaceRoot.relativize(javaFile).toString();
-                if (javaRel.contains("src/test/")) continue;
+                if (CrossFormatLinker.isTestPath(javaRel)) continue;
                 for (String sourceRel : changedSources) {
                     CrossFormatSource source = sourcesByFile.get(sourceRel);
                     if (source != null) {
@@ -344,12 +344,19 @@ public class CodeGraphExtractor {
     }
 
     /**
-     * The kinds of file that produce a cross-format link, each with the entity it declares and
-     * the {@code link_type} persisted for it.
+     * Which of {@link CrossFormatLinker}'s two link directions a file belongs to, and the
+     * {@code link_type} persisted for that direction.
      *
-     * <p>The type strings are the contract two surfaces share: {@code relate} prints them and
-     * {@code cross_format_links} stores them, and #464 is what happens when only one of the two
-     * knows about a kind.
+     * <p>This carries the persisted type string and nothing else. Entity extraction and the
+     * reference test stay in {@link CrossFormatLinker} -- {@code extractTableNames} /
+     * {@code extractConfigKeys} and {@code referencesTable} / {@code referencesConfigKey} -- and
+     * the callers below dispatch on the kind to choose between them.
+     *
+     * <p>Note that for SQL this string still differs from the one {@code relate} prints: the
+     * linker emits {@code "table"} while {@code cross_format_links} stores
+     * {@code "table-reference"}, the value documented in
+     * {@code docs/architecture/CODE-KNOWLEDGE-GRAPH-DESIGN.md}. That predates #464 and is not
+     * settled here.
      */
     private enum CrossFormatKind {
         SQL("table-reference"),
@@ -365,10 +372,17 @@ public class CodeGraphExtractor {
             return linkType;
         }
 
-        /** The kind that claims this file name, or {@code null} if none does. */
+        /**
+         * The kind that claims this file name, or {@code null} if none does.
+         *
+         * <p>Matched case-insensitively, as {@link CrossFormatLinker#isReadableTextFile} matches
+         * extensions: a {@code CONFIG.YAML} that clears the readability gate and fails this one
+         * would be admitted as readable and then never read.
+         */
         static CrossFormatKind of(String fileName) {
-            if (fileName.endsWith(".sql")) return SQL;
-            if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) return YAML;
+            String name = fileName.toLowerCase(java.util.Locale.ROOT);
+            if (name.endsWith(".sql")) return SQL;
+            if (name.endsWith(".yaml") || name.endsWith(".yml")) return YAML;
             return null;
         }
     }
@@ -424,6 +438,7 @@ public class CodeGraphExtractor {
                     .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
                     .filter(p -> !p.toString().contains("/."))
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
+                    .filter(p -> !CrossFormatLinker.isTestPath(workspaceRoot.relativize(p).toString()))
                     .toList()) {
                 String relPath = workspaceRoot.relativize(file).toString();
                 CrossFormatKind kind = CrossFormatKind.of(file.getFileName().toString());
@@ -779,6 +794,7 @@ public class CodeGraphExtractor {
                     .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
                     .filter(p -> !p.toString().contains("/."))
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
+                    .filter(p -> !CrossFormatLinker.isTestPath(workspaceRoot.relativize(p).toString()))
                     .toList();
 
             // Pre-build Java SearchResult list (shared across all source files)
