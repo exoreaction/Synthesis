@@ -155,6 +155,76 @@ class CrossFormatLinkerTest {
         assertTrue(links.isEmpty());
     }
 
+    @Test
+    void findYamlToJavaLinks_excludesTestFiles(@TempDir Path tmp) throws IOException {
+        // The SQL direction has always excluded src/test (findSqlToJavaLinks_excludesTestFiles),
+        // and the incremental persistence path excludes it too. YAML matching test sources would
+        // make the two persistence paths disagree about the same file -- the divergence #464
+        // exists to remove.
+        Path yamlPath = tmp.resolve("application.yaml");
+        Files.writeString(yamlPath, "database:\n  host: localhost\n");
+        SearchResult yaml = new SearchResult(yamlPath, "application.yaml", 1.0f, "application.yaml", "yaml", "YAML", null, null, null, 100L);
+
+        Path testDir = tmp.resolve("src/test");
+        Files.createDirectories(testDir);
+        Path testPath = testDir.resolve("AppConfigTest.java");
+        Files.writeString(testPath, "class AppConfigTest { String k = \"database\"; }");
+        SearchResult test = new SearchResult(testPath, "src/test/AppConfigTest.java", 1.0f, "AppConfigTest.java", "java", "Java", null, null, null, 100L);
+
+        List<SearchResult> all = Arrays.asList(yaml, test);
+        List<CrossFormatLinker.CrossFormatLink> links = linker.findYamlToJavaLinks(yaml, all, tmp);
+        assertTrue(links.isEmpty(), "Test files should be excluded from YAML→Java links");
+    }
+
+    // -----------------------------------------------------------------------
+    // Config-key extraction and matching, reusable by the persistence path (#464)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractConfigKeys_findsTopLevelKeys(@TempDir Path tmp) throws IOException {
+        Path yamlPath = tmp.resolve("application.yaml");
+        Files.writeString(yamlPath, "database:\n  host: localhost\ntimeout: 30\n");
+        SearchResult yaml = new SearchResult(yamlPath, "application.yaml", 1.0f, "application.yaml", "yaml", "YAML", null, null, null, 100L);
+
+        List<String> keys = linker.extractConfigKeys(yaml, tmp);
+        assertEquals(List.of("database", "timeout"), keys);
+    }
+
+    @Test
+    void extractConfigKeys_skipsShortKeysAndLiteralWords(@TempDir Path tmp) throws IOException {
+        // Two characters is the documented floor, and the YAML literals would match half the
+        // Java in a repo.
+        Path yamlPath = tmp.resolve("application.yaml");
+        Files.writeString(yamlPath, "db: 1\ndbx: 2\ntrue: a\nfalse: b\nnull: c\nyes: d\nno: e\n");
+        SearchResult yaml = new SearchResult(yamlPath, "application.yaml", 1.0f, "application.yaml", "yaml", "YAML", null, null, null, 100L);
+
+        assertEquals(List.of("dbx"), linker.extractConfigKeys(yaml, tmp));
+    }
+
+    @Test
+    void extractConfigKeys_emptyWhenNoTopLevelKeys(@TempDir Path tmp) throws IOException {
+        Path yamlPath = tmp.resolve("comments.yaml");
+        Files.writeString(yamlPath, "# nothing but a comment\n  indented: value\n");
+        SearchResult yaml = new SearchResult(yamlPath, "comments.yaml", 1.0f, "comments.yaml", "yaml", "YAML", null, null, null, 100L);
+
+        assertTrue(linker.extractConfigKeys(yaml, tmp).isEmpty());
+    }
+
+    @Test
+    void referencesConfigKey_matchesLiteralPlaceholderAndLookup() {
+        assertTrue(CrossFormatLinker.referencesConfigKey("String k = \"database\";", "database"));
+        assertTrue(CrossFormatLinker.referencesConfigKey("@Value(\"${database}\")", "database"));
+        assertTrue(CrossFormatLinker.referencesConfigKey("cfg.get(\"database.host\")", "database"));
+    }
+
+    @Test
+    void referencesConfigKey_isCaseSensitiveAndNeedsADelimiter() {
+        assertFalse(CrossFormatLinker.referencesConfigKey("String k = \"DATABASE\";", "database"),
+                "config keys are matched verbatim, unlike table names");
+        assertFalse(CrossFormatLinker.referencesConfigKey("String k = database;", "database"),
+                "a bare identifier is not a config-key reference");
+    }
+
     // -----------------------------------------------------------------------
     // Type detection
     // -----------------------------------------------------------------------

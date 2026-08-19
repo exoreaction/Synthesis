@@ -46,6 +46,10 @@ public class CrossFormatLinker {
     private static final Pattern YAML_TOP_KEY =
         Pattern.compile("^([a-zA-Z][a-zA-Z0-9_-]+)\\s*:", Pattern.MULTILINE);
 
+    /** YAML literal words that are never a meaningful config key. */
+    private static final Set<String> YAML_LITERAL_WORDS =
+        Set.of("true", "false", "null", "yes", "no");
+
     // -----------------------------------------------------------------------
     // SQL → Java
     // -----------------------------------------------------------------------
@@ -124,6 +128,57 @@ public class CrossFormatLinker {
     public List<CrossFormatLink> findYamlToJavaLinks(SearchResult yamlFile,
                                                       List<SearchResult> allFiles,
                                                       Path workspaceRoot) throws IOException {
+        // extractConfigKeys applies the existence and readability gates itself, and returns an
+        // empty list when either fails -- so an unreadable config falls out here as one with no
+        // keys, without this method repeating the checks.
+        List<String> keys = extractConfigKeys(yamlFile, workspaceRoot);
+        if (keys.isEmpty()) return List.of();
+
+        List<CrossFormatLink> links = new ArrayList<>();
+        for (SearchResult javaFile : javaSourceFiles(allFiles)) {
+            Path jp = workspaceRoot.resolve(javaFile.relativePath());
+            if (!Files.exists(jp)) continue;
+            if (!isReadableTextFile(jp)) continue;
+            String content;
+            try { content = Files.readString(jp); }
+            catch (IOException e) { continue; }
+
+            for (String key : keys) {
+                if (referencesConfigKey(content, key)) {
+                    links.add(new CrossFormatLink(
+                        javaFile.relativePath(), javaFile.fileName(), "config-key", key));
+                    break;
+                }
+            }
+        }
+        return links;
+    }
+
+    /**
+     * Whether Java source content references the config key {@code key}.
+     *
+     * <p>Extracted from {@link #findYamlToJavaLinks} so a caller that already holds the file
+     * content -- the incremental path, which reads each Java file once per run rather than once
+     * per config file (#464) -- can match without reading it again.
+     *
+     * <p>Unlike {@link #referencesTable}, the match is case-sensitive and always requires a
+     * delimiter: a config key is written verbatim in the source, and the bare-identifier
+     * fallback that suits table names would match ordinary Java identifiers.
+     */
+    public static boolean referencesConfigKey(String content, String key) {
+        return content.contains("\"" + key + "\"")
+                || content.contains("${" + key + "}")
+                || content.contains("get(\"" + key);
+    }
+
+    /**
+     * Extract the top-level keys of a YAML config file.
+     *
+     * <p>Keys of two characters or fewer and the YAML literal words are dropped: they carry no
+     * signal and would match a large share of the Java in any repository.
+     */
+    public List<String> extractConfigKeys(SearchResult yamlFile, Path workspaceRoot)
+            throws IOException {
         Path p = workspaceRoot.resolve(yamlFile.relativePath());
         if (!Files.exists(p)) return List.of();
         if (!isReadableTextFile(p)) {
@@ -142,34 +197,11 @@ public class CrossFormatLinker {
         Matcher m = YAML_TOP_KEY.matcher(yaml);
         while (m.find()) {
             String key = m.group(1);
-            // skip common YAML noise words and short keys
-            if (key.length() > 2 && !key.equals("true") && !key.equals("false")
-                    && !key.equals("null") && !key.equals("yes") && !key.equals("no")) {
+            if (key.length() > 2 && !YAML_LITERAL_WORDS.contains(key)) {
                 keys.add(key);
             }
         }
-        if (keys.isEmpty()) return List.of();
-
-        List<CrossFormatLink> links = new ArrayList<>();
-        for (SearchResult javaFile : javaFiles(allFiles)) {
-            Path jp = workspaceRoot.resolve(javaFile.relativePath());
-            if (!Files.exists(jp)) continue;
-            if (!isReadableTextFile(jp)) continue;
-            String content;
-            try { content = Files.readString(jp); }
-            catch (IOException e) { continue; }
-
-            for (String key : keys) {
-                if (content.contains("\"" + key + "\"")
-                        || content.contains("${" + key + "}")
-                        || content.contains("get(\"" + key)) {
-                    links.add(new CrossFormatLink(
-                        javaFile.relativePath(), javaFile.fileName(), "config-key", key));
-                    break;
-                }
-            }
-        }
-        return links;
+        return keys;
     }
 
     // -----------------------------------------------------------------------
@@ -216,13 +248,22 @@ public class CrossFormatLinker {
     private List<SearchResult> javaSourceFiles(List<SearchResult> all) {
         return all.stream()
             .filter(f -> f.fileName().endsWith(".java"))
-            .filter(f -> !f.relativePath().contains("src/test/"))
+            .filter(f -> !isTestPath(f.relativePath()))
             .collect(Collectors.toList());
     }
 
-    private List<SearchResult> javaFiles(List<SearchResult> all) {
-        return all.stream()
-            .filter(f -> f.fileName().endsWith(".java"))
-            .collect(Collectors.toList());
+    /**
+     * Whether a workspace-relative path belongs to a test source tree.
+     *
+     * <p>Both ends of a cross-format link are filtered by this: the Java end here, and the
+     * source end in {@code CodeGraphExtractor}'s walks. It lives in one place so the two ends
+     * cannot drift apart -- a rule enforced in one direction only is what let a test fixture
+     * explain production code.
+     *
+     * <p>Matched as a path segment, so {@code src/testing/} -- production code whose directory
+     * name merely starts with "test" -- is not excluded.
+     */
+    public static boolean isTestPath(String relativePath) {
+        return relativePath.contains("src/test/");
     }
 }
