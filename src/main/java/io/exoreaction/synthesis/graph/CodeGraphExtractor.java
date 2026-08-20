@@ -288,7 +288,7 @@ public class CodeGraphExtractor {
             String relPath = workspaceRoot.relativize(fullPath).toString();
             String name = fullPath.getFileName().toString();
 
-            boolean isCrossFormatSource = isCrossFormatSourceFile(name) && !CrossFormatLinker.isTestPath(relPath);
+            boolean isCrossFormatSource = isCrossFormatSourceFile(relPath) && !CrossFormatLinker.isTestPath(relPath);
             boolean isJava = name.endsWith(".java") && !CrossFormatLinker.isTestPath(relPath);
             if (!isCrossFormatSource && !isJava) continue;
 
@@ -373,16 +373,21 @@ public class CodeGraphExtractor {
         }
 
         /**
-         * The kind that claims this file name, or {@code null} if none does.
+         * The kind that claims this path, or {@code null} if none does.
          *
          * <p>Matched case-insensitively, as {@link CrossFormatLinker#isReadableTextFile} matches
          * extensions: a {@code CONFIG.YAML} that clears the readability gate and fails this one
          * would be admitted as readable and then never read.
+         *
+         * <p>Takes the workspace-relative path, not the bare file name: since #506 a YAML file
+         * is a cross-format source only when it is <em>configuration</em>, and
+         * {@link CrossFormatLinker#isConfigYaml} decides that from the directory it sits in as
+         * well as its name.
          */
-        static CrossFormatKind of(String fileName) {
-            String name = fileName.toLowerCase(java.util.Locale.ROOT);
-            if (name.endsWith(".sql")) return SQL;
-            if (name.endsWith(".yaml") || name.endsWith(".yml")) return YAML;
+        static CrossFormatKind of(String relativePath) {
+            String path = relativePath.toLowerCase(java.util.Locale.ROOT);
+            if (path.endsWith(".sql")) return SQL;
+            if (CrossFormatLinker.isConfigYaml(relativePath)) return YAML;
             return null;
         }
     }
@@ -435,13 +440,13 @@ public class CodeGraphExtractor {
         try (Stream<Path> walk = Files.walk(workspaceRoot)) {
             for (Path file : walk
                     .filter(Files::isRegularFile)
-                    .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
+                    .filter(p -> isCrossFormatSourceFile(workspaceRoot.relativize(p).toString()))
                     .filter(p -> !p.toString().contains("/."))
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
                     .filter(p -> !CrossFormatLinker.isTestPath(workspaceRoot.relativize(p).toString()))
                     .toList()) {
                 String relPath = workspaceRoot.relativize(file).toString();
-                CrossFormatKind kind = CrossFormatKind.of(file.getFileName().toString());
+                CrossFormatKind kind = CrossFormatKind.of(relPath);
                 if (kind == null) continue;
                 SearchResult result = crossFormatSearchResult(file, relPath, kind);
                 List<String> entities = kind == CrossFormatKind.SQL
@@ -482,10 +487,14 @@ public class CodeGraphExtractor {
      * Whether this file feeds cross-format linking rather than the language seam.
      *
      * <p>No {@link LanguageExtractor} claims a migration or a config file, so
-     * {@link #isSourceFile} rejects them -- yet a {@code .sql} or {@code .yaml} that appears or
+     * {@link #isSourceFile} rejects them -- yet a {@code .sql} or a YAML config that appears or
      * disappears changes {@code cross_format_links}, and has to reach {@link #incrementalUpdate}
      * to be linked or cleaned up (#465, #464). Callers that decide what the incremental path
      * gets to see must admit these alongside source files.
+     *
+     * <p>Takes the workspace-relative path. A YAML file qualifies only when
+     * {@link CrossFormatLinker#isConfigYaml} recognizes it as configuration (#506), and that
+     * rule reads the directory as well as the file name.
      *
      * <p>Static because it reads only its argument (#485): a caller that needs the gate does not
      * need an extractor.
@@ -791,7 +800,7 @@ public class CodeGraphExtractor {
         try (Stream<Path> walk = Files.walk(workspaceRoot)) {
             List<Path> sourceFiles = walk
                     .filter(Files::isRegularFile)
-                    .filter(p -> isCrossFormatSourceFile(p.getFileName().toString()))
+                    .filter(p -> isCrossFormatSourceFile(workspaceRoot.relativize(p).toString()))
                     .filter(p -> !p.toString().contains("/."))
                     .filter(p -> !isBuildArtifact(workspaceRoot, p))
                     .filter(p -> !CrossFormatLinker.isTestPath(workspaceRoot.relativize(p).toString()))
@@ -808,7 +817,7 @@ public class CodeGraphExtractor {
 
             for (Path sourceFile : sourceFiles) {
                 String relPath = workspaceRoot.relativize(sourceFile).toString();
-                CrossFormatKind kind = CrossFormatKind.of(sourceFile.getFileName().toString());
+                CrossFormatKind kind = CrossFormatKind.of(relPath);
                 if (kind == null) continue;
                 SearchResult sourceResult = crossFormatSearchResult(sourceFile, relPath, kind);
 

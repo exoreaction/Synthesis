@@ -885,6 +885,67 @@ class CodeGraphExtractorTest {
     }
 
     // -----------------------------------------------------------------------
+    // Only YAML configuration is a cross-format source (#506)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("REGRESSION #506: a YAML that is not configuration is not a cross-format source")
+    void isCrossFormatSourceFile_rejects_a_yaml_that_is_not_configuration() {
+        // Every top-level key of every .yaml used to count as a config key, so a manifest's
+        // generic keys (name, version, description) linked to any Java file holding the same
+        // string literal.
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("knowledge.yaml"),
+                "a KCP manifest is not configuration");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile(
+                        "src/main/resources/claude-skills/synthesis-summary.yaml"),
+                "a skill manifest is not configuration, wherever it is packaged");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("mkdocs.yml"),
+                "a documentation-site setting file is not application configuration");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #506: the full extract skips a YAML that is not configuration")
+    void extractAndPersist_skips_a_yaml_that_is_not_configuration()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        // Same shape as the real manifests: a generic top-level key that also appears as a
+        // string literal in unrelated Java.
+        Files.writeString(projectRoot.resolve("knowledge.yaml"), "name: synthesis\n");
+        Files.writeString(projectRoot.resolve("src/Greeter.java"), """
+                package com.example;
+                public class Greeter {
+                    String field = "name";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "only the config file is a cross-format source (#506)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #506: the incremental path skips a YAML that is not configuration")
+    void incrementalUpdate_skips_a_yaml_that_is_not_configuration()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("knowledge.yaml"), "name: synthesis\n");
+        Files.writeString(projectRoot.resolve("src/Greeter.java"), """
+                package com.example;
+                public class Greeter {
+                    String field = "name";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("knowledge.yaml"), Path.of("src/Greeter.java")));
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "the two paths agree on what counts as a config source (#506)");
+    }
+
+    // -----------------------------------------------------------------------
     // Test sources must not act as cross-format sources (#504 review, item 6a)
     // -----------------------------------------------------------------------
 
