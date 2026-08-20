@@ -238,13 +238,20 @@ class CrossFormatLinkerTest {
     }
 
     @Test
-    void isYamlFile_detectsBothExtensions() {
-        SearchResult yaml = makeResult("a.yaml", "a.yaml");
-        SearchResult yml = makeResult("b.yml", "b.yml");
+    void isConfigYamlFile_detectsBothExtensions() {
+        SearchResult yaml = makeResult("conf/a.yaml", "a.yaml");
+        SearchResult yml = makeResult("conf/b.yml", "b.yml");
         SearchResult java = makeResult("C.java", "C.java");
-        assertTrue(linker.isYamlFile(yaml));
-        assertTrue(linker.isYamlFile(yml));
-        assertFalse(linker.isYamlFile(java));
+        assertTrue(linker.isConfigYamlFile(yaml));
+        assertTrue(linker.isConfigYamlFile(yml));
+        assertFalse(linker.isConfigYamlFile(java));
+    }
+
+    @Test
+    void isConfigYamlFile_rejectsAYamlThatIsNotConfiguration() {
+        SearchResult manifest = makeResult("knowledge.yaml", "knowledge.yaml");
+        assertFalse(linker.isConfigYamlFile(manifest),
+                "relate must not offer cross-format links for a YAML that is not config (#506)");
     }
 
     // -----------------------------------------------------------------------
@@ -433,5 +440,89 @@ class CrossFormatLinkerTest {
         List<CrossFormatLinker.CrossFormatLink> links =
                 linker.findYamlToJavaLinks(png, List.of(png, java), tmp);
         assertTrue(links.isEmpty(), "PNG file should produce no YAML links");
+    }
+
+    // -----------------------------------------------------------------------
+    // Config-YAML recognition (#506)
+    // -----------------------------------------------------------------------
+    //
+    // Case-class ledger for isConfigYaml, per the 8 classes in verification-patterns:
+    //   1 Empty       — isConfigYaml_rejectsEmptyPath
+    //   2 Absent      — N/A: every caller derives the argument from a file it has just
+    //                   listed, so null never reaches here. Its sibling isTestPath makes
+    //                   the same assumption.
+    //   3 Single      — isConfigYaml_acceptsConfigFileAtWorkspaceRoot
+    //   4 Boundary    — isConfigYaml_rejectsExtensionWithoutABaseName
+    //   5 Invalid     — isConfigYaml_rejectsNonYamlExtensions
+    //   6 Position    — isConfigYaml_acceptsAConfigDirectoryAtAnyDepth
+    //   7 Unavailable — N/A: a pure predicate over its argument, with no dependency to fail.
+    //   8 Normal      — isConfigYaml_rejectsManifestsThatAreNotConfiguration
+
+    @Test
+    void isConfigYaml_acceptsConfigFileAtWorkspaceRoot() {
+        assertTrue(CrossFormatLinker.isConfigYaml("config.yaml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("synthesis-config.yaml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("application.yaml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("application-prod.yml"));
+    }
+
+    @Test
+    void isConfigYaml_acceptsAConfigDirectoryAtAnyDepth() {
+        assertTrue(CrossFormatLinker.isConfigYaml("configs/synapti-marketplace.yaml"),
+                "a directory named configs marks its contents as configuration");
+        assertTrue(CrossFormatLinker.isConfigYaml("conf/database.yml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("src/main/resources/config/routes.yaml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("deploy/configuration/limits.yaml"));
+    }
+
+    @Test
+    void isConfigYaml_matchesTheDirectoryAsAWholeSegment() {
+        assertFalse(CrossFormatLinker.isConfigYaml("confetti/party.yaml"),
+                "confetti merely starts with conf and is not a config directory");
+        assertFalse(CrossFormatLinker.isConfigYaml("preconfig/app.yaml"),
+                "preconfig merely ends with config and is not a config directory");
+    }
+
+    @Test
+    void isConfigYaml_rejectsManifestsThatAreNotConfiguration() {
+        assertFalse(CrossFormatLinker.isConfigYaml("knowledge.yaml"),
+                "a KCP manifest declares knowledge units, it is not read as configuration");
+        assertFalse(CrossFormatLinker.isConfigYaml(
+                        "src/main/resources/claude-skills/synthesis-summary.yaml"),
+                "a skill manifest is not read as configuration");
+        assertFalse(CrossFormatLinker.isConfigYaml("mkdocs.yml"));
+        assertFalse(CrossFormatLinker.isConfigYaml("docs/slack-app-manifest.yaml"));
+    }
+
+    @Test
+    void isConfigYaml_rejectsNonYamlExtensions() {
+        assertFalse(CrossFormatLinker.isConfigYaml("config.json"));
+        assertFalse(CrossFormatLinker.isConfigYaml("config.yaml.bak"));
+        assertFalse(CrossFormatLinker.isConfigYaml("conf/V1__init.sql"));
+    }
+
+    @Test
+    void isConfigYaml_rejectsEmptyPath() {
+        assertFalse(CrossFormatLinker.isConfigYaml(""));
+    }
+
+    @Test
+    void isConfigYaml_rejectsExtensionWithoutABaseName() {
+        assertFalse(CrossFormatLinker.isConfigYaml(".yaml"),
+                "a bare extension names no file and cannot be recognized as configuration");
+        assertFalse(CrossFormatLinker.isConfigYaml("conf/.yml"));
+    }
+
+    @Test
+    void isConfigYaml_readsADirectoryOnAWindowsPathToo() {
+        assertTrue(CrossFormatLinker.isConfigYaml("conf\\database.yml"),
+                "the directory rule must survive a backslash separator");
+    }
+
+    @Test
+    void isConfigYaml_matchesCaseInsensitively() {
+        assertTrue(CrossFormatLinker.isConfigYaml("conf/CONFIG.YAML"));
+        assertTrue(CrossFormatLinker.isConfigYaml("Conf/App.Yml"));
+        assertTrue(CrossFormatLinker.isConfigYaml("Application.YAML"));
     }
 }

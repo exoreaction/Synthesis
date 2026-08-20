@@ -14,7 +14,7 @@ import java.util.stream.*;
  *
  * <ul>
  *   <li>SQL migration → Java: which classes reference tables created by a migration</li>
- *   <li>YAML config → Java: which classes reference config keys from a YAML file</li>
+ *   <li>YAML config → Java: which classes reference config keys from a YAML config file</li>
  * </ul>
  */
 public class CrossFormatLinker {
@@ -49,6 +49,19 @@ public class CrossFormatLinker {
     /** YAML literal words that are never a meaningful config key. */
     private static final Set<String> YAML_LITERAL_WORDS =
         Set.of("true", "false", "null", "yes", "no");
+
+    /**
+     * Directory names that mark everything below them as configuration.
+     *
+     * <p>Matched as whole path segments, so {@code confetti/} does not qualify -- the same
+     * segment discipline {@link #isTestPath} uses.
+     */
+    private static final Set<String> CONFIG_DIRECTORY_NAMES =
+        Set.of("config", "configs", "conf", "configuration");
+
+    /** Words in a file name that mark a YAML file as configuration wherever it lives. */
+    private static final Set<String> CONFIG_FILE_NAME_MARKERS =
+        Set.of("application", "config");
 
     // -----------------------------------------------------------------------
     // SQL → Java
@@ -240,9 +253,56 @@ public class CrossFormatLinker {
         return file.fileName().endsWith(".sql");
     }
 
-    public boolean isYamlFile(SearchResult file) {
-        String n = file.fileName();
-        return n.endsWith(".yaml") || n.endsWith(".yml");
+    /**
+     * Whether this file is a YAML <em>configuration</em> file, and so a cross-format source.
+     *
+     * <p>Narrowed from "every {@code .yaml} in the tree" in #506. See {@link #isConfigYaml}
+     * for the rule and why it exists.
+     */
+    public boolean isConfigYamlFile(SearchResult file) {
+        return isConfigYaml(file.relativePath());
+    }
+
+    /**
+     * Whether a workspace-relative path names a YAML configuration file.
+     *
+     * <p>Every top-level key of every YAML file used to count as a config key (#506). Most YAML
+     * in a repository is not configuration -- KCP manifests, skill manifests, documentation-site
+     * settings -- and their generic keys ({@code name}, {@code version}, {@code description})
+     * collide with ordinary Java string literals. On this repository that produced 868
+     * {@code config-key} rows, 822 of them collisions on those three words.
+     *
+     * <p>The rule is a naming convention rather than a stop-list of keys, so it can be explained
+     * to whoever reads a link: the file is configuration because it is named like configuration
+     * or lives in a directory named for it. A repository that follows neither convention gets no
+     * config-key links, which is the honest answer for a repository whose YAML is not config.
+     *
+     * <p>Both ends of the narrowing share this method: {@code relate} selects its cross-format
+     * target with {@link #isConfigYamlFile}, and {@code CodeGraphExtractor} selects the sources
+     * it persists with {@code isCrossFormatSourceFile}. Narrowing only one of them would
+     * reopen #464 -- {@code relate} printing a link the graph does not hold -- in the opposite
+     * direction.
+     *
+     * @param relativePath the workspace-relative path, with {@code /} separators
+     */
+    public static boolean isConfigYaml(String relativePath) {
+        // Separators are normalized so the directory rule reads a Windows path too. The
+        // surrounding walks assume "/" already, so this narrows nothing that they admit.
+        String path = relativePath.toLowerCase(java.util.Locale.ROOT).replace('\\', '/');
+        if (!path.endsWith(".yaml") && !path.endsWith(".yml")) return false;
+
+        String[] segments = path.split("/");
+        String fileName = segments[segments.length - 1];
+        String baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+        if (baseName.isEmpty()) return false; // ".yaml" names no file
+
+        for (String marker : CONFIG_FILE_NAME_MARKERS) {
+            if (baseName.contains(marker)) return true;
+        }
+        for (int i = 0; i < segments.length - 1; i++) {
+            if (CONFIG_DIRECTORY_NAMES.contains(segments[i])) return true;
+        }
+        return false;
     }
 
     private List<SearchResult> javaSourceFiles(List<SearchResult> all) {

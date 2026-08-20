@@ -77,7 +77,7 @@ public class RelateCommand implements Callable<Integer> {
                 printKnowledgeEnrichment(target.relativePath(), workspace);
             }
 
-            if (crossFormatLinker.isSqlFile(target) || crossFormatLinker.isYamlFile(target)) {
+            if (crossFormatLinker.isSqlFile(target) || crossFormatLinker.isConfigYamlFile(target)) {
                 List<SearchResult> allFiles;
                 try (SearchIndex index = SearchIndex.openReadOnly(workspace.getIndexPath())) { allFiles = index.listAll(null, 5000); }
                 printCrossFormatLinks(target, allFiles, workspaceRoot);
