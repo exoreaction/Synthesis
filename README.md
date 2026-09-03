@@ -2,6 +2,9 @@
 
 **AI operations partner for knowledge infrastructure.**
 
+> **⚠️ Fair warning: this is not a polished, easy-to-adopt tool (yet).**
+> Synthesis was built to organize and fix *my own* sprawling mess — years of scattered repos, notes, and context across dozens of projects — not designed from day one for general adoption. Setup and configuration are overly complex as a result: lots of moving parts, opinionated defaults, and assumptions baked in from my own workflow. If you're looking for something plug-and-play, this isn't that. If you're comfortable digging through config and rough edges, it's genuinely useful.
+
 Synthesis is a CLI tool that scans, indexes, and searches workspace file systems, providing rapid discovery of documents, code, and knowledge artifacts. It creates a local Lucene search index enriched with file analysis (headings, keywords, code structure, PDF content), enabling instant search across your entire workspace.
 
 ## Features
