@@ -315,17 +315,28 @@ public class CodeGraphCommand implements Callable<Integer> {
         }
 
         private int showDryRun(Path workspaceRoot) throws IOException {
-            List<Path> javaFiles = findJavaFiles(workspaceRoot);
-            List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
+            // Counts come from the LanguageExtractor registry, so every registered language is
+            // reported (#466) -- a hardcoded list silently omits languages it forgets.
+            CodeGraphExtractor extractor = new CodeGraphExtractor();
+            extractor.setIncludeArchives(includeArchives);
+            Map<String, List<Path>> byLanguage = extractor.sourceFilesByLanguage(workspaceRoot);
             List<Path> sqlFiles = findSqlFiles(workspaceRoot);
 
             System.out.println();
             System.out.println("Code Graph Extraction (dry-run)");
             System.out.println();
-            System.out.println("  Java files:   " + javaFiles.size());
-            System.out.println("  Kotlin files: " + kotlinFiles.size());
-            System.out.println("  SQL files:    " + sqlFiles.size());
-            System.out.println("  Total files:  " + (javaFiles.size() + kotlinFiles.size() + sqlFiles.size()));
+            int width = byLanguage.keySet().stream()
+                    .mapToInt(name -> name.length() + " files:".length())
+                    .max().orElse(0);
+            width = Math.max(width, "SQL files:".length());
+
+            int total = sqlFiles.size();
+            for (Map.Entry<String, List<Path>> e : byLanguage.entrySet()) {
+                System.out.printf("  %-" + width + "s %d%n", e.getKey() + " files:", e.getValue().size());
+                total += e.getValue().size();
+            }
+            System.out.printf("  %-" + width + "s %d%n", "SQL files:", sqlFiles.size());
+            System.out.println("  Total files:  " + total);
             System.out.println();
             System.out.println("  No changes made. Remove --dry-run to extract.");
             System.out.println();
@@ -358,11 +369,10 @@ public class CodeGraphCommand implements Callable<Integer> {
 
         private int runIncremental(CodeGraphExtractor extractor, Connection conn,
                                    Path workspaceRoot) throws Exception {
-            // For incremental, find all Java + Kotlin files as the "changed" set
-            List<Path> javaFiles = findJavaFiles(workspaceRoot);
-            List<Path> kotlinFiles = findKotlinFiles(workspaceRoot);
-            Set<Path> changed = new HashSet<>(javaFiles);
-            changed.addAll(kotlinFiles);
+            // The "changed" set is every registered language's files -- taken from the registry so
+            // no language is silently dropped and left with a stale graph (#466, ADR-0001 gap #6).
+            Set<Path> changed = new HashSet<>();
+            extractor.sourceFilesByLanguage(workspaceRoot).values().forEach(changed::addAll);
 
             System.out.println();
             System.out.println("Extracting code graph (incremental, " + changed.size() + " files)...");
@@ -372,6 +382,7 @@ public class CodeGraphCommand implements Callable<Integer> {
             System.out.println();
             System.out.println("  Files processed:    " + stats.filesProcessed());
             System.out.println("  Dependencies found: " + stats.dependenciesFound());
+            System.out.println("  Cross-format links: " + stats.crossFormatLinks());
             System.out.println("  Packages found:     " + stats.packagesFound());
             System.out.println("  External deps:      " + stats.externalDeps());
             System.out.println("  Elapsed:            " + stats.elapsedMs() + " ms");
@@ -385,16 +396,6 @@ public class CodeGraphCommand implements Callable<Integer> {
             return 0;
         }
 
-        private List<Path> findJavaFiles(Path root) throws IOException {
-            try (Stream<Path> walk = Files.walk(root)) {
-                return walk.filter(Files::isRegularFile)
-                        .filter(p -> p.toString().endsWith(".java"))
-                        .filter(p -> !p.toString().contains("/."))
-                        .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
-                        .toList();
-            }
-        }
-
         private List<Path> findSqlFiles(Path root) throws IOException {
             try (Stream<Path> walk = Files.walk(root)) {
                 return walk.filter(Files::isRegularFile)
@@ -405,15 +406,6 @@ public class CodeGraphCommand implements Callable<Integer> {
             }
         }
 
-        private List<Path> findKotlinFiles(Path root) throws IOException {
-            try (Stream<Path> walk = Files.walk(root)) {
-                return walk.filter(Files::isRegularFile)
-                        .filter(p -> p.toString().endsWith(".kt"))
-                        .filter(p -> !p.toString().contains("/."))
-                        .filter(p -> !CodeGraphExtractor.isBuildArtifact(root, p))
-                        .toList();
-            }
-        }
     }
 
     // -----------------------------------------------------------------------

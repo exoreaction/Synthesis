@@ -73,6 +73,12 @@ public class MaintainOrchestrator {
     private final Path workspaceRoot;
     private final MaintainOptions options;
     private final SynthesisConfig config;
+    /**
+     * Drives phase 10. Also answers which files the code graph covers, so the phase gates
+     * follow the {@code LanguageExtractor} registry instead of a local list (#466). The
+     * constructor touches no database.
+     */
+    private final CodeGraphExtractor codeGraphExtractor = new CodeGraphExtractor();
 
     /**
      * Creates an orchestrator for the given workspace.
@@ -958,18 +964,57 @@ public class MaintainOrchestrator {
     // =========================================================================
 
     /**
-     * Source extensions the code-graph extractor understands (Java, Kotlin,
-     * TypeScript/TSX — see {@link CodeGraphExtractor}). #440: the phase gates below
-     * were Java-only, so pure-Kotlin/TypeScript workspaces were silently skipped
-     * and Kotlin/TS changes never triggered an incremental update.
+     * Whether the code-graph extractor understands this file. Asked of its
+     * {@code LanguageExtractor} registry rather than a local extension list (#466) -- the
+     * list kept here went stale each time a language was registered. #440: these phase
+     * gates were once Java-only, so pure-Kotlin/TypeScript workspaces were silently
+     * skipped and Kotlin/TS changes never triggered an incremental update.
      */
-    private static final String[] CODE_GRAPH_EXTENSIONS = {".java", ".kt", ".ts", ".tsx"};
+    private boolean isCodeGraphFile(String path) {
+        return CodeGraphExtractor.isSourceFile(path);
+    }
 
-    private static boolean isCodeGraphFile(String path) {
-        for (String ext : CODE_GRAPH_EXTENSIONS) {
-            if (path.endsWith(ext)) return true;
+    /**
+     * Whether phase 10 must see this file at all -- source files, plus the cross-format inputs
+     * no language extractor claims (#465, #464). Neither a migration nor a YAML config is a
+     * source file, so {@link #isCodeGraphFile} rejects both, and they would never enter the
+     * changed set; their links would then never be added when they appear, nor cleaned up when
+     * they are deleted.
+     */
+    private boolean isCodeGraphInput(String path) {
+        return isCodeGraphFile(path) || CodeGraphExtractor.isCrossFormatSourceFile(path);
+    }
+
+    /**
+     * The code files phase 10 must hand to the incremental update: everything added, modified
+     * <em>or deleted</em> since the last scan.
+     *
+     * <p>Deletions belong here (#460). The code graph stores a row per source file, so a file
+     * that disappears takes nothing with it unless its path still arrives -- leaving
+     * {@code relate}, {@code impact}, health and gaps reporting a file that is no longer on
+     * disk until the next full extract. {@code CodeGraphExtractor.incrementalUpdate} deletes
+     * the rows of any path it is given that no longer exists.
+     *
+     * <p>Cross-format inputs belong here too (#465) -- see {@link #isCodeGraphInput}.
+     */
+    Set<Path> codeGraphChangedPaths(ScanState.ChangeSet changes) {
+        Set<Path> changedPaths = new java.util.LinkedHashSet<>();
+        for (FileMetadata fm : changes.added()) {
+            if (isCodeGraphInput(fm.relativePath())) {
+                changedPaths.add(Path.of(fm.relativePath()));
+            }
         }
-        return false;
+        for (FileMetadata fm : changes.modified()) {
+            if (isCodeGraphInput(fm.relativePath())) {
+                changedPaths.add(Path.of(fm.relativePath()));
+            }
+        }
+        for (String deleted : changes.deleted()) {
+            if (isCodeGraphInput(deleted)) {
+                changedPaths.add(Path.of(deleted));
+            }
+        }
+        return changedPaths;
     }
 
     /** Walks the workspace (depth 10, hidden dirs excluded) for files matching the predicate. */
@@ -1004,34 +1049,23 @@ public class MaintainOrchestrator {
 
         SynthesisDatabase db = SynthesisDatabase.getDefault();
         java.sql.Connection conn = db.getConnection();
-        CodeGraphExtractor extractor = new CodeGraphExtractor();
 
         CodeGraphStats stats;
 
         // Incremental: if graph is already populated and we have change data, use incremental
-        if (extractor.getRepository().isPopulated(conn, workspaceRoot.toString())
+        if (codeGraphExtractor.getRepository().isPopulated(conn, workspaceRoot.toString())
                 && changes != null && changes.hasChanges()) {
-            Set<Path> changedPaths = new java.util.HashSet<>();
-            for (FileMetadata fm : changes.added()) {
-                if (isCodeGraphFile(fm.relativePath())) {
-                    changedPaths.add(Path.of(fm.relativePath()));
-                }
-            }
-            for (FileMetadata fm : changes.modified()) {
-                if (isCodeGraphFile(fm.relativePath())) {
-                    changedPaths.add(Path.of(fm.relativePath()));
-                }
-            }
+            Set<Path> changedPaths = codeGraphChangedPaths(changes);
 
             if (changedPaths.isEmpty()) {
                 return PhaseResult.success(10, "Code Graph", 0,
                         "no code files changed", List.of());
             }
 
-            stats = extractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
+            stats = codeGraphExtractor.incrementalUpdate(workspaceRoot, conn, changedPaths);
         } else {
             // Full extraction
-            stats = extractor.extractAndPersist(workspaceRoot, conn);
+            stats = codeGraphExtractor.extractAndPersist(workspaceRoot, conn);
         }
 
         // Compute module profiles after extraction (CKG-2.04)

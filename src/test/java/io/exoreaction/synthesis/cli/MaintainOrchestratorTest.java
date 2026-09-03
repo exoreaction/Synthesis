@@ -2,7 +2,10 @@ package io.exoreaction.synthesis.cli;
 
 import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
+import io.exoreaction.synthesis.core.FileMetadata;
+import io.exoreaction.synthesis.core.ScanState;
 import io.exoreaction.synthesis.integration.WorkspaceFixture;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,6 +17,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -631,5 +635,59 @@ class MaintainOrchestratorTest {
             assertNotNull(phase.summary(),
                     "Phase " + phase.phaseNumber() + " summary should not be null");
         }
+    }
+
+    // =========================================================================
+    // Phase 10 changed set (#460)
+    // =========================================================================
+
+    /** Metadata for a file that need not exist -- only {@code relativePath} is read here. */
+    private FileMetadata metadataFor(Path root, String relativePath) {
+        return FileMetadata.of(root.resolve(relativePath), root, 0L, Instant.now(), null);
+    }
+
+    @Test
+    @DisplayName("REGRESSION #460: phase 10's changed set carries deleted code files")
+    void codeGraphChangedPaths_includes_deleted_code_files() throws Exception {
+        Path root = createMinimalWorkspace();
+        MaintainOrchestrator orchestrator =
+                new MaintainOrchestrator(root, MaintainOptions.defaults(), loadConfig(root));
+
+        ScanState.ChangeSet changes = new ScanState.ChangeSet(
+                List.of(metadataFor(root, "src/Added.java")),
+                List.of(metadataFor(root, "src/Modified.kt")),
+                List.of("src/Deleted.java", "README.md"));
+
+        Set<Path> changedPaths = orchestrator.codeGraphChangedPaths(changes);
+
+        assertTrue(changedPaths.contains(Path.of("src/Deleted.java")),
+                "a deleted code file must reach the code graph update, "
+                        + "otherwise its rows are orphaned until the next full extract (#460)");
+        assertEquals(
+                Set.of(Path.of("src/Added.java"), Path.of("src/Modified.kt"),
+                        Path.of("src/Deleted.java")),
+                changedPaths,
+                "added, modified and deleted code files -- and nothing else (README.md)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: phase 10's changed set carries cross-format inputs")
+    void codeGraphChangedPaths_includes_sql_files() throws Exception {
+        Path root = createMinimalWorkspace();
+        MaintainOrchestrator orchestrator =
+                new MaintainOrchestrator(root, MaintainOptions.defaults(), loadConfig(root));
+
+        ScanState.ChangeSet changes = new ScanState.ChangeSet(
+                List.of(metadataFor(root, "src/V2__orders.sql")),
+                List.of(),
+                List.of("src/V1__init.sql"));
+
+        Set<Path> changedPaths = orchestrator.codeGraphChangedPaths(changes);
+
+        assertEquals(
+                Set.of(Path.of("src/V2__orders.sql"), Path.of("src/V1__init.sql")),
+                changedPaths,
+                "no language extractor claims a migration, but it still changes "
+                        + "cross_format_links, so phase 10 has to see it (#465)");
     }
 }

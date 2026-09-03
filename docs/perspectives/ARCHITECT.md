@@ -591,4 +591,4 @@ synthesis summary --since 7d               # Temporal AI summary
 - [Developer Guide](./DEVELOPER.md) -- for your team members
 - [Engineering Manager Guide](./ENGINEERING-MANAGER.md) -- team adoption and metrics
 - [DevOps Guide](./DEVOPS.md) -- CI/CD integration
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

@@ -765,4 +765,4 @@ synthesis update --health                      # Installation health check
 - [LSP Quick Start](../guides/LSP-QUICKSTART.md) -- IDE integration
 - [Developer Guide](./DEVELOPER.md) -- for your development team
 - [Architect Guide](./ARCHITECT.md) -- architecture analysis
-- [Full User Guide](../USER-GUIDE-V2.md) -- complete command reference
+- [Full User Guide](../guides/USER-GUIDE.md) -- complete command reference

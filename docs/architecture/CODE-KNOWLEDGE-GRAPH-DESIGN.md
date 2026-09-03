@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-22
 **Authors:** Claude Opus 4.6 (design analysis session)
-**Context:** Parallel to the document knowledge graph ([IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md)), this document designs knowledge graph features specifically for source code repositories. All metadata lives outside the source tree (SQLite only — no `.synthesis.md` files inside repos).
+**Context:** Parallel to the document knowledge graph ([IMPLEMENTATION-PLAN.md](https://github.com/exoreaction/Synthesis/blob/main/docs/architecture/IMPLEMENTATION-PLAN.md)), this document designs knowledge graph features specifically for source code repositories. All metadata lives outside the source tree (SQLite only — no `.synthesis.md` files inside repos).
 
 ---
 
@@ -25,7 +25,7 @@ Substantial extraction capability already exists and can be leveraged:
 | `ViolationDetector` | `graph` | Layer violation + circular dependency detection |
 | `TestCoverageAnalyzer` | `graph` | Convention-based test discovery, untested file detection |
 | `CoChangeAnalyzer` | `graph` | Git co-change analysis, behavioral coupling |
-| `CrossFormatLinker` | `graph` | SQL→Java, YAML→Java cross-format links |
+| `CrossFormatLinker` | `graph` | SQL→Java, YAML config→Java cross-format links |
 | `KnowledgeEdgeScanner` | `graph` | Skill/doc→source edges, drift calculation |
 | `ArchitectureMonitor` | `architecture` | God class, dead code, circular deps, high coupling |
 | `RelateCommand` | `cli` | `synthesis relate` — file-level relationship mapping |
@@ -138,7 +138,7 @@ CREATE TABLE module_profiles (
     UNIQUE(workspace_path, module_path)
 );
 
--- Cross-format links (SQL→Java, YAML→Java, doc→code)
+-- Cross-format links (SQL→Java, YAML config→Java, doc→code)
 CREATE TABLE cross_format_links (
     workspace_path TEXT NOT NULL,
     source_file TEXT NOT NULL,
@@ -148,6 +148,17 @@ CREATE TABLE cross_format_links (
     last_computed INTEGER NOT NULL,
     UNIQUE(workspace_path, source_file, target_file, entity_name)
 );
+```
+
+A `config-key` link means a Java file reads that configuration key. Only YAML files recognized as
+configuration are cross-format sources: a file whose name carries `config` or `application`, or one
+that sits in a directory named `config`, `configs`, `conf` or `configuration`
+(`CrossFormatLinker.isConfigYaml`). Every top-level key of every `.yaml` in the tree used to count,
+which made a manifest's generic keys — `name`, `version`, `description` — link to any Java file
+holding the same string literal (#506). A repository whose YAML follows neither convention gets no
+`config-key` links, which is the correct answer when none of its YAML is configuration.
+
+```sql
 
 -- Quality gaps
 CREATE TABLE code_quality_gaps (
@@ -329,4 +340,4 @@ The two systems are **parallel but independent**. In a mixed workspace (repo wit
 
 *Related documents:*
 *[KNOWLEDGE-GRAPH-VISION.md](../vision/KNOWLEDGE-GRAPH-VISION.md) — document knowledge graph vision*
-*[IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md) — document knowledge graph implementation plan*
+*[IMPLEMENTATION-PLAN.md](https://github.com/exoreaction/Synthesis/blob/main/docs/architecture/IMPLEMENTATION-PLAN.md) — document knowledge graph implementation plan*

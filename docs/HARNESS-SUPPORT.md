@@ -45,7 +45,7 @@ harness is a no-op or produces files the harness does not read.
 ### Tier 3 — Harness-dependent (needs per-harness adapter)
 
 These depend on what the host harness supports. Per-harness setup guides live
-in [`docs/integrations/`](integrations/).
+in [`docs/integrations/`](integrations/pi-dev.md).
 
 | Harness | MCP support | Skills surface | Hooks surface | Instructions file |
 |---|---|---|---|---|

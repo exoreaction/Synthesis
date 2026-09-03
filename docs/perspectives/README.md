@@ -19,7 +19,7 @@
 | **Workshop Facilitator** | [Workshop Facilitator Guide](./WORKSHOP-FACILITATOR.md) | 15 min | 2-8 hour plans, 5-minute demo script, exercises, self-organizing workspace, proof of methodology |
 | **AI Agent Developer** | [AI Agent Guide](./AI-AGENT.md) | 15 min | MCP/LSP setup, CLI patterns, tool schemas, `exo ask` RAG loop, directory identities, knowledge edges, agent best practices |
 
-**Complete command reference:** [User Guide v2](../USER-GUIDE-V2.md) -- all commands, configuration, editions, credentials.
+**Complete command reference:** [User Guide v2](../guides/USER-GUIDE.md) -- all commands, configuration, editions, credentials.
 
 ---
 
@@ -64,7 +64,7 @@
 | "What happened this week?" | [Executive](./EXECUTIVE.md) | Daily Commands |
 | "What decisions need my attention?" | [Executive](./EXECUTIVE.md) | Daily Commands |
 | "How do I install and use Synthesis?" | [Developer](./DEVELOPER.md) | Daily Workflow |
-| "What are all the commands?" | [User Guide v2](../USER-GUIDE-V2.md) | Command Reference |
+| "What are all the commands?" | [User Guide v2](../guides/USER-GUIDE.md) | Command Reference |
 | "How do I roll this out to my team?" | [Engineering Manager](./ENGINEERING-MANAGER.md) | Adoption Playbook |
 | "What metrics should I track?" | [Engineering Manager](./ENGINEERING-MANAGER.md) | Success Dashboard |
 | "Can it map our microservices?" | [Architect](./ARCHITECT.md) | Cross-Repository Dependency Mapping |
@@ -88,7 +88,7 @@
 
 ## All Documentation
 
-### Perspective Guides (v1.15.0)
+### Perspective Guides
 
 | Guide | Audience | Key topics |
 |-------|----------|------------|
@@ -103,7 +103,7 @@
 
 ### Master Reference
 
-- [User Guide v2](../USER-GUIDE-V2.md) -- Complete command reference for all commands, configuration, editions, credentials, environment variables
+- [User Guide v2](../guides/USER-GUIDE.md) -- Complete command reference for all commands, configuration, editions, credentials, environment variables
 
 ### Quick Start
 
@@ -121,14 +121,9 @@
 
 ### Visual Assets
 
-- [Infographics and Presentations](../visuals/README.md) -- NotebookLM-generated visuals (sales decks, infographics, workshop slides)
+- [Infographics and Presentations](https://github.com/exoreaction/Synthesis/blob/main/docs/visuals/README.md) -- NotebookLM-generated visuals (sales decks, infographics, workshop slides)
 
-### Previous Versions (Retained)
-
-These files predate the v1.8.0 documentation rewrite. They are retained for reference but may contain outdated information.
-
-- [User Guide v1](../guides/USER-GUIDE.md) -- Original command reference (superseded by [User Guide v2](../USER-GUIDE-V2.md))
 
 ---
 
-**Synthesis v1.15.0** -- [GitHub](https://github.com/exoreaction/Synthesis)
+**Synthesis** -- [GitHub](https://github.com/exoreaction/Synthesis)

@@ -298,6 +298,26 @@ public class CodeGraphRepository {
     }
 
     /**
+     * Deletes every cross-format link with {@code relativePath} on either side.
+     *
+     * <p>The incremental path needs to drop the rows of one file -- a deleted migration, or a
+     * file about to be re-linked -- without clearing the whole workspace (#465). Both sides are
+     * matched because a link dies with either of its endpoints: the SQL file that declared the
+     * table, or the Java file that referenced it.
+     */
+    public int deleteCrossFormatLinksForFile(Connection conn, String workspacePath,
+                                              String relativePath) throws SQLException {
+        String sql = "DELETE FROM cross_format_links WHERE workspace_path = ? "
+                + "AND (source_file = ? OR target_file = ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspacePath);
+            ps.setString(2, relativePath);
+            ps.setString(3, relativePath);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
      * Returns all cross-format links for a workspace.
      */
     public List<CrossFormatLinkRecord> getCrossFormatLinks(Connection conn,

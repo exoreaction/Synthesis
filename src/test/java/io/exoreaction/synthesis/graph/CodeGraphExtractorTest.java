@@ -2,8 +2,10 @@ package io.exoreaction.synthesis.graph;
 
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.CodeGraphRepository.CodeDependency;
+import io.exoreaction.synthesis.graph.CodeGraphRepository.CrossFormatLinkRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -11,6 +13,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
@@ -46,271 +50,9 @@ class CodeGraphExtractorTest {
     // Import extraction (unit-level)
     // -----------------------------------------------------------------------
 
-    @Test
-    void extractImports_finds_java_imports() {
-        String content = """
-                package com.example;
-                import com.example.util.Helper;
-                import java.util.List;
-                import static org.junit.jupiter.api.Assertions.assertEquals;
-
-                public class Foo {}
-                """;
-        List<String> imports = extractor.extractImports(content);
-        assertTrue(imports.contains("com.example.util.Helper"));
-        assertTrue(imports.contains("java.util.List"));
-        assertTrue(imports.contains("org.junit.jupiter.api.Assertions.assertEquals"));
-    }
-
-    @Test
-    void extractPackage_finds_package() {
-        String content = "package com.example.core;\nimport java.util.List;\npublic class Foo {}";
-        assertEquals("com.example.core", extractor.extractPackage(content));
-    }
-
-    @Test
-    void extractPackage_returns_null_for_no_package() {
-        assertNull(extractor.extractPackage("public class Foo {}"));
-    }
-
-    @Test
-    void extractClassName_strips_java_extension() {
-        Path file = Path.of("src/main/java/Foo.java");
-        assertEquals("Foo", extractor.extractClassName(file));
-    }
-
-    @Test
-    void getSimpleClassName_extracts_last_segment() {
-        assertEquals("Foo", extractor.getSimpleClassName("com.example.Foo"));
-        assertEquals("Bar", extractor.getSimpleClassName("Bar"));
-    }
-
-    @Test
-    void getPackageFromImport_extracts_package() {
-        assertEquals("com.example", extractor.getPackageFromImport("com.example.Foo"));
-        assertEquals("", extractor.getPackageFromImport("Foo"));
-    }
-
     // -----------------------------------------------------------------------
     // Kotlin support (spike)
     // -----------------------------------------------------------------------
-
-    @Test
-    void extractKotlinImports_handles_semicolon_optional_alias_and_wildcard() {
-        String content = """
-                package no.tvimenning.samtygd.config
-
-                import org.springframework.context.annotation.Bean
-                import com.example.Foo as Bar
-                import kotlin.collections.*
-                import java.util.List;
-
-                class Foo
-                """;
-        List<String> imports = extractor.extractKotlinImports(content);
-        assertTrue(imports.contains("org.springframework.context.annotation.Bean"));
-        assertTrue(imports.contains("com.example.Foo"), "alias should be dropped, FQN kept");
-        assertTrue(imports.contains("java.util.List"), "trailing ; is optional, not required");
-        assertFalse(imports.stream().anyMatch(i -> i.contains("*")), "wildcard imports are dropped");
-    }
-
-    @Test
-    void extractKotlinPackage_semicolon_optional() {
-        assertEquals("no.tvimenning.samtygd.config",
-                extractor.extractKotlinPackage("package no.tvimenning.samtygd.config\n\nclass Foo"));
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_single_class_no_supertype() {
-        // Real shape: tvimenning-template SecurityConfig.kt (api-internal)
-        String content = """
-                package no.tvimenning.samtygd.config
-
-                import org.springframework.context.annotation.Configuration
-
-                @Configuration
-                @EnableWebSecurity
-                class SecurityConfig {
-                    fun securityFilterChain() {}
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("SecurityConfig", decls.get(0).name());
-        assertTrue(decls.get(0).supertypes().isEmpty());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_single_supertype_with_constructor_call() {
-        // Real shape: tvimenning-template GdprMaskingConverter.kt
-        String content = "class GdprMaskingConverter : ClassicConverter() {\n}\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("GdprMaskingConverter", decls.get(0).name());
-        assertEquals(List.of("ClassicConverter"), decls.get(0).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_known_limitation_constructor_default_value_call() {
-        // Documents the known, non-regression limitation noted on KOTLIN_TOPLEVEL_DECL's
-        // javadoc: constructor-arg parens are matched non-greedily and assumed non-nested, so
-        // a default-value call like `= bar()` inside the primary constructor breaks the
-        // optional constructor-params group, which in turn stops the trailing `: Base()`
-        // supertype from being captured on this declaration. The declaration's own name is
-        // still found correctly (no crash, no misattribution of the file's identity) -- only
-        // this specific declaration's supertype edge is missed. Same naiveté level as the
-        // pre-existing JAVA_IMPLEMENTS comma-split; pin the current behavior so a future
-        // change to this regex is a deliberate choice, not a silent drift.
-        String content = "class Foo(x: Int = bar()) : Base()\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals("Foo", decls.get(0).name());
-        assertEquals(List.of(), decls.get(0).supertypes(),
-                "known limitation: default-value call in constructor args truncates supertype capture");
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_interface_supertype_no_parens() {
-        // Real shape: tvimenning-template WebMvcConfig.kt
-        String content = "class WebMvcConfig : WebMvcConfigurer {\n}\n";
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size());
-        assertEquals(List.of("WebMvcConfigurer"), decls.get(0).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_ignores_nested_indented_class() {
-        // Real shape: tvimenning-template WebMvcConfig.kt has a nested `private class
-        // TraceIdInterceptor : HandlerInterceptor` inside the outer class body -- only the
-        // outer, column-0 declaration should be picked up as a top-level entity.
-        String content = """
-                class WebMvcConfig : WebMvcConfigurer {
-
-                    private class TraceIdInterceptor : HandlerInterceptor {
-                        override fun preHandle(): Boolean { return true }
-                    }
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(1, decls.size(), "nested indented class must not be picked up as top-level");
-        assertEquals("WebMvcConfig", decls.get(0).name());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_multiple_top_level_declarations_in_one_file() {
-        String content = """
-                package com.example
-
-                sealed class Result
-
-                data class Ok(val value: String) : Result()
-
-                class Err(val message: String) : Result()
-
-                object Empty : Result()
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(4, decls.size());
-        assertEquals(List.of("Result", "Ok", "Err", "Empty"),
-                decls.stream().map(CodeGraphExtractor.KotlinDecl::name).toList());
-        assertEquals(List.of("Result"), decls.get(1).supertypes());
-        assertEquals(List.of("Result"), decls.get(3).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_fun_interface_is_matched() {
-        // Regression test for #442: `fun interface` (SAM) declarations were invisible
-        // because `fun` was missing from the modifier alternation. A top-level function
-        // must still NOT match (covered by the extension-function-only test below) --
-        // the regex requires a class/interface/object keyword after the modifiers.
-        String content = """
-                package com.example
-
-                fun interface TokenValidator {
-                    fun validate(token: String): Boolean
-                }
-
-                private fun interface Scorer : Weighted {
-                    fun score(x: Int): Double
-                }
-                """;
-        List<CodeGraphExtractor.KotlinDecl> decls = extractor.findKotlinTopLevelDecls(content);
-        assertEquals(2, decls.size());
-        assertEquals("TokenValidator", decls.get(0).name());
-        assertTrue(decls.get(0).supertypes().isEmpty());
-        assertEquals("Scorer", decls.get(1).name());
-        assertEquals(List.of("Weighted"), decls.get(1).supertypes());
-    }
-
-    @Test
-    void findKotlinTopLevelDecls_empty_for_extension_function_only_file() {
-        String content = """
-                package com.example
-
-                fun String.truncate(n: Int): String = take(n)
-                fun String.isBlankOrNull(): Boolean = this.isBlank()
-                """;
-        assertTrue(extractor.findKotlinTopLevelDecls(content).isEmpty());
-    }
-
-    @Test
-    void extractKotlinFileClassName_strips_kt_extension() {
-        assertEquals("StringExt", extractor.extractKotlinFileClassName(Path.of("util/StringExt.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_prefers_filename_match_over_first_declared() {
-        // Real shape: tvimenning-template HelloController.kt -- HelloResponse (a data class)
-        // is declared before HelloController itself. "First declared" would misattribute
-        // every import edge in the file to HelloResponse instead of the file's real class.
-        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
-                new CodeGraphExtractor.KotlinDecl("HelloResponse", List.of()),
-                new CodeGraphExtractor.KotlinDecl("HelloController", List.of()));
-        assertEquals("HelloController",
-                extractor.choosePrimaryClass(decls, Path.of("web/HelloController.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_falls_back_to_first_declared_when_no_filename_match() {
-        // No declaration matches the filename at all (e.g. a poorly-named file) -- fall back
-        // to today's behavior rather than silently dropping the file's identity.
-        List<CodeGraphExtractor.KotlinDecl> decls = List.of(
-                new CodeGraphExtractor.KotlinDecl("Ok", List.of()),
-                new CodeGraphExtractor.KotlinDecl("Err", List.of()));
-        assertEquals("Ok", extractor.choosePrimaryClass(decls, Path.of("Result.kt")));
-    }
-
-    @Test
-    void choosePrimaryClass_uses_filename_when_no_declarations_found() {
-        assertEquals("StringExt",
-                extractor.choosePrimaryClass(List.of(), Path.of("util/StringExt.kt")));
-    }
-
-    @Test
-    void splitKotlinSupertypes_strips_generics_and_multiple_supertypes() {
-        List<String> names = extractor.splitKotlinSupertypes("Bar<String>(), Baz, com.example.Qux");
-        assertEquals(List.of("Bar", "Baz", "Qux"), names);
-    }
-
-    @Test
-    void buildKotlinClassToFileMap_registers_every_top_level_declaration() throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Result.kt"), """
-                package com.example
-
-                sealed class Result
-                data class Ok(val value: String) : Result()
-                class Err(val message: String) : Result()
-                """);
-
-        Map<String, String> map = extractor.buildKotlinClassToFileMap(
-                List.of(pkgDir.resolve("Result.kt")), tempDir);
-
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Result"));
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Ok"));
-        assertEquals("src/main/kotlin/com/example/Result.kt", map.get("com.example.Err"));
-    }
 
     @Test
     void extractAndPersist_resolves_kotlin_supertype_edge_as_internal() throws SQLException, IOException {
@@ -365,42 +107,6 @@ class CodeGraphExtractorTest {
     // -----------------------------------------------------------------------
     // Kotlin top-level function resolution (#438)
     // -----------------------------------------------------------------------
-
-    @Test
-    void buildKotlinPackageFunctionFileIndex_indexes_single_function_only_file() throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Utils.kt"), """
-                package com.example.utils
-
-                fun doThing() {}
-                """);
-
-        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
-                List.of(pkgDir.resolve("Utils.kt")), tempDir);
-
-        assertEquals(List.of("src/main/kotlin/com/example/utils/Utils.kt"), index.get("com.example.utils"));
-    }
-
-    @Test
-    void buildKotlinPackageFunctionFileIndex_excludes_file_with_top_level_function_and_class()
-            throws IOException {
-        Path pkgDir = tempDir.resolve("src/main/kotlin/com/example/utils");
-        Files.createDirectories(pkgDir);
-        Files.writeString(pkgDir.resolve("Mixed.kt"), """
-                package com.example.utils
-
-                fun doThing() {}
-
-                private class Helper
-                """);
-
-        Map<String, List<String>> index = extractor.buildKotlinPackageFunctionFileIndex(
-                List.of(pkgDir.resolve("Mixed.kt")), tempDir);
-
-        assertNull(index.get("com.example.utils"),
-                "file declares a top-level class, so it isn't function-only and must be excluded");
-    }
 
     @Test
     void extractAndPersist_resolves_kotlin_top_level_function_import_via_single_candidate()
@@ -633,41 +339,739 @@ class CodeGraphExtractorTest {
     }
 
     // -----------------------------------------------------------------------
-    // Helper: findJavaFiles
+    // Incremental staleness -- the graph must not outlive the source (#459, #460)
     // -----------------------------------------------------------------------
 
-    @Test
-    void findJavaFiles_discovers_nested_java_files() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
-        Files.writeString(src.resolve("Bar.java"), "class Bar {}");
-        Files.writeString(tempDir.resolve("project/README.md"), "# Readme");
+    /** Writes a two-file project where Service imports Config, and returns its root. */
+    private Path writeServiceImportingConfig(boolean withConfig) throws IOException {
+        Path srcDir = Files.createDirectories(tempDir.resolve("project/src"));
+        if (withConfig) {
+            Files.writeString(srcDir.resolve("Config.java"), """
+                    package com.example;
+                    public class Config {}
+                    """);
+        }
+        Files.writeString(srcDir.resolve("Service.java"), """
+                package com.example;
+                import com.example.Config;
+                public class Service {}
+                """);
+        return tempDir.resolve("project");
+    }
 
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(2, found.size());
-        assertTrue(found.stream().allMatch(p -> p.toString().endsWith(".java")));
+    /** The single Service -> Config edge, or an assertion failure if it is gone. */
+    private CodeDependency serviceToConfig(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").stream()
+                .filter(d -> "Config".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a Service -> Config edge"));
     }
 
     @Test
-    void findJavaFiles_excludes_build_artifact_directories() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+    @DisplayName("REGRESSION #460: deleting a source file removes its rows on the next incremental")
+    void incrementalUpdate_removes_rows_of_a_deleted_source_file() throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertFalse(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "precondition: Service.java has edges after the full extract");
 
-        // Create files inside build artifact directories
-        Path target = Files.createDirectories(tempDir.resolve("project/target/classes/com"));
-        Files.writeString(target.resolve("Foo.java"), "class Foo {}");
-        Path build = Files.createDirectories(tempDir.resolve("project/build/classes/com"));
-        Files.writeString(build.resolve("Foo.java"), "class Foo {}");
-        Path out = Files.createDirectories(tempDir.resolve("project/out/classes/com"));
-        Files.writeString(out.resolve("Foo.java"), "class Foo {}");
+        Files.delete(projectRoot.resolve("src/Service.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Service.java")));
 
-        // Also test nested target/ (multi-module)
-        Path nested = Files.createDirectories(tempDir.resolve("project/submodule/target/classes/com"));
-        Files.writeString(nested.resolve("Bar.java"), "class Bar {}");
+        assertTrue(extractor.getRepository()
+                        .getDependenciesFrom(conn, projectRoot.toString(), "src/Service.java").isEmpty(),
+                "a deleted file's outgoing edges must not survive the incremental update (#460)");
+    }
 
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(1, found.size(), "Should find only the source file, excluding target/build/out: " + found);
-        assertTrue(found.get(0).toString().contains("src/main/java"));
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target appears later")
+    void incrementalUpdate_refreshes_edges_whose_target_became_resolvable()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(false); // Config.java does not exist yet
+        extractor.extractAndPersist(projectRoot, conn);
+        assertTrue(serviceToConfig(projectRoot).isExternal(),
+                "precondition: Config is unresolvable at first extract, so the edge is external");
+
+        // Config.java appears later. Only Config.java is in the changed set -- Service.java is
+        // untouched on disk and will never enter it.
+        Files.writeString(projectRoot.resolve("src/Config.java"), """
+                package com.example;
+                public class Config {}
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertFalse(edge.isExternal(),
+                "Service -> Config must be internal once Config.java exists (#459)");
+        assertEquals("src/Config.java", edge.targetFile(),
+                "the refreshed edge must point at the file that now provides the target (#459)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: an unchanged file's edge is refreshed when its target disappears")
+    void incrementalUpdate_refreshes_edges_whose_target_file_disappeared()
+            throws SQLException, IOException {
+        Path projectRoot = writeServiceImportingConfig(true);
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals("src/Config.java", serviceToConfig(projectRoot).targetFile(),
+                "precondition: the edge resolves to Config.java after the full extract");
+
+        // Config.java is deleted. Service.java is unchanged, so only Config.java is in the set.
+        Files.delete(projectRoot.resolve("src/Config.java"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/Config.java")));
+
+        CodeDependency edge = serviceToConfig(projectRoot);
+        assertTrue(edge.isExternal(),
+                "Service -> Config must fall back to external once Config.java is gone (#459)");
+        assertTrue(edge.targetFile() == null || edge.targetFile().isEmpty(),
+                "the edge must not keep pointing at a file that no longer exists (#459)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #459: a TypeScript edge is refreshed when its module appears later")
+    void incrementalUpdate_refreshes_typescript_edges_whose_module_became_resolvable()
+            throws SQLException, IOException {
+        // TypeScript declares no FQN identities -- it reaches the resolver through the module
+        // path index -- so it needs its own path into the re-resolution above.
+        Path tsDir = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(tsDir.resolve("foo.ts"), "import { bar } from './bar';\n");
+        Path projectRoot = tempDir.resolve("project");
+        extractor.extractAndPersist(projectRoot, conn);
+
+        CodeDependency before = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertTrue(before.isExternal(), "precondition: bar.ts does not exist yet");
+
+        Files.writeString(tsDir.resolve("bar.ts"), "export const bar = 1;\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/bar.ts")));
+
+        CodeDependency after = extractor.getRepository()
+                .getDependenciesFrom(conn, projectRoot.toString(), "src/foo.ts").stream()
+                .filter(d -> "bar".equals(d.targetClass()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a foo.ts -> bar edge"));
+        assertFalse(after.isExternal(),
+                "foo.ts -> ./bar must be internal once bar.ts exists (#459)");
+        assertEquals("src/bar.ts", after.targetFile());
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-format links must not freeze on the incremental path (#465)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Writes a project with one migration creating {@code customers} and one Java class
+     * referencing that table, and returns its root.
+     */
+    private Path writeMigrationAndRepo() throws IOException {
+        Path srcDir = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(srcDir.resolve("V1__init.sql"), "CREATE TABLE customers (id INT);\n");
+        Files.writeString(srcDir.resolve("CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {
+                    String t = "customers";
+                }
+                """);
+        return tempDir.resolve("project");
+    }
+
+    /** The source files of every persisted cross-format link, for readable assertions. */
+    private List<String> crossFormatSources(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::sourceFile)
+                .toList();
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a new SQL file's links are persisted on the incremental path")
+    void incrementalUpdate_persists_links_for_a_new_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the full extract links V1__init.sql to CustomerRepo.java");
+
+        Files.writeString(projectRoot.resolve("src/V2__orders.sql"),
+                "CREATE TABLE orders (id INT);\n");
+        Files.writeString(projectRoot.resolve("src/OrderRepo.java"), """
+                package com.example;
+                public class OrderRepo {
+                    String t = "orders";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/V2__orders.sql"), Path.of("src/OrderRepo.java")));
+
+        assertTrue(crossFormatSources(projectRoot).contains("src/V2__orders.sql"),
+                "a migration added since the last full extract must be linked (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a deleted SQL file's links are removed on the incremental path")
+    void incrementalUpdate_removes_links_of_a_deleted_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        Files.delete(projectRoot.resolve("src/V1__init.sql"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/V1__init.sql")));
+
+        assertFalse(crossFormatSources(projectRoot).contains("src/V1__init.sql"),
+                "a link must not outlive the SQL file that produced it (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a new Java file is linked to an unchanged SQL file")
+    void incrementalUpdate_links_a_new_java_file_to_an_unchanged_sql_file()
+            throws SQLException, IOException {
+        // The counterpart case: only the Java side changes, so re-linking just the changed
+        // .sql files would miss it -- the #459 staleness class in the cross-format table.
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("src/CustomerDao.java"), """
+                package com.example;
+                public class CustomerDao {
+                    String t = "customers";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/CustomerDao.java")));
+
+        List<String> targets = extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::targetFile)
+                .toList();
+        assertTrue(targets.contains("src/CustomerDao.java"),
+                "a Java file added after the full extract must be linked to the table it uses (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a modified SQL file's links follow the table it now declares")
+    void incrementalUpdate_relinks_a_modified_sql_file() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // The migration now declares a table nothing references.
+        Files.writeString(projectRoot.resolve("src/V1__init.sql"),
+                "CREATE TABLE archived_invoices (id INT);\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/V1__init.sql")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the table declaration that justified it (#465)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: a Java file that drops its table reference drops its link")
+    void incrementalUpdate_removes_the_link_of_a_java_file_that_stopped_referencing()
+            throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // Only the Java side changes -- V1__init.sql is untouched and never enters the set.
+        Files.writeString(projectRoot.resolve("src/CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {}
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/CustomerRepo.java")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the reference that justified it (#465)");
+    }
+
+    @Test
+    @DisplayName("#465: a change touching no cross-format file leaves the links alone")
+    void incrementalUpdate_leaves_links_untouched_when_no_sql_or_java_changed()
+            throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        Files.writeString(projectRoot.resolve("src/Util.kt"), "package com.example\n\nclass Util\n");
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/Util.kt")));
+
+        assertEquals(List.of("src/V1__init.sql"), crossFormatSources(projectRoot),
+                "a Kotlin-only change must not disturb the cross-format table (#465)");
+        assertEquals(0, stats.crossFormatLinks(), "nothing was re-persisted");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #465: the incremental path reports its cross-format link count")
+    void incrementalUpdate_reports_the_cross_format_link_count() throws SQLException, IOException {
+        Path projectRoot = writeMigrationAndRepo();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        // CustomerRepo.java references `customers`, so re-linking it persists exactly one row.
+        CodeGraphStats stats = extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/CustomerRepo.java")));
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the incremental path must report the links it persisted, like the full path "
+                        + "does, instead of a hardcoded 0 (#465)");
+    }
+
+    // -----------------------------------------------------------------------
+    // YAML config links must be persisted, not only shown by `relate` (#464)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Writes a project with one YAML config declaring {@code featureToggle} and one Java class
+     * referencing that key, and returns its root.
+     */
+    private Path writeConfigAndConsumer() throws IOException {
+        Path projectRoot = Files.createDirectories(tempDir.resolve("project"));
+        Files.createDirectories(projectRoot.resolve("conf"));
+        Files.createDirectories(projectRoot.resolve("src"));
+        Files.writeString(projectRoot.resolve("conf/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+        Files.writeString(projectRoot.resolve("src/Config.java"), """
+                package com.example;
+                public class Config {
+                    String k = "featureToggle";
+                }
+                """);
+        return projectRoot;
+    }
+
+    /** Every persisted cross-format link as {@code source|target|type|entity}, for readability. */
+    private List<String> crossFormatLinks(Path projectRoot) throws SQLException {
+        return extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(l -> l.sourceFile() + "|" + l.targetFile() + "|" + l.linkType()
+                        + "|" + l.entityName())
+                .toList();
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: the full extract persists YAML→Java links, not only SQL ones")
+    void extractAndPersist_persists_yaml_to_java_links() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("conf/application.yaml|src/Config.java|config-key|featureToggle"),
+                crossFormatLinks(projectRoot),
+                "`relate application.yaml` reports this link, so the graph must stand behind "
+                        + "it too (#464)");
+    }
+
+    @Test
+    @DisplayName("#464: SQL and YAML links coexist, each under its own link type")
+    void extractAndPersist_persists_sql_and_yaml_links_side_by_side()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.writeString(projectRoot.resolve("src/V1__init.sql"),
+                "CREATE TABLE customers (id INT);\n");
+        Files.writeString(projectRoot.resolve("src/CustomerRepo.java"), """
+                package com.example;
+                public class CustomerRepo {
+                    String t = "customers";
+                }
+                """);
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(2, stats.crossFormatLinks(), "one SQL link and one YAML link");
+        List<String> links = crossFormatLinks(projectRoot);
+        assertTrue(links.contains("src/V1__init.sql|src/CustomerRepo.java|table-reference|customers"),
+                "the SQL link keeps its existing link type: " + links);
+        assertTrue(links.contains("conf/application.yaml|src/Config.java|config-key|featureToggle"),
+                "the YAML link carries the type `relate` already prints: " + links);
+    }
+
+    @Test
+    @DisplayName("#464: YAML links exclude test sources, as SQL links do")
+    void extractAndPersist_does_not_link_yaml_to_test_sources() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("src/Config.java"));
+        Files.createDirectories(projectRoot.resolve("src/test/java"));
+        Files.writeString(projectRoot.resolve("src/test/java/ConfigTest.java"), """
+                package com.example;
+                public class ConfigTest {
+                    String k = "featureToggle";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a test source is not a consumer the graph reports (#464)");
+    }
+
+    @Test
+    @DisplayName("#464: YAML under a build output directory is not linked")
+    void extractAndPersist_ignores_yaml_in_build_output() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("target/classes"));
+        Files.writeString(projectRoot.resolve("target/classes/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a copy of the config under target/ is not a source of truth");
+    }
+
+    @Test
+    @DisplayName("#464: an unreadable YAML file is skipped, not fatal")
+    void extractAndPersist_skips_unreadable_yaml() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.write(projectRoot.resolve("conf/broken.yaml"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the readable config is still linked after the broken one is skipped");
+    }
+
+    @Test
+    @DisplayName("#464: a broken YAML between two good ones stops neither of them")
+    void extractAndPersist_continues_past_a_broken_yaml_between_two_good_ones()
+            throws SQLException, IOException {
+        // The walk hands the sources over in an order the caller does not choose, so a file that
+        // cannot be read has to be skipped in place rather than end the pass.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.writeString(projectRoot.resolve("conf/a-first.yaml"), "firstToggle:\n  on: true\n");
+        Files.write(projectRoot.resolve("conf/b-broken.yaml"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+        Files.writeString(projectRoot.resolve("conf/c-last.yaml"), "lastToggle:\n  on: true\n");
+        Files.writeString(projectRoot.resolve("src/Toggles.java"), """
+                package com.example;
+                public class Toggles {
+                    String first = "firstToggle";
+                    String last = "lastToggle";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        List<String> sources = crossFormatSources(projectRoot);
+        assertTrue(sources.contains("conf/a-first.yaml"),
+                "the config before the broken one is linked: " + sources);
+        assertTrue(sources.contains("conf/c-last.yaml"),
+                "the config after the broken one is linked: " + sources);
+    }
+
+    @Test
+    @DisplayName("#464: a Java file that cannot be read is skipped, and the pass continues")
+    void extractAndPersist_skips_an_unreadable_java_consumer() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        Files.write(projectRoot.resolve("src/Broken.java"),
+                new byte[] {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1});
+
+        CodeGraphStats stats = extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(1, stats.crossFormatLinks(),
+                "the readable consumer is still linked after the unreadable one is skipped");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a new YAML file's links are persisted on the incremental path")
+    void incrementalUpdate_persists_links_for_a_new_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("conf/routing.yaml"), "routingRules:\n  a: b\n");
+        Files.writeString(projectRoot.resolve("src/Router.java"), """
+                package com.example;
+                public class Router {
+                    String k = "routingRules";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("conf/routing.yaml"), Path.of("src/Router.java")));
+
+        assertTrue(crossFormatSources(projectRoot).contains("conf/routing.yaml"),
+                "a config added since the last full extract must be linked (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a deleted YAML file's links are removed on the incremental path")
+    void incrementalUpdate_removes_links_of_a_deleted_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("conf/application.yaml")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not outlive the config file that produced it (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a new Java file is linked to an unchanged YAML file")
+    void incrementalUpdate_links_a_new_java_file_to_an_unchanged_yaml_file()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("src/SecondConsumer.java"), """
+                package com.example;
+                public class SecondConsumer {
+                    String k = "featureToggle";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("src/SecondConsumer.java")));
+
+        List<String> targets = extractor.getRepository()
+                .getCrossFormatLinks(conn, projectRoot.toString()).stream()
+                .map(CrossFormatLinkRecord::targetFile)
+                .toList();
+        assertTrue(targets.contains("src/SecondConsumer.java"),
+                "a Java file added after the full extract must be linked to the config key it "
+                        + "uses (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: a modified YAML file's links follow the keys it now declares")
+    void incrementalUpdate_relinks_a_modified_yaml_file() throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the link exists after the full extract");
+
+        // The config now declares a key nothing references.
+        Files.writeString(projectRoot.resolve("conf/application.yaml"),
+                "retiredToggle:\n  enabled: true\n");
+        extractor.incrementalUpdate(projectRoot, conn, Set.of(Path.of("conf/application.yaml")));
+
+        assertTrue(crossFormatSources(projectRoot).isEmpty(),
+                "a link must not survive the key declaration that justified it (#464)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #464: phase 10 must admit YAML as a cross-format input")
+    void isCrossFormatSourceFile_admits_yaml_and_sql() {
+        // MaintainOrchestrator gates the changed set on this: a .yaml it rejects never reaches
+        // the incremental update, so its links are never added, and never cleaned up.
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/application.yaml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/application.yml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("src/V1__init.sql"));
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("README.md"));
+    }
+
+    @Test
+    @DisplayName("#504 review: the extension match is case-insensitive, like the readability gate")
+    void isCrossFormatSourceFile_matches_extensions_case_insensitively() {
+        // CrossFormatLinker.isReadableTextFile lower-cases before comparing extensions. A file
+        // that clears that gate and fails this one is admitted as readable and then never read.
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/CONFIG.YAML"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("conf/App.Yml"));
+        assertTrue(CodeGraphExtractor.isCrossFormatSourceFile("src/V1__INIT.SQL"));
+    }
+
+    @Test
+    @DisplayName("#504 review: a near-miss extension is not a cross-format source")
+    void isCrossFormatSourceFile_rejects_near_miss_extensions() {
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("notes.yamlx"),
+                "the extension must end the name, not merely appear in it");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("Makefile"),
+                "a file with no extension is not a source");
+    }
+
+    // -----------------------------------------------------------------------
+    // Only YAML configuration is a cross-format source (#506)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("REGRESSION #506: a YAML that is not configuration is not a cross-format source")
+    void isCrossFormatSourceFile_rejects_a_yaml_that_is_not_configuration() {
+        // Every top-level key of every .yaml used to count as a config key, so a manifest's
+        // generic keys (name, version, description) linked to any Java file holding the same
+        // string literal.
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("knowledge.yaml"),
+                "a KCP manifest is not configuration");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile(
+                        "src/main/resources/claude-skills/synthesis-summary.yaml"),
+                "a skill manifest is not configuration, wherever it is packaged");
+        assertFalse(CodeGraphExtractor.isCrossFormatSourceFile("mkdocs.yml"),
+                "a documentation-site setting file is not application configuration");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #506: the full extract skips a YAML that is not configuration")
+    void extractAndPersist_skips_a_yaml_that_is_not_configuration()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        // Same shape as the real manifests: a generic top-level key that also appears as a
+        // string literal in unrelated Java.
+        Files.writeString(projectRoot.resolve("knowledge.yaml"), "name: synthesis\n");
+        Files.writeString(projectRoot.resolve("src/Greeter.java"), """
+                package com.example;
+                public class Greeter {
+                    String field = "name";
+                }
+                """);
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "only the config file is a cross-format source (#506)");
+    }
+
+    @Test
+    @DisplayName("REGRESSION #506: the incremental path skips a YAML that is not configuration")
+    void incrementalUpdate_skips_a_yaml_that_is_not_configuration()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+
+        Files.writeString(projectRoot.resolve("knowledge.yaml"), "name: synthesis\n");
+        Files.writeString(projectRoot.resolve("src/Greeter.java"), """
+                package com.example;
+                public class Greeter {
+                    String field = "name";
+                }
+                """);
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("knowledge.yaml"), Path.of("src/Greeter.java")));
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "the two paths agree on what counts as a config source (#506)");
+    }
+
+    // -----------------------------------------------------------------------
+    // Test sources must not act as cross-format sources (#504 review, item 6a)
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("#504 review: a config under src/test is not a cross-format source")
+    void extractAndPersist_does_not_treat_test_resources_as_a_source()
+            throws SQLException, IOException {
+        // The Java side of a link has always excluded src/test (CrossFormatLinker.javaSourceFiles
+        // and the incremental filter). Applying the rule to one end only lets a test fixture
+        // explain production code.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("src/test/resources"));
+        Files.writeString(projectRoot.resolve("src/test/resources/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertTrue(crossFormatLinks(projectRoot).isEmpty(),
+                "a test fixture is not a source the graph reports: " + crossFormatLinks(projectRoot));
+    }
+
+    @Test
+    @DisplayName("#504 review: src/testing is not src/test -- the guard matches a path segment")
+    void extractAndPersist_still_links_a_config_under_a_src_testing_directory()
+            throws SQLException, IOException {
+        // The exclusion is a path-segment rule. A directory whose name merely starts with
+        // "test" is ordinary production code and keeps its links.
+        Path projectRoot = writeConfigAndConsumer();
+        Files.delete(projectRoot.resolve("conf/application.yaml"));
+        Files.createDirectories(projectRoot.resolve("src/testing/resources"));
+        Files.writeString(projectRoot.resolve("src/testing/resources/application.yaml"),
+                "featureToggle:\n  enabled: true\n");
+
+        extractor.extractAndPersist(projectRoot, conn);
+
+        assertEquals(List.of("src/testing/resources/application.yaml"),
+                crossFormatSources(projectRoot),
+                "only the src/test/ segment is excluded");
+    }
+
+    @Test
+    @DisplayName("#504 review: a changed config under src/test creates no links incrementally")
+    void incrementalUpdate_ignores_a_changed_yaml_under_src_test()
+            throws SQLException, IOException {
+        Path projectRoot = writeConfigAndConsumer();
+        extractor.extractAndPersist(projectRoot, conn);
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "precondition: the production config is linked");
+
+        Files.createDirectories(projectRoot.resolve("src/test/resources"));
+        Files.writeString(projectRoot.resolve("src/test/resources/fixture.yaml"),
+                "featureToggle:\n  enabled: false\n");
+        extractor.incrementalUpdate(projectRoot, conn,
+                Set.of(Path.of("src/test/resources/fixture.yaml")));
+
+        assertEquals(List.of("conf/application.yaml"), crossFormatSources(projectRoot),
+                "the test fixture adds nothing, and disturbs nothing");
+    }
+
+    // -----------------------------------------------------------------------
+    // Helper: findJavaFiles
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Registry-driven file discovery (#466)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void sourceFilesByLanguage_covers_every_registered_language() throws IOException {
+        Path java = Files.createDirectories(tempDir.resolve("src/main/java/com/example"));
+        Files.writeString(java.resolve("Foo.java"), "package com.example;\npublic class Foo {}\n");
+        Path kotlin = Files.createDirectories(tempDir.resolve("src/main/kotlin/com/example"));
+        Files.writeString(kotlin.resolve("Bar.kt"), "package com.example\n\nclass Bar\n");
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("baz.ts"), "export const baz = 1;\n");
+        Files.writeString(ts.resolve("widget.tsx"), "export const w = 1;\n");
+
+        Map<String, List<Path>> byLanguage = extractor.sourceFilesByLanguage(tempDir);
+
+        assertEquals(List.of("Java", "Kotlin", "TypeScript"), List.copyOf(byLanguage.keySet()),
+                "every registered language is reported, in registry order");
+        assertEquals(1, byLanguage.get("Java").size());
+        assertEquals(1, byLanguage.get("Kotlin").size());
+        assertEquals(2, byLanguage.get("TypeScript").size(), ".ts and .tsx both claimed");
+    }
+
+    @Test
+    void sourceFilesByLanguage_applies_each_language_own_exclusions() throws IOException {
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("foo.ts"), "export const foo = 1;\n");
+        Files.writeString(ts.resolve("types.d.ts"), "export declare const x: number;\n");
+
+        Map<String, List<Path>> byLanguage = extractor.sourceFilesByLanguage(tempDir);
+
+        assertEquals(1, byLanguage.get("TypeScript").size(),
+                "the TypeScript extractor's own .d.ts exclusion must apply: "
+                        + byLanguage.get("TypeScript"));
+        assertTrue(byLanguage.get("TypeScript").get(0).toString().endsWith("foo.ts"));
+    }
+
+    @Test
+    void sourceFilesByLanguage_honours_includeArchives_flag() throws IOException {
+        Path vendored = Files.createDirectories(tempDir.resolve("node_modules/dep/src"));
+        Files.writeString(vendored.resolve("dep.ts"), "export const d = 1;\n");
+        Path ts = Files.createDirectories(tempDir.resolve("src/main/ts"));
+        Files.writeString(ts.resolve("foo.ts"), "export const foo = 1;\n");
+
+        assertEquals(1, extractor.sourceFilesByLanguage(tempDir).get("TypeScript").size(),
+                "node_modules excluded by default");
+
+        extractor.setIncludeArchives(true);
+        assertEquals(2, extractor.sourceFilesByLanguage(tempDir).get("TypeScript").size(),
+                "--include-archives must reach discovery too");
+    }
+
+    @Test
+    void isSourceFile_matches_every_registered_language_extension() {
+        // The single source of truth for "is this a code-graph file?" -- callers that gate on
+        // their own extension list (maintain phase 10 did) go stale when a language is added.
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/java/com/example/Foo.java"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/kotlin/com/example/Bar.kt"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/ts/baz.ts"));
+        assertTrue(CodeGraphExtractor.isSourceFile("src/main/ts/widget.tsx"));
+        assertFalse(CodeGraphExtractor.isSourceFile("README.md"));
+        assertFalse(CodeGraphExtractor.isSourceFile("src/main/resources/db/V1__init.sql"));
     }
 
     @Test
@@ -678,41 +1082,6 @@ class CodeGraphExtractorTest {
         assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/out/classes/Foo.java")));
         assertTrue(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/sub/target/Foo.java")));
         assertFalse(CodeGraphExtractor.isBuildArtifact(root, Path.of("/workspace/src/main/java/Foo.java")));
-    }
-
-    @Test
-    void buildClassToFileMap_maps_classname_to_relpath_no_package() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src"));
-        Path fooFile = Files.writeString(src.resolve("Foo.java"), "class Foo {}");
-        Path barFile = Files.writeString(src.resolve("Bar.java"), "class Bar {}");
-
-        Path root = tempDir.resolve("project");
-        Map<String, String> map = extractor.buildClassToFileMap(
-                List.of(fooFile, barFile), root);
-
-        // No package declaration -> simple class name as key (fallback)
-        assertEquals("src/Foo.java", map.get("Foo"));
-        assertEquals("src/Bar.java", map.get("Bar"));
-    }
-
-    @Test
-    void buildClassToFileMap_uses_fqn_keys_with_package() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src"));
-        Path fooFile = Files.writeString(src.resolve("Foo.java"),
-                "package com.example;\nclass Foo {}");
-        Path barFile = Files.writeString(src.resolve("Bar.java"),
-                "package com.example.util;\nclass Bar {}");
-
-        Path root = tempDir.resolve("project");
-        Map<String, String> map = extractor.buildClassToFileMap(
-                List.of(fooFile, barFile), root);
-
-        // With package declaration -> FQN as key
-        assertEquals("src/Foo.java", map.get("com.example.Foo"));
-        assertEquals("src/Bar.java", map.get("com.example.util.Bar"));
-        // Simple name should NOT be a key when package is present
-        assertNull(map.get("Foo"));
-        assertNull(map.get("Bar"));
     }
 
     @Test
@@ -756,104 +1125,9 @@ class CodeGraphExtractorTest {
                 "Project Service import should be internal: " + appDeps);
     }
 
-    @Test
-    void buildSimpleNameIndex_groups_by_simple_name() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java",
-                "com.example.Config", "src/Config.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertEquals(2, index.get("Service").size());
-        assertEquals(1, index.get("Config").size());
-    }
-
-    @Test
-    void lookupBySimpleName_prefers_same_package() {
-        Map<String, String> classToFile = Map.of(
-                "com.example.Service", "src/Service.java",
-                "com.example.util.Service", "src/util/Service.java"
-        );
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        // When source is in com.example, prefer com.example.Service
-        String result = extractor.lookupBySimpleName("Service", "com.example",
-                classToFile, index);
-        assertEquals("src/Service.java", result);
-
-        // When source is in com.example.util, prefer com.example.util.Service
-        String result2 = extractor.lookupBySimpleName("Service", "com.example.util",
-                classToFile, index);
-        assertEquals("src/util/Service.java", result2);
-    }
-
-    @Test
-    void lookupBySimpleName_returns_null_for_unknown() {
-        Map<String, String> classToFile = Map.of("com.example.Config", "src/Config.java");
-        Map<String, List<String>> index = extractor.buildSimpleNameIndex(classToFile);
-
-        assertNull(extractor.lookupBySimpleName("NonExistent", "com.example",
-                classToFile, index));
-    }
-
     // -----------------------------------------------------------------------
     // Non-Java repo skipping (#226)
     // -----------------------------------------------------------------------
-
-    @Test
-    void identifyNonJavaRepos_skips_repos_with_no_java_files() throws IOException {
-        // Java repo with pom.xml
-        Path javaRepo = Files.createDirectories(tempDir.resolve("workspace/JavaProject/src"));
-        Files.writeString(tempDir.resolve("workspace/JavaProject/pom.xml"), "<project/>");
-        Files.writeString(javaRepo.resolve("App.java"), "class App {}");
-
-        // Non-Java repo (Nuxt frontend)
-        Path nuxtRepo = Files.createDirectories(tempDir.resolve("workspace/NuxtFrontend/pages"));
-        Files.writeString(nuxtRepo.resolve("index.vue"), "<template></template>");
-
-        // Non-Java repo (CloudFormation)
-        Path cfnRepo = Files.createDirectories(tempDir.resolve("workspace/AwsInfra/stacks"));
-        Files.writeString(cfnRepo.resolve("vpc.yaml"), "AWSTemplateFormatVersion: ...");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        Set<String> skipped = extractor.identifyNonJavaRepos(wsRoot);
-
-        assertTrue(skipped.contains("NuxtFrontend"), "Nuxt repo should be skipped");
-        assertTrue(skipped.contains("AwsInfra"), "CloudFormation repo should be skipped");
-        assertFalse(skipped.contains("JavaProject"), "Java repo should not be skipped");
-    }
-
-    @Test
-    void identifyNonJavaRepos_keeps_repos_with_java_files_but_no_build_file() throws IOException {
-        // Repo with .java files but no pom.xml/build.gradle (legacy project)
-        Path legacyRepo = Files.createDirectories(tempDir.resolve("workspace/Legacy/src"));
-        Files.writeString(legacyRepo.resolve("Main.java"), "class Main {}");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        Set<String> skipped = extractor.identifyNonJavaRepos(wsRoot);
-
-        assertFalse(skipped.contains("Legacy"),
-                "Repo with Java files should not be skipped even without build file");
-    }
-
-    @Test
-    void findJavaFiles_excludes_non_java_repos() throws IOException {
-        // Java repo
-        Path javaRepo = Files.createDirectories(tempDir.resolve("workspace/JavaProject/src"));
-        Files.writeString(tempDir.resolve("workspace/JavaProject/pom.xml"), "<project/>");
-        Files.writeString(javaRepo.resolve("App.java"), "class App {}");
-
-        // Non-Java repo with no .java files at all
-        Path nuxtRepo = Files.createDirectories(tempDir.resolve("workspace/NuxtFrontend/pages"));
-        Files.writeString(nuxtRepo.resolve("index.vue"), "<template></template>");
-
-        Path wsRoot = tempDir.resolve("workspace");
-        List<Path> found = extractor.findJavaFiles(wsRoot);
-
-        assertEquals(1, found.size());
-        assertTrue(found.get(0).toString().contains("JavaProject"));
-    }
 
     // -----------------------------------------------------------------------
     // #279: archive/ directory exclusion
@@ -891,42 +1165,190 @@ class CodeGraphExtractorTest {
                 Path.of("/workspace/archiver/Foo.java")));
     }
 
+
+    // -----------------------------------------------------------------------
+    // TypeScript extraction (#323) -- characterization (black-box) so the
+    // per-language seam refactor has a gate to measure against.
+    // -----------------------------------------------------------------------
+
     @Test
-    void findJavaFiles_excludes_archive_directories() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+    void extractAndPersist_ts_relative_import_resolves_internal() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar';\nexport const foo = bar;\n");
 
-        // Create files inside archive directories
-        Path archiveDir = Files.createDirectories(
-                tempDir.resolve("project/archive/old-version/src/com"));
-        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
 
-        Path vendorDir = Files.createDirectories(
-                tempDir.resolve("project/vendor/lib/src"));
-        Files.writeString(vendorDir.resolve("Bar.java"), "class Bar {}");
-
-        Path nodeModules = Files.createDirectories(
-                tempDir.resolve("project/node_modules/some-pkg"));
-        Files.writeString(nodeModules.resolve("Gen.java"), "class Gen {}");
-
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(1, found.size(),
-                "Should find only the source file, excluding archive/vendor/node_modules: " + found);
-        assertTrue(found.get(0).toString().contains("src/main/java"));
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), "relative import to an in-workspace file is internal");
+        assertEquals("src/Bar.ts", dep.targetFile());
+        assertEquals("import", dep.dependencyType());
+        assertEquals("Foo", dep.sourceClass());
     }
 
     @Test
-    void findJavaFiles_includesArchives_when_flag_set() throws IOException {
-        Path src = Files.createDirectories(tempDir.resolve("project/src/main/java/com"));
-        Files.writeString(src.resolve("Foo.java"), "class Foo {}");
+    void extractAndPersist_ts_bare_module_import_stays_external() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Foo.ts"), "import React from 'react';\n");
 
-        Path archiveDir = Files.createDirectories(
-                tempDir.resolve("project/archive/old-version/src/com"));
-        Files.writeString(archiveDir.resolve("Foo.java"), "class Foo {}");
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
 
-        extractor.setIncludeArchives(true);
-        List<Path> found = extractor.findJavaFiles(tempDir.resolve("project"));
-        assertEquals(2, found.size(),
-                "With --include-archives, should find both source and archive files: " + found);
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "react".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected react edge: " + fooDeps));
+        assertTrue(dep.isExternal(), "bare module specifier is external");
+        assertNull(dep.targetFile());
     }
+
+    @Test
+    void extractAndPersist_ts_js_extension_rewrite_resolves_to_ts() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        // Bun/NodeNext: source imports its own file by the compiled .js extension.
+        Files.writeString(src.resolve("Foo.ts"), "import { bar } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "Bar".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to Bar: " + fooDeps));
+        assertFalse(dep.isExternal(), ".js specifier must rewrite to the .ts file");
+        assertEquals("src/Bar.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_duplicate_specifier_deduped_to_one_edge() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\nexport const baz = 2;\n");
+        Files.writeString(src.resolve("Foo.ts"),
+                "import { bar } from './Bar';\nimport { baz } from './Bar';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        long barEdges = fooDeps.stream().filter(d -> "Bar".equals(d.targetClass())).count();
+        assertEquals(1, barEdges, "the same specifier imported twice yields one edge: " + fooDeps);
+    }
+
+    @Test
+    void extractAndPersist_ts_directory_index_import_resolves() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Path widget = Files.createDirectories(src.resolve("widget"));
+        Files.writeString(widget.resolve("index.ts"), "export const w = 1;\n");
+        Files.writeString(src.resolve("Foo.ts"), "import { w } from './widget';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> fooDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/Foo.ts");
+        CodeDependency dep = fooDeps.stream()
+                .filter(d -> "widget".equals(d.targetClass()))
+                .findFirst().orElseThrow(() -> new AssertionError("expected edge to widget: " + fooDeps));
+        assertFalse(dep.isExternal(), "directory import resolves to <dir>/index.ts");
+        assertEquals("src/widget/index.ts", dep.targetFile());
+    }
+
+    @Test
+    void extractAndPersist_ts_declaration_file_excluded() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Other.ts"), "export const x = 1;\n");
+        Files.writeString(src.resolve("types.d.ts"), "import { X } from './Other';\n");
+
+        Path root = tempDir.resolve("project");
+        extractor.extractAndPersist(root, conn);
+
+        List<CodeDependency> dtsDeps = new CodeGraphRepository()
+                .getDependenciesFrom(conn, root.toString(), "src/types.d.ts");
+        assertTrue(dtsDeps.isEmpty(), ".d.ts declaration files are excluded from extraction: " + dtsDeps);
+    }
+
+    // -----------------------------------------------------------------------
+    // Stats reflect what was persisted, not upsert attempts (#469)
+    //
+    // code_dependencies is UNIQUE(workspace_path, source_file, target_class,
+    // target_package) (V13__code_knowledge_graph.sql), so two edges that agree on
+    // those columns collapse into one row on INSERT OR REPLACE. The counters must
+    // report the surviving rows -- otherwise `code-graph extract` prints a larger
+    // number than `code-graph extract --stats`, which reads countDependencies().
+    // -----------------------------------------------------------------------
+
+    @Test
+    void extractAndPersist_dependenciesFound_equals_persisted_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        // './Bar' and './Bar.js' both resolve to src/Bar.ts with targetClass "Bar":
+        // two edges, one persisted row.
+        Files.writeString(src.resolve("Foo.ts"),
+                "import { bar } from './Bar';\nimport { bar as b2 } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.extractAndPersist(root, conn);
+
+        int persisted = new CodeGraphRepository().countDependencies(conn, root.toString());
+        assertEquals(1, persisted, "the two specifiers collapse onto one row");
+        assertEquals(persisted, stats.dependenciesFound(),
+                "dependenciesFound must count persisted rows, not upsert attempts");
+    }
+
+    @Test
+    void extractAndPersist_externalDeps_equals_persisted_external_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        // Two bare modules sharing a trailing segment -> same targetClass "util",
+        // same (empty) targetPackage: two external edges, one persisted row.
+        Files.writeString(src.resolve("Foo.ts"),
+                "import a from 'pkg-one/util';\nimport b from 'pkg-two/util';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.extractAndPersist(root, conn);
+
+        int persistedExternal = countExternalRows(root);
+        assertEquals(1, persistedExternal, "the two bare modules collapse onto one row");
+        assertEquals(persistedExternal, stats.externalDeps(),
+                "externalDeps must count persisted external rows, not upsert attempts");
+        assertTrue(stats.externalDeps() <= stats.dependenciesFound(),
+                "external rows are a subset of all rows");
+    }
+
+    @Test
+    void incrementalUpdate_dependenciesFound_equals_persisted_row_count() throws SQLException, IOException {
+        Path src = Files.createDirectories(tempDir.resolve("project/src"));
+        Files.writeString(src.resolve("Bar.ts"), "export const bar = 1;\n");
+        Path foo = src.resolve("Foo.ts");
+        Files.writeString(foo, "import { bar } from './Bar';\nimport { bar as b2 } from './Bar.js';\n");
+
+        Path root = tempDir.resolve("project");
+        CodeGraphStats stats = extractor.incrementalUpdate(root, conn, Set.of(foo));
+
+        int persisted = new CodeGraphRepository().countDependencies(conn, root.toString());
+        assertEquals(1, persisted, "the two specifiers collapse onto one row");
+        assertEquals(persisted, stats.dependenciesFound(),
+                "incremental dependenciesFound must count persisted rows too");
+    }
+
+    /** Counts persisted {@code code_dependencies} rows flagged external for a workspace. */
+    private int countExternalRows(Path workspaceRoot) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM code_dependencies "
+                + "WHERE workspace_path = ? AND is_external = 1";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, workspaceRoot.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
 }
