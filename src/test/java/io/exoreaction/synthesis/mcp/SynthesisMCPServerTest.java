@@ -240,6 +240,61 @@ class SynthesisMCPServerTest {
     }
 
     // -----------------------------------------------------------------------
+    // Tool Description Contract Tests
+    // -----------------------------------------------------------------------
+
+    @Test
+    void diffToolDocumentsTheRefRangeFormatTheEngineAccepts() throws Exception {
+        // GitIntegration.diffRefs() rejects anything that is not 'old..new'
+        // (see GitIntegrationTest.diffRefsThrowsForInvalidFormat). The tool
+        // description and schema must advertise that format, not bare refs.
+        JsonNode diff = findToolDefinition("diff");
+
+        String description = diff.get("description").asText();
+        String refDescription = diff.get("inputSchema")
+                .get("properties").get("ref").get("description").asText();
+
+        assertTrue(description.contains(".."),
+                "diff description must document the 'old..new' range format: " + description);
+        assertTrue(refDescription.contains(".."),
+                "ref parameter must document the 'old..new' range format: " + refDescription);
+        assertFalse(description.contains("'HEAD~1',") || description.contains("HEAD~1,"),
+                "diff description must not advertise bare single refs the engine rejects: "
+                        + description);
+    }
+
+    @Test
+    void recallToolAdvertisesPerClaimFreshnessVerdicts() throws Exception {
+        JsonNode recall = findToolDefinition("recall");
+        String description = recall.get("description").asText();
+
+        assertTrue(description.contains("fresh"),
+                "recall description should mention the fresh verdict: " + description);
+        assertTrue(description.contains("stale"),
+                "recall description should mention the stale verdict: " + description);
+        assertTrue(description.contains("unit-missing"),
+                "recall description should mention the unit-missing verdict: " + description);
+    }
+
+    private JsonNode findToolDefinition(String name) throws Exception {
+        SynthesisMCPServer server = new SynthesisMCPServer(tempDir);
+        JsonNode request = mapper.readTree(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
+        Object response = server.handleMessage(request);
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(response));
+
+        JsonNode tools = node.get("result").get("tools");
+        assertNotNull(tools, "tools/list must return a tools array");
+        for (JsonNode tool : tools) {
+            if (name.equals(tool.get("name").asText())) {
+                return tool;
+            }
+        }
+        fail("Tool '" + name + "' not found in tools/list");
+        return null; // unreachable
+    }
+
+    // -----------------------------------------------------------------------
     // Helper Methods
     // -----------------------------------------------------------------------
 

@@ -612,8 +612,10 @@ public class SynthesisMCPServer {
         // Tool: diff
         toolsArray.add(createToolDefinition(
                 "diff",
-                "Show synthesis-aware diff against a git ref (e.g. HEAD~1, main, a commit SHA). " +
-                        "Categorizes changes by type and significance.",
+                "Show changed files between two git refs. Requires a ref RANGE in 'old..new' " +
+                        "form (e.g. main..HEAD, HEAD~1..HEAD, v1.0..v2.0) — a bare single ref " +
+                        "like 'HEAD~1' is rejected. Groups results by change type " +
+                        "(added/modified/deleted/renamed).",
                 createDiffSchema()
         ));
 
@@ -754,7 +756,11 @@ public class SynthesisMCPServer {
                 "recall",
                 "Recall episodic memories by task overlap. Returns hash-pinned artifacts from " +
                         "past plans and grounded answers. Fail-closed: tampered entries are silently " +
-                        "dropped. Use before planning to check if a similar task was already resolved.",
+                        "dropped. Grounded-answer artifacts are re-verified against current file " +
+                        "content — each hash-pinned claim gets a deterministic verdict (no model " +
+                        "calls): fresh (file unchanged since grounding), stale (file changed), or " +
+                        "unit-missing (file gone). Use before planning to check if a similar task " +
+                        "was already resolved — and whether its evidence still holds.",
                 createRecallSchema()
         ));
 
@@ -1747,6 +1753,13 @@ public class SynthesisMCPServer {
         limit.put("description", "Maximum number of memories to return (default 5)");
         properties.set("limit", limit);
 
+        ObjectNode workspace = mapper.createObjectNode();
+        workspace.put("type", "string");
+        workspace.put("description", "Workspace root for re-verifying grounded claim pins when " +
+                "a memory has no recorded workspace (optional; defaults to the server's primary " +
+                "workspace)");
+        properties.set("workspace", workspace);
+
         schema.set("properties", properties);
 
         ArrayNode required = mapper.createArrayNode();
@@ -1992,7 +2005,8 @@ public class SynthesisMCPServer {
 
         ObjectNode ref = mapper.createObjectNode();
         ref.put("type", "string");
-        ref.put("description", "Git ref to diff against (e.g., 'HEAD~1', 'main', a commit SHA)");
+        ref.put("description", "Git ref range in 'old..new' form (e.g., 'main..HEAD', " +
+                "'HEAD~1..HEAD', '<sha>..HEAD'). A bare single ref is rejected.");
         properties.set("ref", ref);
 
         ObjectNode workspace = mapper.createObjectNode();

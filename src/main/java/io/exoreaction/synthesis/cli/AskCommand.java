@@ -358,7 +358,7 @@ public class AskCommand implements Callable<Integer> {
      */
     private Map<String, Grounder.FileUnit> buildFileUnits(List<SearchResult> results, Path workspaceRoot) {
         Map<String, Grounder.FileUnit> units = new LinkedHashMap<>();
-        int maxBytes = 4096;
+        int maxBytes = Grounder.PIN_PREVIEW_BYTES;
         for (SearchResult r : results) {
             try {
                 if (Files.exists(r.path()) && Files.isReadable(r.path())) {
