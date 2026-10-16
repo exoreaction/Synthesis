@@ -46,6 +46,7 @@ This document covers the complete development history of Synthesis, from its fir
 - [v1.40.0 -- Semantic Search Hardening (July 8, 2026)](#v1400--semantic-search-hardening-july-8-2026)
 - [v1.41.0 -- Grounded Ask + Episodic Memory Tools (July 9, 2026)](#v1410--grounded-ask--episodic-memory-tools-july-9-2026)
 - [v1.42.0 -- KCP Retrieval Benchmarks (July 9, 2026)](#v1420--kcp-retrieval-benchmarks-july-9-2026)
+- [v1.46.0 -- Recall That Checks Its Own Evidence (October 2026)](#v1460----recall-that-checks-its-own-evidence-october-2026)
 - [Current State](#current-state)
 
 ---
@@ -1373,6 +1374,24 @@ Adds the KCP manifest retrieval benchmark results (#371 item 3) — the measured
 
 ---
 
+## v1.46.0 -- Recall That Checks Its Own Evidence (October 2026)
+
+**PR:** #537 · **Date:** October 2026 (see the release tag for the exact date)
+
+*v1.43.0 to v1.45.4 are not yet written up in this file.*
+
+A grounded-answer memory pins each supported claim to `(unitId, sha256)`: the unit's workspace-relative path and the hash of its content when the claim was grounded. Until now `recall` returned that artifact as stored, whatever had happened to the files since. From this release `recall` checks the pins against the files as they are now.
+
+- **`recall` re-verifies hash-pinned claims** with no model calls. Each claim gets a verdict: `fresh` (the file still matches the pin), `stale` (the file changed since grounding) or `unit-missing` (the file is gone, unreadable, or its path escapes the workspace; never reported as fresh).
+- **A `freshness` object on each recalled grounded answer** carries an overall status (`fresh`, `stale`, `no-pinned-claims` or `unverifiable` when no workspace root can be resolved), the counts and the per-claim verdicts.
+- **Both pin provenances verify:** the hash of the text preview window that `ask --ground` pins, and the hash of the whole file (as written by other producers, in the style of `KcpVerifier`).
+- **The `diff` MCP tool description was wrong:** it advertised a bare ref such as `HEAD~1`, but the git integration requires an `old..new` range. The description and schema now say so.
+- Under the hood: `KcpVerifier.sha256` is public so the check reuses its hash helper, and `Grounder.PIN_PREVIEW_BYTES` names the preview window that `ask` pins.
+
+Tests: 4,899 run, 4,897 pass; the 2 failures are the Notion missing-token tests already listed as pre-existing in v1.41.0, and they fail identically without this change.
+
+---
+
 ## Current State
 
 **Version:** v1.42.0
@@ -1613,6 +1632,7 @@ io.exoreaction.synthesis/
 | v1.40.0 | Jul 8 | Semantic search hardening: persisted HNSW embeddings, content embedding (v1.39 skipped) |
 | v1.41.0 | Jul 9 | Grounded ask, KCP routing hints, remember/recall MCP tools |
 | v1.42.0 | Jul 9 | KCP retrieval benchmark results |
+| v1.46.0 | Oct | `recall` re-verifies hash-pinned claims against live files (fresh / stale / unit-missing); `diff` tool description fixed |
 
 ---
 
