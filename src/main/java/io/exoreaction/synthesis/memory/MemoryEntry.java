@@ -9,8 +9,10 @@ import java.util.HexFormat;
  * that can be re-verified against a moved world (#371 item 3).
  *
  * <p>Mirrors kcp-agent's memory architecture: content-stripped (never caches
- * unit bytes), hash-addressed (re-recording is idempotent), re-verifiable
- * (recall re-checks against live manifests).
+ * unit bytes), hash-addressed (re-recording is idempotent), re-verifiable:
+ * the recall tool tamper-checks the artifact hash ({@link #verify()}) and
+ * re-checks each grounded claim's {@code (unitId, sha256)} pin against
+ * current file content ({@link GroundingFreshness} — fresh/stale/unit-missing).
  *
  * @param memoryId       sha256 of the content-stripped artifact (stable across re-records)
  * @param kind           "plan" or "grounded-answer"

@@ -31,6 +31,14 @@ public final class Grounder {
     private static final Pattern SENTENCE_BOUNDARY =
             Pattern.compile("(?<=[.!?])\\s+|\\n+");
 
+    /**
+     * Grounding pins hash the first {@code PIN_PREVIEW_BYTES} of a file read
+     * as text ({@code FileUtils.readPreview}) — the window the verifier
+     * actually saw. Freshness re-checks (recall) must recompute over the same
+     * window, or unchanged files larger than the window would read as stale.
+     */
+    public static final int PIN_PREVIEW_BYTES = 4096;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Max tokens for verifier response — small since it's structured JSON. */
