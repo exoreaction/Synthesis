@@ -170,10 +170,31 @@ public class FileIndexer {
      * @return a Lucene Document representing the virtual file
      */
     public Document indexVirtualFile(String virtualPath, String content, long lastModifiedMs) {
+        return indexVirtualFile(virtualPath, content, lastModifiedMs, "notion");
+    }
+
+    /**
+     * Creates a Lucene Document for a virtual file from an arbitrary external source
+     * (e.g., a Notion page or a Confluence page synced as Markdown).
+     *
+     * <p>Virtual files have no physical path on disk. The {@code virtualPath} is used
+     * as both the path and relative path (prefixed with {@code source + "://"}), and the
+     * content is indexed directly. The {@link DocumentFields#SOURCE} field is set to
+     * {@code source} to distinguish these from filesystem-backed documents and from
+     * other virtual sources.
+     *
+     * @param virtualPath    the virtual filesystem path (e.g., "Engineering/Architecture.md")
+     * @param content        the Markdown content to index
+     * @param lastModifiedMs last modified time in epoch milliseconds
+     * @param source         the source identifier (e.g., "notion", "confluence"), used both
+     *                       as the URI scheme prefix and the {@link DocumentFields#SOURCE} value
+     * @return a Lucene Document representing the virtual file
+     */
+    public Document indexVirtualFile(String virtualPath, String content, long lastModifiedMs, String source) {
         Document doc = new Document();
 
-        // Use "notion://" prefix to clearly distinguish from filesystem paths
-        String prefixedPath = "notion://" + virtualPath;
+        // Use "<source>://" prefix to clearly distinguish from filesystem paths
+        String prefixedPath = source + "://" + virtualPath;
 
         // Identity fields
         doc.add(new StoredField(DocumentFields.PATH, prefixedPath));
@@ -188,9 +209,9 @@ public class FileIndexer {
 
         // Classification
         doc.add(new StringField(DocumentFields.FILE_TYPE, "MARKDOWN", Field.Store.YES));
-        doc.add(new StringField(DocumentFields.SOURCE, "notion", Field.Store.YES));
+        doc.add(new StringField(DocumentFields.SOURCE, source, Field.Store.YES));
 
-        // Content (tokenized, not stored — content can be re-fetched from Notion)
+        // Content (tokenized, not stored — content can be re-fetched from the source)
         if (content != null && !content.isEmpty()) {
             doc.add(new TextField(DocumentFields.CONTENT, content, Field.Store.NO));
 

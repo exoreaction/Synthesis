@@ -34,6 +34,7 @@ public class SynthesisConfig {
     private RoutingConfig routing = new RoutingConfig();
     private ReportConfig report = new ReportConfig();
     private NotionConfig notion = new NotionConfig();
+    private ConfluenceConfig confluence = new ConfluenceConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -69,6 +70,11 @@ public class SynthesisConfig {
 
     public NotionConfig getNotion() { return notion; }
     public void setNotion(NotionConfig notion) { this.notion = notion != null ? notion : new NotionConfig(); }
+
+    public ConfluenceConfig getConfluence() { return confluence; }
+    public void setConfluence(ConfluenceConfig confluence) {
+        this.confluence = confluence != null ? confluence : new ConfluenceConfig();
+    }
 
     /**
      * Workspace identity and structure configuration.
@@ -658,6 +664,59 @@ public class SynthesisConfig {
         /** Root page ID to use as the sync starting point. */
         public String getRootPageId() { return rootPageId; }
         public void setRootPageId(String rootPageId) { this.rootPageId = rootPageId; }
+
+        /** Interval in minutes between automatic sync polls. */
+        public int getPollIntervalMinutes() { return pollIntervalMinutes; }
+        public void setPollIntervalMinutes(int pollIntervalMinutes) { this.pollIntervalMinutes = pollIntervalMinutes; }
+
+        /** Maximum number of pages to sync in a single poll cycle. */
+        public int getMaxPagesPerSync() { return maxPagesPerSync; }
+        public void setMaxPagesPerSync(int maxPagesPerSync) { this.maxPagesPerSync = maxPagesPerSync; }
+
+        /** Whether to cache page Markdown content locally for offline access. */
+        public boolean isCacheContent() { return cacheContent; }
+        public void setCacheContent(boolean cacheContent) { this.cacheContent = cacheContent; }
+    }
+
+    /**
+     * Confluence Cloud workspace source configuration.
+     *
+     * <p>v1 uses API-token (Basic) auth only — OAuth 2.0 (3LO) is a deferred
+     * fast-follow (see RFC #541). {@code email} + {@code apiToken} form the
+     * Basic auth credential pair, the same scheme Confluence Cloud and Jira
+     * Cloud share.
+     */
+    public static class ConfluenceConfig {
+        private boolean enabled = false;
+        private String baseUrl;
+        private String email;
+        private String apiToken;
+        private List<String> spaceKeys = new ArrayList<>();
+        private int pollIntervalMinutes = 15;
+        private int maxPagesPerSync = 500;
+        private boolean cacheContent = true;
+
+        /** Whether Confluence integration is enabled. */
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        /** Confluence Cloud site base URL (e.g. {@code https://yoursite.atlassian.net/wiki}). */
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+
+        /** Atlassian account email used as the Basic auth username. */
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+
+        /** Confluence/Atlassian API token used as the Basic auth password. */
+        public String getApiToken() { return apiToken; }
+        public void setApiToken(String apiToken) { this.apiToken = apiToken; }
+
+        /** Space keys to sync (e.g. {@code ["ENG", "PROD"]}). */
+        public List<String> getSpaceKeys() { return spaceKeys; }
+        public void setSpaceKeys(List<String> spaceKeys) {
+            this.spaceKeys = spaceKeys != null ? spaceKeys : new ArrayList<>();
+        }
 
         /** Interval in minutes between automatic sync polls. */
         public int getPollIntervalMinutes() { return pollIntervalMinutes; }
