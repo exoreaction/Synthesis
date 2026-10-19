@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Dry-run must:
  * <ul>
- *   <li>Return all 9 phase results</li>
+ *   <li>Return all 14 phase results</li>
  *   <li>Make zero filesystem changes</li>
  *   <li>Print a "No changes made" footer (tested via MaintainCommand integration)</li>
  * </ul>
@@ -126,8 +126,8 @@ class MaintainDryRunTest {
         MaintainResult result = new MaintainOrchestrator(
                 tempDir, MaintainOptions.forDryRun(), config).run();
 
-        assertEquals(13, result.phases().size(),
-                "Dry-run must return all 13 phase results");
+        assertEquals(14, result.phases().size(),
+                "Dry-run must return all 14 phase results");
     }
 
     @Test

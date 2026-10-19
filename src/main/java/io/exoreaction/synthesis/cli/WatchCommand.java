@@ -13,6 +13,8 @@ import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.confluence.ConfluenceWatcher;
 import io.exoreaction.synthesis.confluence.ConfluenceWorkspaceSource;
+import io.exoreaction.synthesis.jira.JiraWatcher;
+import io.exoreaction.synthesis.jira.JiraWorkspaceSource;
 import io.exoreaction.synthesis.notion.NotionWatcher;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.org.OrganizationRegistry;
@@ -214,6 +216,8 @@ public class WatchCommand implements Callable<Integer> {
         NotionWatcher notionWatcher = null;
         Thread confluenceThread = null;
         ConfluenceWatcher confluenceWatcher = null;
+        Thread jiraThread = null;
+        JiraWatcher jiraWatcher = null;
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
             registerDirectories(workspaceRoot, watchService, config.getScan());
 
@@ -269,6 +273,32 @@ public class WatchCommand implements Callable<Integer> {
                 }
             }
 
+            // Start Jira polling watcher on a virtual thread if enabled
+            if (config.getJira().isEnabled()) {
+                try {
+                    SynthesisDatabase db = SynthesisDatabase.getDefault();
+                    JiraWorkspaceSource jiraSource = JiraWorkspaceSource.fromConfig(config, db);
+                    FileIndexer jiraIndexer = new FileIndexer();
+                    jiraWatcher = new JiraWatcher(
+                            jiraSource, jiraIndexer,
+                            workspace.getIndexPath(),
+                            config.getJira().getPollIntervalMinutes());
+                    JiraWatcher finalJiraWatcher = jiraWatcher;
+                    jiraThread = Thread.ofVirtual().name("jira-watcher").start(() -> {
+                        try {
+                            finalJiraWatcher.start();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
+                    AnsiOutput.printInfo("Jira watcher active (poll every "
+                            + config.getJira().getPollIntervalMinutes() + " min)");
+                } catch (Exception e) {
+                    AnsiOutput.printWarning("Failed to start Jira watcher: " + e.getMessage());
+                    // Continue with filesystem watch only
+                }
+            }
+
             watchLoop(watchService, workspace, config, workspaceRoot);
         } finally {
             // Shutdown Notion watcher
@@ -285,6 +315,14 @@ public class WatchCommand implements Callable<Integer> {
             }
             if (confluenceThread != null) {
                 confluenceThread.interrupt();
+            }
+
+            // Shutdown Jira watcher
+            if (jiraWatcher != null) {
+                jiraWatcher.close();
+            }
+            if (jiraThread != null) {
+                jiraThread.interrupt();
             }
 
             cleanupPidFile(pidFile);

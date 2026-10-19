@@ -174,20 +174,21 @@ public class FileIndexer {
     }
 
     /**
-     * Creates a Lucene Document for a virtual file from an arbitrary external source
-     * (e.g., a Notion page or a Confluence page synced as Markdown).
+     * Creates a Lucene Document for a virtual file from any workspace source
+     * (e.g. a Notion page, a Confluence page, or a Jira issue synced as Markdown).
      *
      * <p>Virtual files have no physical path on disk. The {@code virtualPath} is used
-     * as both the path and relative path (prefixed with {@code source + "://"}), and the
-     * content is indexed directly. The {@link DocumentFields#SOURCE} field is set to
-     * {@code source} to distinguish these from filesystem-backed documents and from
-     * other virtual sources.
+     * as both the path and relative path (prefixed with {@code source + "://"}), and
+     * the content is indexed directly. The {@link DocumentFields#SOURCE} field is set
+     * to the given {@code source} to distinguish these from filesystem-backed documents
+     * and from other virtual sources.
      *
      * @param virtualPath    the virtual filesystem path (e.g., "Engineering/Architecture.md")
      * @param content        the Markdown content to index
      * @param lastModifiedMs last modified time in epoch milliseconds
-     * @param source         the source identifier (e.g., "notion", "confluence"), used both
-     *                       as the URI scheme prefix and the {@link DocumentFields#SOURCE} value
+     * @param source         the originating source, e.g. {@code "notion"}, {@code "confluence"},
+     *                       or {@code "jira"}; used both as the {@link DocumentFields#SOURCE}
+     *                       value and as the URI scheme prefix on the stored path
      * @return a Lucene Document representing the virtual file
      */
     public Document indexVirtualFile(String virtualPath, String content, long lastModifiedMs, String source) {
