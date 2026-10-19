@@ -175,7 +175,7 @@ public class FileIndexer {
 
     /**
      * Creates a Lucene Document for a virtual file from any workspace source
-     * (e.g. a Notion page or Jira issue synced as Markdown).
+     * (e.g. a Notion page, a Confluence page, or a Jira issue synced as Markdown).
      *
      * <p>Virtual files have no physical path on disk. The {@code virtualPath} is used
      * as both the path and relative path (prefixed with {@code source + "://"}), and
@@ -186,14 +186,15 @@ public class FileIndexer {
      * @param virtualPath    the virtual filesystem path (e.g., "Engineering/Architecture.md")
      * @param content        the Markdown content to index
      * @param lastModifiedMs last modified time in epoch milliseconds
-     * @param source         the originating source, e.g. {@code "notion"} or {@code "jira"};
-     *                       used both as the {@link DocumentFields#SOURCE} value and as the
-     *                       URI scheme prefix on the stored path
+     * @param source         the originating source, e.g. {@code "notion"}, {@code "confluence"},
+     *                       or {@code "jira"}; used both as the {@link DocumentFields#SOURCE}
+     *                       value and as the URI scheme prefix on the stored path
      * @return a Lucene Document representing the virtual file
      */
     public Document indexVirtualFile(String virtualPath, String content, long lastModifiedMs, String source) {
         Document doc = new Document();
 
+        // Use "<source>://" prefix to clearly distinguish from filesystem paths
         String prefixedPath = source + "://" + virtualPath;
 
         // Identity fields
@@ -211,7 +212,7 @@ public class FileIndexer {
         doc.add(new StringField(DocumentFields.FILE_TYPE, "MARKDOWN", Field.Store.YES));
         doc.add(new StringField(DocumentFields.SOURCE, source, Field.Store.YES));
 
-        // Content (tokenized, not stored — content can be re-fetched from Notion)
+        // Content (tokenized, not stored — content can be re-fetched from the source)
         if (content != null && !content.isEmpty()) {
             doc.add(new TextField(DocumentFields.CONTENT, content, Field.Store.NO));
 

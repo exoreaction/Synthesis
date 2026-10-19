@@ -11,6 +11,8 @@ import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.confluence.ConfluenceWatcher;
+import io.exoreaction.synthesis.confluence.ConfluenceWorkspaceSource;
 import io.exoreaction.synthesis.jira.JiraWatcher;
 import io.exoreaction.synthesis.jira.JiraWorkspaceSource;
 import io.exoreaction.synthesis.notion.NotionWatcher;
@@ -212,6 +214,8 @@ public class WatchCommand implements Callable<Integer> {
         // Start watching
         Thread notionThread = null;
         NotionWatcher notionWatcher = null;
+        Thread confluenceThread = null;
+        ConfluenceWatcher confluenceWatcher = null;
         Thread jiraThread = null;
         JiraWatcher jiraWatcher = null;
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
@@ -239,6 +243,32 @@ public class WatchCommand implements Callable<Integer> {
                             + config.getNotion().getPollIntervalMinutes() + " min)");
                 } catch (Exception e) {
                     AnsiOutput.printWarning("Failed to start Notion watcher: " + e.getMessage());
+                    // Continue with filesystem watch only
+                }
+            }
+
+            // Start Confluence polling watcher on a virtual thread if enabled
+            if (config.getConfluence().isEnabled()) {
+                try {
+                    SynthesisDatabase db = SynthesisDatabase.getDefault();
+                    ConfluenceWorkspaceSource confluenceSource = ConfluenceWorkspaceSource.fromConfig(config, db);
+                    FileIndexer confluenceIndexer = new FileIndexer();
+                    confluenceWatcher = new ConfluenceWatcher(
+                            confluenceSource, confluenceIndexer,
+                            workspace.getIndexPath(),
+                            config.getConfluence().getPollIntervalMinutes());
+                    ConfluenceWatcher finalConfluenceWatcher = confluenceWatcher;
+                    confluenceThread = Thread.ofVirtual().name("confluence-watcher").start(() -> {
+                        try {
+                            finalConfluenceWatcher.start();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
+                    AnsiOutput.printInfo("Confluence watcher active (poll every "
+                            + config.getConfluence().getPollIntervalMinutes() + " min)");
+                } catch (Exception e) {
+                    AnsiOutput.printWarning("Failed to start Confluence watcher: " + e.getMessage());
                     // Continue with filesystem watch only
                 }
             }
@@ -277,6 +307,14 @@ public class WatchCommand implements Callable<Integer> {
             }
             if (notionThread != null) {
                 notionThread.interrupt();
+            }
+
+            // Shutdown Confluence watcher
+            if (confluenceWatcher != null) {
+                confluenceWatcher.close();
+            }
+            if (confluenceThread != null) {
+                confluenceThread.interrupt();
             }
 
             // Shutdown Jira watcher
