@@ -124,7 +124,7 @@ public class InitCommand implements Callable<Integer> {
 
     @Option(
             names = {"--source"},
-            description = "Workspace source: filesystem (default), notion",
+            description = "Workspace source: filesystem (default), notion, jira",
             defaultValue = "filesystem"
     )
     private String source;
@@ -303,6 +303,11 @@ public class InitCommand implements Callable<Integer> {
             // Notion source setup (if --source notion)
             if ("notion".equalsIgnoreCase(source)) {
                 handleNotionSourceSetup(targetDir);
+            }
+
+            // Jira source setup (if --source jira)
+            if ("jira".equalsIgnoreCase(source)) {
+                handleJiraSourceSetup(targetDir);
             }
 
             // Register installation for pilot program (mandatory)
@@ -741,6 +746,60 @@ public class InitCommand implements Callable<Integer> {
             System.out.println();
         } catch (IOException e) {
             AnsiOutput.printWarning("Failed to write Notion config: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handles Jira workspace source setup: appends Jira configuration
+     * block to the generated config file with guidance comments.
+     */
+    void handleJiraSourceSetup(Path targetDir) {
+        try {
+            // Find the config file (internal or root)
+            Path configFile = targetDir.resolve(".synthesis/config.yaml");
+            if (!Files.exists(configFile)) {
+                configFile = targetDir.resolve("synthesis-config.yaml");
+            }
+            if (!Files.exists(configFile)) {
+                AnsiOutput.printWarning("Config file not found. Create it first with 'synthesis init'.");
+                return;
+            }
+
+            // Append Jira config template
+            String jiraBlock = """
+
+                # Jira workspace source (RFC #542)
+                # Set 'enabled: true' and provide your site URL, email, and API token.
+                # Create an API token at: https://id.atlassian.com/manage-profile/security/api-tokens
+                jira:
+                  enabled: true
+                  # baseUrl: "https://yourcompany.atlassian.net"
+                  # email: "you@yourcompany.com"           # or set JIRA_EMAIL env var
+                  # apiToken: "..."                        # or set JIRA_API_TOKEN env var
+                  projectKeys: []    # e.g. ["PROJ"] -- omit (with jqlFilter unset) to sync all accessible issues
+                  # jqlFilter: ""    # explicit JQL filter; takes precedence over projectKeys
+                  pollIntervalMinutes: 15     # Interval between watch-mode sync polls
+                  maxIssuesPerSync: 500
+                  cacheContent: true
+                """;
+
+            Files.writeString(configFile,
+                    Files.readString(configFile) + jiraBlock);
+
+            System.out.println();
+            AnsiOutput.printInfo("Jira source configured. Next steps:");
+            System.out.println("    1. Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens");
+            System.out.println("    2. Set the credentials in your config:");
+            System.out.println("       " + AnsiOutput.cyan("jira.baseUrl / jira.email / jira.apiToken"));
+            System.out.println("       or set " + AnsiOutput.cyan("JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN")
+                    + " environment variables.");
+            System.out.println("    3. Set " + AnsiOutput.cyan("jira.projectKeys")
+                    + " to the project(s) you want to sync (or leave empty for all accessible issues).");
+            System.out.println("    4. Run " + AnsiOutput.cyan("synthesis scan") + " to perform the initial sync.");
+            System.out.println("    5. Run " + AnsiOutput.cyan("synthesis watch") + " for continuous polling.");
+            System.out.println();
+        } catch (IOException e) {
+            AnsiOutput.printWarning("Failed to write Jira config: " + e.getMessage());
         }
     }
 

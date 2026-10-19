@@ -13,6 +13,8 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
+import io.exoreaction.synthesis.jira.JiraIssueMapper;
+import io.exoreaction.synthesis.jira.JiraWorkspaceSource;
 import io.exoreaction.synthesis.kcp.KcpManifestChecks;
 import io.exoreaction.synthesis.notion.NotionPageMapper;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
@@ -60,6 +62,7 @@ import java.util.stream.Stream;
  * Phase 10: Code Graph  — update persisted code dependency graph (CKG-1)
  * Phase 11: Security    — security analysis (S001-S021)
  * Phase 12: Notion      — full Notion workspace re-sync (when notion.enabled)
+ * Phase 13: Jira        — full Jira workspace re-sync (when jira.enabled)
  * </pre>
  *
  * <p>The orchestrator does NOT print anything to stdout/stderr. All output
@@ -162,6 +165,9 @@ public class MaintainOrchestrator {
 
         // Phase 12: Notion
         results.add(runPhase(12, "Notion", this::runNotion));
+
+        // Phase 13: Jira
+        results.add(runPhase(13, "Jira", this::runJira));
 
         // Manifest coverage check (issue #309) — runs every invocation, independent of
         // whether phase 7 (Index) detected any changes, since this is the cron-driven path.
@@ -1247,5 +1253,60 @@ public class MaintainOrchestrator {
 
         String summary = indexed + " page" + (indexed != 1 ? "s" : "") + " synced and indexed";
         return PhaseResult.success(12, "Notion", indexed, summary, details);
+    }
+
+    // =========================================================================
+    // Phase 13: Jira
+    // =========================================================================
+
+    private PhaseResult runJira() throws Exception {
+        if (!config.getJira().isEnabled()) {
+            return PhaseResult.skipped(13, "Jira", "jira.enabled = false");
+        }
+
+        if (options.dryRun()) {
+            return PhaseResult.success(13, "Jira", 0,
+                    "Jira re-sync would be performed", List.of());
+        }
+
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        JiraWorkspaceSource source = JiraWorkspaceSource.fromConfig(config, db);
+        List<JiraIssueMapper.JiraIssue> jiraIssues = source.sync();
+
+        // Index each synced issue as a virtual Markdown file
+        Path synthDir = workspaceRoot.resolve(".synthesis");
+        Path indexPath = synthDir.resolve("index");
+        int indexed = 0;
+        List<String> details = new ArrayList<>();
+
+        if (Files.isDirectory(indexPath)) {
+            FileIndexer indexer = new FileIndexer();
+            try (SearchIndex index = new SearchIndex(indexPath)) {
+                for (JiraIssueMapper.JiraIssue issue : jiraIssues) {
+                    try {
+                        var doc = indexer.indexVirtualFile(
+                                issue.virtualPath(),
+                                issue.markdownContent(),
+                                issue.updated().toEpochMilli(),
+                                "jira");
+                        index.addDocument(doc);
+                        indexed++;
+                        if (options.verbose()) {
+                            details.add("indexed: jira://" + issue.virtualPath());
+                        }
+                    } catch (Exception e) {
+                        if (options.verbose()) {
+                            details.add("failed: " + issue.virtualPath() + " (" + e.getMessage() + ")");
+                        }
+                    }
+                }
+                if (indexed > 0) {
+                    index.commit();
+                }
+            }
+        }
+
+        String summary = indexed + " issue" + (indexed != 1 ? "s" : "") + " synced and indexed";
+        return PhaseResult.success(13, "Jira", indexed, summary, details);
     }
 }

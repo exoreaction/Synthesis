@@ -11,6 +11,7 @@ import io.exoreaction.synthesis.core.WorkspaceManager;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
+import io.exoreaction.synthesis.jira.JiraSyncState;
 import io.exoreaction.synthesis.metrics.MetricsDatabase;
 import io.exoreaction.synthesis.notion.NotionSyncState;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
@@ -226,6 +227,11 @@ public class StatusCommand implements Callable<Integer> {
                 showNotionStatus(config);
             }
 
+            // Jira source status (when enabled)
+            if (config.getJira().isEnabled()) {
+                showJiraStatus(config);
+            }
+
             // Media type breakdown (if available)
             Path indexPath2 = workspace.getIndexPath();
             if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
@@ -427,6 +433,60 @@ public class StatusCommand implements Callable<Integer> {
             if (!duplicates.isEmpty()) {
                 System.out.printf("    %-20s %s%n", "Path conflicts:",
                         AnsiOutput.warning(String.valueOf(duplicates.size())));
+            }
+
+        } catch (Exception e) {
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.warning("Error: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Shows Jira workspace source status including sync time, issue count,
+     * poll interval, and health indicators.
+     */
+    private void showJiraStatus(SynthesisConfig config) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Jira Source:"));
+
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            JiraSyncState syncState = new JiraSyncState(db);
+            String wsName = config.getWorkspace().getName();
+
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.success("Enabled"));
+
+            Optional<Instant> lastSync = syncState.getLastSyncTime(wsName);
+            if (lastSync.isPresent()) {
+                String formatted = LocalDateTime.ofInstant(lastSync.get(), ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                Duration elapsed = Duration.between(lastSync.get(), Instant.now());
+                System.out.printf("    %-20s %s (%s ago)%n", "Last sync:", formatted, formatDuration(elapsed));
+            } else {
+                System.out.printf("    %-20s %s%n", "Last sync:", AnsiOutput.dim("never"));
+            }
+
+            int totalIssues = syncState.getTotalIssues(wsName);
+            System.out.printf("    %-20s %s%n", "Issues indexed:",
+                    totalIssues > 0 ? AnsiOutput.bold(String.valueOf(totalIssues)) : AnsiOutput.dim("0"));
+
+            int pollMinutes = config.getJira().getPollIntervalMinutes();
+            System.out.printf("    %-20s %d min%n", "Poll interval:", pollMinutes);
+
+            Duration staleThreshold = Duration.ofMinutes(pollMinutes * 2L);
+            List<String> stalePaths = syncState.getStalePaths(wsName, staleThreshold);
+            if (stalePaths.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Stale paths:", AnsiOutput.success("0"));
+            } else {
+                System.out.printf("    %-20s %s%n", "Stale paths:",
+                        AnsiOutput.warning(String.valueOf(stalePaths.size())));
+            }
+
+            List<String> dangling = syncState.getDanglingLinks(wsName);
+            if (dangling.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Dangling links:", AnsiOutput.success("0"));
+            } else {
+                System.out.printf("    %-20s %s%n", "Dangling links:",
+                        AnsiOutput.warning(String.valueOf(dangling.size())));
             }
 
         } catch (Exception e) {

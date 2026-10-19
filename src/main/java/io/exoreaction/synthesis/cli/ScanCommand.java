@@ -18,6 +18,8 @@ import io.exoreaction.synthesis.ai.ReadmeGenerator;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.kcp.KcpManifestChecks;
 import io.exoreaction.synthesis.kcp.KcpRepository;
+import io.exoreaction.synthesis.jira.JiraIssueMapper;
+import io.exoreaction.synthesis.jira.JiraWorkspaceSource;
 import io.exoreaction.synthesis.notion.NotionPageMapper;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.util.AnsiOutput;
@@ -244,6 +246,11 @@ public class ScanCommand implements Callable<Integer> {
                 // Notion workspace sync (when enabled)
                 if (config.getNotion().isEnabled()) {
                     syncNotionPages(config, fileIndexer, index);
+                }
+
+                // Jira workspace sync (when enabled)
+                if (config.getJira().isEnabled()) {
+                    syncJiraIssues(config, fileIndexer, index);
                 }
             }
 
@@ -624,6 +631,58 @@ public class ScanCommand implements Callable<Integer> {
 
         } catch (Exception e) {
             AnsiOutput.printWarning("Notion sync failed: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * Syncs Jira workspace issues and indexes them as virtual Markdown files.
+     *
+     * <p>Called when {@code jira.enabled = true} in config. Each Jira issue
+     * (summary, description, changelog, issue links, comments) is converted to
+     * Markdown and added to the Lucene index alongside filesystem-backed documents.
+     *
+     * @param config      Synthesis configuration
+     * @param fileIndexer the file indexer for creating virtual documents
+     * @param index       the open search index (must be in write mode)
+     */
+    private void syncJiraIssues(SynthesisConfig config, FileIndexer fileIndexer, SearchIndex index) {
+        try {
+            System.out.println();
+            AnsiOutput.printInfo("Syncing Jira workspace...");
+
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            JiraWorkspaceSource jiraSource = JiraWorkspaceSource.fromConfig(config, db);
+            List<JiraIssueMapper.JiraIssue> issues = jiraSource.sync();
+
+            int jiraIndexed = 0;
+            for (JiraIssueMapper.JiraIssue issue : issues) {
+                try {
+                    var doc = fileIndexer.indexVirtualFile(
+                            issue.virtualPath(),
+                            issue.markdownContent(),
+                            issue.updated().toEpochMilli(),
+                            "jira");
+                    index.addDocument(doc);
+                    jiraIndexed++;
+                } catch (Exception e) {
+                    if (verbose) {
+                        System.err.println("  Warning: Failed to index Jira issue "
+                                + issue.virtualPath() + ": " + e.getMessage());
+                    }
+                }
+            }
+
+            if (jiraIndexed > 0) {
+                index.commit();
+            }
+
+            AnsiOutput.printSuccess("Synced " + jiraIndexed + " Jira issues.");
+
+        } catch (Exception e) {
+            AnsiOutput.printWarning("Jira sync failed: " + e.getMessage());
             if (verbose) {
                 e.printStackTrace();
             }

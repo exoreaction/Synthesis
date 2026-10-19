@@ -34,6 +34,7 @@ public class SynthesisConfig {
     private RoutingConfig routing = new RoutingConfig();
     private ReportConfig report = new ReportConfig();
     private NotionConfig notion = new NotionConfig();
+    private JiraConfig jira = new JiraConfig();
 
     public WorkspaceConfig getWorkspace() { return workspace; }
     public void setWorkspace(WorkspaceConfig workspace) { this.workspace = workspace; }
@@ -69,6 +70,9 @@ public class SynthesisConfig {
 
     public NotionConfig getNotion() { return notion; }
     public void setNotion(NotionConfig notion) { this.notion = notion != null ? notion : new NotionConfig(); }
+
+    public JiraConfig getJira() { return jira; }
+    public void setJira(JiraConfig jira) { this.jira = jira != null ? jira : new JiraConfig(); }
 
     /**
      * Workspace identity and structure configuration.
@@ -668,6 +672,80 @@ public class SynthesisConfig {
         public void setMaxPagesPerSync(int maxPagesPerSync) { this.maxPagesPerSync = maxPagesPerSync; }
 
         /** Whether to cache page Markdown content locally for offline access. */
+        public boolean isCacheContent() { return cacheContent; }
+        public void setCacheContent(boolean cacheContent) { this.cacheContent = cacheContent; }
+    }
+
+    /**
+     * Configuration for the Jira Cloud workspace source (RFC #542).
+     *
+     * <p>Unlike Notion, Jira Cloud is tenant-specific (no fixed API host), so a
+     * {@code baseUrl} is required. Auth uses an Atlassian account email + API
+     * token over HTTP Basic auth (not OAuth) — see
+     * {@code https://id.atlassian.com/manage-profile/security/api-tokens}.
+     *
+     * <p>Scoping is via either {@code projectKeys} (a convenience list, turned
+     * into a JQL {@code project in (...)} clause) or an explicit {@code jqlFilter}
+     * that takes full precedence when set.
+     *
+     * <p>Example YAML:
+     * <pre>
+     * jira:
+     *   enabled: true
+     *   baseUrl: "https://yourcompany.atlassian.net"
+     *   email: "you@yourcompany.com"
+     *   apiToken: "..."
+     *   projectKeys: ["PROJ"]
+     *   pollIntervalMinutes: 15
+     *   maxIssuesPerSync: 500
+     * </pre>
+     */
+    public static class JiraConfig {
+        private boolean enabled = false;
+        private String baseUrl;
+        private String email;
+        private String apiToken;
+        private List<String> projectKeys = new ArrayList<>();
+        private String jqlFilter;
+        private int pollIntervalMinutes = 15;
+        private int maxIssuesPerSync = 500;
+        private boolean cacheContent = true;
+
+        /** Whether Jira integration is enabled. */
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        /** Jira Cloud site base URL, e.g. {@code https://yourcompany.atlassian.net}. */
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+
+        /** Atlassian account email used for Basic auth. */
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+
+        /** Jira API token (the Basic auth password). */
+        public String getApiToken() { return apiToken; }
+        public void setApiToken(String apiToken) { this.apiToken = apiToken; }
+
+        /** Convenience list of project keys to scope the sync to (builds a JQL clause). */
+        public List<String> getProjectKeys() { return projectKeys; }
+        public void setProjectKeys(List<String> projectKeys) {
+            this.projectKeys = projectKeys != null ? projectKeys : new ArrayList<>();
+        }
+
+        /** Explicit JQL filter; takes precedence over {@code projectKeys} when set. */
+        public String getJqlFilter() { return jqlFilter; }
+        public void setJqlFilter(String jqlFilter) { this.jqlFilter = jqlFilter; }
+
+        /** Interval in minutes between automatic sync polls. */
+        public int getPollIntervalMinutes() { return pollIntervalMinutes; }
+        public void setPollIntervalMinutes(int pollIntervalMinutes) { this.pollIntervalMinutes = pollIntervalMinutes; }
+
+        /** Maximum number of issues to sync in a single poll cycle. */
+        public int getMaxIssuesPerSync() { return maxIssuesPerSync; }
+        public void setMaxIssuesPerSync(int maxIssuesPerSync) { this.maxIssuesPerSync = maxIssuesPerSync; }
+
+        /** Whether to cache issue Markdown content locally for offline access. */
         public boolean isCacheContent() { return cacheContent; }
         public void setCacheContent(boolean cacheContent) { this.cacheContent = cacheContent; }
     }
