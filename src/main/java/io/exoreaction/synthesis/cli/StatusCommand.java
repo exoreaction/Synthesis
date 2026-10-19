@@ -12,6 +12,7 @@ import io.exoreaction.synthesis.db.SynthesisDatabase;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.index.SearchResult;
 import io.exoreaction.synthesis.metrics.MetricsDatabase;
+import io.exoreaction.synthesis.confluence.ConfluenceSyncState;
 import io.exoreaction.synthesis.notion.NotionSyncState;
 import io.exoreaction.synthesis.search.WorkspaceDiscoveryConfig;
 import io.exoreaction.synthesis.telemetry.ApprovalService;
@@ -226,6 +227,11 @@ public class StatusCommand implements Callable<Integer> {
                 showNotionStatus(config);
             }
 
+            // Confluence source status (when enabled)
+            if (config.getConfluence().isEnabled()) {
+                showConfluenceStatus(config);
+            }
+
             // Media type breakdown (if available)
             Path indexPath2 = workspace.getIndexPath();
             if (Files.exists(indexPath2) && hasIndexFiles(indexPath2)) {
@@ -423,6 +429,58 @@ public class StatusCommand implements Callable<Integer> {
             }
 
             // Duplicate virtual paths (conflict indicator)
+            Set<String> duplicates = syncState.getDuplicateVirtualPaths(wsName);
+            if (!duplicates.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Path conflicts:",
+                        AnsiOutput.warning(String.valueOf(duplicates.size())));
+            }
+
+        } catch (Exception e) {
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.warning("Error: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Shows Confluence workspace source status including sync time, page count,
+     * poll interval, and health indicators. Mirrors {@link #showNotionStatus}.
+     */
+    private void showConfluenceStatus(SynthesisConfig config) {
+        System.out.println();
+        System.out.println("  " + AnsiOutput.bold("Confluence Source:"));
+
+        try {
+            SynthesisDatabase db = SynthesisDatabase.getDefault();
+            ConfluenceSyncState syncState = new ConfluenceSyncState(db);
+            String wsName = config.getWorkspace().getName();
+
+            System.out.printf("    %-20s %s%n", "Status:", AnsiOutput.success("Enabled"));
+
+            Optional<Instant> lastSync = syncState.getLastSyncTime(wsName);
+            if (lastSync.isPresent()) {
+                String formatted = LocalDateTime.ofInstant(lastSync.get(), ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+                Duration elapsed = Duration.between(lastSync.get(), Instant.now());
+                System.out.printf("    %-20s %s (%s ago)%n", "Last sync:", formatted, formatDuration(elapsed));
+            } else {
+                System.out.printf("    %-20s %s%n", "Last sync:", AnsiOutput.dim("never"));
+            }
+
+            int totalPages = syncState.getTotalPages(wsName);
+            System.out.printf("    %-20s %s%n", "Pages indexed:",
+                    totalPages > 0 ? AnsiOutput.bold(String.valueOf(totalPages)) : AnsiOutput.dim("0"));
+
+            int pollMinutes = config.getConfluence().getPollIntervalMinutes();
+            System.out.printf("    %-20s %d min%n", "Poll interval:", pollMinutes);
+
+            Duration staleThreshold = Duration.ofMinutes(pollMinutes * 2L);
+            List<String> stalePaths = syncState.getStalePaths(wsName, staleThreshold);
+            if (stalePaths.isEmpty()) {
+                System.out.printf("    %-20s %s%n", "Stale paths:", AnsiOutput.success("0"));
+            } else {
+                System.out.printf("    %-20s %s%n", "Stale paths:",
+                        AnsiOutput.warning(String.valueOf(stalePaths.size())));
+            }
+
             Set<String> duplicates = syncState.getDuplicateVirtualPaths(wsName);
             if (!duplicates.isEmpty()) {
                 System.out.printf("    %-20s %s%n", "Path conflicts:",

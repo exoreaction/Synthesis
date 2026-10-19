@@ -14,6 +14,8 @@ import io.exoreaction.synthesis.graph.*;
 import io.exoreaction.synthesis.index.FileIndexer;
 import io.exoreaction.synthesis.index.SearchIndex;
 import io.exoreaction.synthesis.kcp.KcpManifestChecks;
+import io.exoreaction.synthesis.confluence.ConfluencePageMapper;
+import io.exoreaction.synthesis.confluence.ConfluenceWorkspaceSource;
 import io.exoreaction.synthesis.notion.NotionPageMapper;
 import io.exoreaction.synthesis.notion.NotionWorkspaceSource;
 import io.exoreaction.synthesis.org.DirectoryIdentityRouter;
@@ -60,6 +62,7 @@ import java.util.stream.Stream;
  * Phase 10: Code Graph  — update persisted code dependency graph (CKG-1)
  * Phase 11: Security    — security analysis (S001-S021)
  * Phase 12: Notion      — full Notion workspace re-sync (when notion.enabled)
+ * Phase 13: Confluence  — full Confluence workspace re-sync (when confluence.enabled)
  * </pre>
  *
  * <p>The orchestrator does NOT print anything to stdout/stderr. All output
@@ -162,6 +165,9 @@ public class MaintainOrchestrator {
 
         // Phase 12: Notion
         results.add(runPhase(12, "Notion", this::runNotion));
+
+        // Phase 13: Confluence
+        results.add(runPhase(13, "Confluence", this::runConfluence));
 
         // Manifest coverage check (issue #309) — runs every invocation, independent of
         // whether phase 7 (Index) detected any changes, since this is the cron-driven path.
@@ -1247,5 +1253,60 @@ public class MaintainOrchestrator {
 
         String summary = indexed + " page" + (indexed != 1 ? "s" : "") + " synced and indexed";
         return PhaseResult.success(12, "Notion", indexed, summary, details);
+    }
+
+    // =========================================================================
+    // Phase 13: Confluence
+    // =========================================================================
+
+    private PhaseResult runConfluence() throws Exception {
+        if (!config.getConfluence().isEnabled()) {
+            return PhaseResult.skipped(13, "Confluence", "confluence.enabled = false");
+        }
+
+        if (options.dryRun()) {
+            return PhaseResult.success(13, "Confluence", 0,
+                    "Confluence re-sync would be performed", List.of());
+        }
+
+        SynthesisDatabase db = SynthesisDatabase.getDefault();
+        ConfluenceWorkspaceSource source = ConfluenceWorkspaceSource.fromConfig(config, db);
+        List<ConfluencePageMapper.ConfluencePage> pages = source.sync();
+
+        // Index each synced page as a virtual Markdown file
+        Path synthDir = workspaceRoot.resolve(".synthesis");
+        Path indexPath = synthDir.resolve("index");
+        int indexed = 0;
+        List<String> details = new ArrayList<>();
+
+        if (Files.isDirectory(indexPath)) {
+            FileIndexer indexer = new FileIndexer();
+            try (SearchIndex index = new SearchIndex(indexPath)) {
+                for (ConfluencePageMapper.ConfluencePage page : pages) {
+                    try {
+                        var doc = indexer.indexVirtualFile(
+                                page.virtualPath(),
+                                page.markdownContent(),
+                                page.lastEditedTime().toEpochMilli(),
+                                "confluence");
+                        index.addDocument(doc);
+                        indexed++;
+                        if (options.verbose()) {
+                            details.add("indexed: confluence://" + page.virtualPath());
+                        }
+                    } catch (Exception e) {
+                        if (options.verbose()) {
+                            details.add("failed: " + page.virtualPath() + " (" + e.getMessage() + ")");
+                        }
+                    }
+                }
+                if (indexed > 0) {
+                    index.commit();
+                }
+            }
+        }
+
+        String summary = indexed + " page" + (indexed != 1 ? "s" : "") + " synced and indexed";
+        return PhaseResult.success(13, "Confluence", indexed, summary, details);
     }
 }
