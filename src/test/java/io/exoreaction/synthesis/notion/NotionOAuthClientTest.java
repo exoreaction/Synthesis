@@ -31,6 +31,9 @@ class NotionOAuthClientTest {
     @TempDir
     java.nio.file.Path tempDir;
 
+    /** Explicit client secret used by tests, avoiding a dependency on the real env var. */
+    private static final String TEST_CLIENT_SECRET = "test-client-secret-value";
+
     // -----------------------------------------------------------------------
     // 1. Successful code exchange returns correct token fields
     // -----------------------------------------------------------------------
@@ -53,7 +56,7 @@ class NotionOAuthClientTest {
 
         var tokenFile = tempDir.resolve("notion-oauth.json");
         var tokenStore = new NotionTokenStore(tokenFile);
-        var client = new NotionOAuthClient(stub, tokenStore);
+        var client = new NotionOAuthClient(stub, tokenStore, TEST_CLIENT_SECRET);
 
         NotionOAuthToken token = client.exchangeCode("auth-code-xyz");
 
@@ -77,7 +80,7 @@ class NotionOAuthClientTest {
 
         var tokenFile = tempDir.resolve("notion-oauth.json");
         var tokenStore = new NotionTokenStore(tokenFile);
-        var client = new NotionOAuthClient(stub, tokenStore);
+        var client = new NotionOAuthClient(stub, tokenStore, TEST_CLIENT_SECRET);
 
         IOException ex = assertThrows(IOException.class,
                 () -> client.exchangeCode("bad-code"));
@@ -107,7 +110,7 @@ class NotionOAuthClientTest {
 
         var tokenFile = tempDir.resolve("notion-oauth.json");
         var tokenStore = new NotionTokenStore(tokenFile);
-        var client = new NotionOAuthClient(stub, tokenStore);
+        var client = new NotionOAuthClient(stub, tokenStore, TEST_CLIENT_SECRET);
 
         client.exchangeCode("auth-code");
 
@@ -145,7 +148,7 @@ class NotionOAuthClientTest {
 
         var tokenFile = tempDir.resolve("notion-oauth.json");
         var tokenStore = new NotionTokenStore(tokenFile);
-        var client = new NotionOAuthClient(stub, tokenStore);
+        var client = new NotionOAuthClient(stub, tokenStore, TEST_CLIENT_SECRET);
 
         client.exchangeCode("code");
 
@@ -157,7 +160,7 @@ class NotionOAuthClientTest {
         assertTrue(auth.isPresent());
 
         String expectedCredentials = Base64.getEncoder().encodeToString(
-                (NotionOAuthClient.CLIENT_ID + ":" + NotionOAuthClient.CLIENT_SECRET).getBytes());
+                (NotionOAuthClient.CLIENT_ID + ":" + TEST_CLIENT_SECRET).getBytes());
         assertEquals("Basic " + expectedCredentials, auth.get());
 
         // Verify POST method
@@ -178,11 +181,74 @@ class NotionOAuthClientTest {
 
         var tokenFile = tempDir.resolve("notion-oauth.json");
         var tokenStore = new NotionTokenStore(tokenFile);
-        var client = new NotionOAuthClient(stub, tokenStore);
+        var client = new NotionOAuthClient(stub, tokenStore, TEST_CLIENT_SECRET);
 
         IOException ex = assertThrows(IOException.class,
                 () -> client.exchangeCode("code"));
         assertTrue(ex.getMessage().contains("500"));
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Client secret env var: resolution fails clearly when unset
+    // -----------------------------------------------------------------------
+
+    @Test
+    void constructor_envVarUnset_throwsIllegalStateExceptionWithClearMessage() {
+        // This test only verifies behavior in the common case where the real
+        // Notion OAuth secret is not present in the test environment — mirrors
+        // the guard pattern used by NotionClientFromConfigTest/NotionClientTest
+        // for NOTION_TOKEN, since the JVM cannot un-set a real env var mid-test.
+        if (System.getenv(NotionOAuthClient.CLIENT_SECRET_ENV_VAR) != null) {
+            return; // Skip in environments where the env var happens to be set
+        }
+
+        var tokenFile = tempDir.resolve("notion-oauth.json");
+        var tokenStore = new NotionTokenStore(tokenFile);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new NotionOAuthClient(HttpClient.newHttpClient(), tokenStore));
+        assertTrue(ex.getMessage().contains(NotionOAuthClient.CLIENT_SECRET_ENV_VAR),
+                "Error message should mention the env var name: " + ex.getMessage());
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Client secret: explicit value is used correctly when "set"
+    // -----------------------------------------------------------------------
+
+    @Test
+    void exchangeCode_withExplicitClientSecret_usesItForBasicAuth() throws Exception {
+        // Simulates the env var being set by injecting the resolved secret directly
+        // via the package-private constructor (the real env-var path is exercised by
+        // resolveClientSecret(), used by the public 2-arg/no-arg constructors).
+        String responseJson = """
+                {
+                    "access_token": "tok2",
+                    "token_type": "bearer",
+                    "bot_id": "bot2",
+                    "workspace_name": "ws2",
+                    "workspace_id": "wsid2",
+                    "owner": {"type": "user"}
+                }
+                """;
+
+        List<HttpRequest> capturedRequests = new ArrayList<>();
+        StubHttpClient stub = new StubHttpClient((request) -> {
+            capturedRequests.add(request);
+            return new StubHttpResponse(200, responseJson);
+        });
+
+        var tokenFile = tempDir.resolve("notion-oauth.json");
+        var tokenStore = new NotionTokenStore(tokenFile);
+        String configuredSecret = "configured-secret-abc";
+        var client = new NotionOAuthClient(stub, tokenStore, configuredSecret);
+
+        client.exchangeCode("code");
+
+        HttpRequest captured = capturedRequests.get(0);
+        String expectedCredentials = Base64.getEncoder().encodeToString(
+                (NotionOAuthClient.CLIENT_ID + ":" + configuredSecret).getBytes());
+        assertEquals("Basic " + expectedCredentials,
+                captured.headers().firstValue("Authorization").orElse(null));
     }
 
     // =====================================================================

@@ -76,6 +76,13 @@ public class NotionAuthCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        String clientSecret = System.getenv(NotionOAuthClient.CLIENT_SECRET_ENV_VAR);
+        if (clientSecret == null || clientSecret.isBlank()) {
+            System.err.println("Error: Notion OAuth client secret not configured.");
+            System.err.println("  Set the " + NotionOAuthClient.CLIENT_SECRET_ENV_VAR + " environment variable.");
+            return 1;
+        }
+
         String state = UUID.randomUUID().toString();
         String authUrl = buildAuthUrl(state);
 
