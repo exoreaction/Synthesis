@@ -15,7 +15,9 @@ import java.util.Optional;
  *
  * <p>Hash-addressed: appending the same artifact twice is idempotent (INSERT OR IGNORE).
  * Tamper-detected: {@link #recall} drops entries whose stored id doesn't match
- * the artifact content, fail-closed.
+ * the artifact content, fail-closed. Claim-pin freshness (does the grounded
+ * evidence still match the files on disk?) is layered on top by the recall
+ * MCP tool via {@link GroundingFreshness} — this store has no workspace context.
  */
 public class MemoryStore {
 

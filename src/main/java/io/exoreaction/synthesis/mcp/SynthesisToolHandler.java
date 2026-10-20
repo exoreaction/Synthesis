@@ -1207,7 +1207,8 @@ public class SynthesisToolHandler {
                 for (SearchResult result : results) {
                     if (Files.exists(result.path()) && Files.isReadable(result.path())) {
                         try {
-                            String fileContent = io.exoreaction.synthesis.util.FileUtils.readPreview(result.path(), 4096);
+                            String fileContent = io.exoreaction.synthesis.util.FileUtils.readPreview(
+                                    result.path(), io.exoreaction.synthesis.ai.Grounder.PIN_PREVIEW_BYTES);
                             context.append("\n--- ").append(result.relativePath()).append(" ---\n");
 
                             // Add line numbers
@@ -3831,10 +3832,21 @@ public class SynthesisToolHandler {
                 if (entry.manifestSha() != null) mn.put("manifestSha", entry.manifestSha());
                 if (entry.workspace() != null) mn.put("workspace", entry.workspace());
                 // Parse artifact JSON back to a node for structured output
+                JsonNode artifactNode = null;
                 try {
-                    mn.set("artifact", mapper.readTree(entry.artifactJson()));
+                    artifactNode = mapper.readTree(entry.artifactJson());
+                    mn.set("artifact", artifactNode);
                 } catch (Exception e) {
                     mn.put("artifact", entry.artifactJson());
+                }
+
+                // Re-check grounded claim pins against current file content —
+                // deterministic, zero model calls (same spirit as KCP V002/V003)
+                if ("grounded-answer".equals(entry.kind()) && artifactNode != null) {
+                    Path root = recallWorkspaceRoot(entry.workspace(), params);
+                    io.exoreaction.synthesis.memory.GroundingFreshness.Report report =
+                            io.exoreaction.synthesis.memory.GroundingFreshness.check(artifactNode, root);
+                    mn.set("freshness", freshnessToJson(report));
                 }
                 memoriesArray.add(mn);
             }
@@ -3845,5 +3857,43 @@ public class SynthesisToolHandler {
             throw new McpToolException(JsonRpcMessage.INTERNAL_ERROR,
                     "Recall failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Root for resolving a recalled memory's unit pins: the workspace recorded
+     * on the entry when it still exists, else the workspace from the request
+     * (defaulting to the server's primary workspace).
+     */
+    private Path recallWorkspaceRoot(String entryWorkspace, JsonNode params) {
+        if (entryWorkspace != null && !entryWorkspace.isBlank()) {
+            Path recorded = Path.of(entryWorkspace).toAbsolutePath().normalize();
+            if (Files.isDirectory(recorded)) {
+                return recorded;
+            }
+        }
+        try {
+            return resolveWorkspace(params);
+        } catch (McpToolException e) {
+            return null; // GroundingFreshness reports "unverifiable"
+        }
+    }
+
+    private ObjectNode freshnessToJson(io.exoreaction.synthesis.memory.GroundingFreshness.Report report) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("status", report.status());
+        node.put("fresh", report.freshCount());
+        node.put("stale", report.staleCount());
+        node.put("unitMissing", report.missingCount());
+        ArrayNode claims = mapper.createArrayNode();
+        for (var claim : report.claims()) {
+            ObjectNode cn = mapper.createObjectNode();
+            cn.put("claim", claim.claim());
+            cn.put("unitId", claim.unitId());
+            cn.put("pinnedSha256", claim.pinnedSha256());
+            cn.put("verdict", claim.verdict());
+            claims.add(cn);
+        }
+        node.set("claims", claims);
+        return node;
     }
 }

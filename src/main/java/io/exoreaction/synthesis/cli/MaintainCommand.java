@@ -515,7 +515,7 @@ public class MaintainCommand implements Callable<Integer> {
      *
      * <p>When {@code --quiet} is set, prints exactly one line:
      * <pre>
-     *   2026-02-20T14:32:01Z  OK  12 phases, 17 changes, 4.2s  health=-1  manifest-warnings=0
+     *   2026-02-20T14:32:01Z  OK  13 phases, 17 changes, 4.2s  health=-1  manifest-warnings=0
      * </pre>
      *
      * <p>When {@code --json} is set, prints a single JSON object to stdout.

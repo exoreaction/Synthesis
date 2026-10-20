@@ -244,7 +244,12 @@ public final class KcpVerifier {
         return null;
     }
 
-    static String sha256(Path file) {
+    /**
+     * Pure sha256 of a file's bytes, hex-encoded; {@code null} when the file
+     * cannot be read. Shared by the V002 hash check and the recall-time
+     * grounding freshness re-check ({@code GroundingFreshness}).
+     */
+    public static String sha256(Path file) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             StringBuilder hex = new StringBuilder();
