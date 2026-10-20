@@ -151,7 +151,7 @@ synthesis architecture                  # Architecture health monitoring
 synthesis track                         # Track file movements
 synthesis changelog --since 7d          # Cross-workspace change report
 synthesis changed --since 7d            # Files changed since date
-synthesis diff HEAD~1                   # Git diff integration
+synthesis diff HEAD~1..HEAD             # Git diff integration (requires an 'old..new' ref range)
 synthesis watch                         # File watcher daemon (real-time monitoring)
 
 # Session lifecycle (Claude Code integration)

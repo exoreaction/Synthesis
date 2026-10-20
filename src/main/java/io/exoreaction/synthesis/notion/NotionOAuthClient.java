@@ -27,16 +27,21 @@ public class NotionOAuthClient {
     private static final Logger LOG = Logger.getLogger(NotionOAuthClient.class.getName());
 
     public static final String CLIENT_ID = "349d872b-594c-81aa-88c8-003703674ded";
-    public static final String CLIENT_SECRET = "secret_Sc3P1RNnRPBxrenoyZqZ5HoDSbibhi9NePsLDndxSh6";
     public static final String REDIRECT_URI = "https://localhost:54321/notion/callback";
     public static final String TOKEN_ENDPOINT = "https://api.notion.com/v1/oauth/token";
+
+    /** Environment variable holding the Notion OAuth app's client secret. */
+    public static final String CLIENT_SECRET_ENV_VAR = "NOTION_CLIENT_SECRET";
 
     private final HttpClient httpClient;
     private final NotionTokenStore tokenStore;
     private final ObjectMapper objectMapper;
+    private final String clientSecret;
 
     /**
      * Creates an OAuth client with default HTTP client and token store.
+     *
+     * @throws IllegalStateException if {@value #CLIENT_SECRET_ENV_VAR} is not set
      */
     public NotionOAuthClient() {
         this(HttpClient.newHttpClient(), new NotionTokenStore());
@@ -45,13 +50,48 @@ public class NotionOAuthClient {
     /**
      * Creates an OAuth client with custom HTTP client and token store (for testing).
      *
+     * <p>Resolves the client secret from the {@value #CLIENT_SECRET_ENV_VAR}
+     * environment variable.
+     *
      * @param httpClient the HTTP client to use for token exchange
      * @param tokenStore the store to persist the resulting token
+     * @throws IllegalStateException if {@value #CLIENT_SECRET_ENV_VAR} is not set
      */
     public NotionOAuthClient(HttpClient httpClient, NotionTokenStore tokenStore) {
+        this(httpClient, tokenStore, resolveClientSecret());
+    }
+
+    /**
+     * Creates an OAuth client with an explicit client secret.
+     *
+     * <p>Primarily for tests, so they don't depend on {@value #CLIENT_SECRET_ENV_VAR}
+     * being set in the test environment.
+     *
+     * @param httpClient   the HTTP client to use for token exchange
+     * @param tokenStore   the store to persist the resulting token
+     * @param clientSecret the Notion OAuth app's client secret
+     */
+    NotionOAuthClient(HttpClient httpClient, NotionTokenStore tokenStore, String clientSecret) {
         this.httpClient = httpClient;
         this.tokenStore = tokenStore;
         this.objectMapper = new ObjectMapper();
+        this.clientSecret = clientSecret;
+    }
+
+    /**
+     * Resolves the Notion OAuth app's client secret from the environment.
+     *
+     * @return the client secret
+     * @throws IllegalStateException if {@value #CLIENT_SECRET_ENV_VAR} is unset or blank
+     */
+    private static String resolveClientSecret() {
+        String secret = System.getenv(CLIENT_SECRET_ENV_VAR);
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                    "Notion OAuth client secret not configured. Set the "
+                    + CLIENT_SECRET_ENV_VAR + " environment variable.");
+        }
+        return secret;
     }
 
     /**
@@ -72,7 +112,7 @@ public class NotionOAuthClient {
      */
     public NotionOAuthToken exchangeCode(String code) throws IOException, InterruptedException {
         String credentials = Base64.getEncoder().encodeToString(
-                (CLIENT_ID + ":" + CLIENT_SECRET).getBytes());
+                (CLIENT_ID + ":" + clientSecret).getBytes());
 
         String body = "grant_type=authorization_code"
                 + "&code=" + code

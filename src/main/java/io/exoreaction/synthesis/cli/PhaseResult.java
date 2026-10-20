@@ -9,7 +9,7 @@ import java.util.List;
  * Failed phases do not abort the remaining loop -- the orchestrator continues to the
  * next phase and records the failure.
  *
- * @param phaseNumber  ordinal position (1-12)
+ * @param phaseNumber  ordinal position (1-13)
  * @param name         human-readable phase name (e.g. "Ingest", "Route")
  * @param succeeded    true if the phase completed (or was skipped); false on failure
  * @param changeCount  number of filesystem or index changes made by this phase

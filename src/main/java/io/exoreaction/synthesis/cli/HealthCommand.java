@@ -5,6 +5,8 @@ import io.exoreaction.synthesis.config.ConfigLoader;
 import io.exoreaction.synthesis.config.SynthesisConfig;
 import io.exoreaction.synthesis.config.SynthesisConfig.SubWorkspaceConfig;
 import io.exoreaction.synthesis.db.SynthesisDatabase;
+import io.exoreaction.synthesis.confluence.ConfluenceHealthChecks;
+import io.exoreaction.synthesis.jira.JiraHealthChecks;
 import io.exoreaction.synthesis.notion.NotionHealthChecks;
 import io.exoreaction.synthesis.util.AnsiOutput;
 import org.yaml.snakeyaml.DumperOptions;
@@ -238,6 +240,30 @@ public class HealthCommand implements Callable<Integer> {
                 issues.addAll(notionChecks.checkAll(wsName));
             } catch (Exception e) {
                 LOG.log(Level.FINE, "Notion health checks skipped: " + e.getMessage(), e);
+            }
+        }
+
+        // W025/W026/W027: Confluence workspace health (stale, orphan, conflict)
+        if (config.getConfluence().isEnabled()) {
+            try {
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                String wsName = config.getWorkspace().getName();
+                ConfluenceHealthChecks confluenceChecks = new ConfluenceHealthChecks(config, db);
+                issues.addAll(confluenceChecks.checkAll(wsName));
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Confluence health checks skipped: " + e.getMessage(), e);
+            }
+        }
+
+        // W025/W026/W027: Jira workspace health (stale, conflict, dangling link)
+        if (config.getJira().isEnabled()) {
+            try {
+                SynthesisDatabase db = SynthesisDatabase.getDefault();
+                String wsName = config.getWorkspace().getName();
+                JiraHealthChecks jiraChecks = new JiraHealthChecks(config, db);
+                issues.addAll(jiraChecks.checkAll(wsName));
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Jira health checks skipped: " + e.getMessage(), e);
             }
         }
 
